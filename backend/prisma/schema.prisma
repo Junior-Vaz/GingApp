@@ -1,0 +1,744 @@
+// GingApp — schema Prisma
+// Modelado a partir de PLANO_PROJETO.md, secao 2 (Banco de Dados).
+// Estrategia de multi-tenancy: isolamento em camada de aplicacao (nao ha RLS no Postgres).
+// Toda entidade "privada" de um grupo carrega organizationId e todo service DEVE filtrar por ele.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =========================================================================
+// ENUMS
+// =========================================================================
+
+enum UserType {
+  MEMBER
+  PLATFORM
+}
+
+/// Papel do usuario dentro de uma organizacao especifica (vive em OrganizationUser,
+/// nao em User, porque a mesma pessoa pode ter papeis diferentes em grupos diferentes).
+enum OrgRole {
+  MESTRE
+  PROFESSOR
+  ALUNO
+  RESPONSAVEL
+}
+
+/// Tipo de organizacao. SYSTEM e reservado para a organizacao "fantasma" (id fixo) usada
+/// apenas por seed/health-check de contas PLATFORM, que nao pertencem a nenhum grupo real
+/// (PLANO_PROJETO.md §2.2). GROUP e um grupo de capoeira real (tenant).
+enum OrganizationType {
+  SYSTEM
+  GROUP
+}
+
+/// Status generico para entidades de organizacao sem regra de negocio propria de status
+/// (decisao de modelagem: o plano so especifica literalmente `status String @default("ACTIVE")`
+/// para User e OrganizationUser; para as demais entidades foi adotado este enum para dar
+/// type-safety sem inventar estados que o plano nao pediu).
+enum RecordStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum StudentStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  FORMER
+}
+
+enum FinancialStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+enum ParticipantStatus {
+  INVITED
+  CONFIRMED
+  DECLINED
+  ATTENDED
+  CANCELLED
+}
+
+// =========================================================================
+// PLATAFORMA (GestorPrint-style)
+// =========================================================================
+
+model User {
+  id              Int       @id @default(autoincrement())
+  email           String    @unique
+  passwordHash    String
+  name            String
+  phone           String?
+  photo           String?
+  userType        UserType  @default(MEMBER)
+  isSuperAdmin    Boolean   @default(false)
+  status          String    @default("ACTIVE")
+  twoFactorSecret String?
+  tokenValidAfter DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  memberships                  OrganizationUser[]
+  unitAccess                   UserUnitAccess[]
+  auditLogs                    AuditLog[]
+  notifications                Notification[]
+  createdAnnouncements         Announcement[]         @relation("AnnouncementCreatedBy")
+  createdPlatformAnnouncements PlatformAnnouncement[] @relation("PlatformAnnouncementCreatedBy")
+  studentLink                  Student?               @relation("StudentUser")
+  guardianLinks                StudentGuardian[]      @relation("StudentGuardianUser")
+  taughtLessons                Lesson[]               @relation("LessonTeacher")
+  eventParticipations          EventParticipant[]     @relation("EventParticipantUser")
+  rodaParticipations           RodaParticipant[]      @relation("RodaParticipantUser")
+  publicProfile                PublicProfile?         @relation("PublicProfileUser")
+  updatedPlatformSettings      PlatformSetting[]      @relation("PlatformSettingUpdatedBy")
+
+  @@index([userType])
+}
+
+model Plan {
+  id            Int      @id @default(autoincrement())
+  name          String
+  code          String   @unique
+  priceCents    Int      @default(0)
+  billingPeriod String   @default("MONTHLY")
+  maxUnits      Int?
+  maxStudents   Int?
+  features      Json     @default("{}")
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id               Int                @id @default(autoincrement())
+  organizationId   Int
+  planId           Int
+  status           SubscriptionStatus @default(TRIALING)
+  startedAt        DateTime           @default(now())
+  currentPeriodEnd DateTime?
+  canceledAt       DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id])
+  plan         Plan                @relation(fields: [planId], references: [id])
+  events       SubscriptionEvent[]
+
+  @@index([organizationId, status])
+}
+
+model SubscriptionEvent {
+  id             Int      @id @default(autoincrement())
+  subscriptionId Int
+  type           String
+  payload        Json?
+  createdAt      DateTime @default(now())
+
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([subscriptionId, createdAt])
+}
+
+model OrganizationFeatureOverride {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  featureKey     String
+  enabled        Boolean  @default(true)
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, featureKey])
+}
+
+model RolePermission {
+  id        Int     @id @default(autoincrement())
+  role      OrgRole
+  resource  String
+  canView   Boolean @default(false)
+  canCreate Boolean @default(false)
+  canEdit   Boolean @default(false)
+  canDelete Boolean @default(false)
+
+  @@unique([role, resource])
+}
+
+model PlatformSetting {
+  id              Int      @id @default(autoincrement())
+  key             String   @unique
+  value           Json
+  isSecret        Boolean  @default(false)
+  updatedByUserId Int?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  updatedByUser User? @relation("PlatformSettingUpdatedBy", fields: [updatedByUserId], references: [id])
+}
+
+model PlatformAnnouncement {
+  id                   Int       @id @default(autoincrement())
+  title                String
+  body                 String
+  targetOrganizationId Int?
+  publishedAt          DateTime?
+  expiresAt            DateTime?
+  isActive             Boolean   @default(true)
+  createdByUserId      Int
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  createdByUser      User          @relation("PlatformAnnouncementCreatedBy", fields: [createdByUserId], references: [id])
+  targetOrganization Organization? @relation(fields: [targetOrganizationId], references: [id])
+
+  @@index([isActive, publishedAt])
+}
+
+/// Trilha de auditoria unica (plataforma + grupo). organizationId nulo = acao de escopo
+/// de plataforma (ex.: platform-login, alteracao de plano).
+model AuditLog {
+  id             Int      @id @default(autoincrement())
+  organizationId Int?
+  userId         Int?
+  action         String
+  resource       String
+  resourceId     String?
+  metadata       Json?
+  ipAddress      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  user         User?         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([userId, createdAt])
+}
+
+// =========================================================================
+// ORGANIZACAO (dominio do projeto.txt)
+// =========================================================================
+
+model Organization {
+  id        Int              @id @default(autoincrement())
+  name      String
+  slug      String           @unique
+  type      OrganizationType @default(GROUP)
+  status    RecordStatus     @default(ACTIVE)
+  document  String?
+  email     String?
+  phone     String?
+  logo      String?
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  users                 OrganizationUser[]
+  units                 Unit[]
+  userUnitAccess        UserUnitAccess[]
+  students              Student[]
+  studentGuardians      StudentGuardian[]
+  classes               Class[]
+  classStudents         ClassStudent[]
+  lessons               Lesson[]
+  attendances           Attendance[]
+  graduationSystems     GraduationSystem[]
+  graduationLevels      GraduationLevel[]
+  studentGraduations    StudentGraduation[]
+  financialRecords      FinancialRecord[]
+  events                Event[]
+  eventParticipants     EventParticipant[]
+  announcements         Announcement[]
+  notifications         Notification[]
+  subscriptions         Subscription[]
+  featureOverrides      OrganizationFeatureOverride[]
+  auditLogs             AuditLog[]
+  platformAnnouncements PlatformAnnouncement[]
+  publicProfiles        PublicProfile[]
+  certificates          Certificate[]
+
+  @@index([status])
+}
+
+model OrganizationUser {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  userId         Int
+  role           OrgRole
+  status         String   @default("ACTIVE")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([organizationId, status])
+}
+
+model Unit {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  name           String
+  address        String?
+  city           String?
+  state          String?
+  isMain         Boolean      @default(false)
+  status         RecordStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization     Organization      @relation(fields: [organizationId], references: [id])
+  userAccess       UserUnitAccess[]
+  students         Student[]
+  classes          Class[]
+  lessons          Lesson[]
+  financialRecords FinancialRecord[]
+  events           Event[]
+  announcements    Announcement[]
+
+  @@index([organizationId, status])
+}
+
+/// Professor autorizado em multiplas unidades (matriz/filial) dentro de uma mesma
+/// organizacao — PLANO_PROJETO.md §3.2 item 5.
+model UserUnitAccess {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  userId         Int
+  unitId         Int
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation(fields: [userId], references: [id])
+  unit         Unit         @relation(fields: [unitId], references: [id])
+
+  @@unique([userId, unitId])
+  @@index([organizationId])
+}
+
+model Student {
+  id             Int           @id @default(autoincrement())
+  organizationId Int
+  unitId         Int?
+  userId         Int?          @unique
+  name           String
+  birthDate      DateTime?
+  document       String?
+  phone          String?
+  email          String?
+  photo          String?
+  status         StudentStatus @default(ACTIVE)
+  joinedAt       DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  organization        Organization        @relation(fields: [organizationId], references: [id])
+  unit                Unit?               @relation(fields: [unitId], references: [id])
+  user                User?               @relation("StudentUser", fields: [userId], references: [id])
+  guardians           StudentGuardian[]
+  classStudents       ClassStudent[]
+  attendances         Attendance[]
+  graduations         StudentGraduation[]
+  financialRecords    FinancialRecord[]
+  eventParticipations EventParticipant[]
+  rodaParticipations  RodaParticipant[]
+  publicProfile       PublicProfile?      @relation("PublicProfileStudent")
+  certificates        Certificate[]
+
+  @@index([organizationId, status])
+}
+
+/// Responsavel legal do aluno (obrigatorio quando o aluno e menor de idade, por birthDate —
+/// PLANO_PROJETO.md §3.4). userId e opcional: um responsavel pode ou nao ter login proprio
+/// no app.gingapp.com.br (decisao de modelagem, plano nao detalha o formato exato).
+model StudentGuardian {
+  id                   Int      @id @default(autoincrement())
+  organizationId       Int
+  studentId            Int
+  userId               Int?
+  name                 String
+  relationship         String?
+  phone                String?
+  email                String?
+  consentPublicProfile Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  student        Student         @relation(fields: [studentId], references: [id])
+  user           User?           @relation("StudentGuardianUser", fields: [userId], references: [id])
+  publicProfiles PublicProfile[] @relation("PublicProfileGuardianConsent")
+
+  @@index([organizationId])
+  @@index([studentId])
+}
+
+model Class {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  unitId         Int?
+  name           String
+  description    String?
+  weekday        Int?
+  startTime      String?
+  endTime        String?
+  status         RecordStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization  Organization   @relation(fields: [organizationId], references: [id])
+  unit          Unit?          @relation(fields: [unitId], references: [id])
+  classStudents ClassStudent[]
+  lessons       Lesson[]
+
+  @@index([organizationId, status])
+}
+
+model ClassStudent {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  classId        Int
+  studentId      Int
+  status         RecordStatus @default(ACTIVE)
+  enrolledAt     DateTime     @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  class        Class        @relation(fields: [classId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id])
+
+  @@unique([classId, studentId])
+  @@index([organizationId])
+}
+
+model Lesson {
+  id             Int          @id @default(autoincrement())
+  organizationId Int
+  classId        Int
+  unitId         Int?
+  teacherUserId  Int?
+  date           DateTime
+  startTime      String?
+  endTime        String?
+  notes          String?
+  status         RecordStatus @default(ACTIVE)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  class        Class        @relation(fields: [classId], references: [id])
+  unit         Unit?        @relation(fields: [unitId], references: [id])
+  teacher      User?        @relation("LessonTeacher", fields: [teacherUserId], references: [id])
+  attendances  Attendance[]
+
+  @@index([organizationId, date])
+  @@index([classId, date])
+}
+
+model Attendance {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  lessonId       Int
+  studentId      Int
+  present        Boolean  @default(true)
+  justification  String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  lesson       Lesson       @relation(fields: [lessonId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id])
+
+  @@unique([lessonId, studentId])
+  @@index([studentId, createdAt])
+}
+
+/// Sistema de graduacao configuravel por grupo (PLANO_PROJETO.md §2.3 e projeto.txt §26).
+model GraduationSystem {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  name           String
+  description    String?
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization      @relation(fields: [organizationId], references: [id])
+  levels       GraduationLevel[]
+
+  @@index([organizationId])
+}
+
+model GraduationLevel {
+  id                 Int      @id @default(autoincrement())
+  organizationId     Int
+  graduationSystemId Int
+  name               String
+  order              Int
+  color              String?
+  createdAt          DateTime @default(now())
+
+  organization       Organization        @relation(fields: [organizationId], references: [id])
+  graduationSystem   GraduationSystem    @relation(fields: [graduationSystemId], references: [id])
+  studentGraduations StudentGraduation[]
+
+  @@unique([graduationSystemId, order])
+  @@index([organizationId])
+}
+
+model StudentGraduation {
+  id                Int      @id @default(autoincrement())
+  organizationId    Int
+  studentId         Int
+  graduationLevelId Int
+  graduatedAt       DateTime
+  notes             String?
+  createdAt         DateTime @default(now())
+
+  organization    Organization    @relation(fields: [organizationId], references: [id])
+  student         Student         @relation(fields: [studentId], references: [id])
+  graduationLevel GraduationLevel @relation(fields: [graduationLevelId], references: [id])
+  certificates    Certificate[]
+
+  @@index([studentId, createdAt])
+}
+
+/// amountCents: valores monetarios sempre em centavos (Int) para evitar erro de ponto
+/// flutuante — decisao de modelagem, o plano nao especifica o tipo do campo.
+model FinancialRecord {
+  id             Int             @id @default(autoincrement())
+  organizationId Int
+  studentId      Int?
+  unitId         Int?
+  description    String
+  amountCents    Int
+  type           String?
+  dueDate        DateTime
+  paidAt         DateTime?
+  status         FinancialStatus @default(PENDING)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student?     @relation(fields: [studentId], references: [id])
+  unit         Unit?        @relation(fields: [unitId], references: [id])
+
+  @@index([organizationId, status])
+  @@index([studentId, dueDate])
+}
+
+model Event {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  unitId         Int?
+  title          String
+  description    String?
+  date           DateTime
+  location       String?
+  isPublic       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id])
+  unit         Unit?              @relation(fields: [unitId], references: [id])
+  participants EventParticipant[]
+
+  @@index([organizationId, date])
+}
+
+/// guestName cobre participantes sem cadastro de student/user (ex.: convidado externo em
+/// evento aberto) — decisao de modelagem.
+model EventParticipant {
+  id             Int               @id @default(autoincrement())
+  organizationId Int
+  eventId        Int
+  studentId      Int?
+  userId         Int?
+  guestName      String?
+  status         ParticipantStatus @default(CONFIRMED)
+  createdAt      DateTime          @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  event        Event        @relation(fields: [eventId], references: [id])
+  student      Student?     @relation(fields: [studentId], references: [id])
+  user         User?        @relation("EventParticipantUser", fields: [userId], references: [id])
+
+  @@index([eventId])
+  @@index([organizationId])
+}
+
+/// Comunicados internos do grupo, com escopo opcional por unidade (projeto.txt §47).
+model Announcement {
+  id              Int       @id @default(autoincrement())
+  organizationId  Int
+  unitId          Int?
+  title           String
+  body            String
+  publishedAt     DateTime?
+  isActive        Boolean   @default(true)
+  createdByUserId Int
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization  Organization @relation(fields: [organizationId], references: [id])
+  unit          Unit?        @relation(fields: [unitId], references: [id])
+  createdByUser User         @relation("AnnouncementCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([organizationId, publishedAt])
+}
+
+model Notification {
+  id             Int       @id @default(autoincrement())
+  organizationId Int?
+  userId         Int
+  title          String
+  body           String
+  type           String?
+  readAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id])
+  user         User          @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+}
+
+// =========================================================================
+// COMUNIDADE (publica / compartilhavel)
+// =========================================================================
+
+model State {
+  id        Int      @id @default(autoincrement())
+  name      String
+  uf        String   @unique
+  createdAt DateTime @default(now())
+
+  cities      City[]
+  communities Community[]
+  rodas       Roda[]
+}
+
+model City {
+  id        Int      @id @default(autoincrement())
+  stateId   Int
+  name      String
+  createdAt DateTime @default(now())
+
+  state State  @relation(fields: [stateId], references: [id])
+  rodas Roda[]
+
+  @@index([stateId])
+}
+
+model Community {
+  id          Int      @id @default(autoincrement())
+  stateId     Int
+  name        String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  state State  @relation(fields: [stateId], references: [id])
+  rodas Roda[]
+
+  @@index([stateId])
+}
+
+model Roda {
+  id          Int      @id @default(autoincrement())
+  communityId Int?
+  stateId     Int?
+  cityId      Int?
+  title       String
+  description String?
+  date        DateTime
+  location    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  community    Community?        @relation(fields: [communityId], references: [id])
+  state        State?            @relation(fields: [stateId], references: [id])
+  city         City?             @relation(fields: [cityId], references: [id])
+  participants RodaParticipant[]
+
+  @@index([stateId, date])
+  @@index([cityId, date])
+}
+
+model RodaParticipant {
+  id        Int               @id @default(autoincrement())
+  rodaId    Int
+  userId    Int?
+  studentId Int?
+  guestName String?
+  status    ParticipantStatus @default(CONFIRMED)
+  createdAt DateTime          @default(now())
+
+  roda    Roda     @relation(fields: [rodaId], references: [id])
+  user    User?    @relation("RodaParticipantUser", fields: [userId], references: [id])
+  student Student? @relation(fields: [studentId], references: [id])
+
+  @@index([rodaId])
+}
+
+/// Perfil publico opt-in (projeto.txt §17/§53). Para menores, exige consentByGuardianId
+/// preenchido — nunca opt-in automatico (PLANO_PROJETO.md §3.4). Nenhum dado privado
+/// (students, financial_records, student_guardians) e exposto aqui alem do essencial.
+model PublicProfile {
+  id                  Int      @id @default(autoincrement())
+  organizationId      Int?
+  userId              Int?     @unique
+  studentId           Int?     @unique
+  displayName         String
+  bio                 String?
+  photo               String?
+  consentByGuardianId Int?
+  isPublished         Boolean  @default(false)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  organization      Organization?    @relation(fields: [organizationId], references: [id])
+  user              User?            @relation("PublicProfileUser", fields: [userId], references: [id])
+  student           Student?         @relation("PublicProfileStudent", fields: [studentId], references: [id])
+  consentByGuardian StudentGuardian? @relation("PublicProfileGuardianConsent", fields: [consentByGuardianId], references: [id])
+
+  @@index([organizationId])
+}
+
+/// Modelo simples (Certificate e Fase 2 no roadmap, PLANO_PROJETO.md §7) — presente desde
+/// ja no schema apenas para nao exigir migration nova quando a feature for implementada.
+model Certificate {
+  id                  Int       @id @default(autoincrement())
+  organizationId      Int
+  studentId           Int
+  studentGraduationId Int?
+  title               String
+  issuedAt            DateTime?
+  fileUrl             String?
+  createdAt           DateTime  @default(now())
+
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  student           Student            @relation(fields: [studentId], references: [id])
+  studentGraduation StudentGraduation? @relation(fields: [studentGraduationId], references: [id])
+
+  @@index([organizationId])
+  @@index([studentId])
+}

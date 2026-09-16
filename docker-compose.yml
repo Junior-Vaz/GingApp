@@ -1,0 +1,94 @@
+# Ambiente de desenvolvimento do GingApp.
+# Sobe Postgres + backend (NestJS, hot-reload) + os 3 SPAs (Vite dev server, HMR).
+#
+# Portas de host escolhidas para não colidir com outros projetos já rodando nesta
+# máquina (GestorPrint usa 5173-5176 e 5432/5433 nativamente) — ver PLANO_PROJETO.md §1.2.
+#
+# Uso:
+#   docker compose up
+#   docker compose up backend postgres   (só backend, sem subir os 3 frontends)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gingapp
+      POSTGRES_PASSWORD: gingapp
+      POSTGRES_DB: gingapp
+    ports:
+      - "15432:5432" # host:container — máquina já tem Postgres em 5432/5433/55432 (outros projetos)
+    volumes:
+      - gingapp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gingapp -d gingapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npx prisma generate && npx prisma migrate deploy && npm run start:dev"
+    environment:
+      DATABASE_URL: "postgresql://gingapp:gingapp@postgres:5432/gingapp?schema=public"
+      JWT_SECRET: "dev-secret-change-me"
+      JWT_EXPIRES_IN: "1d"
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./backend:/app
+      - gingapp_backend_node_modules:/app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  painel:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 4174"
+    environment:
+      VITE_API_URL: "http://localhost:3000/api"
+    ports:
+      - "4174:4174"
+    volumes:
+      - ./painel.gingapp.com.br:/app
+      - gingapp_painel_node_modules:/app/node_modules
+    depends_on:
+      - backend
+
+  app:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 4173"
+    environment:
+      VITE_API_URL: "http://localhost:3000/api"
+    ports:
+      - "4173:4173"
+    volumes:
+      - ./app.gingapp.com.br:/app
+      - gingapp_app_node_modules:/app/node_modules
+    depends_on:
+      - backend
+
+  admin:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0 --port 4175"
+    environment:
+      VITE_API_URL: "http://localhost:3000/api"
+    ports:
+      - "4175:4175"
+    volumes:
+      - ./admin.gingapp.com.br:/app
+      - gingapp_admin_node_modules:/app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  gingapp_pgdata:
+  gingapp_backend_node_modules:
+  gingapp_painel_node_modules:
+  gingapp_app_node_modules:
+  gingapp_admin_node_modules:

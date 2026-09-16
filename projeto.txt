@@ -1,0 +1,2885 @@
+# GINGAPP — PLANO MESTRE COMPLETO
+
+> **GingApp — A plataforma que conecta a capoeira.**
+
+---
+
+# 1. VISÃO GERAL
+
+O GingApp será uma plataforma SaaS voltada para a comunidade da capoeira.
+
+O produto terá duas grandes funções:
+
+1. **Gestão completa de grupos de capoeira.**
+2. **Conexão da comunidade da capoeira.**
+
+O GingApp não deve ser tratado simplesmente como:
+
+> "Um sistema para academias."
+
+A visão é:
+
+> **Uma plataforma que organiza os grupos, acompanha a evolução dos capoeiristas e conecta a comunidade da capoeira.**
+
+A gestão será a porta de entrada dos grupos.
+
+O PWA será a principal experiência dos alunos e capoeiristas.
+
+A comunidade será o grande diferencial do produto.
+
+A longo prazo, o objetivo é criar uma **rede digital nacional da capoeira**.
+
+---
+
+# 2. CONCEITO DO PRODUTO
+
+O GingApp deve funcionar sobre três pilares:
+
+## 🥋 GESTÃO
+
+Organizar o grupo.
+
+* Alunos
+* Professores
+* Turmas
+* Aulas
+* Frequência
+* Graduações
+* Financeiro
+* Matriz
+* Filiais
+* Eventos
+* Comunicação
+* Relatórios
+
+---
+
+## 🪢 EVOLUÇÃO
+
+Acompanhar a jornada do capoeirista.
+
+* Graduações
+* Frequência
+* Aulas
+* Histórico
+* Rodas
+* Eventos
+* Certificados
+* Participações
+
+---
+
+## 🪘 COMUNIDADE
+
+Conectar a capoeira.
+
+* Rodas
+* Eventos
+* Workshops
+* Encontros
+* Batizados
+* Campeonatos
+* Atividades locais
+* Atividades estaduais
+* Atividades nacionais
+
+---
+
+# 3. POSICIONAMENTO
+
+## Nome
+
+**GingApp**
+
+Nome formado pela ideia de:
+
+> Ginga + App
+
+## Slogan principal
+
+> **A plataforma que conecta a capoeira.**
+
+## Slogan alternativo
+
+> **Gestão, evolução e conexão para a capoeira.**
+
+---
+
+# 4. PRINCÍPIO CENTRAL
+
+O produto deve seguir este conceito:
+
+> **Gestão faz o grupo entrar.**
+>
+> **Experiência faz o aluno permanecer.**
+>
+> **Comunidade faz a rede crescer.**
+
+O grupo entra para organizar sua administração.
+
+O aluno permanece porque acompanha sua jornada.
+
+A comunidade cresce porque os usuários descobrem rodas e eventos.
+
+---
+
+# 5. MODELO DE NEGÓCIO
+
+Inicialmente o GingApp terá:
+
+> **UM ÚNICO PLANO**
+
+Não haverá cobrança separada por módulos.
+
+Não criar inicialmente:
+
+* Plano básico
+* Plano financeiro
+* Plano eventos
+* Plano comunidade
+* Plano aplicativo
+
+A proposta inicial é:
+
+> **Uma assinatura → acesso à plataforma.**
+
+O preço será definido posteriormente.
+
+O modelo comercial poderá evoluir futuramente conforme o crescimento do produto.
+
+---
+
+# 6. MODELO TECNOLÓGICO
+
+O GingApp deverá ser construído inicialmente como:
+
+> **SaaS Web + PWA Mobile-First**
+
+Não começar criando aplicativos nativos separados para Android e iOS.
+
+A aplicação deverá funcionar:
+
+```text
+Navegador Desktop
+        +
+Navegador Mobile
+        +
+PWA Instalável
+```
+
+---
+
+# 7. POR QUE PWA
+
+O PWA permite que o usuário utilize o GingApp como um aplicativo sem que seja necessário começar pela criação de dois aplicativos nativos independentes.
+
+Benefícios:
+
+* Uma base de código.
+* Desenvolvimento mais rápido.
+* Atualizações centralizadas.
+* Não depender inicialmente das lojas.
+* Instalação na tela inicial.
+* Experiência semelhante a aplicativo.
+* Compartilhamento simples por URL.
+* Menor custo de manutenção.
+* Facilidade para lançar o MVP.
+
+O usuário poderá acessar:
+
+```text
+https://gingapp.com.br
+```
+
+e posteriormente instalar o GingApp no dispositivo.
+
+---
+
+# 8. ANDROID E IOS
+
+O objetivo é oferecer uma boa experiência nas duas plataformas.
+
+## Android
+
+O PWA deverá possuir:
+
+* Manifest.
+* Ícones.
+* Splash/ícone configurado.
+* Service Worker.
+* Cache apropriado.
+* Instalação.
+* Notificações web quando suportadas.
+
+## iOS
+
+O PWA deverá ser compatível com a instalação pela tela inicial e seguir as particularidades do Safari/iOS.
+
+A aplicação não deve depender de APIs exclusivas do Android.
+
+---
+
+# 9. ARQUITETURA PREPARADA PARA APLICATIVO NATIVO
+
+Embora o primeiro produto seja PWA, a arquitetura deve permitir futura utilização de:
+
+> **Capacitor**
+
+Caso no futuro seja necessário publicar na:
+
+* Google Play
+* Apple App Store
+
+a aplicação poderá ser empacotada em uma camada nativa.
+
+Arquitetura:
+
+```text
+                 GINGAPP
+                    │
+              Frontend Web
+                    │
+          ┌─────────┴─────────┐
+          │                   │
+         PWA              Capacitor
+          │                   │
+      Navegador          Android / iOS
+```
+
+Não desenvolver pensando que o PWA será descartado.
+
+Desenvolver pensando:
+
+> **PWA agora, aplicativo de loja quando fizer sentido.**
+
+---
+
+# 10. ARQUITETURA GERAL
+
+```text
+                         GINGAPP
+                            │
+              ┌─────────────┴─────────────┐
+              │                           │
+        PAINEL ADMIN                  PWA MOBILE
+              │                           │
+       Mestres/Admin                  Alunos
+       Professores                    Capoeiristas
+              │                           │
+              └─────────────┬─────────────┘
+                            │
+                           API
+                            │
+                       BACKEND
+                            │
+                      PostgreSQL
+                            │
+             ┌──────────────┼──────────────┐
+             │              │              │
+          Storage       Notifications    Cache
+```
+
+---
+
+# 11. MULTI-TENANT
+
+O GingApp deverá ser multi-tenant desde o início.
+
+Cada grupo deve possuir seu próprio contexto.
+
+Exemplo:
+
+```text
+GINGAPP
+
+Tenant A
+└── Grupo A
+
+Tenant B
+└── Grupo B
+
+Tenant C
+└── Grupo C
+```
+
+Os dados privados de um tenant nunca podem ser acessados por outro tenant.
+
+---
+
+# 12. HIERARQUIA DO SISTEMA
+
+```text
+GINGAPP
+│
+├── BRASIL
+│
+├── ESTADOS
+│   ├── Goiás
+│   ├── Distrito Federal
+│   ├── São Paulo
+│   └── ...
+│
+├── COMUNIDADES
+│   ├── Goiás
+│   ├── Distrito Federal
+│   ├── São Paulo
+│   └── ...
+│
+└── ORGANIZAÇÕES
+    │
+    ├── Grupo A
+    │   ├── Matriz
+    │   ├── Filial
+    │   └── Filial
+    │
+    ├── Grupo B
+    │   ├── Matriz
+    │   └── Filial
+    │
+    └── Grupo C
+```
+
+---
+
+# 13. GRUPO
+
+O Grupo é a principal organização do sistema.
+
+Dados básicos:
+
+* Nome
+* Logo
+* Descrição
+* História
+* Mestre responsável
+* Ano de fundação
+* Estado
+* Cidade
+* Sistema de graduação
+* Status
+
+Um grupo poderá possuir:
+
+* Matriz
+* Filiais
+* Professores
+* Alunos
+* Turmas
+* Aulas
+* Financeiro
+* Eventos
+
+---
+
+# 14. MATRIZ
+
+A matriz representa a unidade principal.
+
+Pode administrar:
+
+* Filiais
+* Professores
+* Alunos
+* Turmas
+* Graduações
+* Eventos
+* Financeiro
+* Comunicados
+
+A matriz pode ter acesso consolidado às informações das filiais.
+
+---
+
+# 15. FILIAIS
+
+Uma filial pertence a um grupo.
+
+Exemplo:
+
+```text
+GRUPO GINGA BRASIL
+
+MATRIZ
+├── Goiânia
+
+FILIAIS
+├── Valparaíso
+├── Brasília
+└── Anápolis
+```
+
+Cada filial pode ter:
+
+* Responsável
+* Professores
+* Alunos
+* Turmas
+* Aulas
+* Horários
+* Local
+* Frequência
+* Financeiro
+* Eventos
+
+---
+
+# 16. UNIDADE
+
+No sistema, utilizar o conceito de `Unit/Unidade` como representação física de:
+
+* Matriz
+* Filial
+
+Isso evita criar estruturas diferentes desnecessariamente.
+
+Exemplo:
+
+```text
+Organization
+    │
+    └── Units
+          ├── Headquarters
+          ├── Branch
+          └── Branch
+```
+
+---
+
+# 17. DADOS PRIVADOS E COMUNITÁRIOS
+
+Separar claramente:
+
+## PRIVADO
+
+Pertencente ao grupo:
+
+* Alunos
+* Responsáveis
+* Financeiro
+* Frequência
+* Turmas
+* Aulas
+* Observações
+* Informações administrativas
+
+## COMUNITÁRIO
+
+Conteúdo público ou compartilhável:
+
+* Rodas
+* Eventos
+* Workshops
+* Encontros
+* Atividades
+* Comunicados públicos
+
+Um dado privado nunca deve aparecer automaticamente na comunidade.
+
+---
+
+# 18. PERFIS
+
+## Mestre / Administrador
+
+Pode:
+
+* Administrar grupo.
+* Administrar matriz.
+* Administrar filiais.
+* Gerenciar professores.
+* Gerenciar alunos.
+* Criar turmas.
+* Criar aulas.
+* Registrar graduações.
+* Gerenciar financeiro.
+* Criar eventos.
+* Criar rodas.
+* Criar comunicados.
+* Ver relatórios.
+
+---
+
+## Professor
+
+Pode:
+
+* Ver suas turmas.
+* Ver alunos autorizados.
+* Registrar presença.
+* Consultar graduação.
+* Gerenciar suas aulas.
+* Publicar comunicados permitidos.
+
+---
+
+## Aluno / Capoeirista
+
+Pode:
+
+* Ver seu perfil.
+* Ver sua graduação.
+* Ver sua jornada.
+* Ver frequência.
+* Ver aulas.
+* Ver mensalidades.
+* Ver eventos.
+* Ver rodas.
+* Receber notificações.
+* Participar da comunidade.
+
+---
+
+## Responsável
+
+Pode acompanhar alunos vinculados.
+
+Principalmente:
+
+* Frequência
+* Aulas
+* Financeiro
+* Eventos
+* Comunicados
+
+---
+
+# 19. GESTÃO DE ALUNOS
+
+Campos sugeridos:
+
+```text
+id
+organization_id
+unit_id
+name
+photo
+birth_date
+phone
+email
+status
+entry_date
+teacher_id
+class_id
+graduation_id
+created_at
+updated_at
+```
+
+Informações adicionais:
+
+* Responsável
+* Histórico
+* Observações
+* Frequência
+* Financeiro
+* Eventos
+
+---
+
+# 20. STATUS DO ALUNO
+
+Inicialmente:
+
+```text
+ACTIVE
+INACTIVE
+SUSPENDED
+FORMER
+```
+
+O histórico não deve ser apagado quando o aluno ficar inativo.
+
+---
+
+# 21. PROFESSORES
+
+Cadastro:
+
+* Nome
+* Foto
+* Contato
+* Grupo
+* Unidade
+* Graduação
+* Turmas
+* Status
+* Permissões
+
+Um professor pode atuar em mais de uma unidade quando autorizado.
+
+---
+
+# 22. TURMAS
+
+Uma turma terá:
+
+* Nome
+* Categoria
+* Unidade
+* Professor
+* Dias
+* Horários
+* Local
+* Capacidade
+* Status
+
+Categorias podem ser:
+
+* Infantil
+* Juvenil
+* Adulto
+* Iniciante
+* Intermediário
+* Avançado
+* Particular
+
+As categorias devem ser configuráveis.
+
+---
+
+# 23. AULAS
+
+Uma aula representa uma ocorrência de uma turma.
+
+Exemplo:
+
+```text
+Turma: Adulto
+Professor: Mestre João
+Data: Quinta-feira
+Horário: 19:00
+Unidade: Valparaíso
+```
+
+Dados:
+
+* Turma
+* Professor
+* Unidade
+* Data
+* Horário
+* Status
+* Observações
+
+---
+
+# 24. FREQUÊNCIA
+
+O professor deve conseguir registrar presença rapidamente.
+
+Exemplo:
+
+```text
+☑ João
+☑ Pedro
+☐ Lucas
+☑ Maria
+☐ Ana
+```
+
+O sistema deverá calcular:
+
+* Presenças
+* Faltas
+* Percentual
+* Histórico
+
+---
+
+# 25. JORNADA DO CAPOEIRISTA
+
+A jornada deverá apresentar visualmente a evolução.
+
+Exemplo:
+
+```text
+Entrada
+   ↓
+Primeira aula
+   ↓
+Primeira graduação
+   ↓
+Eventos
+   ↓
+Rodas
+   ↓
+Nova graduação
+   ↓
+Evolução
+```
+
+Não transformar a jornada em competição.
+
+O objetivo é registrar a história do capoeirista.
+
+---
+
+# 26. GRADUAÇÕES
+
+O sistema não deverá assumir um único sistema universal.
+
+Cada grupo poderá configurar sua própria estrutura.
+
+Exemplo:
+
+```text
+Grupo A
+
+Crua
+↓
+Verde
+↓
+Amarela
+↓
+Azul
+↓
+Vermelha
+```
+
+Outro grupo poderá utilizar:
+
+```text
+Graduação 1
+↓
+Graduação 2
+↓
+Graduação 3
+```
+
+Portanto:
+
+> **O sistema de graduação deve ser configurável por grupo.**
+
+---
+
+# 27. HISTÓRICO DE GRADUAÇÃO
+
+Cada graduação registrada deverá armazenar:
+
+* Graduação
+* Data
+* Grupo
+* Unidade
+* Professor/Mestre
+* Evento
+* Observação
+* Certificado
+
+---
+
+# 28. FINANCEIRO
+
+O módulo financeiro inicial deverá ser simples.
+
+Controlar:
+
+* Mensalidades
+* Matrículas
+* Uniformes
+* Cordões
+* Eventos
+* Graduações
+* Aulas particulares
+* Outros pagamentos
+
+---
+
+# 29. STATUS FINANCEIRO
+
+```text
+PENDING
+PAID
+OVERDUE
+CANCELLED
+```
+
+---
+
+# 30. DASHBOARD
+
+O dashboard administrativo deve responder rapidamente:
+
+> "Como está meu grupo?"
+
+Exibir:
+
+* Alunos ativos
+* Novos alunos
+* Alunos inativos
+* Turmas
+* Aulas do dia
+* Mensalidades previstas
+* Mensalidades atrasadas
+* Frequência
+* Graduações
+* Próximos eventos
+
+---
+
+# 31. ATALHOS
+
+* Novo aluno
+* Nova turma
+* Nova aula
+* Registrar presença
+* Nova mensalidade
+* Novo evento
+* Nova roda
+* Novo comunicado
+
+---
+
+# 32. EXPERIÊNCIA MOBILE
+
+O PWA do capoeirista deve ser realmente mobile-first.
+
+Não criar simplesmente um desktop responsivo.
+
+A experiência deve parecer um aplicativo.
+
+Exemplo:
+
+```text
+┌─────────────────────────┐
+│ GINGAPP                 │
+│                         │
+│ Olá, João! 🥋           │
+│                         │
+│ PRÓXIMA AULA             │
+│ Quinta • 19:00          │
+│                         │
+│ GRADUAÇÃO                │
+│ 🟢 Verde                 │
+│                         │
+│ FREQUÊNCIA               │
+│ 87%                     │
+│                         │
+│ PRÓXIMOS EVENTOS         │
+│ 🪘 Roda Mensal           │
+│ 🎓 Batizado              │
+│                         │
+├─────────────────────────┤
+│ Início   Comunidade     │
+│ Jornada  Perfil         │
+└─────────────────────────┘
+```
+
+---
+
+# 33. MENU MOBILE
+
+Sugestão:
+
+```text
+Início
+
+Minha Jornada
+
+Aulas
+
+Frequência
+
+Financeiro
+
+Eventos
+
+Rodas
+
+Comunidade
+
+Notificações
+
+Perfil
+```
+
+---
+
+# 34. HOME DO CAPOEIRISTA
+
+A Home deve priorizar informações relevantes:
+
+* Próxima aula
+* Graduação
+* Frequência
+* Próximos eventos
+* Próximas rodas
+* Avisos
+* Atividades da comunidade
+
+---
+
+# 35. COMUNIDADE
+
+A comunidade é o grande diferencial do GingApp.
+
+Ela deve conectar usuários e grupos através de atividades reais.
+
+Não começar com uma rede social genérica.
+
+---
+
+# 36. O QUE NÃO PRIORIZAR NA COMUNIDADE
+
+Evitar inicialmente:
+
+* Feed infinito
+* Stories
+* Curtidas
+* Seguidores
+* Algoritmo de conteúdo
+* Influenciadores
+* Conteúdo genérico
+
+A prioridade será:
+
+```text
+RODAS
+EVENTOS
+WORKSHOPS
+ENCONTROS
+BATIZADOS
+CAMPEONATOS
+```
+
+---
+
+# 37. COMUNIDADE ESTADUAL
+
+Cada estado poderá possuir sua própria comunidade.
+
+Exemplo:
+
+```text
+COMUNIDADE GOIÁS
+
+🪘 Rodas
+
+📅 Eventos
+
+🎓 Workshops
+
+🤝 Encontros
+
+📢 Comunicados
+```
+
+---
+
+# 38. LOCALIZAÇÃO DA COMUNIDADE
+
+A comunidade deverá evoluir para:
+
+```text
+MINHA CIDADE
+      ↓
+MEU ESTADO
+      ↓
+BRASIL
+```
+
+Exemplo:
+
+Um usuário de Valparaíso poderá encontrar:
+
+```text
+Rodas em Valparaíso
+↓
+Rodas em Goiás
+↓
+Eventos no Brasil
+```
+
+---
+
+# 39. RODAS
+
+A roda será uma funcionalidade central.
+
+Cadastro:
+
+```text
+Nome
+Organizador
+Grupo
+Unidade
+Cidade
+Estado
+Local
+Data
+Horário
+Descrição
+Entrada
+Público
+Status
+Imagem
+```
+
+---
+
+# 40. RODA MENSAL
+
+O GingApp deve facilitar rodas recorrentes.
+
+Exemplo:
+
+```text
+RODA MENSAL
+
+Grupo:
+Ginga Brasil
+
+Local:
+Valparaíso de Goiás
+
+Data:
+27/09/2026
+
+Horário:
+16:00
+
+Entrada:
+Gratuita
+
+Aberta:
+Sim
+```
+
+---
+
+# 41. PARTICIPAÇÃO EM RODAS
+
+O usuário poderá:
+
+* Quero participar
+* Ver detalhes
+* Ver localização
+* Compartilhar
+* Adicionar ao calendário
+
+Futuramente:
+
+* Check-in
+* QR Code
+* Histórico no Passaporte
+
+---
+
+# 42. CALENDÁRIO DA CAPOEIRA
+
+Criar um calendário geral.
+
+Exemplo:
+
+```text
+SETEMBRO
+
+19
+🎓 Workshop
+Goiânia
+
+20
+🪘 Roda Mensal
+Valparaíso
+
+26
+🏆 Campeonato
+Brasília
+
+27
+🤝 Encontro
+Anápolis
+```
+
+Filtros:
+
+* Hoje
+* Semana
+* Mês
+* Cidade
+* Estado
+* Brasil
+* Roda
+* Evento
+* Workshop
+* Campeonato
+* Encontro
+
+---
+
+# 43. EVENTOS
+
+Tipos:
+
+* Batizados
+* Rodas
+* Workshops
+* Campeonatos
+* Festivais
+* Encontros
+* Formaturas
+* Viagens
+* Aulas especiais
+
+---
+
+# 44. CADASTRO DE EVENTOS
+
+Campos:
+
+```text
+name
+description
+organizer
+organization_id
+unit_id
+city
+state
+location
+date
+start_time
+end_time
+price
+capacity
+audience
+image
+registration_enabled
+status
+```
+
+---
+
+# 45. INSCRIÇÕES
+
+O usuário poderá demonstrar interesse ou se inscrever.
+
+Exemplo:
+
+```text
+[ QUERO PARTICIPAR ]
+```
+
+Futuramente:
+
+* Pagamento
+* Check-in
+* QR Code
+* Lista de participantes
+* Certificado
+
+---
+
+# 46. COMUNICADOS
+
+Administradores poderão publicar comunicados.
+
+Exemplos:
+
+```text
+Aula cancelada hoje.
+
+Novo horário de treinamento.
+
+Batizado confirmado.
+
+Treino especial sábado.
+
+Nova unidade inaugurada.
+```
+
+Cada comunicado deverá possuir um alcance.
+
+---
+
+# 47. ESCOPOS DE PUBLICAÇÃO
+
+```text
+Minha turma
+     ↓
+Minha unidade
+     ↓
+Meu grupo
+     ↓
+Meu estado
+     ↓
+Público
+```
+
+---
+
+# 48. NOTIFICAÇÕES
+
+As notificações deverão respeitar o contexto do usuário.
+
+Exemplo:
+
+```text
+Minha turma
+→ alteração da aula
+
+Minha unidade
+→ mudança de endereço
+
+Meu grupo
+→ batizado
+
+Meu estado
+→ nova roda
+
+Público
+→ evento nacional
+```
+
+---
+
+# 49. PWA E NOTIFICAÇÕES
+
+A arquitetura de notificações deve ser desacoplada do frontend.
+
+O backend deverá controlar:
+
+* Quem recebe.
+* Por quê.
+* Alcance.
+* Tipo.
+* Data.
+* Status.
+
+O mecanismo de entrega poderá utilizar tecnologias web apropriadas.
+
+Não criar lógica específica demais para apenas uma plataforma.
+
+---
+
+# 50. PERFIL DO CAPOEIRISTA
+
+Funcionalidade futura.
+
+Exemplo:
+
+```text
+JOÃO SILVA
+
+Grupo:
+Ginga Brasil
+
+Unidade:
+Valparaíso/GO
+
+Graduação:
+Verde
+
+Aulas:
+312
+
+Rodas:
+28
+
+Eventos:
+12
+
+Graduações:
+3
+
+[ QR CODE ]
+```
+
+Esses números representam histórico, não ranking.
+
+---
+
+# 51. PASSAPORTE DO CAPOEIRISTA
+
+Criar futuramente um Passaporte digital.
+
+Poderá conter:
+
+* Identidade
+* Grupo
+* Unidade
+* Graduação
+* Aulas
+* Rodas
+* Eventos
+* Certificados
+* Histórico
+
+---
+
+# 52. CERTIFICADOS
+
+Futuramente:
+
+```text
+CERTIFICADO
+
+João Silva
+
+Participou do Workshop
+Capoeira Angola
+
+Organizador:
+Grupo X
+
+GingApp ID:
+XXXXXX
+
+[ QR CODE ]
+```
+
+O QR Code poderá validar a autenticidade.
+
+---
+
+# 53. PERFIL PÚBLICO
+
+O usuário poderá optar por disponibilizar informações publicamente.
+
+Possíveis informações:
+
+* Nome
+* Foto
+* Grupo
+* Graduação
+* Histórico
+* Eventos
+* Rodas
+
+A privacidade deve ser configurável.
+
+---
+
+# 54. LOJA FUTURA
+
+Não implementar no MVP.
+
+Futuramente:
+
+* Camisetas
+* Abadás
+* Uniformes
+* Cordões
+* Instrumentos
+* Produtos dos grupos
+
+---
+
+# 55. PATRIMÔNIO / INSTRUMENTOS
+
+Futuramente:
+
+```text
+Berimbaus
+Pandeiros
+Atabaques
+Agogôs
+Reco-recos
+```
+
+Dados:
+
+* Identificação
+* Responsável
+* Estado
+* Local
+* Observações
+* Manutenção
+
+---
+
+# 56. INTEGRAÇÕES FUTURAS
+
+Possibilidades:
+
+* WhatsApp
+* Pagamentos
+* Mapas
+* Push Notifications
+* E-mail
+* Calendário
+* Armazenamento de arquivos
+
+Não implementar tudo no MVP.
+
+---
+
+# 57. RELATÓRIOS
+
+## Alunos
+
+* Ativos
+* Inativos
+* Novos
+* Aniversariantes
+* Evolução
+* Evasão
+
+## Financeiro
+
+* Faturamento
+* Recebimentos
+* Pendências
+* Inadimplência
+
+## Treinamento
+
+* Frequência
+* Evolução
+* Graduações
+
+## Grupo
+
+* Alunos por unidade
+* Alunos por professor
+* Crescimento
+* Indicadores
+
+---
+
+# 58. SEGURANÇA
+
+O sistema deve possuir:
+
+* Autenticação segura.
+* Autorização.
+* Controle por tenant.
+* Controle por unidade.
+* Controle por função.
+* Logs.
+* Auditoria.
+* Proteção de dados.
+* Controle de visibilidade.
+* Proteção especial para dados de menores.
+
+---
+
+# 59. AUTORIZAÇÃO
+
+A autorização deve considerar:
+
+```text
+PLATAFORMA
+   ↓
+ORGANIZAÇÃO
+   ↓
+UNIDADE
+   ↓
+TURMA
+   ↓
+ALUNO
+```
+
+Exemplo:
+
+Um professor da Filial A não deve acessar automaticamente os dados privados da Filial B.
+
+Um administrador autorizado do grupo pode ter acesso às duas.
+
+---
+
+# 60. ESTRUTURA DE BANCO CONCEITUAL
+
+Primeira proposta:
+
+```text
+users
+
+roles
+
+permissions
+
+user_roles
+
+organizations
+
+organization_users
+
+units
+
+students
+
+student_guardians
+
+teachers
+
+classes
+
+class_students
+
+lessons
+
+attendance
+
+graduation_systems
+
+graduation_levels
+
+student_graduations
+
+financial_records
+
+events
+
+event_participants
+
+rodas
+
+roda_participants
+
+announcements
+
+notifications
+
+communities
+
+states
+
+cities
+
+public_profiles
+
+certificates
+```
+
+A modelagem final deverá ser definida antes da implementação.
+
+---
+
+# 61. RELACIONAMENTOS PRINCIPAIS
+
+```text
+Organization
+    │
+    ├── Units
+    │
+    ├── Users
+    │
+    ├── Students
+    │
+    ├── Teachers
+    │
+    ├── Classes
+    │
+    ├── Lessons
+    │
+    ├── Graduations
+    │
+    ├── Finance
+    │
+    └── Events
+```
+
+Comunidade:
+
+```text
+State
+   │
+   └── Community
+         ├── Events
+         ├── Rodas
+         ├── Workshops
+         └── Publications
+```
+
+---
+
+# 62. STACK TECNOLÓGICO SUGERIDO
+
+## Frontend
+
+Sugestão:
+
+**Vue 3 + TypeScript + Vite**
+
+Utilizar:
+
+* Composition API
+* Pinia
+* Vue Router
+* PWA
+* TypeScript
+
+Possivelmente:
+
+* Tailwind CSS
+* Biblioteca de componentes própria ou adequada
+
+---
+
+# 63. BACKEND
+
+Sugestão:
+
+**Node.js + NestJS + TypeScript**
+
+Responsável por:
+
+* API
+* Autenticação
+* Autorização
+* Multi-tenant
+* Regras de negócio
+* Notificações
+* Eventos
+* Comunidade
+* Financeiro
+
+---
+
+# 64. BANCO
+
+Sugestão:
+
+**PostgreSQL**
+
+Motivos:
+
+* Relacionamentos complexos.
+* Integridade.
+* Escalabilidade.
+* Consultas estruturadas.
+* Excelente para SaaS.
+
+---
+
+# 65. CACHE
+
+Possível utilização:
+
+**Redis**
+
+Para:
+
+* Cache.
+* Sessões quando necessário.
+* Rate limiting.
+* Filas.
+* Notificações.
+* Processamentos assíncronos.
+
+Não adicionar Redis apenas por adicionar.
+
+Utilizar quando houver necessidade real.
+
+---
+
+# 66. ARMAZENAMENTO
+
+Imagens e arquivos deverão utilizar armazenamento apropriado.
+
+Exemplos:
+
+* S3
+* Cloudflare R2
+* Storage compatível com S3
+
+Não armazenar arquivos pesados diretamente no banco.
+
+---
+
+# 67. API
+
+A API deverá ser organizada por domínio.
+
+Exemplo:
+
+```text
+/api/auth
+
+/api/organizations
+
+/api/units
+
+/api/students
+
+/api/teachers
+
+/api/classes
+
+/api/lessons
+
+/api/attendance
+
+/api/graduations
+
+/api/finance
+
+/api/events
+
+/api/rodas
+
+/api/community
+
+/api/notifications
+
+/api/users
+```
+
+---
+
+# 68. FRONTEND ADMINISTRATIVO
+
+Rotas sugeridas:
+
+```text
+/dashboard
+
+/alunos
+
+/professores
+
+/turmas
+
+/aulas
+
+/frequencia
+
+/graduacoes
+
+/financeiro
+
+/eventos
+
+/rodas
+
+/comunicados
+
+/relatorios
+
+/unidades
+
+/configuracoes
+```
+
+---
+
+# 69. FRONTEND MOBILE
+
+Rotas conceituais:
+
+```text
+/app
+
+/app/jornada
+
+/app/aulas
+
+/app/frequencia
+
+/app/financeiro
+
+/app/eventos
+
+/app/rodas
+
+/app/comunidade
+
+/app/notificacoes
+
+/app/perfil
+```
+
+---
+
+# 70. PWA
+
+Implementar:
+
+* Web App Manifest.
+* Service Worker.
+* Cache estratégico.
+* Offline fallback quando apropriado.
+* Ícones.
+* Splash.
+* Theme color.
+* Installability.
+* Atualização controlada.
+
+Não armazenar dados sensíveis em cache público.
+
+---
+
+# 71. OFFLINE
+
+Não é necessário tornar o sistema inteiro offline.
+
+Priorizar futuramente recursos úteis, como:
+
+* Visualização básica de dados recentes.
+* Perfil.
+* Jornada.
+* Dados de aulas recentes.
+
+Para operações críticas como:
+
+* Financeiro.
+* Cadastro.
+* Alterações administrativas.
+
+preferir conexão online.
+
+---
+
+# 72. DESIGN SYSTEM
+
+Criar um design system desde o início.
+
+Componentes:
+
+```text
+Button
+Input
+Select
+Modal
+Drawer
+Card
+Badge
+Avatar
+Tabs
+Table
+Calendar
+Toast
+Alert
+Dropdown
+Bottom Navigation
+```
+
+No mobile, priorizar componentes adequados para toque.
+
+---
+
+# 73. EXPERIÊNCIA VISUAL
+
+O GingApp deve transmitir:
+
+* Capoeira.
+* Cultura.
+* Movimento.
+* Energia.
+* Comunidade.
+* Modernidade.
+* Simplicidade.
+
+Não criar aparência de:
+
+> "Sistema financeiro corporativo."
+
+A identidade precisa parecer feita para a comunidade da capoeira.
+
+---
+
+# 74. RESPONSIVIDADE
+
+O sistema deverá funcionar em:
+
+```text
+Desktop
+Notebook
+Tablet
+Android
+iPhone
+```
+
+Mas com prioridades diferentes.
+
+### Administrativo
+
+Desktop-first.
+
+### Capoeirista
+
+Mobile-first.
+
+---
+
+# 75. EFEITO DE REDE
+
+O crescimento deve seguir:
+
+```text
+Grupo entra
+    ↓
+Cadastra estrutura
+    ↓
+Cadastra alunos
+    ↓
+Alunos entram no PWA
+    ↓
+Alunos acompanham sua jornada
+    ↓
+Alunos descobrem rodas
+    ↓
+Alunos descobrem eventos
+    ↓
+Mais grupos conhecem o GingApp
+    ↓
+Novos grupos entram
+```
+
+Quanto mais grupos entrarem, mais útil será a comunidade.
+
+---
+
+# 76. ESTRATÉGIA DE CRESCIMENTO
+
+Começar com grupos pioneiros.
+
+Fluxo:
+
+```text
+Grupo piloto
+↓
+Configuração
+↓
+Cadastro
+↓
+Alunos
+↓
+PWA
+↓
+Uso real
+↓
+Feedback
+↓
+Melhorias
+↓
+Novos grupos
+```
+
+Não tentar desenvolver todos os recursos antes da validação.
+
+---
+
+# 77. MÉTRICAS
+
+## Gestão
+
+* Grupos cadastrados.
+* Unidades.
+* Alunos.
+* Professores.
+* Turmas.
+* Aulas.
+* Presenças.
+
+## PWA
+
+* Usuários ativos.
+* Instalações.
+* Retenção.
+* Acessos.
+* Notificações abertas.
+
+## Comunidade
+
+* Rodas.
+* Eventos.
+* Workshops.
+* Participações.
+* Usuários por estado.
+* Atividades por cidade.
+
+---
+
+# 78. MVP
+
+O MVP deverá validar:
+
+> **GESTÃO + COMUNIDADE**
+
+## Gestão
+
+1. Autenticação.
+2. Grupo.
+3. Matriz.
+4. Filiais.
+5. Usuários.
+6. Permissões.
+7. Alunos.
+8. Professores.
+9. Turmas.
+10. Aulas.
+11. Frequência.
+12. Graduações.
+13. Dashboard.
+14. Financeiro básico.
+
+## Comunidade
+
+15. Eventos.
+16. Rodas.
+17. Comunicados.
+18. Notificações.
+19. Comunidade estadual.
+20. PWA do aluno.
+
+---
+
+# 79. FASE 2
+
+Adicionar:
+
+* PWA completo.
+* Calendário estadual.
+* Inscrições.
+* Confirmação de presença.
+* Certificados.
+* QR Code.
+* Relatórios avançados.
+* Notificações segmentadas.
+* Perfil do capoeirista.
+* Passaporte.
+
+---
+
+# 80. FASE 3
+
+Adicionar:
+
+* Pagamentos online.
+* WhatsApp.
+* Loja.
+* Instrumentos.
+* Marketplace de eventos.
+* Perfil público.
+* Validação de certificados.
+* Estatísticas nacionais.
+
+---
+
+# 81. O QUE NÃO FAZER NO MVP
+
+Não começar com:
+
+* Marketplace.
+* Loja.
+* Pagamentos complexos.
+* Rede social completa.
+* Feed infinito.
+* Stories.
+* Seguidores.
+* Ranking de usuários.
+* Gamificação excessiva.
+* IA apenas por moda.
+* Estatísticas nacionais complexas.
+
+Primeiro fazer funcionar muito bem:
+
+```text
+GRUPOS
++
+MATRIZ
++
+FILIAIS
++
+ALUNOS
++
+PROFESSORES
++
+TURMAS
++
+AULAS
++
+FREQUÊNCIA
++
+GRADUAÇÃO
++
+FINANCEIRO
++
+RODAS
++
+EVENTOS
++
+COMUNIDADE
++
+PWA
+```
+
+---
+
+# 82. FLUXO DO GRUPO
+
+```text
+Criar conta
+     ↓
+Criar organização
+     ↓
+Cadastrar grupo
+     ↓
+Criar matriz
+     ↓
+Criar filiais
+     ↓
+Cadastrar professores
+     ↓
+Cadastrar alunos
+     ↓
+Criar turmas
+     ↓
+Criar horários
+     ↓
+Registrar aulas
+     ↓
+Registrar frequência
+     ↓
+Configurar graduação
+     ↓
+Gerenciar financeiro
+     ↓
+Criar eventos
+     ↓
+Criar rodas
+     ↓
+Publicar comunicados
+```
+
+---
+
+# 83. FLUXO DO ALUNO
+
+```text
+Recebe convite
+     ↓
+Cria/acessa conta
+     ↓
+Entra no grupo
+     ↓
+Acessa PWA
+     ↓
+Visualiza próxima aula
+     ↓
+Visualiza graduação
+     ↓
+Acompanha frequência
+     ↓
+Acompanha jornada
+     ↓
+Recebe avisos
+     ↓
+Descobre rodas
+     ↓
+Descobre eventos
+     ↓
+Participa da comunidade
+```
+
+---
+
+# 84. FLUXO DE DESCOBERTA
+
+Usuário sem grupo também poderá utilizar a parte pública.
+
+```text
+Acessa GingApp
+       ↓
+Vê rodas
+       ↓
+Vê eventos
+       ↓
+Vê workshops
+       ↓
+Conhece grupos
+       ↓
+Pode entrar em um grupo
+```
+
+Isso permite que a comunidade cresça além dos usuários administrativos.
+
+---
+
+# 85. EXPERIÊNCIA DO MESTRE
+
+Pergunta:
+
+> **"Como está meu grupo?"**
+
+Resposta do sistema:
+
+```text
+Alunos
+Turmas
+Professores
+Frequência
+Financeiro
+Graduações
+Filiais
+Eventos
+```
+
+---
+
+# 86. EXPERIÊNCIA DO PROFESSOR
+
+Pergunta:
+
+> **"Quem está na minha aula?"**
+
+Fluxo:
+
+```text
+Abrir aula
+↓
+Selecionar turma
+↓
+Lista de alunos
+↓
+Registrar presença
+↓
+Salvar
+```
+
+---
+
+# 87. EXPERIÊNCIA DO ALUNO
+
+Pergunta:
+
+> **"Como está minha jornada?"**
+
+Encontrará:
+
+```text
+Graduação
+Frequência
+Aulas
+Histórico
+Eventos
+Rodas
+Mensalidades
+Avisos
+```
+
+---
+
+# 88. EXPERIÊNCIA DA COMUNIDADE
+
+Pergunta:
+
+> **"O que está acontecendo na capoeira perto de mim?"**
+
+Encontrará:
+
+```text
+Rodas
+Eventos
+Workshops
+Encontros
+Atividades
+```
+
+---
+
+# 89. VISÃO DE LONGO PRAZO
+
+A evolução do GingApp:
+
+```text
+SISTEMA DE GESTÃO
+       ↓
+PWA DO CAPOEIRISTA
+       ↓
+COMUNIDADE ESTADUAL
+       ↓
+REDE ENTRE GRUPOS
+       ↓
+COMUNIDADE NACIONAL
+       ↓
+ECOSSISTEMA DIGITAL DA CAPOEIRA
+```
+
+---
+
+# 90. ECOSSISTEMA FUTURO
+
+```text
+                         GINGAPP
+                            │
+          ┌─────────────────┼─────────────────┐
+          │                 │                 │
+       GESTÃO           CAPOEIRISTA      COMUNIDADE
+          │                 │                 │
+       Grupos              Jornada          Rodas
+       Filiais             Aulas            Eventos
+       Alunos              Graduação        Workshops
+       Professores         Frequência       Encontros
+       Financeiro          Histórico        Calendário
+          │                 │                 │
+          └─────────────────┼─────────────────┘
+                            │
+                     REDE NACIONAL
+                       DA CAPOEIRA
+```
+
+---
+
+# 91. PRINCÍPIOS DE PRODUTO
+
+## Simplicidade
+
+O sistema deve ser fácil para mestres e professores.
+
+## Capoeira primeiro
+
+A linguagem deve respeitar a realidade da capoeira.
+
+## Comunidade real
+
+Priorizar eventos e atividades reais.
+
+## Privacidade
+
+Dados privados devem permanecer privados.
+
+## Escalabilidade
+
+Preparar para muitos grupos e usuários.
+
+## Mobile-first
+
+O capoeirista utilizará principalmente o celular.
+
+## Web-first para gestão
+
+A administração deve ser confortável no desktop.
+
+---
+
+# 92. PRINCÍPIOS TÉCNICOS
+
+1. Multi-tenant desde o início.
+2. API bem definida.
+3. Separação de responsabilidades.
+4. Controle de acesso rigoroso.
+5. Banco relacional consistente.
+6. Componentes reutilizáveis.
+7. Código tipado.
+8. Testes automatizados.
+9. Logs.
+10. Tratamento de erros.
+11. Validação de dados.
+12. Segurança.
+13. Documentação.
+14. Arquitetura preparada para PWA.
+15. Arquitetura preparada para Capacitor.
+
+---
+
+# 93. PRIMEIRA MISSÃO DA IA DE DESENVOLVIMENTO
+
+A IA que receber este documento **não deverá começar imediatamente criando telas**.
+
+Primeiro deverá analisar o produto.
+
+Depois apresentar:
+
+### Arquitetura
+
+* Frontend.
+* Backend.
+* Banco.
+* Storage.
+* Cache.
+* PWA.
+* Infraestrutura.
+
+### Banco
+
+* Entidades.
+* Campos.
+* Relacionamentos.
+* Índices.
+* Multi-tenancy.
+
+### Segurança
+
+* Auth.
+* RBAC.
+* Permissões.
+* Isolamento de tenants.
+
+### API
+
+* Endpoints.
+* Autenticação.
+* Regras.
+
+### Frontend
+
+* Estrutura.
+* Rotas.
+* Componentes.
+* Estado.
+
+### PWA
+
+* Manifest.
+* Service Worker.
+* Cache.
+* Instalação.
+* Notificações.
+
+### Roadmap
+
+Separar MVP, Fase 2 e Fase 3.
+
+---
+
+# 94. ORDEM TÉCNICA DE DESENVOLVIMENTO
+
+```text
+1. Arquitetura
+        ↓
+2. Modelagem do banco
+        ↓
+3. Backend base
+        ↓
+4. Autenticação
+        ↓
+5. Multi-tenant
+        ↓
+6. Autorização
+        ↓
+7. Organizações
+        ↓
+8. Matriz/Filiais
+        ↓
+9. Usuários
+        ↓
+10. Alunos
+        ↓
+11. Professores
+        ↓
+12. Turmas
+        ↓
+13. Aulas
+        ↓
+14. Frequência
+        ↓
+15. Graduações
+        ↓
+16. Dashboard
+        ↓
+17. Financeiro
+        ↓
+18. Eventos
+        ↓
+19. Rodas
+        ↓
+20. Comunidade
+        ↓
+21. PWA
+        ↓
+22. Notificações
+        ↓
+23. Testes
+        ↓
+24. Piloto
+        ↓
+25. Feedback
+        ↓
+26. Melhorias
+```
+
+---
+
+# 95. TESTES
+
+O sistema deverá possuir testes para:
+
+## Backend
+
+* Autenticação.
+* Autorização.
+* Multi-tenancy.
+* CRUD.
+* Regras de negócio.
+
+## Frontend
+
+* Fluxos principais.
+* Formulários.
+* Permissões.
+* Responsividade.
+
+## PWA
+
+* Instalação.
+* Manifest.
+* Service Worker.
+* Cache.
+* Responsividade.
+* Navegação mobile.
+
+## Segurança
+
+Testar principalmente:
+
+> Um usuário de uma organização nunca deve conseguir acessar dados privados de outra organização.
+
+---
+
+# 96. INFRAESTRUTURA
+
+A arquitetura deve permitir implantação em:
+
+* VPS.
+* Docker.
+* Cloud.
+* Serviços gerenciados.
+
+Separar:
+
+```text
+Frontend
+Backend
+Database
+Redis
+Storage
+Reverse Proxy
+```
+
+Quando necessário.
+
+---
+
+# 97. AMBIENTES
+
+Criar pelo menos:
+
+```text
+development
+staging
+production
+```
+
+Evitar desenvolver diretamente em produção.
+
+---
+
+# 98. CI/CD
+
+Futuramente utilizar:
+
+* Git.
+* GitHub/GitLab.
+* Pipeline.
+* Build automático.
+* Testes.
+* Deploy.
+
+O processo deverá permitir atualizar o PWA rapidamente.
+
+---
+
+# 99. BACKUP
+
+O banco deverá possuir estratégia de:
+
+* Backup automático.
+* Retenção.
+* Recuperação.
+* Testes periódicos de restauração.
+
+---
+
+# 100. OBSERVABILIDADE
+
+Preparar:
+
+* Logs.
+* Erros.
+* Métricas.
+* Monitoramento.
+* Health checks.
+
+Exemplo:
+
+```text
+/api/health
+```
+
+---
+
+# 101. ESCALABILIDADE
+
+Não otimizar prematuramente.
+
+Primeiro construir uma arquitetura simples e correta.
+
+Depois escalar conforme a necessidade.
+
+Possíveis evoluções:
+
+```text
+Servidor único
+      ↓
+Separação de serviços
+      ↓
+Cache
+      ↓
+Filas
+      ↓
+Workers
+      ↓
+Escalabilidade horizontal
+```
+
+---
+
+# 102. ROADMAP DO PRODUTO
+
+## MVP
+
+```text
+Gestão
++
+PWA
++
+Rodas
++
+Eventos
++
+Comunidade
+```
+
+## Fase 2
+
+```text
+Jornada avançada
++
+Passaporte
++
+Certificados
++
+Calendário
++
+Inscrições
+```
+
+## Fase 3
+
+```text
+Pagamentos
++
+WhatsApp
++
+Loja
++
+Marketplace
++
+Rede nacional
+```
+
+---
+
+# 103. DIFERENCIAL DO GINGAPP
+
+O GingApp não quer apenas digitalizar uma academia.
+
+Ele pretende criar uma conexão entre:
+
+```text
+MESTRE
+   ↕
+GRUPO
+   ↕
+PROFESSOR
+   ↕
+ALUNO
+   ↕
+COMUNIDADE
+   ↕
+OUTROS GRUPOS
+   ↕
+OUTRAS CIDADES
+   ↕
+OUTROS ESTADOS
+```
+
+---
+
+# 104. CICLO DE VALOR
+
+```text
+O grupo organiza sua gestão
+          ↓
+Os alunos entram no GingApp
+          ↓
+Os alunos acompanham sua jornada
+          ↓
+Os alunos descobrem eventos
+          ↓
+Os alunos descobrem rodas
+          ↓
+A comunidade fica mais ativa
+          ↓
+Outros grupos entram
+          ↓
+A comunidade fica ainda maior
+```
+
+---
+
+# 105. VISÃO NACIONAL
+
+No futuro, o usuário poderá abrir o GingApp e selecionar:
+
+```text
+📍 Minha cidade
+
+🗺️ Meu estado
+
+🇧🇷 Brasil
+```
+
+E descobrir o que está acontecendo na capoeira.
+
+Essa é a visão de longo prazo do produto.
+
+---
+
+# 106. FRASE DE DEFINIÇÃO
+
+> **GingApp não é apenas onde você administra seu grupo.**
+>
+> **É onde a capoeira se encontra.**
+
+---
+
+# 107. RESUMO EXECUTIVO
+
+**Produto:** GingApp
+
+**Categoria:** SaaS + PWA Mobile
+
+**Público:**
+
+* Mestres.
+* Professores.
+* Grupos.
+* Filiais.
+* Alunos.
+* Capoeiristas.
+* Comunidade.
+
+**Modelo inicial:**
+
+> Um único plano.
+
+**Pilares:**
+
+> Gestão + Evolução + Comunidade
+
+**Tecnologia inicial sugerida:**
+
+> Vue 3 + TypeScript + Vite + PWA
+> Node.js + NestJS
+> PostgreSQL
+> Redis quando necessário
+> Storage compatível com S3
+
+**Plataformas:**
+
+> Web + PWA Android + PWA iOS
+
+**Futuro:**
+
+> Capacitor → Android/iOS nas lojas, caso faça sentido.
+
+**Diferencial:**
+
+> Conectar a gestão dos grupos com uma comunidade real da capoeira.
+
+**Visão:**
+
+> Criar uma rede digital nacional da capoeira.
+
+---
+
+# 108. DIRETRIZ FINAL PARA A IA
+
+Ao iniciar o desenvolvimento do GingApp, seguir estas regras:
+
+```text
+1. NÃO construir somente um sistema de academia.
+
+2. Construir uma plataforma de capoeira.
+
+3. Gestão é a base.
+
+4. A jornada é a experiência do aluno.
+
+5. A comunidade é o diferencial.
+
+6. Rodas e eventos são fundamentais.
+
+7. Matriz e filiais devem ser suportadas desde o início.
+
+8. O sistema deve ser multi-tenant.
+
+9. Dados privados e comunitários devem ser separados.
+
+10. O aluno deve ter uma experiência mobile excelente.
+
+11. O frontend mobile deve ser PWA.
+
+12. A arquitetura deve permitir futura utilização com Capacitor.
+
+13. Não depender inicialmente das lojas Android/iOS.
+
+14. Não criar uma rede social genérica.
+
+15. Não criar funcionalidades futuras antes da hora.
+
+16. Priorizar simplicidade.
+
+17. Priorizar segurança.
+
+18. Priorizar escalabilidade estrutural.
+
+19. Desenvolver o MVP por etapas.
+
+20. Sempre preservar a visão de criar uma rede nacional da capoeira.
+```
+
+---
+
+# 109. OBJETIVO FINAL
+
+O resultado desejado é:
+
+```text
+                    GINGAPP
+                       │
+                       │
+             ┌─────────┴─────────┐
+             │                   │
+          GESTÃO             COMUNIDADE
+             │                   │
+       ┌─────┼─────┐       ┌─────┼─────┐
+       │     │     │       │     │     │
+     Grupo  Aluno  Prof.  Rodas Eventos Grupos
+       │     │     │       │     │     │
+       └─────┼─────┘       └─────┼─────┘
+             │                   │
+             └─────────┬─────────┘
+                       │
+                 CAPOEIRISTA
+                       │
+                 MINHA CIDADE
+                       ↓
+                  MEU ESTADO
+                       ↓
+                    BRASIL
+```
+
+## GingApp
+
+> **A plataforma que conecta a capoeira.**
+
+**Gestão para os grupos.**
+
+**Evolução para os capoeiristas.**
+
+**Comunidade para todos.**
+
+**Uma rede para a capoeira.**

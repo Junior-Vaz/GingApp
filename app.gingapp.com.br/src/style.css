@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+/*
+  GingApp — app.gingapp.com.br (PWA do Capoeirista)
+  Tema escuro dedicado (único tema do app — ver PLANO_PROJETO.md §5.6).
+  Tokens de cor centralizados aqui via Tailwind 4 (@theme). Nunca hardcode
+  hex espalhado pelos componentes — use as classes utilitárias geradas
+  (bg-bg, bg-surface, text-accent, border-subtle, etc.).
+*/
+@theme {
+  /* base */
+  --color-bg: #1a1625;
+  --color-bg-elevated: #201b30;
+
+  /* surfaces (cards) */
+  --color-surface: #241f36;
+  --color-surface-hover: #2c2640;
+
+  /* destaque (CTAs, badges, ícones ativos) */
+  --color-accent: #ec4899;
+  --color-accent-hover: #f472b6;
+  --color-accent-soft: #ec489926;
+
+  /* texto */
+  --color-text: #f2eef8;
+  --color-text-muted: #a99fbd;
+  --color-text-faint: #6f6585;
+
+  /* bordas/divisores sutis — uso raro; hierarquia é por espaçamento */
+  --color-border: #332c4a;
+
+  /* estado */
+  --color-success: #34d399;
+  --color-warning: #fbbf24;
+  --color-danger: #f87171;
+
+  --radius-card: 1.125rem; /* ~18px, dentro da faixa 16–20px pedida */
+  --radius-card-lg: 1.25rem;
+
+  --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+/* rolagem sem scrollbar visível nos carrosséis horizontais */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* área segura em devices com notch/home indicator (PWA standalone) */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
