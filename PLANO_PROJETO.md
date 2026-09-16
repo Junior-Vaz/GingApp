@@ -1073,6 +1073,87 @@ diferente da matriz `RolePermission`, calculada no service, não em `@CanAccess`
 26. `GET /finance/me`/`attendance/me`/`classes/me`/`lessons/me` não têm `@CanAccess` — decisão
     deliberada (a segurança vem da query, não do papel), mas vale relembrar se algum desses módulos
     ganhar um guard global mais restritivo no futuro, para não quebrar por engano.
-27. `RESPONSAVEL` em `/students/me` não foi revalidado nesta rodada específica (rate limit do login
-    interrompeu antes) — a lógica é a mesma já comprovada em `FinanceService.findMine`, mas fica
-    como item a reconfirmar quando o PWA estiver testado de ponta a ponta com login de responsável.
+27. ~~`RESPONSAVEL` em `/students/me` não foi revalidado~~ — **resolvido em §10.9**: confirmado na UI
+    real do PWA logado como Carla (responsável), Home mostrou "Graduação atual de Ana Capoeirista"
+    corretamente.
+
+### 10.9 Fase 1 — PWA do aluno ligado à API real (fecha o MVP completo)
+
+**Data:** 2026-09-16 · **Status:** ✅ concluído — **um bug real de autorização e três bugs de fuso
+horário foram encontrados e corrigidos** durante a validação, não só limitações de tooling.
+
+Estratégia: as 10 telas do `app.gingapp.com.br` foram divididas em 2 subagentes Sonnet em paralelo,
+cada um dono de 5 views sem sobreposição de arquivos (só um dos dois tocou `utils/api.ts`, para
+adicionar o método `patch` que faltava). Ambos instruídos a não subir Docker/backend (o orquestrador
+tinha acabado de terminar de construir os endpoints "/me" na mesma máquina).
+
+- **Grupo A** (orquestrador → agente): `HomeView`, `JornadaView`, `AulasView`, `FrequenciaView`,
+  `PerfilView` — consumindo `students/me`, `lessons/me`, `attendance/me`,
+  `graduations/students/:id`, `announcements` (filtrado no cliente por unidade/ativo).
+- **Grupo B** (orquestrador → agente): `FinanceiroView`, `EventosView`, `RodasView`,
+  `ComunidadeView`, `NotificacoesView` — consumindo `finance/me`, `events` (+ participantes),
+  `rodas` (+ participantes), `notifications` (+ marcar como lida/todas).
+
+#### Bug real de autorização encontrado e corrigido: "Quero participar" em Eventos nunca funcionava
+
+Ao clicar "Quero participar" na tela de Eventos do PWA, a chamada real `POST /events/:id/participants`
+voltava **`403 Forbidden`** — não é limitação de tooling, é um bug de RBAC introduzido na Fase 10.7:
+a rota usava `@CanAccess('events', 'create')`, e só MESTRE/PROFESSOR têm essa permissão na matriz —
+um ALUNO comum **nunca conseguiria se inscrever em um evento pela própria conta**, quebrando a
+funcionalidade central da tela.
+
+**Correção**: removido `@CanAccess` das rotas `POST/DELETE .../participants`; autorização própria
+implementada no `EventsService` (`isOrgAdmin` + `StudentsService.findMine`, mesmo padrão já usado em
+`RodasService.leave`): MESTRE/PROFESSOR pode inscrever/remover qualquer aluno (gestão de lista pelo
+painel); um MEMBER comum só pode se autoinscrever/cancelar a si mesmo ou seus dependentes. Inscrição
+via `guestName` (sem aluno vinculado) segue permissiva para criar, mas só um admin da organização
+pode remover — o DTO nunca guardou `userId` de quem inscreveu, limitação já conhecida e agora também
+documentada no código-fonte, não só no plano.
+
+**Retestado na UI real depois do fix**: clicar "Quero participar" → `201 Created`, botão vira
+"Cancelar presença" → clicar de novo → `200 OK`, botão volta ao estado inicial.
+
+#### Três bugs de fuso horário encontrados e corrigidos (mesma causa raiz)
+
+Campos de "só data" (`Lesson.date`, `FinancialRecord.dueDate`, `StudentGraduation.graduatedAt`) são
+preenchidos no painel via `<input type="date">` — chegam ao banco como **meia-noite UTC**. Exibi-los
+com `toLocaleDateString('pt-BR')` sem forçar `timeZone: 'UTC'` desloca um dia para trás em fusos
+negativos (o fuso desta máquina). Achado ao navegar a tela de Financeiro do PWA: um lançamento
+cadastrado com vencimento **05/10/2026** apareceu como **04/10/2026**.
+
+Corrigidos com `timeZone: 'UTC'` na formatação: `FinanceiroView.vue` (dueDate), `AulasView.vue`
+(lesson.date), `JornadaView.vue` (graduatedAt — o mais sério dos três: sem o fix, uma graduação de
+**01/10** apareceria como "set." em vez de "out.", errando o mês, não só o dia). Um quarto lugar tinha
+o problema na **lógica**, não só na exibição: `HomeView.vue` comparava `lesson.date` (meia-noite UTC)
+contra "meia-noite local" para decidir se uma aula é "próxima" — em fuso negativo, uma aula de hoje
+podia ficar de fora do carrossel por parecer "no passado". Corrigido normalizando os dois lados da
+comparação para a mesma convenção (meia-noite UTC do dia local atual), não só a formatação de texto.
+Retestado: Home continuou mostrando a aula de "Qui" corretamente depois do fix (sem regressão).
+
+#### Validação empírica completa (10 telas, 2 papéis)
+
+Login como ALUNO (Ana): Home (graduação + carrossel + avisos reais), Jornada (timeline cronológica
+correta), Aulas (próximas/anteriores), Frequência (100%, registro certo), Financeiro (valor e data
+certos após o fix), Eventos (participar → cancelar, ambos `2xx` reais), Rodas (participar, `201`),
+Comunidade (agrega rodas+eventos públicos futuros), Notificações (marcar todas como lidas → `200` →
+confirmado via `psql` que `readAt` foi gravado nas 2 notificações → botão some da UI), Perfil (papel,
+grupo, aluno vinculado). Login como RESPONSAVEL (Carla): Home e Financeiro confirmados mostrando os
+dados de Ana (dependente), fechando a pendência 27.
+
+Todos os processos de teste (backend, dev server do PWA, Postgres) encerrados ao final; nenhum
+processo órfão restante (verificado via `Get-CimInstance`).
+
+**Pendências novas desta etapa:**
+
+28. Cancelar a própria inscrição de convidado (`guestName`) em Eventos não é possível — só um admin
+    da organização pode remover participantes desse tipo (limitação de schema documentada, não
+    corrigida: exigiria adicionar `userId` ao fluxo de criação de `EventParticipant`).
+29. `ComunidadeView.vue` não tem paginação/filtro por estado — lista só as próximas rodas/eventos
+    públicos sem segmentação geográfica (`projeto.txt` §38 prevê "minha cidade → meu estado →
+    Brasil", fora do escopo desta rodada).
+30. Nenhuma das 10 views do PWA tem teste automatizado.
+
+Com isso, o **MVP completo está de pé** (`projeto.txt` §78, Gestão + Comunidade): backend com todos
+os módulos, RBAC, painel administrativo funcional, e o PWA do aluno consumindo dados reais de ponta a
+ponta. Os itens ainda pendentes são poli­mento (design real do GestorPrint, testes automatizados,
+Dockerfiles de produção) e Fase 2 (billing, planos dinâmicos, certificados, QR Code).
