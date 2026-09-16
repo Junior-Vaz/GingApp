@@ -273,19 +273,34 @@ async function main() {
   //    nao esta implementado (pendencia registrada em PLANO_PROJETO.md §10.1.3), mas os dados
   //    ja ficam prontos para quando ele for construido.
   // ---------------------------------------------------------------------
-  const RESOURCES = ['students', 'classes', 'lessons', 'attendance', 'graduations', 'finance', 'events', 'rodas', 'announcements'];
-  const MATRIX: Record<OrgRole, { view: boolean; create: boolean; edit: boolean; delete: boolean }> = {
+  type Perms = { view: boolean; create: boolean; edit: boolean; delete: boolean };
+  const RESOURCES = ['students', 'classes', 'lessons', 'attendance', 'graduations', 'finance', 'events', 'rodas', 'announcements', 'teachers'];
+  const DEFAULT_MATRIX: Record<OrgRole, Perms> = {
     [OrgRole.MESTRE]: { view: true, create: true, edit: true, delete: true },
     [OrgRole.PROFESSOR]: { view: true, create: true, edit: true, delete: false },
     [OrgRole.ALUNO]: { view: true, create: false, edit: false, delete: false },
     [OrgRole.RESPONSAVEL]: { view: true, create: false, edit: false, delete: false },
   };
+  // "teachers" (equipe interna do grupo) é mais restrito que o padrão: só MESTRE gerencia,
+  // PROFESSOR só enxerga a lista de colegas, aluno/responsável não precisam disso.
+  const RESOURCE_OVERRIDES: Partial<Record<string, Partial<Record<OrgRole, Perms>>>> = {
+    teachers: {
+      [OrgRole.PROFESSOR]: { view: true, create: false, edit: false, delete: false },
+      [OrgRole.ALUNO]: { view: false, create: false, edit: false, delete: false },
+      [OrgRole.RESPONSAVEL]: { view: false, create: false, edit: false, delete: false },
+    },
+  };
   for (const role of Object.values(OrgRole)) {
     for (const resource of RESOURCES) {
-      const perms = MATRIX[role];
+      const perms = RESOURCE_OVERRIDES[resource]?.[role] ?? DEFAULT_MATRIX[role];
       await prisma.rolePermission.upsert({
         where: { role_resource: { role, resource } },
-        update: {},
+        update: {
+          canView: perms.view,
+          canCreate: perms.create,
+          canEdit: perms.edit,
+          canDelete: perms.delete,
+        },
         create: {
           role,
           resource,

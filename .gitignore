@@ -31,5 +31,5 @@ Thumbs.db
 # Prisma
 backend/prisma/migrations/**/migration_lock.toml.bak
 
-# Claude Code local session settings (per-machine, not shared)
-.claude/settings.local.json
+# Claude Code local session state (per-machine, not shared)
+.claude/
