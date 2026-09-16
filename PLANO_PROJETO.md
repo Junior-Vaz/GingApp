@@ -779,3 +779,87 @@ professores.
     `confirm()` nativo do navegador destoa do design system escuro/claro do produto).
 16. O padrão de `StudentsService`/`StudentsController`/`AlunosView.vue` desta seção é o molde a
     replicar para `teachers`, `classes`, `lessons`, `attendance`, `graduations` nas próximas rodadas.
+
+### 10.6 Fase 1 — Réplica do padrão: Professores, Turmas, Aulas, Frequência, Graduações
+
+**Data:** 2026-09-16 · **Status:** ✅ concluído e validado empiricamente (API real + UI real nos
+pontos mais novos, RBAC confirmado em todos)
+
+Estratégia de execução: **Professores** foi feito pelo orquestrador principal (não seguia o padrão
+CRUD genérico — não existe model `Teacher`, é papel dentro de `OrganizationUser`, e exigiu estender
+o seed de RBAC). **Turmas, Aulas, Frequência e Graduações** foram delegados a 4 subagentes Sonnet em
+paralelo (arquivos sem sobreposição), cada um com o `StudentsService`/`Controller`/`AlunosView.vue`
+como referência obrigatória — instruídos a **não subir Docker/Postgres/backend/dev server** (para não
+colidir entre si na mesma máquina) e validar só via `npm run build`. A validação de comportamento
+real (curl + browser) ficou centralizada aqui, depois que os 4 terminaram.
+
+#### Professores (feito pelo orquestrador)
+
+- Não existe tabela `Teacher` — "professor" é o papel `MESTRE` ou `PROFESSOR` de um
+  `OrganizationUser`. `id` nas rotas é o id da membership, não do `User`.
+- `POST /teachers` cria `User` (userType MEMBER) + `OrganizationUser` juntos numa transação
+  Prisma (`$transaction`); rejeita e-mail já cadastrado (400). `PATCH` atualiza nome/telefone no
+  `User` e papel/status na membership. `DELETE` nunca apaga — marca a membership como `INACTIVE`
+  (mesmo padrão de preservar histórico).
+- **RBAC estendido**: `teachers` não estava na matriz original — adicionei ao `seed.ts` com override
+  por recurso (antes o script só suportava uma matriz uniforme por papel; refatorado para suportar
+  `RESOURCE_OVERRIDES` por recurso). Matriz final: MESTRE tudo, PROFESSOR só `view` (vê colegas, não
+  gerencia), ALUNO/RESPONSAVEL sem acesso nenhum. **Achado corrigido em trânsito**: o `upsert` do seed
+  usava `update: {}` (não atualizava nada se a linha já existisse) — troquei para atualizar de verdade
+  os 4 booleanos, senão rodar o seed de novo nunca corrigiria uma permissão que mudou.
+- `ProfessoresView.vue`: lista + modal criar (nome, e-mail, telefone, senha inicial, papel) + editar
+  (sem e-mail/senha) + inativar.
+
+#### Turmas, Aulas, Frequência, Graduações (delegados, resumo — replicaram o padrão de Alunos)
+
+- **Turmas**: CRUD idêntico ao de Alunos (`Class`), com dia da semana (0-6) e horário. Soft-delete
+  para `INACTIVE`.
+- **Aulas**: CRUD de `Lesson`, com validação cross-tenant de `classId` (400 "Turma inválida para
+  esta organização"), `unitId` e `teacherUserId` (400 "Professor inválido para esta organização" —
+  valida que é uma membership MESTRE/PROFESSOR da mesma org, não só um `User` qualquer).
+- **Frequência**: não é CRUD — é registro em lote por aula. `GET /attendance/lessons/:id` retorna o
+  roster (todo aluno matriculado na turma da aula, com `present: null` se ainda não registrado).
+  `POST /attendance/lessons/:id` recebe um array e faz upsert em transação (tudo ou nada) pela
+  constraint única `[lessonId, studentId]`; valida cada `studentId` contra a organização antes de
+  gravar. Frontend usa checkbox tri-state (indeterminate/presente/ausente) para distinguir "ainda não
+  olhei" de "marquei ausente".
+- **Graduações**: dois níveis — configuração (`GraduationSystem`/`GraduationLevel`, sem delete, não
+  foi pedido) e histórico (`StudentGraduation`, registra e lista por aluno). **Gap de schema
+  identificado pelo agente**: `projeto.txt` §27 pede que cada graduação guarde também Unidade,
+  Professor/Mestre, Evento e Certificado, mas o model `StudentGraduation` só tem
+  `studentId`/`graduationLevelId`/`graduatedAt`/`notes` — implementado fiel ao schema existente
+  (proibido alterar `schema.prisma` nesta rodada), gap sinalizado como pendência de schema.
+
+#### Validação empírica consolidada (feita pelo orquestrador, depois dos 4 agentes)
+
+1. Build limpo de `backend` e `painel` juntos (todos os módulos no mesmo commit de código).
+2. Postgres subido, **seed re-rodado** (idempotente — confirmei via `psql` que a matriz `teachers`
+   ficou exatamente `MESTRE: tudo / PROFESSOR: só view / ALUNO,RESPONSAVEL: nada`).
+3. **Teachers**: criei uma professora nova via `POST /teachers` — retornou membership + user reais.
+4. **Classes**: criei e editei uma turma via API — refletido no `GET /classes`.
+5. **Lessons**: criei uma aula com professor válido (200); com `teacherUserId` de um ALUNO → `400`
+   "Professor inválido"; com `classId` inexistente → `400` "Turma inválida".
+6. **Attendance**: roster antes de registrar mostrou `present: null`; depois do `POST`, `true`;
+   `studentId` inválido → `400`. Repeti o fluxo completo **na UI real** (selecionei a aula, cliquei
+   Salvar) — `read_network_requests` confirmou `POST .../attendance/lessons/1 → 201 Created`.
+7. **Graduations**: criei um nível novo ("Azul") via API, registrei uma graduação para a aluna do
+   seed, histórico foi de 1 para 2 registros. Repeti **na UI real**: naveguei para `/graduacoes`,
+   selecionei a aluna no select, o histórico carregou os 2 registros certos (mais recente primeiro,
+   com a observação exibida) — confirma que o frontend cruza os dados corretamente.
+8. **RBAC nos 5 módulos novos**: ALUNO tentando `POST /classes` → `403`; ALUNO tentando `GET /teachers`
+   → `403`; ALUNO em `GET /graduations/students/1` → `200` (tem `view=true`) — os três exatamente como
+   a matriz define.
+9. Todos os processos de teste (backend, painel dev, Postgres) encerrados ao final.
+
+**Pendências novas desta etapa:**
+
+17. **UX a revisar com o owner**: no `FrequenciaView.vue`, uma linha nunca clicada pelo professor é
+    salva como `present: false` (ausente) em vez de ficar sem registro — decisão do agente, documentada
+    como trade-off, mas vale confirmar se é o comportamento desejado (o risco é marcar como falta um
+    aluno que o professor simplesmente esqueceu de revisar).
+18. `StudentGraduation` não tem campos para Unidade/Professor/Evento/Certificado que `projeto.txt`
+    §27 pede — decisão de ampliar o schema fica para quando isso virar prioridade real (exigiria nova
+    migration).
+19. `GET /graduations` e `GET /graduations/systems` fazem hoje a mesma consulta (redundância latente,
+    não removida por estar fora do escopo pedido ao agente).
+20. Nenhum dos 5 módulos novos tem teste automatizado ainda (mesma pendência geral de §10.1.3 item 6).
