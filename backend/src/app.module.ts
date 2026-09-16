@@ -9,6 +9,7 @@ import { CanAccessGuard } from './shared/guards/can-access.guard';
 import { AuthModule } from './interface/http/auth/auth.module';
 import { HealthModule } from './interface/http/health/health.module';
 import { OrganizationsModule } from './interface/http/organizations/organizations.module';
+import { DashboardModule } from './interface/http/dashboard/dashboard.module';
 import { UnitsModule } from './interface/http/units/units.module';
 import { StudentsModule } from './interface/http/students/students.module';
 import { TeachersModule } from './interface/http/teachers/teachers.module';
@@ -33,6 +34,7 @@ import { NotificationsModule } from './interface/http/notifications/notification
     AuthModule,
     HealthModule,
     OrganizationsModule,
+    DashboardModule,
     UnitsModule,
     StudentsModule,
     TeachersModule,
