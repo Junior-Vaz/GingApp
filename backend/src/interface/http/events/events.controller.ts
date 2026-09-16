@@ -1,6 +1,8 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
@@ -53,23 +55,25 @@ export class EventsController {
     return this.eventsService.listParticipants(organizationId, eventId);
   }
 
+  /** Sem @CanAccess: "quero participar" é self-service para qualquer MEMBER, não uma ação
+   * administrativa — a autorização fina (admin vs. autoinscrição) é feita no service. */
   @Post(':eventId/participants')
-  @CanAccess('events', 'create')
   addParticipant(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('eventId', ParseIntPipe) eventId: number,
     @Body() dto: AddEventParticipantDto,
   ) {
-    return this.eventsService.addParticipant(organizationId, eventId, dto);
+    return this.eventsService.addParticipant(organizationId, eventId, user, dto);
   }
 
   @Delete(':eventId/participants/:participantId')
-  @CanAccess('events', 'edit')
   removeParticipant(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('eventId', ParseIntPipe) eventId: number,
     @Param('participantId', ParseIntPipe) participantId: number,
   ) {
-    return this.eventsService.removeParticipant(organizationId, eventId, participantId);
+    return this.eventsService.removeParticipant(organizationId, eventId, participantId, user);
   }
 }

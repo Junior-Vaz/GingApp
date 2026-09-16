@@ -1,8 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { OrgRole } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { StudentsService } from '../students/students.service';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { AddEventParticipantDto } from './dto/add-event-participant.dto';
+
+const ADMIN_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR];
 
 /**
  * Eventos do grupo — CRUD completo, sempre isolado por organizationId (PLANO_PROJETO.md
@@ -11,7 +16,10 @@ import { AddEventParticipantDto } from './dto/add-event-participant.dto';
  */
 @Injectable()
 export class EventsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly studentsService: StudentsService,
+  ) {}
 
   findAll(organizationId: number) {
     return this.prisma.event.findMany({
@@ -96,8 +104,21 @@ export class EventsService {
   /**
    * Adiciona um participante ao evento — OU um aluno (studentId) OU um convidado sem
    * cadastro (guestName), nunca os dois nem nenhum dos dois.
+   *
+   * Autorização própria, não `@CanAccess` (achado corrigido em §10.9 do plano: a rota usava
+   * `@CanAccess('events','create')`, o que bloqueava um ALUNO comum de clicar "Quero
+   * participar" — só MESTRE/PROFESSOR tem essa permissão). MESTRE/PROFESSOR pode inscrever
+   * qualquer aluno (gestão de lista, uso do painel); um MEMBER comum só pode se
+   * autoinscrever — a si mesmo/seus dependentes (studentId "seu", via
+   * StudentsService.findMine) ou como convidado (guestName sempre permitido, ação de baixo
+   * risco, mesmo espírito do autoregistro em rodas).
    */
-  async addParticipant(organizationId: number, eventId: number, dto: AddEventParticipantDto) {
+  async addParticipant(
+    organizationId: number,
+    eventId: number,
+    requester: AuthenticatedUser,
+    dto: AddEventParticipantDto,
+  ) {
     await this.findOne(organizationId, eventId);
 
     const hasStudent = dto.studentId != null;
@@ -113,6 +134,13 @@ export class EventsService {
       if (!student) {
         throw new BadRequestException('Aluno inválido para esta organização.');
       }
+
+      if (!this.isOrgAdmin(requester)) {
+        const myStudents = await this.studentsService.findMine(organizationId, requester.id);
+        if (!myStudents.some((s) => s.id === dto.studentId)) {
+          throw new ForbiddenException('Você só pode inscrever a si mesmo ou seus dependentes.');
+        }
+      }
     }
 
     return this.prisma.eventParticipant.create({
@@ -127,8 +155,20 @@ export class EventsService {
     });
   }
 
-  /** Remove um participante — valida que pertence ao evento/organização (404 se não). */
-  async removeParticipant(organizationId: number, eventId: number, participantId: number) {
+  /**
+   * Remove um participante. Mesma lógica de autorização de `addParticipant` (sem
+   * `@CanAccess`): MESTRE/PROFESSOR remove qualquer um; um MEMBER comum só pode cancelar a
+   * própria inscrição (studentId "seu"). **Limitação conhecida**: inscrição via `guestName`
+   * não guarda quem inscreveu (o DTO nunca recebeu `userId`), então só um admin da
+   * organização pode remover participantes de convidado — não há "cancelar minha própria
+   * inscrição de convidado" nesta versão.
+   */
+  async removeParticipant(
+    organizationId: number,
+    eventId: number,
+    participantId: number,
+    requester: AuthenticatedUser,
+  ) {
     await this.findOne(organizationId, eventId);
 
     const participant = await this.prisma.eventParticipant.findFirst({
@@ -138,7 +178,21 @@ export class EventsService {
       throw new NotFoundException('Participante não encontrado.');
     }
 
+    if (!this.isOrgAdmin(requester)) {
+      const myStudents = participant.studentId
+        ? await this.studentsService.findMine(organizationId, requester.id)
+        : [];
+      const isMine = participant.studentId != null && myStudents.some((s) => s.id === participant.studentId);
+      if (!isMine) {
+        throw new ForbiddenException('Você só pode cancelar a própria inscrição.');
+      }
+    }
+
     await this.prisma.eventParticipant.delete({ where: { id: participantId } });
+  }
+
+  private isOrgAdmin(user: AuthenticatedUser): boolean {
+    return !!user.role && ADMIN_ROLES.includes(user.role);
   }
 
   /** Nunca confiar em unitId vindo do corpo da requisição sem confirmar que pertence à
