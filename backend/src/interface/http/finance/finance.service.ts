@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { StudentsService } from '../students/students.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
 import { UpdateFinanceRecordDto } from './dto/update-finance-record.dto';
 
@@ -9,12 +10,32 @@ import { UpdateFinanceRecordDto } from './dto/update-finance-record.dto';
  */
 @Injectable()
 export class FinanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly studentsService: StudentsService,
+  ) {}
 
   findAll(organizationId: number) {
     return this.prisma.financialRecord.findMany({
       where: { organizationId },
       orderBy: { id: 'desc' },
+      take: 50,
+    });
+  }
+
+  /**
+   * "Meu financeiro" — escopado aos alunos ligados ao usuário autenticado (ele mesmo ou seus
+   * dependentes via StudentGuardian), NUNCA à organização inteira. Resolve a pendência
+   * registrada em §10.7: GET /finance é restrito a MESTRE/PROFESSOR porque não é filtrado;
+   * esta rota é o jeito seguro de um ALUNO/RESPONSAVEL ver os próprios lançamentos.
+   */
+  async findMine(organizationId: number, userId: number) {
+    const students = await this.studentsService.findMine(organizationId, userId);
+    if (students.length === 0) return [];
+
+    return this.prisma.financialRecord.findMany({
+      where: { organizationId, studentId: { in: students.map((s) => s.id) } },
+      orderBy: { dueDate: 'desc' },
       take: 50,
     });
   }

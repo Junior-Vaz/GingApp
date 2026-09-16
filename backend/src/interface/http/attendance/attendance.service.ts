@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { StudentsService } from '../students/students.service';
 import { AttendanceEntryDto } from './dto/mark-attendance.dto';
 
 export interface RosterEntry {
@@ -16,7 +17,10 @@ export interface RosterEntry {
  */
 @Injectable()
 export class AttendanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly studentsService: StudentsService,
+  ) {}
 
   findAll(organizationId: number) {
     return this.prisma.attendance.findMany({
@@ -24,6 +28,29 @@ export class AttendanceService {
       orderBy: { id: 'desc' },
       take: 50,
     });
+  }
+
+  /** "Minha frequência" — escopado aos alunos ligados ao usuário autenticado (mesmo padrão
+   * de FinanceService.findMine), com o percentual dos últimos 30 dias já calculado. */
+  async findMine(organizationId: number, userId: number) {
+    const students = await this.studentsService.findMine(organizationId, userId);
+    if (students.length === 0) return { records: [], last30dPercent: null };
+
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const studentIds = students.map((s) => s.id);
+
+    const records = await this.prisma.attendance.findMany({
+      where: { organizationId, studentId: { in: studentIds } },
+      include: { lesson: { select: { date: true, classId: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    });
+
+    const recent = records.filter((r) => r.createdAt >= thirtyDaysAgo);
+    const presentCount = recent.filter((r) => r.present).length;
+    const last30dPercent = recent.length > 0 ? Math.round((presentCount / recent.length) * 100) : null;
+
+    return { records, last30dPercent };
   }
 
   /**

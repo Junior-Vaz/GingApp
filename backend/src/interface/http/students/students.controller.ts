@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { StudentsService } from './students.service';
 import { CreateStudentDto } from './dto/create-student.dto';
@@ -13,6 +14,14 @@ export class StudentsController {
   @CanAccess('students', 'view')
   findAll(@CurrentOrganization() organizationId: number) {
     return this.studentsService.findAll(organizationId);
+  }
+
+  /** Não passa por @CanAccess: qualquer MEMBER autenticado pode ver os PRÓPRIOS vínculos —
+   * a segurança vem da query sempre filtrar por userId do token (StudentsService.findMine),
+   * não de uma checagem de papel. Precisa vir antes de `:id` para "me" não ser lido como id. */
+  @Get('me')
+  findMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
+    return this.studentsService.findMine(organizationId, userId);
   }
 
   @Get(':id')

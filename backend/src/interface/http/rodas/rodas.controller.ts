@@ -1,7 +1,9 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
 import { Public } from '../../../shared/decorators/public.decorator';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { RodasService } from './rodas.service';
 import { CreateRodaDto } from './dto/create-roda.dto';
 import { UpdateRodaDto } from './dto/update-roda.dto';
@@ -55,5 +57,28 @@ export class RodasController {
   @CanAccess('rodas', 'delete')
   remove(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
     return this.rodasService.remove(organizationId, id);
+  }
+
+  /** Lista pública (quem confirmou presença) — mesmo espírito de findAll/findOne. */
+  @Public()
+  @Get(':id/participants')
+  listParticipants(@Param('id', ParseIntPipe) id: number) {
+    return this.rodasService.listParticipants(id);
+  }
+
+  /** "Quero participar" — sem @CanAccess: qualquer MEMBER autenticado pode confirmar
+   * presença na própria conta (não é uma ação administrativa da organização). */
+  @Post(':id/participants')
+  join(@CurrentUser('id') userId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.rodasService.join(id, userId);
+  }
+
+  @Delete(':id/participants/:participantId')
+  leave(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('participantId', ParseIntPipe) participantId: number,
+  ) {
+    return this.rodasService.leave(id, participantId, user);
   }
 }

@@ -1,12 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { StudentsService } from '../students/students.service';
 import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
 
 /** Turmas do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
 export class ClassesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly studentsService: StudentsService,
+  ) {}
 
   findAll(organizationId: number) {
     return this.prisma.class.findMany({
@@ -14,6 +18,22 @@ export class ClassesService {
       orderBy: { id: 'desc' },
       take: 50,
     });
+  }
+
+  /** "Minhas turmas" — as turmas em que os alunos ligados ao usuário autenticado estão
+   * matriculados (mesmo padrão de FinanceService.findMine). */
+  async findMine(organizationId: number, userId: number) {
+    const students = await this.studentsService.findMine(organizationId, userId);
+    if (students.length === 0) return [];
+
+    const enrollments = await this.prisma.classStudent.findMany({
+      where: { organizationId, studentId: { in: students.map((s) => s.id) }, status: 'ACTIVE' },
+      select: { classId: true },
+    });
+    const classIds = [...new Set(enrollments.map((e) => e.classId))];
+    if (classIds.length === 0) return [];
+
+    return this.prisma.class.findMany({ where: { id: { in: classIds } } });
   }
 
   async findOne(organizationId: number, id: number) {

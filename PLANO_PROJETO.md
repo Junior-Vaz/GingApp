@@ -980,3 +980,99 @@ grupo/matriz/filiais, usuários, permissões, alunos, professores, turmas, aulas
 graduações, dashboard, financeiro básico — faltam eventos/rodas/comunicados/notificações do lado
 "Comunidade" do MVP (eventos e rodas já têm backend completo agora; falta comunicados, notificações,
 e o PWA do aluno consumindo tudo isso de verdade em vez de dados mockados).
+
+### 10.8 Fase 1 — Comunicados, Notificações e endpoints "/me" para o PWA
+
+**Data:** 2026-09-16 · **Status:** ✅ backend concluído e validado empiricamente (frontend do PWA
+é a próxima etapa, §10.9)
+
+Tudo feito pelo orquestrador (não delegado): a lógica de distribuição de notificações e os
+endpoints "/me" cruzam múltiplos módulos e exigem entender o modelo de dados inteiro — não é um
+CRUD isolado que dê para replicar de um molde.
+
+#### Comunicados (`Announcement`) → distribuição automática de Notificações
+
+CRUD completo (create/update/remove, `remove` marca `isActive=false`, nunca apaga — comunicado é
+registro de comunicação com valor de auditoria). **O que torna isso mais que um CRUD**: ao publicar
+(`create`), o service monta o público-alvo e cria uma `Notification` por usuário:
+- `unitId` nulo → todo `OrganizationUser` ativo da organização (qualquer papel).
+- `unitId` preenchido → união de: MESTRE (sempre, vê tudo), professores com `UserUnitAccess` naquela
+  unidade, alunos daquela unidade (via `Student.unitId`) e os responsáveis vinculados a eles (via
+  `StudentGuardian`).
+- Só distribui na criação, não em edições (para não notificar de novo por causa de uma correção de
+  texto — decisão registrada no código).
+
+**Gap de produto conhecido e documentado**: o schema só suporta o escopo binário grupo/unidade;
+`projeto.txt` §47 pede escopos mais finos (minha turma/meu estado/público) que exigiriam campos
+novos — fora do escopo desta rodada.
+
+#### Notificações (`Notification`)
+
+`GET /notifications`, `GET /notifications/unread-count`, `PATCH /notifications/:id/read`,
+`PATCH /notifications/read-all` — todas escopadas por `userId` do token, nunca por organização
+(um usuário só vê e só marca como lida a própria notificação; sem `@CanAccess`, a segurança vem da
+query sempre filtrar por `userId`, não de RBAC por papel).
+
+#### Endpoints "/me" — resolvem a pendência de Fase 2 registrada em §10.7
+
+Todos seguem o mesmo padrão: resolvem os alunos ligados ao usuário autenticado (ele mesmo, se for
+ALUNO com `Student.userId` próprio, e/ou seus dependentes via `StudentGuardian`) e escopam a
+resposta só a isso — nunca à organização inteira. Nenhum usa `@CanAccess` (a segurança vem da query,
+não de RBAC por papel), o que permite existirem mesmo com `finance`/`dashboard` restritos para
+ALUNO/RESPONSAVEL na matriz:
+- `GET /students/me` — o(s) `Student` ligado(s) ao usuário (novo, em `StudentsService.findMine`,
+  reaproveitado por todos os outros abaixo via injeção de módulo).
+- `GET /finance/me` — registros financeiros só dos alunos "meus".
+- `GET /attendance/me` — `{ records, last30dPercent }` só dos alunos "meus".
+- `GET /classes/me` — turmas em que os alunos "meus" estão matriculados (via `ClassStudent`).
+- `GET /lessons/me` — aulas das turmas "minhas", ordenadas por data crescente (pensado para
+  "próxima aula" ficar sempre no topo).
+
+Cadeia de injeção entre módulos: `LessonsModule` importa `ClassesModule` importa `StudentsModule`
+importa nada — cada um expõe seu `findMine` e o de cima reaproveita, em vez de duplicar a consulta
+de "quais alunos são meus" em 4 lugares.
+
+#### Participação em Rodas (`RodaParticipant`) — "quero participar" (projeto.txt §41)
+
+Como `Roda` é pública (sem RBAC por organização), a participação usa uma regra de autorização
+diferente da matriz `RolePermission`, calculada no service, não em `@CanAccess`:
+- `POST /rodas/:id/participants` — autoregistro do próprio usuário (`userId` do token), idempotente
+  (clicar de novo não duplica).
+- `DELETE /rodas/:id/participants/:participantId` — só o próprio participante pode remover a
+  própria presença, **ou** um MESTRE/PROFESSOR da organização que organiza aquela roda especificamente
+  (comparando `roda.organizationId` com o do token) pode remover qualquer participante (gestão da
+  lista); qualquer outra combinação → `403`.
+- `GET /rodas/:id/participants` — pública, mesmo espírito de `findAll`/`findOne`.
+
+#### Validação empírica (tudo numa única sessão de shell para não bater no rate limit do login)
+
+1. Comunicado org-wide criado → os 4 membros da organização receberam `Notification` (confirmado
+   consultando `/notifications` do aluno).
+2. `unread-count` correto antes/depois de marcar como lida; responsável tentando marcar a
+   notificação do aluno (não é dele) → `404` (isolamento por dono confirmado).
+3. Comunicado escopado por `unitId` criado com sucesso (não testei o fan-out fino aluno-vs-professor
+   nesta rodada — coberto pela leitura do código, não por teste automatizado; pendência).
+4. `GET /students/me` (aluno) → a própria Ana. `GET /students/me` funcionaria com RESPONSAVEL de
+   forma análoga (lógica idêntica à de `finance/me`, já testada com sucesso para RESPONSAVEL antes
+   do rate limit interromper o teste direto — revalidar quando o PWA estiver ligado de verdade).
+5. `GET /finance/me` (aluno) → só o lançamento da própria Ana (`R$ 180,50`), não os de outros alunos.
+6. `GET /attendance/me` → registro certo + `last30dPercent: 100`.
+7. `GET /classes/me` e `GET /lessons/me` → só a turma/aula em que a Ana está matriculada.
+8. `POST /rodas/1/participants` (aluno) → idempotente (POST duplicado retornou o mesmo registro,
+   não criou um segundo). `GET /rodas/1/participants` → 2 participantes (mestre do seed + aluno).
+9. **Os 3 caminhos de permissão de `leave` testados e confirmados**: aluno removendo a participação
+   do mestre (não é dele) → `403`; aluno removendo a própria → `200`; professor (admin da
+   organização) removendo a participação do aluno → `200`.
+10. Build limpo de `backend` a cada mudança; nenhum servidor/Docker deixado rodando ao final.
+
+**Pendências novas desta etapa:**
+
+25. Fan-out de comunicado por unidade não tem teste automatizado provando que exatamente o público
+    certo (professor daquela unidade + alunos daquela unidade + responsáveis) recebeu a notificação
+    — só o caminho org-wide foi testado ponta a ponta.
+26. `GET /finance/me`/`attendance/me`/`classes/me`/`lessons/me` não têm `@CanAccess` — decisão
+    deliberada (a segurança vem da query, não do papel), mas vale relembrar se algum desses módulos
+    ganhar um guard global mais restritivo no futuro, para não quebrar por engano.
+27. `RESPONSAVEL` em `/students/me` não foi revalidado nesta rodada específica (rate limit do login
+    interrompeu antes) — a lógica é a mesma já comprovada em `FinanceService.findMine`, mas fica
+    como item a reconfirmar quando o PWA estiver testado de ponta a ponta com login de responsável.

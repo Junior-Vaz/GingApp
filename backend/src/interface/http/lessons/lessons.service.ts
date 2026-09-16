@@ -1,20 +1,38 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OrgRole } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { ClassesService } from '../classes/classes.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
 
-const TEACHER_ROLES = [OrgRole.MESTRE, OrgRole.PROFESSOR];
+const TEACHER_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR];
 
 /** Aulas do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
 export class LessonsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly classesService: ClassesService,
+  ) {}
 
   findAll(organizationId: number) {
     return this.prisma.lesson.findMany({
       where: { organizationId },
       orderBy: { id: 'desc' },
+      take: 50,
+    });
+  }
+
+  /** "Minhas aulas" — aulas das turmas em que os alunos ligados ao usuário autenticado estão
+   * matriculados (mesmo padrão de ClassesService.findMine/FinanceService.findMine). Ordenado
+   * por data crescente para "próxima aula" ficar sempre no topo. */
+  async findMine(organizationId: number, userId: number) {
+    const myClasses = await this.classesService.findMine(organizationId, userId);
+    if (myClasses.length === 0) return [];
+
+    return this.prisma.lesson.findMany({
+      where: { organizationId, classId: { in: myClasses.map((c) => c.id) } },
+      orderBy: { date: 'asc' },
       take: 50,
     });
   }

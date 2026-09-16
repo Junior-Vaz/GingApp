@@ -1,7 +1,11 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { OrgRole, ParticipantStatus } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { CreateRodaDto } from './dto/create-roda.dto';
 import { UpdateRodaDto } from './dto/update-roda.dto';
+
+const ADMIN_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR];
 
 /**
  * Rodas pertencem ao domínio "Comunidade" (PLANO_PROJETO.md §2.3): dados públicos, listados
@@ -98,6 +102,60 @@ export class RodasService {
       this.prisma.roda.delete({ where: { id } }),
     ]);
 
+    return { success: true };
+  }
+
+  /** Lista pública de quem confirmou presença — não é dado sensível, mesmo espírito de
+   * findAll/findOne (sem filtro por organização). */
+  async listParticipants(rodaId: number) {
+    await this.findOne(rodaId);
+    return this.prisma.rodaParticipant.findMany({
+      where: { rodaId },
+      include: { user: { select: { id: true, name: true } }, student: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * "Quero participar" (projeto.txt §41) — autoregistro do próprio usuário autenticado.
+   * Idempotente: clicar de novo não duplica, só devolve a participação existente.
+   */
+  async join(rodaId: number, userId: number) {
+    await this.findOne(rodaId);
+
+    const existing = await this.prisma.rodaParticipant.findFirst({ where: { rodaId, userId } });
+    if (existing) return existing;
+
+    return this.prisma.rodaParticipant.create({
+      data: { rodaId, userId, status: ParticipantStatus.CONFIRMED },
+    });
+  }
+
+  /**
+   * Cancelar presença: o próprio participante pode remover a si mesmo; MESTRE/PROFESSOR da
+   * organização que organiza a roda também pode remover qualquer participante (gestão da
+   * lista). Qualquer outra pessoa recebe 403.
+   */
+  async leave(rodaId: number, participantId: number, requester: AuthenticatedUser) {
+    const participant = await this.prisma.rodaParticipant.findFirst({ where: { id: participantId, rodaId } });
+    if (!participant) {
+      throw new NotFoundException('Participante não encontrado nesta roda.');
+    }
+
+    const isSelf = participant.userId === requester.id;
+    if (!isSelf) {
+      const roda = await this.prisma.roda.findUnique({ where: { id: rodaId }, select: { organizationId: true } });
+      const isOrgAdmin =
+        roda?.organizationId != null &&
+        roda.organizationId === requester.organizationId &&
+        !!requester.role &&
+        ADMIN_ROLES.includes(requester.role);
+      if (!isOrgAdmin) {
+        throw new ForbiddenException('Você só pode cancelar a própria participação.');
+      }
+    }
+
+    await this.prisma.rodaParticipant.delete({ where: { id: participantId } });
     return { success: true };
   }
 

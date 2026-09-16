@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { LessonsService } from './lessons.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
@@ -13,6 +14,12 @@ export class LessonsController {
   @CanAccess('lessons', 'view')
   findAll(@CurrentOrganization() organizationId: number) {
     return this.lessonsService.findAll(organizationId);
+  }
+
+  /** Sem @CanAccess: escopado por construção às turmas do próprio usuário. */
+  @Get('me')
+  findMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
+    return this.lessonsService.findMine(organizationId, userId);
   }
 
   @Get(':id')

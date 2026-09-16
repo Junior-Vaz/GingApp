@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { FinanceService } from './finance.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
@@ -13,6 +14,13 @@ export class FinanceController {
   @CanAccess('finance', 'view')
   findAll(@CurrentOrganization() organizationId: number) {
     return this.financeService.findAll(organizationId);
+  }
+
+  /** Sem @CanAccess: escopado por construção aos alunos do próprio usuário (nunca à
+   * organização inteira) — ver FinanceService.findMine. Precisa vir antes de `:id`. */
+  @Get('me')
+  findMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
+    return this.financeService.findMine(organizationId, userId);
   }
 
   @Get(':id')

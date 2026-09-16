@@ -16,6 +16,29 @@ export class StudentsService {
     });
   }
 
+  /**
+   * Alunos ligados ao usuário autenticado: ele mesmo (se for ALUNO com Student.userId
+   * próprio) e/ou os alunos dos quais é responsável (StudentGuardian.userId) — cobre tanto
+   * o PWA do próprio capoeirista quanto o de um responsável acompanhando os filhos.
+   */
+  async findMine(organizationId: number, userId: number) {
+    const [ownRecord, guardianLinks] = await Promise.all([
+      this.prisma.student.findFirst({ where: { organizationId, userId } }),
+      this.prisma.studentGuardian.findMany({
+        where: { organizationId, userId },
+        include: { student: true },
+      }),
+    ]);
+
+    const students = ownRecord ? [ownRecord] : [];
+    for (const link of guardianLinks) {
+      if (!students.some((s) => s.id === link.student.id)) {
+        students.push(link.student);
+      }
+    }
+    return students;
+  }
+
   async findOne(organizationId: number, id: number) {
     const student = await this.prisma.student.findFirst({ where: { id, organizationId } });
     if (!student) {
