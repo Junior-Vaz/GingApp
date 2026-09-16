@@ -66,7 +66,7 @@ autenticação/infra e é o núcleo do padrão a replicar.
 
 | Camada | Tecnologia |
 |---|---|
-| Frontend (3 SPAs) | Vue 3.5 + TypeScript + Vite 7 + Pinia + Tailwind 4 |
+| Frontend (3 SPAs) | Vue 3.5 + TypeScript + Vite 8 + Pinia + Tailwind 4 (ver §10.1 — `npm create vite@latest` entrega Vite 8 por padrão hoje, não 7 como originalmente sugerido) |
 | Frontend Landing | Vue 3 + Vite (estático) ou Astro/HTML puro |
 | PWA | Web App Manifest + Service Worker (Workbox) no `app.gingapp.com.br` |
 | Backend | Node.js + NestJS + TypeScript |
@@ -509,9 +509,111 @@ usando esta seção como briefing.
 
 ## 9. PRÓXIMOS PASSOS IMEDIATOS
 
-1. Validar este plano com o owner (nomes de subdomínio, se `painel.gingapp.com.br` é o nome definitivo).
-2. Inicializar monorepo (estrutura de pastas de §1.2) + `docker-compose.yml` de desenvolvimento.
-3. Modelar o schema Prisma completo a partir de §2 e gerar a primeira migration.
-4. Extrair tokens de design (cores/tipografia/componentes) do `admin.gestorprinte.com.br` para o
-   `admin.gingapp.com.br` antes de iniciar as telas do SaaS Admin.
-5. Seguir a ordem técnica de §7.
+Ver §10.1 para o que já está feito. Pendências ficam numeradas em §10.1.3 — não repetir aqui.
+
+---
+
+## 10. LOG DE EXECUÇÃO
+
+### 10.1 Fase 1 — Fundação (scaffold inicial do monorepo)
+
+**Data:** 2026-09-16 · **Status:** ✅ concluído (base validada empiricamente, não só compilada)
+
+**Estratégia de execução:** 3 subagentes em paralelo (Sonnet — complexidade média, conforme matriz de
+balanceamento), cada um dono de uma parte sem sobreposição de arquivos; o loop principal (Sonnet)
+coordenou, verificou com uma via independente (psql direto no container, não só a saída do Prisma CLI)
+e fez a integração final (Docker Compose, resolução de conflito de porta, commit).
+
+#### 10.1.1 O que foi feito e o que deu certo
+
+**Backend (`backend/`)** — NestJS + Prisma:
+- Schema Prisma com **34 models + 8 enums**, cobrindo as 3 camadas do plano (Plataforma/Organização/
+  Comunidade) — validado com `npx prisma format`/`validate` pelo agente, e depois **validado de verdade**
+  pelo orquestrador: `npx prisma migrate dev --name init` rodou contra um Postgres real
+  (`docker-compose`, container `gingapp-postgres-1`, migration `20260916200915_init`), e a existência
+  das 34 tabelas + `_prisma_migrations` foi confirmada por uma **segunda via independente**
+  (`docker exec gingapp-postgres-1 psql -U gingapp -d gingapp -c "\dt"` → 35 linhas), não só pela
+  saída do próprio comando que as criou.
+- Auth dupla implementada de verdade (não só esqueleto): `POST /api/auth/login` (MEMBER) e
+  `POST /api/auth/platform-login` (PLATFORM), bcrypt, `JwtAuthGuard` global + `@Public()`,
+  `PlatformOnlyGuard`, `@CurrentUser()`/`@CurrentOrganization()`, rate limiting, allowlist de IP
+  opcional, revogação de sessão via `tokenValidAfter`.
+- 14 módulos-esqueleto (organizations, units, students, teachers, classes, lessons, attendance,
+  graduations, finance, events, rodas, announcements, notifications, health), cada um com pelo menos
+  um endpoint GET real via Prisma.
+- **Smoke test real do orquestrador** (não só `npm run build`): `node dist/main.js` de pé contra o
+  Postgres do docker-compose → `GET /api/health` retornou `{"status":"ok","database":"up"}` e
+  `GET /api/organizations` sem token retornou `401` corretamente. Processo encerrado após o teste.
+
+**`painel.gingapp.com.br` e `admin.gingapp.com.br`** — Vue 3 + TS + Vite + Pinia + Tailwind:
+- Todas as rotas pedidas roteadas de verdade, `SidebarLayout` com item ativo, guard de sessão
+  (`mb_token`/`sa_token`), `LoginView` funcional (mock). Builds limpos validados **ao vivo no browser**
+  pelo próprio agente (login mock → dashboard → sidebar), não só por `npm run build`.
+
+**`app.gingapp.com.br`** — PWA do aluno, tema dark:
+- Paleta aplicada via tokens Tailwind (`--color-bg #1a1625`, `--color-accent #ec4899` etc., ver tabela
+  completa que o agente reportou), bottom nav com 5 itens, todas as 11 rotas roteadas.
+- `vite-plugin-pwa` configurado com estratégia de cache diferenciada: `NetworkOnly` para `/api/finance/*`
+  (nunca cacheado — exigência de segurança do §6), `NetworkFirst` para demais `/api/*`,
+  `StaleWhileRevalidate` para imagens. Manifest e Service Worker gerados e conferidos no build de
+  produção (`dist/manifest.webmanifest`, `dist/sw.js`).
+
+**Integração (orquestrador):**
+- `docker-compose.yml` de dev criado: `postgres` + `backend` + `painel` + `app` + `admin`, todos com
+  hot-reload via bind mount.
+- `.gitignore` raiz criado (não existia) cobrindo `node_modules`, `dist`, `.env`, e
+  `.claude/settings.local.json` (config local de sessão, não deve ir para o repo compartilhado).
+- Commit inicial: `ad09520` — "feat: fundacao do monorepo GingApp" (188 arquivos, sem `.env`/
+  `node_modules`/segredos — conferido via `git status --short` antes do commit).
+
+#### 10.1.2 O que NÃO deu certo de primeira e a solução
+
+1. **Conflito de porta do Postgres.** Tentativa 1: mapear o Postgres do GingApp em `55432:5432` →
+   falhou (`port is already allocated`). Investigação (`docker ps -a`) revelou que esta máquina já
+   roda **múltiplos outros projetos em Docker**: `gestorprinte-pg` (Postgres em 55432),
+   `gestorprint-db-1` (Postgres em 5432), `idinercombr-db-1` (Postgres em 5433), mais Redis em
+   6379/6380. **Solução:** porta `15432` (confirmada livre via `netstat`), atualizada em
+   `docker-compose.yml`, `backend/.env` e `backend/.env.example`, e revalidada — subiu e ficou
+   `healthy`.
+2. **Portas de dev dos 3 frontends colidiam com o GestorPrint**, que já roda nativamente (fora de
+   Docker) em `5173`/`5174` nesta máquina (achado pelo agente do painel/admin, confirmado por
+   `netstat`). **Solução:** portas do GingApp deslocadas para uma faixa própria — `4173` (app),
+   `4174` (painel), `4175` (admin) — editadas nos 3 `vite.config.ts`.
+3. **Vite 8 em vez de Vite 7** (pedido original, §62 do plano/instrução aos agentes): `npm create
+   vite@latest` hoje entrega `^8.3.0` por padrão. Os 3 frontends ficaram **consistentes entre si**
+   (todos em Vite 8), então não há divergência real de versão dentro do monorepo — só uma divergência
+   em relação ao que o plano originalmente sugeria. Documento atualizado (§1.1) para refletir a
+   realidade em vez de manter um número desatualizado.
+4. **NestJS 12 gerado pelo `@nestjs/cli` atual vem em ESM puro** (exigiria `.js` em todo import
+   relativo, TS 6, toolchain diferente). O agente do backend reconfigurou para CommonJS estável para
+   reduzir risco de atrito com bcrypt/passport-jwt/Prisma — decisão pragmática, documentada, não
+   escondida.
+5. **Backend não conectava ao Postgres durante o scaffold** (credenciais placeholder `postgres/postgres`
+   não autenticavam contra um Postgres pré-existente do sistema). O agente não "mascarou" isso como
+   sucesso — reportou explicitamente que a migration real não tinha rodado. Resolvido na integração
+   (item 10.1.1) com o Postgres dedicado do GingApp em `15432`.
+
+#### 10.1.3 Pendências (numeradas — para retomar sem redescobrir)
+
+1. **RBAC granular (`RolePermission` + `@CanAccess`) não implementado** — schema já tem a tabela, guard
+   ainda não. Próximo módulo a implementar antes de dar acesso real a Professor/Aluno/Responsável.
+2. **App `gingapp.com.br` (landing) ainda não foi criado** — adiado de propósito (Fase 2 no roadmap
+   original, §7), mantém a pasta ausente do monorepo por enquanto.
+3. **Extração dos tokens visuais reais do `admin.gestorprinte.com.br`** (paleta/tipografia exatas)
+   continua pendente — `painel.gingapp.com.br` e `admin.gingapp.com.br` estão com paleta neutra
+   provisória (decisão explícita do agente para não inventar uma marca).
+4. **Dockerfiles de produção (multi-stage → nginx) dos 4 apps não foram testados** — só o modo dev
+   (`docker-compose.yml`, via `node:22-alpine` + `npm run dev`) foi validado. `docker-compose.prod.yml`
+   ainda não existe.
+5. **`docker-compose.yml` de dev reinstala `npm install` a cada `docker compose up`** (sem lockfile
+   cacheado em imagem própria) — aceitável agora, mas lento; otimizar com Dockerfile.dev dedicado se
+   incomodar no dia a dia.
+6. **Nenhum teste automatizado ainda** (§8 do plano) — não é bloqueador da fundação, mas é a próxima
+   frente depois do RBAC.
+7. **Seed de dados de desenvolvimento** (organização de exemplo, usuário PLATFORM inicial para logar no
+   admin) não existe — sem ele, não dá para logar em nenhum dos 3 apps ainda, mesmo com tudo de pé.
+8. **Ícones do PWA são placeholders gerados por script** (círculo magenta), não arte de marca real.
+
+**Próximo passo recomendado:** item 7 (seed) é o que desbloqueia testar o login de ponta a ponta nos 3
+apps contra o backend real — provavelmente o próximo passo antes de seguir para RBAC ou para os módulos
+de negócio (alunos, turmas, aulas) da ordem técnica em §7.
