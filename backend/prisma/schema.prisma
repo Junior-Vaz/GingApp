@@ -275,6 +275,7 @@ model Organization {
   platformAnnouncements PlatformAnnouncement[]
   publicProfiles        PublicProfile[]
   certificates          Certificate[]
+  rodas                 Roda[]
 
   @@index([status])
 }
@@ -662,23 +663,32 @@ model Community {
   @@index([stateId])
 }
 
+/// organizationId (opcional): identifica qual grupo organiza a roda, para permitir edição/
+/// exclusão restrita a quem criou. Nullable porque uma roda pode, no futuro, ser publicada
+/// por um perfil independente sem organização — mas hoje toda criação parte de um usuário
+/// MEMBER autenticado, então sempre virá preenchido na prática (PLANO_PROJETO.md §10.7,
+/// gap identificado: o schema original não tinha essa FK e não dava para restringir quem
+/// pode editar/apagar uma roda de outro grupo).
 model Roda {
-  id          Int      @id @default(autoincrement())
-  communityId Int?
-  stateId     Int?
-  cityId      Int?
-  title       String
-  description String?
-  date        DateTime
-  location    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  organizationId Int?
+  communityId    Int?
+  stateId        Int?
+  cityId         Int?
+  title          String
+  description    String?
+  date           DateTime
+  location       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
+  organization Organization?     @relation(fields: [organizationId], references: [id])
   community    Community?        @relation(fields: [communityId], references: [id])
   state        State?            @relation(fields: [stateId], references: [id])
   city         City?             @relation(fields: [cityId], references: [id])
   participants RodaParticipant[]
 
+  @@index([organizationId])
   @@index([stateId, date])
   @@index([cityId, date])
 }
