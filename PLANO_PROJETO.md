@@ -863,3 +863,120 @@ real (curl + browser) ficou centralizada aqui, depois que os 4 terminaram.
 19. `GET /graduations` e `GET /graduations/systems` fazem hoje a mesma consulta (redundância latente,
     não removida por estar fora do escopo pedido ao agente).
 20. Nenhum dos 5 módulos novos tem teste automatizado ainda (mesma pendência geral de §10.1.3 item 6).
+
+### 10.7 Fase 1 — Dashboard, Financeiro, Eventos, Rodas (fecha o núcleo de Gestão do MVP)
+
+**Data:** 2026-09-16 · **Status:** ✅ concluído, validado empiricamente — **um bug real de UI foi
+encontrado e corrigido nesta rodada**, não só limitações de tooling.
+
+Estratégia: **Dashboard** e **Rodas** feitos pelo orquestrador (Dashboard não tinha padrão CRUD para
+copiar — é agregação; Rodas exigiu uma correção de schema antes de poder ser implementado do jeito
+certo). **Financeiro** e **Eventos** delegados a 2 subagentes Sonnet em paralelo, seguindo o molde de
+Alunos, com instrução explícita de não subir Docker/backend (o orquestrador estava mexendo em
+schema/migration ao mesmo tempo).
+
+#### Gap de schema corrigido antes de tudo: `Roda.organizationId`
+
+O model `Roda` original (criado na Fase de fundação, §1) não tinha nenhuma FK para `Organization` —
+impossível saber quem organizou uma roda ou restringir quem pode editá-la/excluí-la. **Migration real
+aplicada**: `20260916210225_add_organization_to_roda`, adiciona `organizationId Int?` (nullable — uma
+roda pode em tese ser pública sem organização no futuro) + índice + relação inversa em `Organization`.
+Verificado via `psql \d "Roda"` que a coluna e o índice existem de verdade. A roda já seedada
+(criada antes da migration) ficou com `organizationId` nulo — corrigida manualmente via `UPDATE` no
+Postgres (o script de seed só cria registros novos, não conserta os que já existem — registrado como
+lição para quando o seed precisar de outra alteração retroativa: ou apagar o dado antigo, ou fazer um
+patch manual como este).
+
+**Achado de infraestrutura corrigido em trânsito**: a primeira tentativa de `npx prisma migrate dev`
+falhou com `EPERM` ao gerar o Prisma Client — a DLL do query engine estava travada por **4 processos
+node órfãos** de sessões de teste anteriores desta mesma máquina (`nest start --watch`, `dist/main`
+compilado, 2× `vite` do app.gingapp) que eu não tinha encerrado direito em rodadas passadas. Identificados
+via `Get-CimInstance Win32_Process` (filtrando `CommandLine` por "GingApp") e encerrados — a lição:
+tarefas anteriores desta sessão deixaram processos vivos além do que os logs de "encerrei tudo"
+sugeriam; passei a checar por `CommandLine` (não só por porta) antes de mexer em schema/migration.
+
+#### Dashboard (`GET /dashboard`, feito pelo orquestrador)
+
+Agregação sem padrão de referência — desenhado do zero a partir de `projeto.txt` §30: alunos
+ativos/novos(30d)/inativos, turmas ativas, aulas de hoje, mensalidades previstas vs. atrasadas
+(`atrasado` = `status=OVERDUE` **ou** `PENDING` com `dueDate` vencido — nada transiciona
+automaticamente entre os dois ainda, sem cron/job), frequência média dos últimos 30 dias, graduações
+dos últimos 30 dias, próximos 5 eventos. RBAC: recurso `dashboard` adicionado ao seed, restrito a
+MESTRE/PROFESSOR (ALUNO/RESPONSAVEL não têm — este é o painel administrativo, não a Home do
+capoeirista).
+
+#### Achado de segurança corrigido antes de implementar Financeiro
+
+A matriz RBAC original dava `canView=true` para ALUNO/RESPONSAVEL em **todo** recurso por padrão —
+isso vazaria a situação financeira de **todos os alunos** da organização para qualquer aluno logado
+(`GET /finance` não é filtrado por aluno). Corrigido no seed: `finance` ganhou override
+(`RESOURCE_OVERRIDES`) com ALUNO/RESPONSAVEL sem nenhum acesso, restrito a MESTRE/PROFESSOR.
+
+#### Financeiro, Eventos, Rodas — resumo
+
+- **Financeiro**: CRUD de `FinancialRecord`. `DELETE` é **hard delete de verdade** (não soft-delete
+  como os outros módulos — lançamento errado deve poder ser removido, não "inativado"). `update` com
+  `status: 'PAID'` sem `paidAt` preenche a data/hora atual automaticamente.
+- **Eventos**: CRUD de `Event` (hard delete em cascata dos `EventParticipant`, numa `$transaction`) +
+  sub-recurso de participantes (`GET/POST /events/:id/participants`,
+  `DELETE /events/:id/participants/:participantId`), validando que é sempre **exatamente um** de
+  `studentId`/`guestName` (nunca os dois, nunca nenhum).
+- **Rodas**: CRUD com a nova validação de dono (`organizationId`) — `update`/`remove` só funcionam se
+  a roda pertence à organização do token (404 senão); `create`/`update` validam `stateId`/`cityId`/
+  `communityId` contra a existência real (dados públicos, não contra a organização). Adicionados 2
+  endpoints públicos de conveniência (`GET /rodas/reference/states`, `GET /rodas/reference/cities`)
+  que não existiam antes, só para popular os selects do formulário.
+
+#### Validação empírica — incluindo um bug real de UI encontrado e corrigido
+
+1. Build limpo de `backend` e `painel` juntos.
+2. Postgres subido, seed re-rodado (idempotente — matriz confirmada em **11 recursos** agora, incluindo
+   `dashboard`).
+3. **Dashboard**: `GET /dashboard` retornou números batendo exatamente com os dados reais criados nas
+   sessões de teste anteriores (1 aluno ativo, 1 inativo, 2 turmas, frequência 100%, 1 graduação) —
+   confirmado também **na UI real** (`/dashboard` no browser, todos os cards certos).
+4. **Financeiro via curl**: criado, marcado como pago (auto `paidAt`), excluído de verdade
+   (`GET` depois → `404`).
+5. **Financeiro na UI real — BUG ENCONTRADO E CORRIGIDO**: ao preencher e submeter o formulário de
+   criar lançamento pela tela, nada acontecia (nenhum `POST` disparado). `read_console_messages`
+   revelou o erro real: `form.amountReais.replace is not a function` — o `<input type="number">` do
+   Vue 3 já entrega `number` via `v-model` (não `string`), mas o código gerado pelo agente assumia
+   string e chamava `.replace(',', '.')`. **Corrigido** (`FinanceiroView.vue`): removida a chamada
+   `.replace`, `Number(form.amountReais)` direto. Rebuild + reteste na UI real: `POST /finance → 201`,
+   valor gravado certo (`R$ 180,50`). Também conferi que nenhuma outra view tem o mesmo padrão
+   (`grep` por `.replace(` combinado com `type="number"` — só existia em Financeiro).
+6. **Eventos via curl**: evento criado, participante aluno adicionado, participante convidado
+   adicionado, tentativa com os dois campos preenchidos → `400 "Informe studentId ou guestName."`
+   (reteste depois de um primeiro teste mal calibrado que caiu na validação de tamanho mínimo do
+   `guestName` em vez da regra que eu queria provar).
+7. **Achado de teste, não de app**: um teste inicial via `curl` inline no bash mostrou
+   "Gin�sio Municipal" corrompido — investigado e confirmado como **problema de encoding do meu
+   comando de shell no Windows** (Git Bash), não do backend: reconstruí o payload como arquivo UTF-8
+   de verdade e confirmei acentuação perfeita tanto na resposta da API quanto **direto no Postgres via
+   `psql`** (segunda via independente).
+8. **Rodas via curl**: estados listados (`GET /rodas/reference/states`, público), roda criada com
+   `stateId` válido, listagem pública (`GET /rodas`, sem token) retornando as rodas certas.
+9. **RBAC dos 4 módulos**: ALUNO em `GET /finance` → `403`; ALUNO em `GET /dashboard` → `403`; ALUNO em
+   `GET /events` → `200` (view padrão); ALUNO tentando `POST /rodas` → `403`.
+10. Dado de teste corrompido (evento "Batizado 2026" com location malformada pelo bug de encoding do
+    meu shell) excluído antes de encerrar.
+11. Todos os processos de teste (backend, painel dev, Postgres) encerrados ao final.
+
+**Pendências novas desta etapa:**
+
+21. Nenhum teste automatizado para os 4 módulos novos (mesma pendência recorrente).
+22. `FinanceFormState.amountReais` continua tipado como `string` na interface TypeScript mesmo
+    recebendo `number` em runtime — o bug foi corrigido no código que usa o valor, não na
+    declaração de tipo (inconsistência cosmética, não funcional; ajustar se for mexer nesse arquivo
+    de novo).
+23. Endpoints de referência de estado/cidade (`/rodas/reference/states`, `/rodas/reference/cities`)
+    vivem dentro do módulo `rodas` por conveniência — se `Event`/`Unit` também precisarem de
+    estado/cidade no futuro, vale extrair para um módulo `locations` próprio em vez de duplicar.
+24. `Roda.organizationId` é nullable — nenhuma decisão de produto ainda sobre o que uma roda "sem
+    organização" significa na prática (hoje não existe fluxo que crie uma).
+
+Com isso, o **núcleo de Gestão do MVP está completo** (`projeto.txt` §78, lista 1-14): autenticação,
+grupo/matriz/filiais, usuários, permissões, alunos, professores, turmas, aulas, frequência,
+graduações, dashboard, financeiro básico — faltam eventos/rodas/comunicados/notificações do lado
+"Comunidade" do MVP (eventos e rodas já têm backend completo agora; falta comunicados, notificações,
+e o PWA do aluno consumindo tudo isso de verdade em vez de dados mockados).
