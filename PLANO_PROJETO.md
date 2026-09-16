@@ -652,7 +652,7 @@ de negócio (alunos, turmas, aulas) da ordem técnica em §7.
 
 **Pendências atualizadas (substituindo a lista de §10.1.3):**
 
-1. RBAC granular (`RolePermission` + `@CanAccess`) — dados já existem (ver acima), guard ainda não.
+1. ~~RBAC granular~~ — **resolvido em §10.3**.
 2. App `gingapp.com.br` (landing) ainda não criado — adiado para Fase 2 por decisão original.
 3. Extração dos tokens visuais reais do `admin.gestorprinte.com.br` continua pendente.
 4. Dockerfiles de produção (multi-stage → nginx) dos 4 apps não testados — só o modo dev foi validado.
@@ -665,3 +665,40 @@ de negócio (alunos, turmas, aulas) da ordem técnica em §7.
    dedicada, com teste de hash/compare antes de trocar.
 10. **Novo:** login MEMBER/PLATFORM só testado via `curl` direto no backend — ainda não testado a
     partir dos 3 frontends reais (que hoje têm `login()` mockado nas stores Pinia, não ligado à API).
+
+### 10.3 Fase 1 — RBAC granular (resolve pendência 1)
+
+**Data:** 2026-09-16 · **Status:** ✅ concluído e validado empiricamente (caminho de permissão E de
+bloqueio, não só o caminho feliz)
+
+- Criados `backend/src/shared/decorators/can-access.decorator.ts` (`@CanAccess(resource, action)`,
+  `action` ∈ `view|create|edit|delete`) e `backend/src/shared/guards/can-access.guard.ts`
+  (`CanAccessGuard`), registrado como `APP_GUARD` global em `app.module.ts`, **depois** do
+  `JwtAuthGuard` na ordem de providers. Rotas sem `@CanAccess()` passam direto (mesmo padrão de
+  opt-in do `@Public()`); `PLATFORM`/`isSuperAdmin` tem bypass total; para `MEMBER`, consulta
+  `RolePermission` pelo `role` do token.
+- Aplicado `@CanAccess('<resource>', 'view')` nos 8 controllers organizacionais que já tinham
+  endpoint real: `students`, `classes`, `lessons`, `attendance`, `graduations`, `finance`, `events`,
+  `announcements` (o 9º recurso da matriz seedada, `rodas`, é rota pública e não passa por RBAC).
+- **Validação empírica dos dois caminhos** (não só o caminho feliz):
+  1. `GET /students` com token MESTRE, ALUNO e `/finance` com RESPONSAVEL (todos `canView=true` no
+     seed) → `200` nos três.
+  2. **Prova real do bloqueio**: inverti `RolePermission.canView` para `false` (RESPONSAVEL ×
+     finance) **direto no Postgres via `psql`** (não no código) → `GET /finance` com o mesmo token
+     RESPONSAVEL passou a `403` com a mensagem exata do guard (`"Papel RESPONSAVEL não tem permissão
+     de "view" em "finance""`) → confirmei que `GET /students`, com o mesmo usuário, continuou `200`
+     (prova de que o bloqueio é por recurso, não global) → restaurei a permissão e confirmei `200`
+     de novo no `/finance`.
+  3. Token PLATFORM contra rota org-scoped (`/finance`): `CanAccessGuard` corretamente **não**
+     bloqueou (bypass funcionou — não apareceu o erro do RBAC), mas a requisição falhou depois, em
+     `@CurrentOrganization()`, com `401 "Token sem contexto de organização"` — comportamento esperado
+     hoje (PLATFORM não tem organização própria; impersonation ainda não existe, é pendência de
+     Fase 2 no roadmap original).
+
+**Pendências novas desta etapa:**
+
+11. `@CanAccess` só cobre a ação `view` até agora — as demais ações (`create`/`edit`/`edit`/`delete`)
+    ficarão pendentes até os módulos ganharem endpoints de mutação (fora do escopo da fundação).
+12. `organizations`, `units` e `teachers` ainda não têm `@CanAccess` — não fazem parte da matriz
+    seedada em §10.2; decidir se precisam de RBAC granular próprio ou se continuam "qualquer membro
+    autenticado da organização acessa" por enquanto.

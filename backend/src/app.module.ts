@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule, seconds } from '@nestjs/throttler';
 import { SharedModule } from './shared/shared.module';
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
+import { CanAccessGuard } from './shared/guards/can-access.guard';
 
 import { AuthModule } from './interface/http/auth/auth.module';
 import { HealthModule } from './interface/http/health/health.module';
@@ -49,6 +50,9 @@ import { NotificationsModule } from './interface/http/notifications/notification
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     // JwtAuthGuard global: toda rota exige Bearer token, exceto as marcadas com @Public().
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    // CanAccessGuard global: roda depois do JwtAuthGuard. So' entra em acao em rotas
+    // marcadas com @CanAccess(resource, action) — as demais passam direto.
+    { provide: APP_GUARD, useClass: CanAccessGuard },
   ],
 })
 export class AppModule {}
