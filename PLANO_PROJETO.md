@@ -735,3 +735,47 @@ bloqueio, não só o caminho feliz)
 14. Login com e-mail pertencente a múltiplas organizações não tem seletor de UI (`organizationSlug`
     manual) — não é um caso real ainda (seed só tem 1 org por usuário), mas fica pendente para
     quando houver.
+
+### 10.5 Fase 1 — Módulo Alunos: CRUD completo, fatia vertical de referência
+
+**Data:** 2026-09-16 · **Status:** ✅ concluído e validado empiricamente (UI real + API real,
+caminho feliz e casos de borda)
+
+Primeiro módulo de negócio implementado de ponta a ponta (backend + frontend), escolhido pelo owner
+como fatia vertical de referência antes de replicar o padrão para turmas/aulas/frequência/graduações/
+professores.
+
+- **Backend**: `CreateStudentDto`/`UpdateStudentDto` (class-validator), `StudentsService` com
+  `findAll`/`findOne`/`create`/`update`/`remove`, `StudentsController` com as 5 rotas
+  (`GET /students`, `GET /students/:id`, `POST /students`, `PATCH /students/:id`,
+  `DELETE /students/:id`), cada uma com `@CanAccess('students', <action>)` correspondente.
+  Decisão de modelagem: `DELETE` **nunca apaga o registro** — marca `status = INACTIVE` (o histórico
+  não deve ser apagado quando o aluno fica inativo, `projeto.txt` §20). `unitId` recebido no corpo é
+  sempre validado contra `organizationId` do token antes de gravar (nunca confiar em FK vinda do
+  cliente).
+- **Frontend**: `AlunosView.vue` do `painel.gingapp.com.br` deixou de ser placeholder — lista real
+  (`GET /students`), modal de criar/editar com todos os campos, select de unidade populado por
+  `GET /units`, badge de status, ação "Inativar" com confirmação.
+- **Validação empírica completa, não só build**:
+  1. **UI real no browser**: logado como mestre, criei um aluno pela tela ("Lucas Ferreira") →
+     apareceu na lista com a unidade certa → confirmado direto no Postgres via `psql`. Editei o nome
+     pela tela ("Lucas Ferreira Silva") → refletido na lista e no banco.
+  2. **Achado de tooling, não de código**: o botão "Inativar" usa `confirm()` nativo do navegador, que
+     a automação do browser não consegue confirmar (dialog bloqueia/auto-dispensa) — `read_network_requests`
+     confirmou que nenhum `DELETE` foi disparado nesse clique. Não é um bug da feature.
+  3. Para não deixar essa ponta sem prova real, testei o `DELETE /students/:id` direto via `curl` com
+     token de mestre: `200`, aluno passou para `status: INACTIVE` no banco (confirmado via `psql`),
+     registro **preservado** (não apagado).
+  4. RBAC no novo endpoint: `DELETE` com token de ALUNO (que não tem `canDelete` em `students`) → `403`.
+  5. Validação cross-tenant: `POST /students` com `unitId` inexistente → `400 "Unidade inválida para
+     esta organização"`. `GET /students/999` (não existe) → `404`.
+- Todos os processos de teste encerrados ao final (backend, painel dev, Postgres).
+
+**Pendências novas desta etapa:**
+
+15. O botão "Inativar" da UI não foi validado por clique automatizado (limitação do `confirm()`
+    nativo) — validado pela API diretamente. Considerar trocar por um modal de confirmação próprio
+    (em vez de `window.confirm`) numa próxima iteração, o que também melhoraria a UX visual (o
+    `confirm()` nativo do navegador destoa do design system escuro/claro do produto).
+16. O padrão de `StudentsService`/`StudentsController`/`AlunosView.vue` desta seção é o molde a
+    replicar para `teachers`, `classes`, `lessons`, `attendance`, `graduations` nas próximas rodadas.
