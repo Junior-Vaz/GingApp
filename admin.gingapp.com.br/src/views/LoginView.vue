@@ -34,6 +34,10 @@ async function handleSubmit(): Promise<void> {
         <p class="mt-1 text-sm text-slate-500">SaaS Admin — equipe interna</p>
       </div>
 
+      <p class="mb-4 text-center text-xs text-slate-400">
+        Dev: owner@gingapp.com.br / Dev@12345 (seed de desenvolvimento)
+      </p>
+
       <form class="space-y-4" @submit.prevent="handleSubmit">
         <div>
           <label for="email" class="mb-1 block text-sm font-medium text-slate-700">E-mail</label>

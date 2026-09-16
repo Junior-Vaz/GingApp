@@ -702,3 +702,36 @@ bloqueio, não só o caminho feliz)
 12. `organizations`, `units` e `teachers` ainda não têm `@CanAccess` — não fazem parte da matriz
     seedada em §10.2; decidir se precisam de RBAC granular próprio ou se continuam "qualquer membro
     autenticado da organização acessa" por enquanto.
+
+### 10.4 Fase 1 — Ligação real dos 3 frontends à API (resolve pendência 10)
+
+**Data:** 2026-09-16 · **Status:** ✅ concluído e validado na UI real (não só build)
+
+- `stores/auth.ts` dos 3 apps trocado de mock (`setTimeout` + token fake) para chamada real:
+  `painel` e `app` → `POST /auth/login`; `admin` → `POST /auth/platform-login`. Tipos de `AuthUser`
+  atualizados para o formato real de resposta do backend (`userType`, `isSuperAdmin`,
+  `organizationId`, `organizationSlug`, `role`).
+- `LoginView.vue` dos 3 apps ganhou uma linha de dica com as credenciais do seed (dev-only).
+- **Achado corrigido em trânsito:** um processo `vite dev` órfão de uma sessão anterior (deste mesmo
+  projeto, iniciado 17:15 local) estava preso na porta `4173`, fazendo o `app.gingapp.com.br` subir
+  na `4176` por acidente (fallback automático do Vite). Processo identificado
+  (`Get-CimInstance Win32_Process`, confirmado como o próprio `vite.js` deste repo) e encerrado; app
+  voltou a subir na porta correta.
+- **Validação real na UI** (Postgres + backend + os 3 `npm run dev` de pé, testado pelo browser, não
+  só `curl`): login preenchido e submetido de verdade em `painel` (mestre), `admin` (owner/PLATFORM)
+  e `app` (aluno) — os três redirecionaram para a rota pós-login certa e o `localStorage` ficou com
+  um JWT real (`eyJhbGci...`, não mais `mock-...`) e os dados reais do usuário vindos do backend.
+  Screenshot do Home do PWA confirmou visualmente o tema dark renderizando com os dados reais ("Olá,
+  Ana", turmas da semana, bottom nav).
+- Todos os processos de teste (backend, 3 dev servers, container do Postgres) foram encerrados ao
+  final — nada ficou rodando em background.
+
+**Pendências novas desta etapa:**
+
+13. `HomeView.vue` do `app.gingapp.com.br` mostra o **slug** da organização (`ginga-brasil`) como
+    nome do grupo, não um nome de exibição bonito (`Grupo Ginga Brasil`) — o backend hoje só retorna
+    `organizationSlug` no login; resolver quando existir um endpoint `GET /organizations/:id` ou
+    quando o payload do login passar a incluir o nome também.
+14. Login com e-mail pertencente a múltiplas organizações não tem seletor de UI (`organizationSlug`
+    manual) — não é um caso real ainda (seed só tem 1 org por usuário), mas fica pendente para
+    quando houver.

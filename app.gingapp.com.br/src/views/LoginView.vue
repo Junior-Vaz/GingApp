@@ -80,7 +80,7 @@ async function handleSubmit() {
       </form>
 
       <p class="mt-6 text-center text-xs text-text-faint">
-        Login mock para desenvolvimento — qualquer e-mail/senha entra.
+        Dev: aluno@gingabrasil.com.br / Dev@12345 (seed de desenvolvimento)
       </p>
     </div>
   </div>
