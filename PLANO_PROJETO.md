@@ -617,3 +617,51 @@ e fez a integração final (Docker Compose, resolução de conflito de porta, co
 **Próximo passo recomendado:** item 7 (seed) é o que desbloqueia testar o login de ponta a ponta nos 3
 apps contra o backend real — provavelmente o próximo passo antes de seguir para RBAC ou para os módulos
 de negócio (alunos, turmas, aulas) da ordem técnica em §7.
+
+### 10.2 Fase 1 — Seed de desenvolvimento (resolve pendência 7 de §10.1.3)
+
+**Data:** 2026-09-16 · **Status:** ✅ concluído e validado ponta a ponta contra o backend real
+
+- Criado `backend/prisma/seed.ts` (idempotente, `npx prisma db seed`), populando: 1 usuário PLATFORM
+  (`owner@gingapp.com.br`, super admin), 1 `Plan` único, 1 `Organization` piloto (`ginga-brasil`) +
+  `Subscription` ativa, 1 `Unit` (matriz), os 4 papéis MEMBER (`mestre`/`professor`/`aluno`/
+  `responsavel@gingabrasil.com.br`), 1 `Student` (menor de idade, exercitando a regra de §3.4) + seu
+  `StudentGuardian`, 1 `GraduationSystem` com 2 níveis + 1 `StudentGraduation`, 1 `Class` com o aluno
+  matriculado, a matriz `RolePermission` completa (4 papéis × 9 recursos, valores alinhados aos perfis
+  de `projeto.txt` §18) e um pedaço de comunidade (`State` GO, `City` Goiânia, `Community`, 1 `Roda`
+  pública). Senha única de dev: `Dev@12345` (fixture documentado, não é segredo real).
+- Adicionado `ts-node` como devDependency + bloco `"prisma": {"seed": ...}` no `package.json`.
+- **Validação empírica end-to-end** (não só "seed rodou sem erro"): com o backend real de pé contra o
+  Postgres seedado, testei via `curl`:
+  1. `POST /auth/platform-login` com `owner@gingapp.com.br` → `200` + token válido.
+  2. `POST /auth/login` com `mestre@gingabrasil.com.br` → `200` + token com `organizationId`/`role`
+     corretos.
+  3. `POST /auth/login` com senha errada → `401`.
+  4. `POST /auth/platform-login` com um usuário MEMBER (aluno) → `401` (não vaza que o e-mail existe).
+  5. `GET /organizations` sem token → `401`.
+  6. `GET /organizations` com token de MEMBER válido → `200`.
+  7. `GET /rodas` (rota pública, sem token) → `200` com a roda seedada.
+  - Verificação independente extra: consulta direta via `psql` confirmou os 5 usuários, a contagem de
+    `OrganizationUser` por papel (1 cada) e a matriz `RolePermission` para o recurso `students`.
+- **Achado corrigido em trânsito:** `npm install` do `ts-node` revelou 6 vulnerabilidades (5 high, 1
+  critical) via `npm audit` — todas em dependências de build/dev-time (`deepmerge-ts` usado pelo CLI do
+  Prisma; `node-tar`/`@mapbox/node-pre-gyp` usados só na compilação nativa do `bcrypt`), não em
+  superfície de runtime da aplicação. **Não apliquei `npm audit fix --force`** porque isso trocaria o
+  `bcrypt` para a v6 (breaking change) sem eu ter testado compatibilidade — fica como pendência 9
+  abaixo, para tratar deliberadamente, não às cegas.
+
+**Pendências atualizadas (substituindo a lista de §10.1.3):**
+
+1. RBAC granular (`RolePermission` + `@CanAccess`) — dados já existem (ver acima), guard ainda não.
+2. App `gingapp.com.br` (landing) ainda não criado — adiado para Fase 2 por decisão original.
+3. Extração dos tokens visuais reais do `admin.gestorprinte.com.br` continua pendente.
+4. Dockerfiles de produção (multi-stage → nginx) dos 4 apps não testados — só o modo dev foi validado.
+5. `docker-compose.yml` de dev reinstala `npm install` a cada `up` — aceitável por ora.
+6. Nenhum teste automatizado ainda.
+7. ~~Seed de dados de desenvolvimento~~ — **resolvido em §10.2**.
+8. Ícones do PWA são placeholders gerados por script, não arte de marca real.
+9. **Novo:** `npm audit` no backend acusa 1 vulnerabilidade critical + 5 high, todas em dependências de
+   build (Prisma CLI / compilação nativa do bcrypt) — avaliar `bcrypt@6` (breaking change) numa sessão
+   dedicada, com teste de hash/compare antes de trocar.
+10. **Novo:** login MEMBER/PLATFORM só testado via `curl` direto no backend — ainda não testado a
+    partir dos 3 frontends reais (que hoje têm `login()` mockado nas stores Pinia, não ligado à API).
