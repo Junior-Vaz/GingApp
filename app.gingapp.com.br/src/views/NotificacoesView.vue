@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, ApiError } from '../utils/api'
+import AppIcon from '../components/icons/AppIcon.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 interface Notification {
   id: number
@@ -86,10 +88,10 @@ async function markAllAsRead(): Promise<void> {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 px-5 pb-6 pt-6">
+  <div class="flex flex-col gap-7 px-5 pb-6 pt-6">
     <header class="flex items-center justify-between">
       <div>
-        <h1 class="text-xl font-semibold text-text">Notificações</h1>
+        <h1 class="text-2xl font-bold text-text">Notificações</h1>
         <p class="text-sm text-text-muted">Avisos do seu grupo e da plataforma</p>
       </div>
       <button
@@ -99,39 +101,40 @@ async function markAllAsRead(): Promise<void> {
         :disabled="isMarkingAll"
         @click="markAllAsRead"
       >
-        Marcar todas como lidas
+        Marcar todas
       </button>
     </header>
 
-    <p v-if="loadError" class="rounded-card bg-danger/15 px-4 py-3 text-sm text-danger">
+    <p v-if="loadError" class="rounded-card bg-danger/10 px-4 py-3 text-sm text-danger">
       {{ loadError }}
     </p>
 
     <p v-else-if="isLoading" class="text-center text-sm text-text-faint">Carregando…</p>
 
-    <p v-else-if="notifications.length === 0" class="rounded-card bg-surface px-4 py-3 text-sm text-text-muted">
-      Nenhuma notificação por enquanto.
-    </p>
+    <EmptyState v-else-if="notifications.length === 0" icon="bell" message="Nenhuma notificação por enquanto." />
 
     <section v-else class="flex flex-col gap-3">
       <article
         v-for="n in notifications"
         :key="n.id"
-        class="flex items-start gap-3 rounded-card bg-surface p-4 text-left transition-colors"
+        class="flex items-start gap-3 rounded-card-lg bg-surface p-4 text-left transition-colors"
         :class="n.readAt === null ? 'cursor-pointer active:bg-surface-hover' : ''"
         role="button"
         :tabindex="n.readAt === null ? 0 : -1"
         @click="markAsRead(n)"
       >
         <span
-          class="mt-1 h-2 w-2 flex-shrink-0 rounded-full"
-          :class="n.readAt === null ? 'bg-accent' : 'bg-transparent'"
-        />
-        <div>
+          class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+          :class="n.readAt === null ? 'bg-accent-soft text-accent' : 'bg-bg-elevated text-text-faint'"
+        >
+          <AppIcon name="bell" :size="16" />
+        </span>
+        <div class="min-w-0 flex-1">
           <p class="text-sm font-semibold text-text">{{ n.title }}</p>
           <p class="text-sm" :class="n.readAt === null ? 'text-text' : 'text-text-muted'">{{ n.body }}</p>
           <p class="mt-1 text-xs text-text-faint">{{ formatRelativeTime(n.createdAt) }}</p>
         </div>
+        <span v-if="n.readAt === null" class="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-accent" />
       </article>
     </section>
   </div>

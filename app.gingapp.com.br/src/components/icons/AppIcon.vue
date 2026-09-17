@@ -23,6 +23,10 @@ export type IconName =
   | 'check-circle'
   | 'wallet'
   | 'ticket'
+  | 'megaphone'
+  | 'chevron-right'
+  | 'arrow-left'
+  | 'alert-circle'
 
 withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 22 })
 </script>
@@ -133,6 +137,26 @@ withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 22 })
         d="M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-2a2 2 0 0 0 0-4V8Z"
       />
       <line x1="10" y1="7" x2="10" y2="17" stroke-dasharray="2 2" />
+    </template>
+
+    <template v-else-if="name === 'megaphone'">
+      <path d="M3 11v2a2 2 0 0 0 2 2h1l1 5h2l-1-5h1l9 4V7l-9 4H5a2 2 0 0 0-2 2Z" />
+      <path d="M18 9.5a3 3 0 0 1 0 5" />
+    </template>
+
+    <template v-else-if="name === 'chevron-right'">
+      <path d="M9 6l6 6-6 6" />
+    </template>
+
+    <template v-else-if="name === 'arrow-left'">
+      <path d="M19 12H5" />
+      <path d="M11 18l-6-6 6-6" />
+    </template>
+
+    <template v-else-if="name === 'alert-circle'">
+      <circle cx="12" cy="12" r="9" />
+      <line x1="12" y1="8" x2="12" y2="13" />
+      <line x1="12" y1="16.5" x2="12" y2="16.51" />
     </template>
   </svg>
 </template>

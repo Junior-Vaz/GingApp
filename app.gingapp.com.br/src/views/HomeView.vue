@@ -4,6 +4,9 @@ import { useAuthStore } from '../stores/auth'
 import { api, ApiError } from '../utils/api'
 import AvatarCarousel, { type AvatarCarouselItem } from '../components/layout/AvatarCarousel.vue'
 import AppIcon, { type IconName } from '../components/icons/AppIcon.vue'
+import StatTile from '../components/ui/StatTile.vue'
+import SectionHeader from '../components/ui/SectionHeader.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 interface Student {
   id: number
@@ -86,6 +89,7 @@ const announcements = ref<Announcement[]>([])
 
 // TODO: seletor de aluno quando houver mais de um dependente
 const primaryStudent = computed<Student | null>(() => students.value[0] ?? null)
+const initials = computed(() => (primaryStudent.value?.name ?? auth.user?.name ?? 'C').charAt(0).toUpperCase())
 
 const latestGraduation = computed<StudentGraduation | null>(() => graduations.value[0] ?? null)
 
@@ -163,71 +167,85 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-7 pb-6">
+  <div class="flex flex-col gap-8 pb-6">
     <header class="flex items-center justify-between px-5 pt-6">
-      <div>
-        <p class="text-sm text-text-muted">Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }}</p>
-        <h1 class="text-xl font-semibold text-text">{{ auth.user?.organizationName ?? 'Seu grupo' }}</h1>
+      <div class="flex items-center gap-3">
+        <span class="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-lg font-bold text-white">
+          {{ initials }}
+        </span>
+        <div>
+          <p class="text-xs text-text-muted">Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }}</p>
+          <h1 class="text-lg font-bold leading-tight text-text">{{ auth.user?.organizationName ?? 'Seu grupo' }}</h1>
+        </div>
       </div>
       <router-link
         to="/app/notificacoes"
-        class="flex h-10 w-10 items-center justify-center rounded-full bg-surface text-text-muted"
+        class="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-text-muted"
         aria-label="Notificações"
       >
-        <AppIcon name="bell" :size="18" />
+        <AppIcon name="bell" :size="19" />
       </router-link>
     </header>
 
-    <p v-if="loadError" class="mx-5 rounded-card bg-danger/15 px-4 py-3 text-sm text-danger">
+    <p v-if="loadError" class="mx-5 rounded-card bg-danger/10 px-4 py-3 text-sm text-danger">
       {{ loadError }}
     </p>
 
     <template v-else-if="!isLoading && students.length === 0">
-      <p class="mx-5 rounded-card bg-surface px-4 py-3 text-sm text-text-muted">
-        Nenhum aluno vinculado a esta conta.
-      </p>
+      <div class="px-5">
+        <EmptyState icon="user" message="Nenhum aluno vinculado a esta conta." />
+      </div>
     </template>
 
     <template v-else>
-      <section v-if="latestGraduation" class="mx-5 rounded-card-lg bg-surface p-5">
-        <p class="text-xs text-text-muted">Graduação atual{{ primaryStudent ? ` de ${primaryStudent.name}` : '' }}</p>
-        <p class="mt-1 text-lg font-semibold text-accent">{{ latestGraduation.graduationLevel.name }}</p>
+      <section class="px-5">
+        <div class="flex items-center gap-4 rounded-card-lg bg-accent p-5 text-white">
+          <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/20">
+            <AppIcon name="graduation" :size="24" />
+          </span>
+          <div class="min-w-0">
+            <p class="text-xs font-medium text-white/80">
+              Graduação atual{{ primaryStudent ? ` · ${primaryStudent.name}` : '' }}
+            </p>
+            <p class="truncate text-xl font-bold">
+              {{ latestGraduation ? latestGraduation.graduationLevel.name : 'Ainda sem graduação' }}
+            </p>
+          </div>
+        </div>
       </section>
 
       <section class="flex flex-col gap-3">
-        <h2 class="px-5 text-sm font-medium text-text-muted">Próximas aulas</h2>
+        <SectionHeader title="Próximas aulas" action-label="Ver tudo" action-to="/app/aulas" />
         <AvatarCarousel v-if="carouselItems.length > 0" :items="carouselItems" />
         <p v-else-if="!isLoading" class="px-5 text-sm text-text-faint">Nenhuma aula agendada por enquanto.</p>
       </section>
 
-      <section class="grid grid-cols-4 gap-3 px-5">
-        <router-link
-          v-for="link in quickLinks"
-          :key="link.to"
-          :to="link.to"
-          class="flex flex-col items-center gap-2 rounded-card bg-surface py-4 text-center transition-colors active:bg-surface-hover"
-        >
-          <span class="text-accent"><AppIcon :name="link.icon" :size="20" /></span>
-          <span class="text-[11px] font-medium text-text-muted">{{ link.label }}</span>
-        </router-link>
+      <section class="flex flex-col gap-3 px-5">
+        <SectionHeader title="Acesso rápido" />
+        <div class="grid grid-cols-4 gap-2.5">
+          <StatTile v-for="link in quickLinks" :key="link.to" :to="link.to" :icon="link.icon" :label="link.label" />
+        </div>
       </section>
 
-      <section class="flex flex-col gap-3">
-        <div class="flex items-center justify-between px-5">
-          <h2 class="text-sm font-medium text-text-muted">Avisos do grupo</h2>
-        </div>
+      <section class="flex flex-col gap-3 px-5">
+        <SectionHeader title="Avisos do grupo" />
 
-        <div v-if="visibleAnnouncements.length > 0" class="flex flex-col gap-4 px-5">
+        <div v-if="visibleAnnouncements.length > 0" class="flex flex-col gap-3">
           <article
             v-for="announcement in visibleAnnouncements"
             :key="announcement.id"
-            class="flex flex-col gap-1 rounded-card-lg bg-surface p-4 shadow-md shadow-black/10"
+            class="flex gap-3 rounded-card-lg bg-surface p-4"
           >
-            <h3 class="text-sm font-semibold text-text">{{ announcement.title }}</h3>
-            <p class="text-xs text-text-muted">{{ announcement.body }}</p>
+            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+              <AppIcon name="megaphone" :size="16" />
+            </span>
+            <div class="min-w-0">
+              <h3 class="text-sm font-semibold text-text">{{ announcement.title }}</h3>
+              <p class="mt-0.5 text-xs text-text-muted">{{ announcement.body }}</p>
+            </div>
           </article>
         </div>
-        <p v-else-if="!isLoading" class="px-5 text-sm text-text-faint">Nenhum aviso publicado no momento.</p>
+        <EmptyState v-else-if="!isLoading" icon="megaphone" message="Nenhum aviso publicado no momento." />
       </section>
     </template>
   </div>

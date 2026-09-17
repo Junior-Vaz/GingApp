@@ -2033,3 +2033,80 @@ essa disciplina desde o início.
     (pendência 41/59 já registradas) — o pedido desta etapa foi só "mobile"; um eventual
     alinhamento visual entre os 3 apps (ou uso deliberado de temas distintos por público) fica
     em aberto.
+
+### 10.20 Redesign v2 do app.gingapp.com.br — layout e cards refeitos (feedback direto do owner)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — o owner rejeitou o resultado de §10.19 ("cara
+muda tudo, melhores cards e tudo mais, outro layout. não gostei das telas que vc fez"). Antes de
+tentar de novo às cegas, perguntado o que especificamente não funcionou: resposta foi "tudo
+isso junto" (layout, cards e hierarquia visual) e "proponha algo do zero" (sem nova referência,
+mais liberdade criativa). Diferente de §10.19 (só trocou tokens de cor), esta etapa reconstruiu a
+estrutura visual de cada tela.
+
+#### O que foi construído
+
+- **4 componentes de UI novos** (`components/ui/`), SSOT pra parar de duplicar padrão em cada
+  view:
+  - `Badge.vue` — pill de status (4 tons: success/warning/danger/neutral), substitui o
+    `"rounded-full px-2 py-0.5..."` que cada view escrevia na mão com uma cor diferente.
+  - `StatTile.vue` — ícone num círculo colorido + valor + rótulo, com `to` opcional (vira
+    `router-link`) e `surface` opcional (`surface`/`elevated`, pra nunca ficar "branco sobre
+    branco" quando aninhado dentro de outro card branco).
+  - `SectionHeader.vue` — título de seção + ação opcional à direita ("Ver tudo ›").
+  - `EmptyState.vue` — ícone grande + mensagem, substitui os parágrafos soltos "Nenhum X ainda".
+  - 5 ícones novos em `AppIcon.vue` (`megaphone`, `chevron-right`, `arrow-left`, `alert-circle`)
+    pra cobrir os novos padrões (avisos, navegação em lista, erro).
+- **Padrão de "hero card sólido"**: todo resumo de destaque (graduação atual na Home/Jornada,
+  % de frequência, situação financeira) passou a ser um card com fundo **sólido** (accent verde,
+  ou âmbar quando há pendência financeira) e texto branco, em vez de um card branco com texto
+  colorido — muito mais hierarquia visual, primeira coisa que o olho vê na tela.
+  `FinanceiroView.vue` inclusive ganhou lógica nova: soma os valores em aberto/atrasados e mostra
+  como destaque (verde "Tudo em dia" quando zerado, âmbar com o valor quando há pendência) —
+  informação que antes só existia implícita na lista.
+- **Padrão de lista "ícone + conteúdo + indicador"**: todo item de lista (aulas, avisos,
+  certificados, rodas, notificações, atalhos do Perfil) ganhou um ícone contextual num círculo
+  colorido à esquerda — antes a maioria era só texto puro. Perfil trocou os links soltos por uma
+  lista com chevron (`›`) igual um menu de configurações nativo.
+  Botões de ação viraram pill (`rounded-full`) em vez de `rounded-card` — timeline/certificados/
+  rodas/passaporte.
+- **Tipografia mais bold**: todo `<h1>` de tela foi de `text-xl font-semibold` para
+  `text-2xl font-bold` — títulos de página com mais peso visual, mais parecido com apps nativos
+  modernos.
+- **13 telas tocadas**: Home, Jornada, Comunidade/Calendário, Frequência, Financeiro, Aulas,
+  Rodas, Notificações, Perfil, Login, e as 2 páginas públicas de verificação (Certificado e
+  Passaporte) — cobertura completa, nenhuma tela ficou no estilo antigo.
+
+#### Achados
+
+Nenhum bug de execução — mas 1 ajuste de design encontrado **durante a própria implementação**
+(antes de qualquer teste): `StatTile` teria ficado "branco sobre branco" nos dois lugares onde é
+aninhado dentro de outro card branco (grid de estatísticas do Passaporte, em `PerfilView.vue` e
+`PassportVerificationView.vue`) — resolvido com a prop `surface="elevated"` antes mesmo de rodar
+o build, não um bug encontrado em produção.
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`) na primeira tentativa, apesar do volume de mudança
+   (13 telas + 4 componentes novos).
+2. **Validação visual completa no navegador**, todas as 13 telas, em **duas larguras**: preview
+   padrão (800px) e **largura real de celular (375×812, via `resize_window` preset mobile)** —
+   confirmado que o grid de 4 colunas dos atalhos da Home e o grid de 3 colunas das estatísticas
+   do Passaporte cabem confortavelmente em tela de celular de verdade, não só no preview
+   desktop-com-moldura usado até aqui.
+3. Comparado visualmente antes/depois: hero cards sólidos (verde/âmbar) substituindo cards
+   brancos com texto colorido, listas com ícone-círculo substituindo texto puro, badges via
+   componente único em vez de classes repetidas — mudança visível em toda tela, não só ajuste
+   de cor.
+
+**Pendências novas desta etapa:**
+
+62. QR Code do Certificado/Passaporte ainda não revalidado visualmente com os novos estilos de
+    modal (pill buttons, overlay `bg-text/40`) contra um QR de verdade — mesma pendência 60,
+    ainda em aberto.
+63. `AvatarCarousel.vue` (carrossel de "Próximas aulas") não foi redesenhado nesta etapa — mantém
+    o estilo de círculo com ring simples; não estava no escopo do feedback do owner, mas fica
+    como candidato a um próximo refino de consistência visual.
+64. Os novos componentes `components/ui/` (Badge, StatTile, SectionHeader, EmptyState) existem só
+    em `app.gingapp.com.br` — `painel`/`admin` continuam sem um sistema de componentes
+    equivalente (mesma pendência 61, agora maior: o gap de maturidade de design system entre os
+    3 frontends aumentou).

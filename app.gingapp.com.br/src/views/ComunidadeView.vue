@@ -7,6 +7,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, ApiError } from '../utils/api'
 import AppIcon, { type IconName } from '../components/icons/AppIcon.vue'
+import Badge from '../components/ui/Badge.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 type Scope = 'today' | 'week' | 'month' | ''
 
@@ -139,7 +141,7 @@ onMounted(() => {
 <template>
   <div class="flex flex-col gap-5 pb-6 pt-6">
     <header class="px-5">
-      <h1 class="text-xl font-semibold text-text">Calendário</h1>
+      <h1 class="text-2xl font-bold text-text">Calendário</h1>
       <p class="text-sm text-text-muted">Rodas e eventos da capoeira, no Brasil todo</p>
     </header>
 
@@ -178,15 +180,15 @@ onMounted(() => {
       </select>
     </div>
 
-    <p v-if="loadError" class="mx-5 rounded-card bg-danger/15 px-4 py-3 text-sm text-danger">
+    <p v-if="loadError" class="mx-5 rounded-card bg-danger/10 px-4 py-3 text-sm text-danger">
       {{ loadError }}
     </p>
 
     <p v-else-if="isLoading" class="px-5 text-center text-sm text-text-faint">Carregando…</p>
 
-    <p v-else-if="items.length === 0" class="mx-5 rounded-card bg-surface px-4 py-3 text-sm text-text-muted">
-      Nada encontrado com esses filtros.
-    </p>
+    <div v-else-if="items.length === 0" class="px-5">
+      <EmptyState icon="calendar" message="Nada encontrado com esses filtros." />
+    </div>
 
     <section v-else class="flex flex-col gap-3 px-5">
       <div
@@ -194,11 +196,11 @@ onMounted(() => {
         :key="`${item.source}-${item.id}`"
         class="flex items-center gap-3 rounded-card-lg bg-surface p-4"
       >
-        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-card bg-accent-soft text-accent">
+        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
           <AppIcon :name="TYPE_ICON[item.type] ?? 'calendar'" :size="20" />
         </span>
         <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-medium text-text">{{ item.title }}</p>
+          <p class="truncate text-sm font-semibold text-text">{{ item.title }}</p>
           <p class="text-xs text-text-muted">
             {{ formatDate(item.date) }}<span v-if="item.location"> · {{ item.location }}</span>
           </p>
@@ -206,9 +208,7 @@ onMounted(() => {
             {{ [item.city?.name, item.state?.uf].filter(Boolean).join(' - ') }}
           </p>
         </div>
-        <span class="shrink-0 rounded-full bg-bg-elevated px-2 py-0.5 text-[10px] font-medium text-text-muted">
-          {{ TYPE_LABEL[item.type] ?? item.type }}
-        </span>
+        <Badge tone="neutral">{{ TYPE_LABEL[item.type] ?? item.type }}</Badge>
       </div>
     </section>
   </div>

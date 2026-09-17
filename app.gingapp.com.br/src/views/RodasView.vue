@@ -6,6 +6,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { api, ApiError } from '../utils/api'
+import AppIcon from '../components/icons/AppIcon.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 interface Roda {
   id: number
@@ -116,39 +118,44 @@ async function toggleParticipation(roda: Roda): Promise<void> {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 px-5 pb-6 pt-6">
+  <div class="flex flex-col gap-7 px-5 pb-6 pt-6">
     <header>
-      <h1 class="text-xl font-semibold text-text">Rodas</h1>
+      <h1 class="text-2xl font-bold text-text">Rodas</h1>
       <p class="text-sm text-text-muted">Rodas da comunidade estadual</p>
     </header>
 
-    <p v-if="loadError" class="rounded-card bg-danger/15 px-4 py-3 text-sm text-danger">
+    <p v-if="loadError" class="rounded-card bg-danger/10 px-4 py-3 text-sm text-danger">
       {{ loadError }}
     </p>
 
     <p v-else-if="isLoading" class="text-center text-sm text-text-faint">Carregando…</p>
 
-    <p v-else-if="upcomingRodas.length === 0" class="rounded-card bg-surface px-4 py-3 text-sm text-text-muted">
-      Nenhuma roda programada no momento.
-    </p>
+    <EmptyState v-else-if="upcomingRodas.length === 0" icon="drum" message="Nenhuma roda programada no momento." />
 
     <template v-else>
-      <p v-if="actionError" class="rounded-card bg-danger/15 px-4 py-3 text-sm text-danger">
+      <p v-if="actionError" class="rounded-card bg-danger/10 px-4 py-3 text-sm text-danger">
         {{ actionError }}
       </p>
 
       <section class="flex flex-col gap-4">
         <article v-for="roda in upcomingRodas" :key="roda.id" class="rounded-card-lg bg-surface p-5">
-          <h3 class="text-sm font-semibold text-text">{{ roda.title }}</h3>
-          <p class="mt-1 text-xs text-text-muted">
-            {{ formatDate(roda.date) }}<span v-if="roda.location"> · {{ roda.location }}</span>
-          </p>
-          <p class="mt-2 text-xs font-medium text-accent">{{ countConfirmed(roda.id) }} confirmados</p>
+          <div class="flex items-start gap-3">
+            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+              <AppIcon name="drum" :size="18" />
+            </span>
+            <div class="min-w-0">
+              <h3 class="text-sm font-semibold text-text">{{ roda.title }}</h3>
+              <p class="mt-0.5 text-xs text-text-muted">
+                {{ formatDate(roda.date) }}<span v-if="roda.location"> · {{ roda.location }}</span>
+              </p>
+              <p class="mt-1 text-xs font-semibold text-accent">{{ countConfirmed(roda.id) }} confirmados</p>
+            </div>
+          </div>
 
           <button
             type="button"
-            class="mt-4 w-full rounded-card px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60"
-            :class="isParticipating(roda.id) ? 'bg-surface-hover text-text-muted' : 'bg-accent text-white'"
+            class="mt-4 w-full rounded-full px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60"
+            :class="isParticipating(roda.id) ? 'bg-bg-elevated text-text' : 'bg-accent text-white'"
             :disabled="pendingRodaId === roda.id"
             @click="toggleParticipation(roda)"
           >

@@ -2,6 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import QRCode from 'qrcode'
 import { api, ApiError } from '../utils/api'
+import AppIcon from '../components/icons/AppIcon.vue'
+import SectionHeader from '../components/ui/SectionHeader.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 interface Student {
   id: number
@@ -107,56 +110,65 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 px-5 pb-6 pt-6">
+  <div class="flex flex-col gap-7 px-5 pb-6 pt-6">
     <header>
-      <h1 class="text-xl font-semibold text-text">Jornada</h1>
+      <h1 class="text-2xl font-bold text-text">Jornada</h1>
       <p class="text-sm text-text-muted">Sua evolução e graduações no grupo</p>
     </header>
 
-    <p v-if="loadError" class="rounded-card bg-danger/15 px-4 py-3 text-sm text-danger">{{ loadError }}</p>
+    <p v-if="loadError" class="rounded-card bg-danger/10 px-4 py-3 text-sm text-danger">{{ loadError }}</p>
 
-    <p v-else-if="!isLoading && !hasStudent" class="rounded-card bg-surface px-4 py-3 text-sm text-text-muted">
-      Nenhum aluno vinculado a esta conta.
-    </p>
+    <EmptyState v-else-if="!isLoading && !hasStudent" icon="user" message="Nenhum aluno vinculado a esta conta." />
 
     <template v-else>
-      <section v-if="currentGraduation" class="rounded-card-lg bg-surface p-5">
-        <p class="text-xs text-text-muted">Graduação atual</p>
-        <p class="mt-1 text-lg font-semibold text-accent">{{ currentGraduation.graduationLevel.name }}</p>
+      <section v-if="currentGraduation" class="flex items-center gap-4 rounded-card-lg bg-accent p-5 text-white">
+        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/20">
+          <AppIcon name="graduation" :size="24" />
+        </span>
+        <div>
+          <p class="text-xs font-medium text-white/80">Graduação atual</p>
+          <p class="text-xl font-bold">{{ currentGraduation.graduationLevel.name }}</p>
+        </div>
       </section>
-      <p v-else-if="!isLoading" class="rounded-card bg-surface px-4 py-3 text-sm text-text-muted">
-        Nenhuma graduação registrada ainda.
-      </p>
+      <EmptyState v-else-if="!isLoading" icon="graduation" message="Nenhuma graduação registrada ainda." />
 
-      <section v-if="timeline.length > 0" class="flex flex-col gap-4">
-        <h2 class="text-sm font-medium text-text-muted">Linha do tempo</h2>
-        <ol class="flex flex-col gap-5">
-          <li v-for="grad in timeline" :key="grad.id" class="flex items-start gap-4">
-            <span class="mt-1 flex h-3 w-3 flex-shrink-0 rounded-full bg-accent" />
-            <div class="flex-1 rounded-card bg-surface px-4 py-3">
-              <p class="text-sm font-medium text-text">{{ grad.graduationLevel.name }}</p>
-              <p class="text-xs text-text-muted">{{ formatDate(grad.graduatedAt) }}</p>
-              <p v-if="grad.notes" class="mt-1 text-xs text-text-faint">{{ grad.notes }}</p>
+      <section v-if="timeline.length > 0" class="flex flex-col gap-3">
+        <SectionHeader title="Linha do tempo" />
+        <ol class="flex flex-col gap-3 rounded-card-lg bg-surface p-2">
+          <li v-for="(grad, index) in timeline" :key="grad.id" class="flex items-center gap-3 px-3 py-2.5">
+            <span
+              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+              :class="index === timeline.length - 1 ? 'bg-accent-soft text-accent' : 'bg-bg-elevated text-text-faint'"
+            >
+              <AppIcon name="graduation" :size="16" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="text-sm font-semibold text-text">{{ grad.graduationLevel.name }}</p>
+              <p v-if="grad.notes" class="truncate text-xs text-text-faint">{{ grad.notes }}</p>
             </div>
+            <span class="shrink-0 text-xs text-text-muted">{{ formatDate(grad.graduatedAt) }}</span>
           </li>
         </ol>
       </section>
 
-      <section v-if="certificates.length > 0" class="flex flex-col gap-4">
-        <h2 class="text-sm font-medium text-text-muted">Certificados</h2>
+      <section v-if="certificates.length > 0" class="flex flex-col gap-3">
+        <SectionHeader title="Certificados" />
         <ul class="flex flex-col gap-3">
           <li
             v-for="cert in certificates"
             :key="cert.id"
-            class="flex items-center justify-between gap-3 rounded-card bg-surface px-4 py-3"
+            class="flex items-center gap-3 rounded-card-lg bg-surface p-4"
           >
-            <div class="min-w-0">
-              <p class="truncate text-sm font-medium text-text">{{ cert.title }}</p>
+            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
+              <AppIcon name="trophy" :size="18" />
+            </span>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold text-text">{{ cert.title }}</p>
               <p class="text-xs text-text-muted">{{ formatCertificateDate(cert.issuedAt) }}</p>
             </div>
             <button
               type="button"
-              class="shrink-0 rounded-card bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent"
+              class="shrink-0 rounded-full bg-bg-elevated px-3 py-1.5 text-xs font-semibold text-text"
               @click="openQrModal(cert)"
             >
               QR Code
@@ -169,22 +181,22 @@ onMounted(async () => {
     <!-- Modal QR Code -->
     <div
       v-if="qrModalCertificate"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 px-6"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-text/40 px-6"
       @click.self="closeQrModal"
     >
-      <div class="w-full max-w-xs rounded-card-lg bg-surface p-6 text-center">
-        <p class="text-sm font-medium text-text">{{ qrModalCertificate.title }}</p>
+      <div class="w-full max-w-xs rounded-card-lg bg-surface p-6 text-center shadow-lg">
+        <p class="text-sm font-semibold text-text">{{ qrModalCertificate.title }}</p>
         <img v-if="qrDataUrl" :src="qrDataUrl" alt="QR Code de verificação" class="mx-auto mt-4 h-48 w-48 rounded-card" />
         <p class="mt-3 text-xs text-text-muted">Escaneie para validar a autenticidade deste certificado.</p>
         <div class="mt-4 flex justify-center gap-2">
           <button
             type="button"
-            class="rounded-card bg-accent-soft px-4 py-2 text-xs font-medium text-accent"
+            class="rounded-full bg-accent-soft px-4 py-2 text-xs font-semibold text-accent"
             @click="copyVerificationLink(qrModalCertificate.verificationCode)"
           >
             Copiar link
           </button>
-          <button type="button" class="rounded-card bg-bg-elevated px-4 py-2 text-xs font-medium text-text-muted" @click="closeQrModal">
+          <button type="button" class="rounded-full bg-bg-elevated px-4 py-2 text-xs font-semibold text-text" @click="closeQrModal">
             Fechar
           </button>
         </div>

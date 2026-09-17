@@ -39,11 +39,11 @@ async function handleSubmit() {
         <span class="flex h-16 w-16 items-center justify-center rounded-full bg-accent text-2xl font-bold text-white">
           G
         </span>
-        <h1 class="text-2xl font-semibold text-text">GingApp</h1>
+        <h1 class="text-2xl font-bold text-text">GingApp</h1>
         <p class="text-sm text-text-muted">Entre para acompanhar sua jornada na capoeira</p>
       </div>
 
-      <form class="flex flex-col gap-4 rounded-card-lg bg-surface p-6 shadow-lg shadow-black/20" @submit.prevent="handleSubmit">
+      <form class="flex flex-col gap-4 rounded-card-lg bg-surface p-6" @submit.prevent="handleSubmit">
         <div class="flex flex-col gap-1.5">
           <label for="email" class="text-xs font-medium text-text-muted">E-mail</label>
           <input
@@ -52,7 +52,7 @@ async function handleSubmit() {
             type="email"
             autocomplete="username"
             placeholder="voce@email.com"
-            class="rounded-xl border border-border bg-bg-elevated px-4 py-3 text-sm text-text outline-none placeholder:text-text-faint focus:border-accent"
+            class="rounded-xl bg-bg-elevated px-4 py-3 text-sm text-text outline-none placeholder:text-text-faint focus:ring-2 focus:ring-accent"
           />
         </div>
 
@@ -64,7 +64,7 @@ async function handleSubmit() {
             type="password"
             autocomplete="current-password"
             placeholder="••••••••"
-            class="rounded-xl border border-border bg-bg-elevated px-4 py-3 text-sm text-text outline-none placeholder:text-text-faint focus:border-accent"
+            class="rounded-xl bg-bg-elevated px-4 py-3 text-sm text-text outline-none placeholder:text-text-faint focus:ring-2 focus:ring-accent"
           />
         </div>
 
@@ -73,7 +73,7 @@ async function handleSubmit() {
         <button
           type="submit"
           :disabled="loading"
-          class="mt-2 rounded-xl bg-accent py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-60"
+          class="mt-2 rounded-full bg-accent py-3 text-sm font-semibold text-white transition-opacity disabled:opacity-60"
         >
           {{ loading ? 'Entrando…' : 'Entrar' }}
         </button>

@@ -4,6 +4,9 @@
 // navigateFallbackDenylist para /app/financeiro — PLANO_PROJETO.md §6).
 import { computed, onMounted, ref } from 'vue'
 import { api, ApiError } from '../utils/api'
+import AppIcon from '../components/icons/AppIcon.vue'
+import Badge, { type BadgeTone } from '../components/ui/Badge.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 type FinanceStatus = 'PENDING' | 'PAID' | 'OVERDUE' | 'CANCELLED'
 
@@ -30,6 +33,12 @@ const sortedRecords = computed<FinancialRecord[]>(() =>
   [...records.value].sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime()),
 )
 
+const openAmountCents = computed(() =>
+  records.value
+    .filter((r) => r.status === 'PENDING' || r.status === 'OVERDUE')
+    .reduce((sum, r) => sum + r.amountCents, 0),
+)
+
 const statusLabel: Record<FinanceStatus, string> = {
   PENDING: 'Em aberto',
   PAID: 'Pago',
@@ -37,11 +46,11 @@ const statusLabel: Record<FinanceStatus, string> = {
   CANCELLED: 'Cancelado',
 }
 
-const statusClass: Record<FinanceStatus, string> = {
-  PENDING: 'bg-warning/15 text-warning',
-  PAID: 'bg-success/15 text-success',
-  OVERDUE: 'bg-danger/15 text-danger',
-  CANCELLED: 'bg-text-faint/15 text-text-faint',
+const statusTone: Record<FinanceStatus, BadgeTone> = {
+  PENDING: 'warning',
+  PAID: 'success',
+  OVERDUE: 'danger',
+  CANCELLED: 'neutral',
 }
 
 function formatCurrency(amountCents: number): string {
@@ -69,42 +78,55 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 px-5 pb-6 pt-6">
+  <div class="flex flex-col gap-7 px-5 pb-6 pt-6">
     <header>
-      <h1 class="text-xl font-semibold text-text">Financeiro</h1>
+      <h1 class="text-2xl font-bold text-text">Financeiro</h1>
       <p class="text-sm text-text-muted">Mensalidades e pagamentos</p>
     </header>
 
-    <p v-if="loadError" class="rounded-card bg-danger/15 px-4 py-3 text-sm text-danger">
+    <p v-if="loadError" class="rounded-card bg-danger/10 px-4 py-3 text-sm text-danger">
       {{ loadError }}
     </p>
 
-    <p v-else-if="isLoading" class="text-center text-sm text-text-faint">Carregando…</p>
-
-    <p v-else-if="sortedRecords.length === 0" class="rounded-card bg-surface px-4 py-3 text-sm text-text-muted">
-      Nenhum lançamento financeiro encontrado.
-    </p>
-
-    <section v-else class="flex flex-col gap-3">
-      <article
-        v-for="record in sortedRecords"
-        :key="record.id"
-        class="flex items-center justify-between rounded-card bg-surface p-4"
+    <template v-else>
+      <section
+        class="flex items-center gap-4 rounded-card-lg p-5"
+        :class="openAmountCents > 0 ? 'bg-warning text-white' : 'bg-accent text-white'"
       >
+        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/20">
+          <AppIcon name="wallet" :size="22" />
+        </span>
         <div>
-          <p class="text-sm font-semibold text-text">{{ record.description }}</p>
-          <p class="text-xs text-text-muted">
-            {{ formatCurrency(record.amountCents) }} · vence em {{ formatDate(record.dueDate) }}
+          <p class="text-xs font-medium text-white/80">{{ openAmountCents > 0 ? 'Em aberto' : 'Situação financeira' }}</p>
+          <p class="text-xl font-bold">
+            {{ openAmountCents > 0 ? formatCurrency(openAmountCents) : 'Tudo em dia' }}
           </p>
         </div>
-        <span class="rounded-full px-3 py-1 text-xs font-semibold" :class="statusClass[record.status]">
-          {{ statusLabel[record.status] }}
-        </span>
-      </article>
-    </section>
+      </section>
 
-    <p class="text-center text-xs text-text-faint">
-      Dados sempre buscados online — esta tela não fica disponível offline.
-    </p>
+      <p v-if="isLoading" class="text-center text-sm text-text-faint">Carregando…</p>
+
+      <EmptyState v-else-if="sortedRecords.length === 0" icon="wallet" message="Nenhum lançamento financeiro encontrado." />
+
+      <section v-else class="flex flex-col gap-3">
+        <article
+          v-for="record in sortedRecords"
+          :key="record.id"
+          class="flex items-center justify-between gap-3 rounded-card-lg bg-surface p-4"
+        >
+          <div class="min-w-0">
+            <p class="truncate text-sm font-semibold text-text">{{ record.description }}</p>
+            <p class="text-xs text-text-muted">
+              {{ formatCurrency(record.amountCents) }} · vence em {{ formatDate(record.dueDate) }}
+            </p>
+          </div>
+          <Badge :tone="statusTone[record.status]">{{ statusLabel[record.status] }}</Badge>
+        </article>
+      </section>
+
+      <p class="text-center text-xs text-text-faint">
+        Dados sempre buscados online — esta tela não fica disponível offline.
+      </p>
+    </template>
   </div>
 </template>

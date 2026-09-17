@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { api, ApiError } from '../utils/api'
+import Badge from '../components/ui/Badge.vue'
+import SectionHeader from '../components/ui/SectionHeader.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 interface AttendanceRecord {
   id: number
@@ -52,55 +55,51 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-6 px-5 pb-6 pt-6">
+  <div class="flex flex-col gap-7 px-5 pb-6 pt-6">
     <header>
-      <h1 class="text-xl font-semibold text-text">Frequência</h1>
+      <h1 class="text-2xl font-bold text-text">Frequência</h1>
       <p class="text-sm text-text-muted">Seu histórico de presença nas aulas</p>
     </header>
 
-    <p v-if="loadError" class="rounded-card bg-danger/15 px-4 py-3 text-sm text-danger">{{ loadError }}</p>
+    <p v-if="loadError" class="rounded-card bg-danger/10 px-4 py-3 text-sm text-danger">{{ loadError }}</p>
 
     <template v-else>
-      <section class="flex items-center gap-6 rounded-card-lg bg-surface p-5">
+      <section class="flex items-center gap-5 rounded-card-lg bg-accent p-5 text-white">
         <div
           v-if="last30dPercent !== null"
-          class="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full border-4 border-accent text-lg font-semibold text-accent"
+          class="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-white/20 text-base font-bold"
         >
           {{ Math.round(last30dPercent) }}%
         </div>
-        <div v-else class="flex h-20 w-20 flex-shrink-0 items-center justify-center rounded-full border-4 border-border text-xs text-text-faint">
+        <div v-else class="flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-full bg-white/20 text-xs">
           —
         </div>
-        <div>
-          <p class="text-sm font-medium text-text">
-            {{
-              last30dPercent !== null
-                ? `${Math.round(last30dPercent)}% de frequência nos últimos 30 dias`
-                : 'Sem registros ainda'
-            }}
-          </p>
-        </div>
+        <p class="text-sm font-medium leading-snug">
+          {{
+            last30dPercent !== null
+              ? `${Math.round(last30dPercent)}% de frequência nos últimos 30 dias`
+              : 'Sem registros ainda'
+          }}
+        </p>
       </section>
 
       <section class="flex flex-col gap-3">
-        <h2 class="text-sm font-medium text-text-muted">Histórico recente</h2>
-        <p v-if="!isLoading && sortedRecords.length === 0" class="rounded-card bg-surface px-4 py-3 text-sm text-text-muted">
-          Nenhum registro de presença ainda.
-        </p>
-        <div
-          v-for="item in sortedRecords"
-          :key="item.id"
-          class="flex items-center justify-between gap-3 rounded-card bg-surface px-4 py-3"
-        >
-          <div>
-            <span class="text-sm text-text">{{ formatDate(item.lesson.date) }}</span>
-            <p v-if="!item.present && item.justification" class="mt-0.5 text-xs text-text-faint">
-              {{ item.justification }}
-            </p>
+        <SectionHeader title="Histórico recente" />
+        <EmptyState
+          v-if="!isLoading && sortedRecords.length === 0"
+          icon="check-circle"
+          message="Nenhum registro de presença ainda."
+        />
+        <div v-else class="flex flex-col gap-2 rounded-card-lg bg-surface p-2">
+          <div v-for="item in sortedRecords" :key="item.id" class="flex items-center justify-between gap-3 px-3 py-2.5">
+            <div>
+              <span class="text-sm font-medium text-text">{{ formatDate(item.lesson.date) }}</span>
+              <p v-if="!item.present && item.justification" class="mt-0.5 text-xs text-text-faint">
+                {{ item.justification }}
+              </p>
+            </div>
+            <Badge :tone="item.present ? 'success' : 'danger'">{{ item.present ? 'Presente' : 'Falta' }}</Badge>
           </div>
-          <span class="text-xs font-semibold" :class="item.present ? 'text-success' : 'text-danger'">
-            {{ item.present ? 'Presente' : 'Falta' }}
-          </span>
         </div>
       </section>
     </template>
