@@ -170,22 +170,17 @@ async function toggleParticipation(event: Event): Promise<void> {
           :meta="formatDate(evento.date)"
           :subtitle="evento.location ?? undefined"
         >
-          <div class="p-4">
-            <p v-if="evento.description" class="text-xs text-text-muted">{{ evento.description }}</p>
+          <template #actions>
             <button
               type="button"
-              class="mt-3 w-full rounded-card px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60"
-              :class="
-                isParticipating(evento.id)
-                  ? 'bg-surface-hover text-text-muted'
-                  : 'bg-accent text-white'
-              "
+              class="mt-2 w-full rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60"
+              :class="isParticipating(evento.id) ? 'bg-white/20 text-white backdrop-blur-sm' : 'bg-accent text-white'"
               :disabled="pendingEventId === evento.id"
               @click="toggleParticipation(evento)"
             >
               {{ pendingEventId === evento.id ? 'Aguarde…' : isParticipating(evento.id) ? 'Cancelar presença' : 'Quero participar' }}
             </button>
-          </div>
+          </template>
         </FeedCard>
       </section>
     </template>

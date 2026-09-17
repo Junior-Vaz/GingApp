@@ -2459,3 +2459,50 @@ ninguém tinha notado. Corrigido: o ícone agora só aparece `v-if="to"`.
 3. Não foram tocados: painel/admin, `AnnouncementCard` (não é usado nessas telas), lógica de
    dados/API (o `imageUrl` já existia no backend desde o §10.22; esta etapa só passou a exibi-lo
    nas duas telas que faltavam).
+
+### 10.27 Correção: card de Rodas/Eventos tinha painel branco embaixo — não era o pedido
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído. Owner rejeitou o resultado do §10.26 na hora:
+
+> "eu disse mesmo visual dos cards da home cara"
+
+O §10.26 tinha adicionado imagem e um botão de ação nos cards de Rodas/Eventos, mas o botão (e a
+contagem de confirmados) ficavam num rodapé `bg-surface p-4` **abaixo** da imagem — visualmente
+diferente do card da Home/Comunidade, que não tem nenhum painel branco, só a imagem com o texto
+sobreposto direto nela. O pedido original era "mesmo visual dos cards da home", não "imagem +
+qualquer estilo" — reli o pedido anterior (§10.26: "TELA de rodas e eventos tambem adicionar a
+imagens e estilos") e a interpretação errada foi tratar "estilos" como "algum estilo consistente",
+quando o owner já tinha deixado claro no pedido anterior (§10.24) que o padrão da casa é **sem
+container branco embaixo da imagem**.
+
+#### Correção
+
+- **`FeedCard.vue`**: removido o `<slot />` default (que renderizava abaixo da imagem, em
+  `bg-surface`) — revertido pra estrutura do §10.24 (root é a própria imagem `h-48`, sem wrapper
+  nem `bg-surface`). No lugar, um **slot nomeado `actions`** foi colocado *dentro* do bloco de
+  texto sobreposto (depois da localização), então qualquer conteúdo passado nele herda o mesmo
+  contexto visual (em cima do degradê escuro, texto branco) em vez de cair num container separado.
+- **`RodasView.vue`**: contagem de confirmados e botão movidos pro `<template #actions>` — texto
+  em branco/80% (`text-white/80`), botão em pílula `bg-accent` (não participando) ou `bg-white/20
+  backdrop-blur-sm` (participando, mesmo tom translúcido do badge/external-link), tudo sobreposto
+  na imagem.
+- **`EventosView.vue`**: mesma coisa pro botão de participação. A descrição do evento (que também
+  tinha ido pro rodapé branco no §10.26) foi **removida** da exibição do card — os cards da
+  Home/Comunidade também não mostram descrição longa nenhuma, só título/data/local; manter a
+  descrição exigiria ou um rodapé (o que o owner rejeitou) ou um bloco de texto grande sobreposto
+  na imagem (poluiria o visual). Se a descrição fizer falta, é pendência em aberto pra perguntar
+  ao owner como ele quer resolver (não decidido unilateralmente).
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`).
+2. **Validação ao vivo no navegador**: `/app/rodas` e `/app/eventos` — botão de participação e
+   contagem agora sobrepostos na imagem, card idêntico em estrutura ao da Home (mesma altura h-48,
+   mesmo degradê, zero painel branco). Testado o toggle de participação de verdade num evento real
+   ("Evento Acentuado": clicado "Cancelar presença" → virou "Quero participar" → clicado de novo
+   pra voltar ao estado original) — confirma que mover o botão pro slot `actions` não quebrou
+   nenhuma interação, só o estilo.
+3. **Pendência nova:** 69. `EventosView.vue` deixou de mostrar a descrição do evento no card (era
+   exibida no §10.26, removida nesta correção pra bater com o visual da Home) — perguntar ao owner
+   se isso é aceitável ou se ele quer a descrição de volta de alguma forma (ex.: só num modal de
+   detalhes, nunca no card em si).

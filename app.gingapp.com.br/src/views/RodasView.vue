@@ -151,18 +151,18 @@ async function toggleParticipation(roda: Roda): Promise<void> {
           :meta="formatDate(roda.date)"
           :subtitle="roda.location ?? undefined"
         >
-          <div class="p-4">
-            <p class="text-xs font-semibold text-accent">{{ countConfirmed(roda.id) }} confirmados</p>
+          <template #actions>
+            <p class="mt-1 text-xs font-medium text-white/80">{{ countConfirmed(roda.id) }} confirmados</p>
             <button
               type="button"
-              class="mt-2 w-full rounded-full px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60"
-              :class="isParticipating(roda.id) ? 'bg-bg-elevated text-text' : 'bg-accent text-white'"
+              class="mt-2 w-full rounded-full px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60"
+              :class="isParticipating(roda.id) ? 'bg-white/20 text-white backdrop-blur-sm' : 'bg-accent text-white'"
               :disabled="pendingRodaId === roda.id"
               @click="toggleParticipation(roda)"
             >
               {{ pendingRodaId === roda.id ? 'Aguarde…' : isParticipating(roda.id) ? 'Cancelar presença' : 'Quero participar' }}
             </button>
-          </div>
+          </template>
         </FeedCard>
       </section>
     </template>
