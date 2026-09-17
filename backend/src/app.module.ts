@@ -27,6 +27,7 @@ import { SubscriptionsModule } from './interface/http/subscriptions/subscription
 import { FeatureOverridesModule } from './interface/http/feature-overrides/feature-overrides.module';
 import { PlatformAnnouncementsModule } from './interface/http/platform-announcements/platform-announcements.module';
 import { CertificatesModule } from './interface/http/certificates/certificates.module';
+import { PassportModule } from './interface/http/passport/passport.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { CertificatesModule } from './interface/http/certificates/certificates.m
     FeatureOverridesModule,
     PlatformAnnouncementsModule,
     CertificatesModule,
+    PassportModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

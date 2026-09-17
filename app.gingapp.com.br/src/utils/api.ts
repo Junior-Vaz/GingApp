@@ -30,14 +30,22 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   })
 
   if (!response.ok) {
-    throw new ApiError(`Erro ${response.status} ao chamar ${path}`, response.status)
+    // Lê a mensagem do NestJS (`{ message, error, statusCode }`) quando existe — sem isso,
+    // erros de validação/regra de negócio (ex.: "Aluno menor de idade: ...") nunca chegavam
+    // na tela, só um genérico "Erro 403 ao chamar /passport/publish" (achado ao validar a
+    // Fase 2, Jornada do Capoeirista — PLANO_PROJETO.md §10.16).
+    const body = await response.json().catch(() => null)
+    const rawMessage = (body as { message?: string | string[] } | null)?.message
+    const message = Array.isArray(rawMessage) ? rawMessage.join(' ') : rawMessage
+    throw new ApiError(message ?? `Erro ${response.status} ao chamar ${path}`, response.status)
   }
 
-  if (response.status === 204) {
-    return undefined as T
-  }
-
-  return (await response.json()) as T
+  // Corpo vazio pode vir com 204 OU com 200/201 (ex.: um endpoint que não devolve nada) —
+  // `.json()` incondicional quebra com SyntaxError nesse segundo caso (achado real ao validar
+  // PATCH /passport/guardian-consent, PLANO_PROJETO.md §10.16). `.text()` primeiro é seguro
+  // pros dois casos.
+  const text = await response.text()
+  return (text ? JSON.parse(text) : undefined) as T
 }
 
 export const api = {

@@ -1732,3 +1732,100 @@ passaporte e calendário estadual ficam para a próxima.
     ação disponível — o botão "Confirmar presença" aparece pra qualquer status diferente de
     `ATTENDED`, incluindo `DECLINED`/`CANCELLED` (o backend aceita, mas fazer check-in de alguém
     que recusou/cancelou é um caso estranho que a UI não impede).
+
+### 10.16 Fase 2 — Jornada do Capoeirista, parte 2: Passaporte do Capoeirista
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — fecha a "Jornada do Capoeirista" (as 4 partes de
+projeto.txt §41/§42/§45/§51/§52 agora somadas: check-in + certificados em §10.15, passaporte
+nesta etapa). Só falta o **calendário estadual** (§42) pra fechar 100% da frente, registrado como
+pendência à parte por ser uma feature distinta (calendário público, não Passaporte).
+
+#### O que foi construído
+
+- **Migration `add_public_profile_public_code`**: `PublicProfile.publicCode` (`String @unique
+  @default(cuid())`), mesmo espírito de `Certificate.verificationCode` (§10.15) — o QR do
+  Passaporte aponta pra esse código, nunca pro `id`.
+- **`PassportModule`** (`interface/http/passport/`): `PassportService.getForStudent` agrega, num
+  único payload, tudo que o mockup de projeto.txt §50 pede — identidade (nome, grupo, unidade,
+  graduação atual) + contadores (aulas via `Attendance.present`, rodas via `RodaParticipant`,
+  eventos via `EventParticipant.status=ATTENDED` — reaproveitando o check-in de §10.15 —,
+  graduações, certificados). `GET /passport/me` (self-service, mesmo padrão de `StudentsService.
+  findMine`) e `GET /public/passport/:code` (`@Public()`, sem autenticação) reaproveitam a mesma
+  função de agregação.
+- **Publicação com consentimento do responsável** (projeto.txt §53, PLANO_PROJETO.md §3.4: "para
+  menores, exige consentByGuardianId preenchido — nunca opt-in automático"): `POST /passport/
+  publish` resolve se quem chama é o próprio aluno ou um responsável cadastrado
+  (`StudentGuardian.userId`); se o aluno for **menor de idade** (calculado a partir de
+  `Student.birthDate`), **bloqueia publicação pelo próprio aluno mesmo estando logado** — só um
+  responsável pode publicar o Passaporte de um menor, e só depois de consentir explicitamente via
+  `PATCH /passport/guardian-consent`, que ativa `StudentGuardian.consentPublicProfile` — campo que
+  já existia no schema desde a fundação, nunca lido nem escrito por nenhum código até agora.
+- **Frontend (`app.gingapp.com.br`)**: `PerfilView.vue` ganhou a seção "Passaporte do Capoeirista"
+  (estatísticas em grid, publicar/despublicar, QR Code) — para `RESPONSAVEL`, um botão extra
+  "Autorizar e publicar" (consente + publica numa ação só). Nova `PassportVerificationView.vue`:
+  página pública (`/verificar-passaporte/:code`, `requiresAuth: false`) reproduzindo o cartão do
+  mockup de projeto.txt §50.
+
+#### Achados — 2 bugs reais encontrados validando ao vivo, não só nos testes automatizados
+
+- **Mensagens de erro do backend nunca chegavam na tela em `app.gingapp.com.br`**: o `api.ts` da
+  PWA (diferente do `painel`/`admin`) não lia o corpo da resposta de erro, só jogava um genérico
+  `"Erro 403 ao chamar /passport/publish"` — a mensagem específica do backend ("Aluno menor de
+  idade: ...") nunca aparecia. Só percebido testando ao vivo no navegador (a suíte e2e do backend
+  não passa por esse cliente HTTP, então nunca pegaria isso). **Corrigido**: `api.ts` agora lê
+  `{ message }` da resposta, igual aos outros 2 apps.
+- **`PATCH /passport/guardian-consent` retornava 200 com corpo vazio**, e o `request()` dos 3
+  `api.ts` (código replicado nos 3 frontends) faz `.json()` incondicional em qualquer resposta que
+  não seja `204` — corpo vazio com `200` quebra com `SyntaxError: Unexpected end of JSON input`,
+  **silenciosamente absorvido** pelo catch genérico do componente, que mostrou "Não foi possível
+  autorizar o perfil público" mesmo o consentimento tendo sido salvo com sucesso no banco (só
+  descoberto comparando a resposta de rede real, que já mostrava `200 OK`, com o comportamento da
+  tela). **Corrigido nos dois lados**: backend (`setGuardianConsent` agora retorna
+  `{ consentPublicProfile }`) e nos 3 `api.ts` (usa `.text()` primeiro, só faz `JSON.parse` se o
+  corpo não for vazio — cobre `204` **e** `200`/`201` com corpo vazio, não só o primeiro caso).
+  Esse segundo achado só apareceu porque o fluxo foi testado **de ponta a ponta no navegador**
+  (não só via `curl`/suíte e2e do backend, que nunca exercitam o cliente HTTP do frontend).
+
+#### Validação empírica
+
+1. Migration aplicada (mesmo procedimento não-interativo de §10.15: `migrate diff --script` +
+   arquivo manual + `migrate deploy`) e confirmada via `psql` (`\d "PublicProfile"`, coluna
+   `publicCode` com índice único) antes do commit.
+2. Backend compilado limpo (`npm run build`) — inclusive depois da correção do
+   `setGuardianConsent`.
+3. **Suíte e2e nova** (`test/passport.e2e-spec.ts`, 10 casos) — reaproveita a fixture do seed que
+   já modela o caso mais importante do zero (Ana é menor, `consentPublicProfile: false` por
+   padrão): stats conferidos via Prisma; **próprio aluno menor bloqueado** de publicar (403);
+   `PROFESSOR` sem vínculo de guardian bloqueado (403); responsável sem consentimento bloqueado
+   (400); `PATCH guardian-consent` autoriza; publish com consentimento → 201 com `publicCode`;
+   verificação pública com e sem código válido; `GET /passport/me` reflete `isPublished`;
+   `unpublish` remove da verificação pública. `after()` restaura `consentPublicProfile: false` e
+   remove o `PublicProfile` criado, devolvendo a fixture do seed ao estado documentado.
+4. **Suíte e2e completa rodada do zero** (18 specs): **133 testes, 133 passaram, 0 falhas** — sem
+   regressão, inclusive depois da correção do `setGuardianConsent` (rodada de novo após o fix,
+   mesmo resultado).
+5. Frontend (`app.gingapp.com.br`) buildado limpo antes **e depois** dos 2 fixes de `api.ts`.
+6. **Validação ao vivo no navegador** (é o que revelou os 2 achados acima): logado como o ALUNO
+   (Ana, menor) → estatísticas corretas (1 aula/1 roda/1 evento/2 graduações/0 certificados,
+   batendo com o que foi criado manualmente em §10.15) → clique em "Compartilhar Passaporte" → 403
+   com a mensagem certa depois do fix. Logado como a `RESPONSAVEL` (mãe) → mesmas estatísticas →
+   "Autorizar e publicar" → depois do fix do corpo vazio, sucesso de ponta a ponta → QR Code
+   renderizado → aba nova, sem sessão, abrindo `/verificar-passaporte/:code` → cartão público
+   correto (nome, grupo, unidade, graduação, estatísticas) → código inválido → "Passaporte não
+   encontrado" → "Despublicar" → passaporte público deixou de existir. Estado do banco restaurado
+   via `psql` ao final (`PublicProfile` apagado, `consentPublicProfile` de volta a `false`).
+
+**Pendências novas desta etapa:**
+
+53. Calendário estadual/geral da capoeira (projeto.txt §42) — última peça da Jornada do
+    Capoeirista, ainda não construída. Precisa de `stateId`/`cityId` no `Event` (a `Roda` já tem
+    desde a fundação) e um endpoint público agregando Rodas + Eventos filtráveis por
+    cidade/estado/tipo/data.
+54. `PerfilView.vue` só mostra/publica o Passaporte do **primeiro** aluno vinculado
+    (`students[0]`) — mesma simplificação já registrada em `JornadaView.vue` desde a fundação
+    (TODO: seletor de dependente quando um responsável tiver mais de um filho no grupo).
+55. Sem endpoint/rota para o responsável **revogar** consentimento já dado
+    (`consentPublicProfile: true → false`) separado de despublicar o Passaporte em si — hoje só dá
+    pra desativar consentimento chamando `PATCH /passport/guardian-consent` diretamente (sem UI),
+    já que `unpublish` não mexe no consentimento (decisão deliberada: permite republicar depois
+    sem reconsentir).

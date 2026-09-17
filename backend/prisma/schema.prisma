@@ -719,6 +719,10 @@ model RodaParticipant {
 /// Perfil publico opt-in (projeto.txt §17/§53). Para menores, exige consentByGuardianId
 /// preenchido — nunca opt-in automatico (PLANO_PROJETO.md §3.4). Nenhum dado privado
 /// (students, financial_records, student_guardians) e exposto aqui alem do essencial.
+///
+/// publicCode: token publico nao-sequencial (mesmo espirito de Certificate.verificationCode,
+/// Fase 2 §10.15) — a URL/QR do Passaporte do Capoeirista aponta pra esse codigo, nunca pro
+/// `id` (PLANO_PROJETO.md §10.16).
 model PublicProfile {
   id                  Int      @id @default(autoincrement())
   organizationId      Int?
@@ -729,6 +733,7 @@ model PublicProfile {
   photo               String?
   consentByGuardianId Int?
   isPublished         Boolean  @default(false)
+  publicCode          String   @unique @default(cuid())
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 

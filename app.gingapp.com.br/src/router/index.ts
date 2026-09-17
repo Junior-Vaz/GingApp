@@ -14,6 +14,7 @@ import ComunidadeView from '../views/ComunidadeView.vue'
 import NotificacoesView from '../views/NotificacoesView.vue'
 import PerfilView from '../views/PerfilView.vue'
 import CertificateVerificationView from '../views/CertificateVerificationView.vue'
+import PassportVerificationView from '../views/PassportVerificationView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -30,6 +31,13 @@ const router = createRouter({
       path: '/verificar/:code',
       name: 'verify-certificate',
       component: CertificateVerificationView,
+      meta: { requiresAuth: false },
+    },
+    {
+      // Aberta pelo QR Code do Passaporte compartilhado — mesmo motivo do certificado acima.
+      path: '/verificar-passaporte/:code',
+      name: 'verify-passport',
+      component: PassportVerificationView,
       meta: { requiresAuth: false },
     },
     {

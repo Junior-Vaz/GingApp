@@ -53,11 +53,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     throw new ApiError(message, response.status)
   }
 
-  if (response.status === 204) {
-    return undefined as T
-  }
-
-  return (await response.json()) as T
+  // Corpo vazio pode vir com 204 OU com 200/201 (endpoint que não devolve nada) — `.json()`
+  // incondicional quebra com SyntaxError nesse segundo caso (achado real em
+  // app.gingapp.com.br, PLANO_PROJETO.md §10.16, mesmo cliente HTTP replicado nos 3 apps).
+  const text = await response.text()
+  return (text ? JSON.parse(text) : undefined) as T
 }
 
 export const api = {
