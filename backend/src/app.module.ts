@@ -22,6 +22,8 @@ import { EventsModule } from './interface/http/events/events.module';
 import { RodasModule } from './interface/http/rodas/rodas.module';
 import { AnnouncementsModule } from './interface/http/announcements/announcements.module';
 import { NotificationsModule } from './interface/http/notifications/notifications.module';
+import { PlansModule } from './interface/http/plans/plans.module';
+import { SubscriptionsModule } from './interface/http/subscriptions/subscriptions.module';
 
 @Module({
   imports: [
@@ -47,6 +49,8 @@ import { NotificationsModule } from './interface/http/notifications/notification
     RodasModule,
     AnnouncementsModule,
     NotificationsModule,
+    PlansModule,
+    SubscriptionsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

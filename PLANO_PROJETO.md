@@ -1415,3 +1415,97 @@ e confirmei via `grep` no JS compilado que a URL customizada realmente foi para 
 40. O serviço `migrate` roda em todo `docker compose up`, mesmo quando não há migration nova — é
     idempotente e rápido, mas alguém rodando isso num CI/CD mais rígido pode preferir separar esse
     passo do `up` normal (ex.: um job de deploy dedicado).
+
+### 10.13 Fase 2 — Billing e planos dinâmicos (catálogo de planos, assinaturas, gateway stub)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — primeira fatia da Fase 2 (decisão do owner:
+"Billing e planos dinâmicos", com gateway "Stub por agora (Recomendado)": modelo de domínio completo
++ `BillingGatewayService` trocável por um gateway real depois, sem integrar credenciais de nenhum
+gateway ainda).
+
+#### O que foi construído
+
+- **Migration `add_subscription_gateway_fields`**: `Subscription.gatewayProvider` (default `"stub"`),
+  `gatewayCustomerId`, `gatewaySubscriptionId` — os únicos campos que faltavam no schema (Plan/
+  Subscription/SubscriptionEvent já existiam desde a fundação, mas sem nenhum módulo backend).
+- **`BillingGatewayService`** (`backend/src/shared/billing/billing-gateway.interface.ts`): interface
+  gateway-agnóstica (`createCustomer`/`createSubscription`/`cancelSubscription`) + `provider` (nome
+  gravado em `Subscription.gatewayProvider`). Implementação atual: `StubBillingGatewayService` — zero
+  chamada de rede, gera IDs determinísticos (`stub-cust-*`/`stub-sub-*`) e calcula
+  `currentPeriodEnd` localmente (30 ou 365 dias conforme `billingPeriod`). Injetado via token
+  `BILLING_GATEWAY_SERVICE` no `SharedModule` (global, ao lado do `PrismaService`) — trocar de gateway
+  no futuro é só um novo `useClass`, nenhum consumidor referencia a classe concreta.
+- **`PlansModule`** (`interface/http/plans/`): CRUD completo do catálogo, **primeiro uso real do
+  `PlatformOnlyGuard`** (existia desde a fundação — §10.1 — nunca tinha sido aplicado a um
+  controller). `DELETE` nunca apaga: desativa (`isActive = false`), mesma convenção de soft-delete de
+  Student/Class/Teacher. Código de plano único, verificado explicitamente antes de create/update
+  (`ConflictException` 409 em duplicata).
+- **`SubscriptionsModule`** (`interface/http/subscriptions/`): PLATFORM-only para
+  list/get/create/update/`:id/cancel`, com uma única exceção MEMBER-acessível (`GET /me`, escopada
+  por `CurrentOrganization`, mesmo padrão de `StudentsService.findMine`). Toda mutação grava uma linha
+  em `SubscriptionEvent` (`CREATED`/`UPDATED`/`CANCELED`, payload em JSON) — audit trail dedicado
+  deste domínio, distinto do `AuditLog` genérico que já existia no schema. `create` bloqueia (409) uma
+  segunda assinatura em aberto (`TRIALING`/`ACTIVE`/`PAST_DUE`) para a mesma organização.
+- **Enforcement de `Plan.maxStudents`**: `StudentsService.create` agora chama
+  `SubscriptionsService.findOpenForOrganization` antes de criar um aluno; se a organização tem
+  assinatura aberta **e** o plano define `maxStudents`, conta alunos `ACTIVE` e bloqueia com 400
+  (`BadRequestException`) ao atingir o limite. Sem assinatura aberta ou sem limite definido, nada
+  muda — preserva o comportamento anterior para orgs de seed/teste.
+- **`seed.ts`**: catálogo expandido de 1 para 4 planos — `UNICO` (legado/gratuito, mantido para a org
+  piloto, sem limite), `ESSENCIAL` (R$49,90, 30 alunos, 1 unidade), `PROFISSIONAL` (R$99,90, 100
+  alunos, 3 unidades), `ILIMITADO` (R$199,90, sem limite) — para ter dados realistas de teste.
+
+#### Achados / dificuldades reais
+
+- **`prisma generate` falhou com `EPERM` (rename do `.dll.node`)** logo após `prisma migrate dev` —
+  já era um padrão conhecido nesta sessão (processos Node órfãos do host, não do container).
+  Investigado via `Get-CimInstance Win32_Process` (não só `tasklist`, que não mostra command line):
+  achados dois processos reais segurando o binário — `nest start --watch` (pid 42568) e um
+  `dist/main` solto (pid 40420), sobras de sessões anteriores. **Corrigido**: `Stop-Process` nos dois,
+  `prisma generate` rodou limpo na sequência. Nenhum processo do usuário fora do projeto foi tocado.
+- **Prisma + TypeScript rejeitou `Record<string, unknown>` nos campos `Json`** (`Plan.features`,
+  `SubscriptionEvent.payload`) — o tipo gerado pelo Prisma Client exige `Prisma.InputJsonValue`, não
+  um `Record` genérico. **Corrigido**: cast explícito `as Prisma.InputJsonValue` nos 3 pontos de
+  escrita (`plans.service.ts` x2, `subscriptions.service.ts` x1) — não havia convenção prévia no
+  projeto para campos `Json`, esta é a primeira.
+
+#### Validação empírica
+
+1. Migration aplicada com `docker compose up -d postgres` + `npx prisma migrate dev` — **confirmada
+   por uma via independente**: `psql -c '\d "Subscription"'` mostrando as 3 colunas novas antes de
+   qualquer commit.
+2. Seed rodado (`npx prisma db seed`) e os 4 planos confirmados via `psql` direto
+   (`SELECT code, maxStudents, ... FROM "Plan"`), não só pelo log do script.
+3. Backend subido local (`npm run start:dev`) e testado via `curl` real: `platform-login` → JWT →
+   `GET /plans` retornando o catálogo completo.
+4. **Suíte e2e nova** (`test/plans-subscriptions.e2e-spec.ts`, 14 casos, registrada em
+   `package.json#scripts.test:e2e`): PlatformOnlyGuard bloqueando MEMBER (403) em `/plans` e
+   `/subscriptions`; CRUD de planos com verificação direta no Postgres (nunca só a resposta HTTP);
+   criação de assinatura chamando o gateway stub de verdade (`gatewayCustomerId`/
+   `gatewaySubscriptionId` com o prefixo esperado); 409 em segunda assinatura aberta; `/subscriptions/
+   me` escopado; **limite de plano end-to-end**: organização isolada assinando um plano
+   `maxStudents=1` criado só para o teste, 1º aluno aceito, 2º bloqueado (400, mensagem conferida),
+   contagem no banco confirmada inalterada; upgrade de plano (`PATCH`) liberando o 2º aluno depois;
+   cancelamento chamando o gateway e bloqueando um 2º cancelamento (400). Fixtures (organização,
+   usuário, planos, assinatura, eventos) limpas no `after()` na ordem certa por causa das FKs
+   `RESTRICT` do schema (`SubscriptionEvent` → `Subscription` → `Plan`/`Organization`) — confirmado
+   via `psql` que nada de `E2E-%`/`e2e-billing%` sobrou no banco após a suíte.
+5. **Suíte e2e completa** rodada do zero (`npm run test:e2e`, todas as 15 specs + a nova):
+   **97 testes, 97 passaram, 0 falhas** — nenhuma regressão nos módulos existentes.
+6. Processo de dev iniciado manualmente para o smoke test foi encerrado ao final (evitar deixar mais
+   um processo órfão, o mesmo padrão de bug já visto nesta sessão).
+
+**Pendências novas desta etapa:**
+
+41. Frontend de billing ainda não construído: `PlansView.vue` real em `admin.gingapp.com.br` (hoje
+    placeholder), UI de gestão de assinatura por organização (provavelmente em
+    `OrganizationDetailView.vue` ou uma view nova), e um indicador de plano/uso no painel do grupo
+    (ex.: Configurações ou Dashboard, mostrando "23/30 alunos do plano Essencial").
+42. Nenhum gateway de pagamento real integrado — `StubBillingGatewayService` é 100% simulado. Quando
+    houver credenciais de sandbox (Asaas ou outro), criar uma nova classe implementando
+    `BillingGatewayService` e trocar o `useClass` em `SharedModule` — nenhum outro código muda.
+43. `SubscriptionsService.update`/`cancel` não notificam ninguém (nem `AnnouncementsService`, nem
+    email) quando o status muda — um "PAST_DUE" ou "CANCELED" hoje só aparece se alguém for olhar
+    `/subscriptions/me` ativamente.
+44. Sem endpoint de "trial self-service" (assinatura `TRIALING` criada pelo próprio grupo sem
+    intervenção da equipe PLATFORM) — toda criação de assinatura hoje é manual, pela equipe PLATFORM.

@@ -53,8 +53,10 @@ async function main() {
   console.log(`✔ PLATFORM user: ${owner.email}`);
 
   // ---------------------------------------------------------------------
-  // 2. Plano unico (modelo comercial inicial — projeto.txt §5: "uma assinatura,
-  //    acesso a plataforma", preco a definir)
+  // 2. Planos (Fase 2 — PLANO_PROJETO.md §10.13: catalogo com limites diferentes para
+  //    exercitar o enforcement de Plan.maxStudents). "UNICO" e o plano legado/gratuito da
+  //    fundacao do projeto (mantido por compatibilidade com a org piloto ja seedada, sem
+  //    limite de alunos); os demais sao o catalogo comercial real.
   // ---------------------------------------------------------------------
   const plan = await prisma.plan.upsert({
     where: { code: 'UNICO' },
@@ -69,6 +71,29 @@ async function main() {
     },
   });
   console.log(`✔ Plan: ${plan.name}`);
+
+  const catalogPlans = [
+    { name: 'Essencial', code: 'ESSENCIAL', priceCents: 4990, maxStudents: 30, maxUnits: 1 },
+    { name: 'Profissional', code: 'PROFISSIONAL', priceCents: 9990, maxStudents: 100, maxUnits: 3 },
+    { name: 'Ilimitado', code: 'ILIMITADO', priceCents: 19990, maxStudents: undefined, maxUnits: undefined },
+  ];
+  for (const catalogPlan of catalogPlans) {
+    const created = await prisma.plan.upsert({
+      where: { code: catalogPlan.code },
+      update: {},
+      create: {
+        name: catalogPlan.name,
+        code: catalogPlan.code,
+        priceCents: catalogPlan.priceCents,
+        billingPeriod: 'MONTHLY',
+        maxStudents: catalogPlan.maxStudents,
+        maxUnits: catalogPlan.maxUnits,
+        features: {},
+        isActive: true,
+      },
+    });
+    console.log(`✔ Plan: ${created.name} (maxStudents=${created.maxStudents ?? 'ilimitado'})`);
+  }
 
   // ---------------------------------------------------------------------
   // 3. Organizacao piloto (grupo de capoeira) + assinatura

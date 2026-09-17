@@ -1,12 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 
 /** Alunos do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
 export class StudentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly subscriptionsService: SubscriptionsService,
+  ) {}
 
   findAll(organizationId: number) {
     return this.prisma.student.findMany({
@@ -51,6 +55,7 @@ export class StudentsService {
     if (dto.unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
     }
+    await this.assertWithinStudentLimit(organizationId);
 
     return this.prisma.student.create({
       data: {
@@ -106,6 +111,29 @@ export class StudentsService {
     const unit = await this.prisma.unit.findFirst({ where: { id: unitId, organizationId } });
     if (!unit) {
       throw new BadRequestException('Unidade inválida para esta organização.');
+    }
+  }
+
+  /**
+   * Aplica Plan.maxStudents (Fase 2 — PLANO_PROJETO.md §10.13). Sem assinatura em aberto
+   * (TRIALING/ACTIVE/PAST_DUE) ou sem limite definido no plano, não bloqueia nada — isso
+   * mantém orgs de teste/seed sem assinatura funcionando como antes. Conta só alunos ACTIVE:
+   * um aluno INACTIVE (soft-delete) não deve ocupar vaga do limite do plano.
+   */
+  private async assertWithinStudentLimit(organizationId: number): Promise<void> {
+    const subscription = await this.subscriptionsService.findOpenForOrganization(organizationId);
+    const maxStudents = subscription?.plan.maxStudents;
+    if (!maxStudents) {
+      return;
+    }
+
+    const activeCount = await this.prisma.student.count({
+      where: { organizationId, status: 'ACTIVE' },
+    });
+    if (activeCount >= maxStudents) {
+      throw new BadRequestException(
+        `Limite de ${maxStudents} alunos do plano "${subscription!.plan.name}" atingido. Faça upgrade do plano para adicionar mais alunos.`,
+      );
     }
   }
 }
