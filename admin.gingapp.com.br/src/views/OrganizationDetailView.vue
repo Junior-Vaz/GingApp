@@ -1,7 +1,14 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, ApiError } from '@/utils/api'
+
+interface FeatureOverride {
+  id: number
+  featureKey: string
+  enabled: boolean
+  note: string | null
+}
 
 interface Organization {
   id: number
@@ -54,6 +61,11 @@ const selectedPlanId = ref('')
 const isSaving = ref(false)
 const actionError = ref('')
 
+const featureOverrides = ref<FeatureOverride[]>([])
+const overrideForm = reactive({ featureKey: '', enabled: true, note: '' })
+const isSavingOverride = ref(false)
+const overrideError = ref('')
+
 const activePlans = computed(() => plans.value.filter((p) => p.isActive))
 const hasOpenSubscription = computed(
   () => subscription.value !== null && OPEN_STATUSES.includes(subscription.value.status),
@@ -72,14 +84,16 @@ async function loadAll(): Promise<void> {
   isLoading.value = true
   loadError.value = ''
   try {
-    const [organizations, subscriptions, allPlans] = await Promise.all([
+    const [organizations, subscriptions, allPlans, overrides] = await Promise.all([
       api.get<Organization[]>('/organizations'),
       api.get<Subscription[]>('/subscriptions'),
       api.get<Plan[]>('/plans'),
+      api.get<FeatureOverride[]>(`/organizations/${organizationId}/feature-overrides`),
     ])
 
     organization.value = organizations.find((o) => o.id === organizationId) ?? null
     plans.value = allPlans
+    featureOverrides.value = overrides
 
     const orgSubscriptions = subscriptions.filter((s) => s.organizationId === organizationId)
     subscription.value = orgSubscriptions[0] ?? null
@@ -88,6 +102,52 @@ async function loadAll(): Promise<void> {
     loadError.value = error instanceof ApiError ? error.message : 'Não foi possível carregar a organização.'
   } finally {
     isLoading.value = false
+  }
+}
+
+async function saveOverride(): Promise<void> {
+  overrideError.value = ''
+  if (!overrideForm.featureKey.trim()) {
+    overrideError.value = 'Informe a chave da feature.'
+    return
+  }
+
+  isSavingOverride.value = true
+  try {
+    await api.post(`/organizations/${organizationId}/feature-overrides`, {
+      featureKey: overrideForm.featureKey.trim(),
+      enabled: overrideForm.enabled,
+      note: overrideForm.note.trim() || undefined,
+    })
+    Object.assign(overrideForm, { featureKey: '', enabled: true, note: '' })
+    await loadAll()
+  } catch (error) {
+    overrideError.value = error instanceof ApiError ? error.message : 'Não foi possível salvar o override.'
+  } finally {
+    isSavingOverride.value = false
+  }
+}
+
+async function toggleOverride(override: FeatureOverride): Promise<void> {
+  try {
+    await api.patch(`/organizations/${organizationId}/feature-overrides/${override.id}`, {
+      enabled: !override.enabled,
+    })
+    await loadAll()
+  } catch (error) {
+    overrideError.value = error instanceof ApiError ? error.message : 'Não foi possível atualizar o override.'
+  }
+}
+
+async function removeOverride(override: FeatureOverride): Promise<void> {
+  if (!confirm(`Remover o override de "${override.featureKey}"? Volta ao comportamento padrão do plano.`)) {
+    return
+  }
+  try {
+    await api.delete(`/organizations/${organizationId}/feature-overrides/${override.id}`)
+    await loadAll()
+  } catch (error) {
+    overrideError.value = error instanceof ApiError ? error.message : 'Não foi possível remover o override.'
   }
 }
 
@@ -212,8 +272,77 @@ onMounted(() => {
       <p v-if="actionError" class="mt-3 text-sm text-red-600">{{ actionError }}</p>
     </div>
 
+    <div v-if="!isLoading" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
+      <h2 class="text-lg font-semibold text-slate-900">Feature overrides</h2>
+      <p class="mt-1 text-sm text-slate-500">
+        Exceções pontuais fora da régua do plano (ex.: liberar algo em cortesia, desativar para suporte).
+      </p>
+
+      <div v-if="featureOverrides.length > 0" class="mt-4 divide-y divide-slate-100 border-t border-slate-100">
+        <div
+          v-for="override in featureOverrides"
+          :key="override.id"
+          class="flex items-center justify-between py-3 text-sm"
+        >
+          <div>
+            <p class="font-medium text-slate-900">{{ override.featureKey }}</p>
+            <p v-if="override.note" class="text-slate-500">{{ override.note }}</p>
+          </div>
+          <div class="flex items-center gap-3">
+            <span
+              class="rounded-full px-2 py-0.5 text-xs font-medium"
+              :class="override.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'"
+            >
+              {{ override.enabled ? 'Ativado' : 'Desativado' }}
+            </span>
+            <button type="button" class="font-medium text-slate-600 hover:text-slate-900" @click="toggleOverride(override)">
+              {{ override.enabled ? 'Desativar' : 'Ativar' }}
+            </button>
+            <button type="button" class="font-medium text-red-600 hover:text-red-700" @click="removeOverride(override)">
+              Remover
+            </button>
+          </div>
+        </div>
+      </div>
+      <p v-else class="mt-4 text-sm text-slate-400">Nenhum override para esta organização.</p>
+
+      <form class="mt-5 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-5" @submit.prevent="saveOverride">
+        <div class="min-w-[200px]">
+          <label class="mb-1 block text-sm font-medium text-slate-700">Chave da feature</label>
+          <input
+            v-model="overrideForm.featureKey"
+            type="text"
+            placeholder="ex.: relatorios.avancados"
+            class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+          />
+        </div>
+        <div class="min-w-[220px] flex-1">
+          <label class="mb-1 block text-sm font-medium text-slate-700">Observação</label>
+          <input
+            v-model="overrideForm.note"
+            type="text"
+            placeholder="opcional"
+            class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+          />
+        </div>
+        <label class="mb-2 flex items-center gap-2 text-sm text-slate-700">
+          <input v-model="overrideForm.enabled" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
+          Ativado
+        </label>
+        <button
+          type="submit"
+          :disabled="isSavingOverride"
+          class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {{ isSavingOverride ? 'Salvando…' : '+ Adicionar override' }}
+        </button>
+      </form>
+
+      <p v-if="overrideError" class="mt-3 text-sm text-red-600">{{ overrideError }}</p>
+    </div>
+
     <div class="mt-6 rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-400">
-      Uso, atividade, unidades e feature overrides serão implementados nas próximas fases.
+      Uso, atividade e unidades serão implementados nas próximas fases.
     </div>
   </div>
 </template>

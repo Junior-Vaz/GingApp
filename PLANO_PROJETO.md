@@ -1542,3 +1542,92 @@ scaffold Tailwind atual**, sem bloquear billing por um retrabalho visual maior e
 45. `GET /organizations` e `GET /subscriptions` não têm paginação real nem filtro por organização no
     backend — `OrganizationDetailView.vue` busca todas as organizações/assinaturas e filtra no
     cliente (aceitável na escala atual de dev, não escala para produção com muitos grupos).
+
+### 10.14 Fase 2 — Feature Overrides + Platform Announcements ("SaaS Admin completo")
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — segunda fatia da Fase 2 (decisão do owner, entre
+4 frentes possíveis de Fase 2: "Feature overrides + Platform Announcements (Recomendado)").
+
+#### O que foi construído
+
+- **`FeatureOverridesModule`** (`interface/http/feature-overrides/`), aninhado em
+  `/organizations/:organizationId/feature-overrides` (diferente do resto do projeto — recursos
+  member-scoped tiram `organizationId` do JWT, mas este é PLATFORM-only e opera sobre a
+  organização de qualquer grupo, escolhida na tela do admin, daí vir da URL). CRUD sobre o model
+  `OrganizationFeatureOverride` (já existia no schema, sem módulo): `POST` faz **upsert** pela
+  chave única `(organizationId, featureKey)` — reenviar a mesma `featureKey` atualiza em vez de
+  duplicar. `DELETE` é **hard delete de verdade** (exceção deliberada ao padrão de soft-delete,
+  mesmo espírito de `FinancialRecord`/`Event`): um override é só um flag pontual, sem valor de
+  histórico. Documentado explicitamente no service: hoje nenhuma feature do produto lê esses
+  overrides para aplicar o gate de fato — o módulo só gerencia o dado, para quando a primeira
+  feature opcional existir.
+- **`PlatformAnnouncementsModule`** (`interface/http/platform-announcements/`): avisos da equipe
+  GingApp para os grupos — diferente de `Announcement` (comunicado interno de um grupo para os
+  próprios membros). `targetOrganizationId` nulo = todos os grupos; preenchido = só aquele grupo.
+  PLATFORM-only para list/get/create/update/delete, com uma exceção MEMBER-acessível
+  (`GET /platform-announcements/mine`, escopada por `CurrentOrganization`, mesmo padrão de
+  `/subscriptions/me`) — retorna só avisos `isActive`, já publicados (`publishedAt <= now` ou
+  nulo) e não expirados (`expiresAt >= now` ou nulo). Ao publicar, distribui uma `Notification`
+  por usuário ativo do público-alvo (reaproveita o mesmo mecanismo de
+  `AnnouncementsService.notifyAudience`, adaptado para escopo de plataforma); não redistribui em
+  edições, só na criação.
+- **Frontend (`admin.gingapp.com.br`)**: `AnnouncementsView.vue` (antes placeholder, agora CRUD
+  real — lista, criar com destinatário e data de expiração, encerrar); `OrganizationDetailView.vue`
+  ganhou a seção "Feature overrides" (lista, adicionar, ativar/desativar, remover), substituindo o
+  placeholder final da página.
+
+#### Achados
+
+- **Bug no próprio teste, não no código**: a suíte e2e nova (`test/platform-admin.e2e-spec.ts`)
+  falhou em 2 dos 14 casos na primeira rodada — `expected 201, got 400`. Investigado via `curl`
+  manual reproduzindo a chamada exata: `body: 'x'` (1 caractere) violava o `@MinLength(2)` do
+  `CreatePlatformAnnouncementDto`. **Não era bug de validação real** (a mensagem de erro do
+  próprio backend, `"body must be longer than or equal to 2 characters"`, apontava direto para a
+  causa) — corrigido trocando para `'xx'` nos dados de teste. Lição: nunca assumir que um 400
+  inesperado é o comportamento sob teste sem ler a mensagem de erro real.
+- **Isolamento de teste**: o primeiro rascunho do teste de aviso "direcionado a outra organização"
+  usava `targetOrganizationId: 1` (a organização real do seed, "Grupo Ginga Brasil") — o que teria
+  criado `Notification` de teste nas contas reais do seed (mestre/professor/aluno/responsável),
+  nunca limpas no `after()`. **Corrigido antes de rodar**: trocado para usar a própria organização
+  isolada da suíte (org B) como alvo, e o `after()` limpa `Notification` por prefixo de título
+  (`[e2e]`) em vez de por `userId`, cobrindo também os avisos **globais** de teste (que notificam
+  todo mundo, inclusive o seed, por design).
+
+#### Validação empírica
+
+1. Backend compilado limpo (`npm run build`, 0 erros) na primeira tentativa.
+2. **Suíte e2e nova** (`test/platform-admin.e2e-spec.ts`, 14 casos): 403 para MEMBER nas rotas
+   platform-only de ambos os módulos; upsert de override confirmado (mesma `featureKey` duas vezes
+   não duplica linha, `count` verificado via Prisma); hard delete confirmado (`findUnique` retorna
+   `null` depois); aviso global notificando a organização isolada da suíte; aviso direcionado
+   aparecendo só na organização-alvo (`GET mine`) e não em outra; `targetOrganizationId` inexistente
+   → 400; aviso expirado não aparece em `mine`; `PATCH` não redistribui notificação (contagem
+   comparada antes/depois); `DELETE` como soft-delete confirmado (`isActive=false`, registro
+   persiste, some de `mine`). 2 falhas na primeira rodada (ver Achados), corrigidas e revalidadas.
+3. **Suíte e2e completa** rodada do zero (`npm run test:e2e`, 17 specs): **111 testes, 111
+   passaram, 0 falhas**.
+4. Frontend (`admin.gingapp.com.br`) buildado limpo (`vue-tsc -b && vite build`).
+5. **Validação ao vivo no navegador**: backend + admin subidos limpos (mesmo cuidado de matar
+   processos por `CommandLine -match 'backend'`/`'admin.gingapp'`, não só o padrão do CLI, por
+   causa do achado de processo filho órfão da §10.13); criado um aviso global pela UI (apareceu na
+   tabela corretamente); na organização "Grupo Ginga Brasil", adicionado um feature override pela
+   UI, confirmado no Network que o `POST`/`PATCH` batem no backend certo e o body retorna o valor
+   esperado (`enabled: false` depois de clicar "Desativar" — um primeiro `get_page_text` capturou a
+   página antes do reload assíncrono terminar, o que pareceu uma falha à primeira vista; refeito
+   a leitura e confirmado que o estado estava correto — não era bug, era timing da própria
+   verificação). Clique em "Remover" e "Cancelar assinatura" corretamente dispararam o `confirm()`
+   nativo do navegador, que o ambiente automatizado recusa por padrão (comportamento esperado, não
+   testável até o fim por esta via). Estado de teste limpo via `psql` ao final (override, aviso e
+   as 5 notificações que ele gerou).
+
+**Pendências novas desta etapa:**
+
+46. Feature overrides não são lidos por nenhuma feature real ainda — o módulo gerencia o dado, mas
+    não há nenhum código no produto que consulte `OrganizationFeatureOverride` para decidir
+    liberar/bloquear algo. Quando a primeira feature opcional existir, ler daqui.
+47. `PlatformAnnouncement`/`Notification` de avisos da plataforma não aparecem em lugar nenhum do
+    `painel.gingapp.com.br` nem do `app.gingapp.com.br` (PWA) ainda — `GET /platform-announcements/
+    mine` existe e funciona, mas nenhum frontend MEMBER o consome. Ficou fora do escopo desta etapa
+    por decisão (owner pediu "escopo backend+admin, similar ao billing").
+48. Sem paginação em `GET /platform-announcements` nem `GET .../feature-overrides` — mesmo
+    problema já registrado na pendência 45 para organizations/subscriptions.

@@ -24,6 +24,8 @@ import { AnnouncementsModule } from './interface/http/announcements/announcement
 import { NotificationsModule } from './interface/http/notifications/notifications.module';
 import { PlansModule } from './interface/http/plans/plans.module';
 import { SubscriptionsModule } from './interface/http/subscriptions/subscriptions.module';
+import { FeatureOverridesModule } from './interface/http/feature-overrides/feature-overrides.module';
+import { PlatformAnnouncementsModule } from './interface/http/platform-announcements/platform-announcements.module';
 
 @Module({
   imports: [
@@ -51,6 +53,8 @@ import { SubscriptionsModule } from './interface/http/subscriptions/subscription
     NotificationsModule,
     PlansModule,
     SubscriptionsModule,
+    FeatureOverridesModule,
+    PlatformAnnouncementsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
