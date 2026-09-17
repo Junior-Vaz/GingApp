@@ -18,8 +18,17 @@ export class NotificationsService {
     });
   }
 
-  countUnreadForUser(userId: number) {
-    return this.prisma.notification.count({ where: { userId, readAt: null } });
+  /**
+   * Retorna `{ count }`, não um número puro — achado empírico (PLANO_PROJETO.md §10.11):
+   * um controller do Nest que devolve um primitivo (number/string) faz o Express responder
+   * com `Content-Type: text/html`, não `application/json` (Nest só chama `res.json()` para
+   * valores tipo objeto/array). Isso quebra qualquer cliente que dependa do content-type para
+   * decidir se faz parse como JSON (ex.: superagent/supertest) — envolver num objeto evita a
+   * ambiguidade e fica consistente com `markAllAsRead`, que já retorna `{ count }`.
+   */
+  async countUnreadForUser(userId: number): Promise<{ count: number }> {
+    const count = await this.prisma.notification.count({ where: { userId, readAt: null } });
+    return { count };
   }
 
   async markAsRead(userId: number, id: number) {

@@ -1232,3 +1232,74 @@ Rodando via `node --require ts-node/register --test`, os 3 specs passaram de pri
 33. `test:e2e:setup` assume que `docker compose up -d postgres` já está rodando — não sobe/derruba
     o container sozinho (decisão deliberada, para não interferir com um Postgres de dev já em uso
     pela mesma pessoa rodando os testes).
+
+### 10.11 Fase 1 — Cobertura de testes estendida para os demais módulos (fecha a pendência 31)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — **um bug real de formato de resposta HTTP foi
+encontrado e corrigido**, não só limitação de tooling.
+
+Estratégia: 3 subagentes Sonnet em paralelo, cada um escrevendo (nunca executando) testes para um
+grupo de módulos, seguindo à risca o padrão de `node:test` já estabelecido em §10.10. Instruídos
+explicitamente a **não rodar a suíte nem subir Docker/Postgres** — três processos mutando a mesma
+organização compartilhada do seed ao mesmo tempo teria produzido dados inconsistentes/corridas. A
+execução real ficou centralizada no orquestrador, depois que os 3 terminaram de escrever.
+
+- **Grupo A** (`students`, `classes`, `teachers`, `lessons`): CRUD completo de cada um, sempre com
+  verificação direta no Postgres (não só código HTTP), incluindo os casos de FK inválida (`unitId`,
+  `classId`, `teacherUserId`) e soft-delete.
+- **Grupo B** (`attendance`, `graduations`, `finance`, `dashboard`): registro de frequência em lote,
+  configuração de graduação + histórico, hard-delete financeiro com auto-preenchimento de `paidAt`,
+  e o Dashboard — este último com uma **organização isolada própria** criada só para esse propósito
+  (mesmo padrão do teste de isolamento multi-tenant), para os números agregados serem 100% determinísticos
+  independentemente do que outras suítes ou sessões manuais já colocaram na organização do seed.
+- **Grupo C** (`events`, `rodas`, `announcements`+`notifications`): reprova especificamente que o bug
+  de autorização da Fase 10.9 (ALUNO não conseguia se autoinscrever em evento) continua corrigido,
+  testa a distinção "dono vs. admin da organização" em `leave` de Rodas, e o fan-out de notificações
+  por comunicado (org-wide notifica todo mundo, isolado por `userId` para marcar como lida).
+
+#### Bug real encontrado ao rodar a suíte consolidada pela primeira vez
+
+Rodando os 14 arquivos juntos pela primeira vez: **82 de 83 passaram**. O único que falhou —
+`GET /notifications/unread-count` — não era um erro de teste malfeito, era um **bug real de
+formato HTTP**: o controller retornava um `number` puro (`return this.prisma.notification.count(...)`),
+e o Nest, ao ver que o valor de retorno não é um objeto/array, faz o Express responder com
+`Content-Type: text/html` em vez de `application/json` (confirmado empiricamente com `curl -i`:
+corpo `"2"`, `Content-Type: text/html; charset=utf-8`). Isso quebra qualquer cliente que decida como
+fazer parse do corpo com base no content-type (ex.: supertest/superagent, usado nos próprios testes)
+— um `fetch(...).json()` comum (como o `api.ts` dos frontends já usa) ainda funcionaria por acidente,
+mas a resposta HTTP em si estava incorreta.
+
+**Correção**: `NotificationsService.countUnreadForUser` passou a retornar `{ count: number }` em vez
+de um `number` puro — consistente com `markAllAsRead`, que já retornava `{ count }`. Confirmado que
+nenhum frontend ainda consumia esse endpoint (`grep` nos 3 frontends não achou nenhuma referência),
+então a correção não quebrou nada em produção. Teste ajustado para `res.body.count` e revalidado.
+
+#### Validação empírica final
+
+1. Suíte completa (14 arquivos, 83 testes) rodada **duas vezes seguidas** com
+   `--test-concurrency=1` (execução sequencial forçada — necessário porque alguns testes, como o de
+   fan-out de notificações e o próprio Dashboard, dependem de contagens/estado que outro teste rodando
+   em paralelo no mesmo Postgres poderia bagunçar): **83/83 nas duas rodadas**, sem flakiness.
+2. Limpeza verificada de forma independente via `psql` direto, contando por padrões de nome (`e2e`,
+   `teste`, `isolation`) em `Organization`, `User`, `Class`, `Notification`, `Announcement`,
+   `GraduationSystem`, `Event` — **zero resíduo** em todas as tabelas depois de duas rodadas
+   completas da suíte.
+3. `package.json`'s `test:e2e` consolidado para rodar os 14 arquivos em ordem (fundação → módulos
+   de negócio → comunidade), com `--test-concurrency=1` explícito.
+
+**Cobertura atual**: 14 dos ~15 módulos do backend têm teste e2e real (auth, multi-tenant, RBAC,
+students, classes, teachers, lessons, attendance, graduations, finance, dashboard, events, rodas,
+announcements/notifications). Não cobertos ainda: `organizations`, `units` (CRUD simples, sem
+validação de negócio própria além do que já é exercitado indiretamente pelos testes de `unitId`
+inválido nos outros módulos).
+
+**Pendências novas desta etapa:**
+
+34. `organizations` e `units` não têm suíte própria (baixa prioridade — são os módulos mais simples,
+    e sua validação cross-tenant já é exercitada indiretamente via `assertUnitBelongsToOrganization`
+    nos testes de outros módulos).
+35. Nenhum teste de frontend ainda (pendência recorrente de §10.10, não resolvida nesta rodada).
+36. `Content-Type: text/html` para retornos primitivos é um padrão geral do Nest+Express, não
+    específico deste endpoint — vale uma varredura futura (`grep` por `return this.\w+Service\.\w+`
+    em controllers que não envolvam `Promise<objeto>`) se mais endpoints desse tipo forem
+    adicionados, para não repetir o mesmo bug em outro lugar.
