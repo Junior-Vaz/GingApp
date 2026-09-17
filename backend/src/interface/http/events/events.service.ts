@@ -55,6 +55,7 @@ export class EventsService {
         isPublic: dto.isPublic ?? false,
         stateId: dto.stateId,
         cityId: dto.cityId,
+        imageUrl: dto.imageUrl,
       },
     });
   }
@@ -79,6 +80,7 @@ export class EventsService {
         isPublic: dto.isPublic,
         stateId: dto.stateId,
         cityId: dto.cityId,
+        imageUrl: dto.imageUrl,
       },
     });
   }

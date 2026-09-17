@@ -1,4 +1,4 @@
-import { IsDateString, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString, IsUrl, MinLength } from 'class-validator';
 
 export class CreateRodaDto {
   @IsString()
@@ -27,4 +27,8 @@ export class CreateRodaDto {
   @IsOptional()
   @IsInt()
   communityId?: number;
+
+  @IsOptional()
+  @IsUrl()
+  imageUrl?: string;
 }

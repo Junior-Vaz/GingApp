@@ -572,6 +572,10 @@ model Event {
   date           DateTime
   location       String?
   isPublic       Boolean  @default(false)
+  /// URL de uma imagem de capa (sem upload de arquivo — mesmo padrão leve de Student.photo/
+  /// PublicProfile.photo). Usada nos cards do feed (Home/Calendário, PLANO_PROJETO.md §10.21/
+  /// §10.22); sem ela, o card usa um placeholder ilustrado com o ícone do tipo.
+  imageUrl       String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -702,6 +706,8 @@ model Roda {
   description    String?
   date           DateTime
   location       String?
+  /// Mesma convenção de Event.imageUrl acima — URL de capa opcional, sem upload de arquivo.
+  imageUrl       String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

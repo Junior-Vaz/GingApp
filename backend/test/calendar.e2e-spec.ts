@@ -35,6 +35,8 @@ describe('Calendário da capoeira (e2e)', () => {
   const PUBLIC_EVENT_TITLE = `[e2e-test] Calendário Workshop ${suffix}`;
   const PRIVATE_EVENT_TITLE = `[e2e-test] Calendário Privado ${suffix}`;
   const eventDate = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+  const RODA_IMAGE_URL = 'https://picsum.photos/seed/e2e-roda/400';
+  const EVENT_IMAGE_URL = 'https://picsum.photos/seed/e2e-evento/400';
 
   before(async () => {
     app = await createTestApp();
@@ -59,6 +61,7 @@ describe('Calendário da capoeira (e2e)', () => {
         title: RODA_TITLE,
         date: new Date(eventDate),
         location: 'Praça de teste',
+        imageUrl: RODA_IMAGE_URL,
       },
     });
     rodaId = roda.id;
@@ -87,6 +90,7 @@ describe('Calendário da capoeira (e2e)', () => {
         type: 'WORKSHOP',
         stateId,
         cityId,
+        imageUrl: EVENT_IMAGE_URL,
       })
       .expect(201);
     publicEventId = res.body.id;
@@ -96,6 +100,15 @@ describe('Calendário da capoeira (e2e)', () => {
     assert.equal(persisted.stateId, stateId);
     assert.equal(persisted.cityId, cityId);
     assert.equal(persisted.isPublic, true);
+    assert.equal(persisted.imageUrl, EVENT_IMAGE_URL);
+  });
+
+  it('POST /events com imageUrl inválida (não é URL) → 400', async () => {
+    await request(app.getHttpServer())
+      .post('/api/events')
+      .set('Authorization', `Bearer ${mestreToken}`)
+      .send({ title: '[e2e-test] Imagem inválida', date: eventDate, imageUrl: 'não-é-uma-url' })
+      .expect(400);
   });
 
   it('POST /events sem type usa o default OUTRO', async () => {
@@ -129,6 +142,14 @@ describe('Calendário da capoeira (e2e)', () => {
       res.body.some((i: { source: string; title: string }) => i.source === 'EVENTO' && i.title === PUBLIC_EVENT_TITLE),
     );
     assert.ok(!res.body.some((i: { title: string }) => i.title === PRIVATE_EVENT_TITLE));
+  });
+
+  it('GET /calendar traz imageUrl de rodas e eventos (usado nos cards do feed)', async () => {
+    const res = await request(app.getHttpServer()).get(`/api/calendar?stateId=${stateId}`).expect(200);
+    const roda = res.body.find((i: { title: string }) => i.title === RODA_TITLE);
+    const evento = res.body.find((i: { title: string }) => i.title === PUBLIC_EVENT_TITLE);
+    assert.equal(roda.imageUrl, RODA_IMAGE_URL);
+    assert.equal(evento.imageUrl, EVENT_IMAGE_URL);
   });
 
   it('GET /calendar?type=RODA só traz rodas', async () => {

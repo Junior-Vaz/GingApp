@@ -10,6 +10,7 @@ interface Roda {
   location: string | null
   stateId: number | null
   cityId: number | null
+  imageUrl: string | null
 }
 
 interface State {
@@ -32,6 +33,7 @@ interface RodaFormState {
   location: string
   stateId: string
   cityId: string
+  imageUrl: string
 }
 
 const rodas = ref<Roda[]>([])
@@ -45,7 +47,7 @@ const isSubmitting = ref(false)
 const formError = ref('')
 
 function emptyForm(): RodaFormState {
-  return { id: null, title: '', description: '', date: '', location: '', stateId: '', cityId: '' }
+  return { id: null, title: '', description: '', date: '', location: '', stateId: '', cityId: '', imageUrl: '' }
 }
 
 const form = reactive<RodaFormState>(emptyForm())
@@ -111,6 +113,7 @@ function openEditModal(roda: Roda): void {
     location: roda.location ?? '',
     stateId: roda.stateId ? String(roda.stateId) : '',
     cityId: roda.cityId ? String(roda.cityId) : '',
+    imageUrl: roda.imageUrl ?? '',
   })
   if (roda.stateId) void loadCitiesFor(String(roda.stateId))
   formError.value = ''
@@ -136,6 +139,7 @@ async function submitForm(): Promise<void> {
     location: form.location || undefined,
     stateId: form.stateId ? Number(form.stateId) : undefined,
     cityId: form.cityId ? Number(form.cityId) : undefined,
+    imageUrl: form.imageUrl.trim() || undefined,
   }
 
   try {
@@ -295,6 +299,17 @@ onMounted(() => {
                 <option v-for="city in cities" :key="city.id" :value="city.id">{{ city.name }}</option>
               </select>
             </div>
+          </div>
+
+          <div>
+            <label class="mb-1 block text-sm font-medium text-slate-700">URL da imagem de capa (opcional)</label>
+            <input
+              v-model="form.imageUrl"
+              type="url"
+              placeholder="https://..."
+              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+            />
+            <p class="mt-1 text-xs text-slate-400">Aparece nos cards do feed do app (Home e Calendário). Sem imagem, mostra um ícone.</p>
           </div>
 
           <p v-if="formError" class="text-sm text-red-600">{{ formError }}</p>

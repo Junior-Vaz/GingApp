@@ -13,6 +13,7 @@ interface EventItem {
   type: string
   stateId: number | null
   cityId: number | null
+  imageUrl: string | null
 }
 
 interface Unit {
@@ -69,6 +70,7 @@ interface EventFormState {
   type: string
   stateId: string
   cityId: string
+  imageUrl: string
 }
 
 const STATUS_LABEL: Record<ParticipantStatus, string> = {
@@ -103,6 +105,7 @@ function emptyForm(): EventFormState {
     type: 'OUTRO',
     stateId: '',
     cityId: '',
+    imageUrl: '',
   }
 }
 
@@ -203,6 +206,7 @@ function openEditModal(event: EventItem): void {
     type: event.type,
     stateId: event.stateId ? String(event.stateId) : '',
     cityId: event.cityId ? String(event.cityId) : '',
+    imageUrl: event.imageUrl ?? '',
   })
   if (event.stateId) void loadCitiesFor(String(event.stateId))
   formError.value = ''
@@ -235,6 +239,7 @@ async function submitForm(): Promise<void> {
     type: form.type,
     stateId: form.stateId ? Number(form.stateId) : undefined,
     cityId: form.cityId ? Number(form.cityId) : undefined,
+    imageUrl: form.imageUrl.trim() || undefined,
   }
 
   try {
@@ -536,6 +541,17 @@ onMounted(() => {
                 <option v-for="city in cities" :key="city.id" :value="city.id">{{ city.name }}</option>
               </select>
             </div>
+          </div>
+
+          <div>
+            <label class="mb-1 block text-sm font-medium text-slate-700">URL da imagem de capa (opcional)</label>
+            <input
+              v-model="form.imageUrl"
+              type="url"
+              placeholder="https://..."
+              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+            />
+            <p class="mt-1 text-xs text-slate-400">Aparece nos cards do feed do app (Home e Calendário). Sem imagem, mostra um ícone.</p>
           </div>
 
           <div class="flex items-center gap-2">

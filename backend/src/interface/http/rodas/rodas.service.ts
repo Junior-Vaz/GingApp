@@ -70,6 +70,7 @@ export class RodasService {
         stateId: dto.stateId,
         cityId: dto.cityId,
         communityId: dto.communityId,
+        imageUrl: dto.imageUrl,
       },
     });
   }
@@ -88,6 +89,7 @@ export class RodasService {
         stateId: dto.stateId,
         cityId: dto.cityId,
         communityId: dto.communityId,
+        imageUrl: dto.imageUrl,
       },
     });
   }

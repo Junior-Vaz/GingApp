@@ -17,6 +17,7 @@ export interface CalendarItem {
   description: string | null;
   date: Date;
   location: string | null;
+  imageUrl: string | null;
   state: { id: number; name: string; uf: string } | null;
   city: { id: number; name: string } | null;
 }
@@ -78,6 +79,7 @@ export class CalendarService {
         description: r.description,
         date: r.date,
         location: r.location,
+        imageUrl: r.imageUrl,
         state: r.state,
         city: r.city,
       })),
@@ -89,6 +91,7 @@ export class CalendarService {
         description: e.description,
         date: e.date,
         location: e.location,
+        imageUrl: e.imageUrl,
         state: e.state,
         city: e.city,
       })),

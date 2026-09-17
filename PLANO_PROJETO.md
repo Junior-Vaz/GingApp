@@ -2176,3 +2176,53 @@ Avisos do grupo).
     — decisão deliberada (os dois conceitos de "recente" — publicado agora vs. acontecendo em
     breve — não se comparam bem numa única chave de ordenação), mas vale reavaliar se o produto
     crescer a ponto de ter muitos itens de cada tipo.
+
+### 10.22 `imageUrl` em Event/Roda — fotos de capa reais no feed (fecha a pendência 65)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — fecha a pendência 65 registrada em §10.21
+("se o produto quiser fotos de verdade... precisa de um campo `imageUrl`"). Pedido direto do
+owner logo em seguida ("sim, adiciona imageUrl e deixa o painel colar o link").
+
+#### O que foi construído
+
+- **`Event.imageUrl`/`Roda.imageUrl`** (`String?`, migration `add_event_roda_image_url`): mesmo
+  padrão leve já usado em `Student.photo`/`PublicProfile.photo` — só URL, sem upload de arquivo
+  nem storage próprio. `CreateEventDto`/`UpdateEventDto`/`CreateRodaDto`/`UpdateRodaDto` validam
+  com `@IsUrl()` (rejeita string que não é URL, 400). `EventsService`/`RodasService` passam o
+  campo adiante no create/update. `CalendarService` inclui `imageUrl` no `CalendarItem` (Roda e
+  Event) — sem isso, o dado existiria no banco mas nunca chegaria no `/calendar` que os feeds
+  consomem.
+- **`painel.gingapp.com.br`**: `EventosView.vue` e `RodasView.vue` ganharam um campo "URL da
+  imagem de capa (opcional)" no formulário de criar/editar, com nota explicando onde a imagem
+  aparece.
+- **PWA**: `FeedCard.vue` já suportava `imageUrl` desde §10.21 (só não tinha nenhum dado real pra
+  mostrar) — `HomeView.vue` e `ComunidadeView.vue` agora repassam `item.imageUrl` do
+  `/calendar`. Aproveitado pra **unificar** `ComunidadeView.vue`: antes do card de ícone+badge
+  em linha (do redesign v2, §10.20), agora usa o mesmo `FeedCard` da Home — os dois feeds
+  (Home e Calendário) têm exatamente a mesma linguagem visual agora, nunca dois estilos de card
+  pro mesmo dado.
+
+#### Validação empírica
+
+1. Migration aplicada (mesmo procedimento não-interativo já padronizado) e confirmada via `psql`
+   (`\d "Event"`, `\d "Roda"`, coluna `imageUrl` em ambas) antes do commit.
+2. Backend compilado limpo. **Suíte e2e estendida** (`calendar.e2e-spec.ts`, +3 casos): evento
+   criado com `imageUrl` confirmado via Prisma; `imageUrl` inválida (não é URL) → 400; `GET
+   /calendar` retorna `imageUrl` de roda e evento corretamente. **Suíte completa revalidada**:
+   **145 testes, 145 passaram, 0 falhas**.
+3. Frontend (`painel` e `app.gingapp.com.br`) buildado limpo.
+4. **Validação ao vivo no navegador**: editada a "Roda Mensal — Valparaíso" no painel com uma URL
+   de imagem real (Unsplash); conferido no PWA que **Home** e **Calendário** passaram a mostrar a
+   foto de verdade nesse card, enquanto a "Roda de Teste" (sem `imageUrl`) continuou mostrando o
+   placeholder ilustrado — confirma que os dois caminhos (com/sem imagem) convivem sem quebrar
+   nada. Estado do banco restaurado via `psql` ao final (roda do seed de volta a `imageUrl = NULL`,
+   consistente com o que `seed.ts` declara).
+
+**Pendências novas desta etapa:**
+
+67. Sem preview da imagem no formulário do painel antes de salvar — o campo é só texto (URL),
+    sem confirmar visualmente que o link aponta pra uma imagem de verdade antes de publicar.
+68. Nenhuma validação de que a URL aponta pra uma imagem de verdade (só que é uma URL válida,
+    via `@IsUrl()`) — uma URL de uma página HTML comum passaria na validação e quebraria o
+    `<img>` do card (cairia silenciosamente pro placeholder do navegador, não pro placeholder
+    ilustrado do `FeedCard`, já que este só ativa quando `imageUrl` é `null`/vazio).

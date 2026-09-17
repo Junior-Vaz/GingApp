@@ -6,8 +6,8 @@
 // grupo) — não era um calendário nacional de verdade.
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, ApiError } from '../utils/api'
-import AppIcon, { type IconName } from '../components/icons/AppIcon.vue'
-import Badge from '../components/ui/Badge.vue'
+import { type IconName } from '../components/icons/AppIcon.vue'
+import FeedCard from '../components/ui/FeedCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 
 type Scope = 'today' | 'week' | 'month' | ''
@@ -30,6 +30,7 @@ interface CalendarItem {
   description: string | null
   date: string
   location: string | null
+  imageUrl: string | null
   state: { id: number; name: string; uf: string } | null
   city: { id: number; name: string } | null
 }
@@ -190,26 +191,17 @@ onMounted(() => {
       <EmptyState icon="calendar" message="Nada encontrado com esses filtros." />
     </div>
 
-    <section v-else class="flex flex-col gap-3 px-5">
-      <div
+    <section v-else class="flex flex-col gap-4 px-5">
+      <FeedCard
         v-for="item in items"
         :key="`${item.source}-${item.id}`"
-        class="flex items-center gap-3 rounded-card-lg bg-surface p-4"
-      >
-        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
-          <AppIcon :name="TYPE_ICON[item.type] ?? 'calendar'" :size="20" />
-        </span>
-        <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-semibold text-text">{{ item.title }}</p>
-          <p class="text-xs text-text-muted">
-            {{ formatDate(item.date) }}<span v-if="item.location"> · {{ item.location }}</span>
-          </p>
-          <p v-if="item.city || item.state" class="text-xs text-text-faint">
-            {{ [item.city?.name, item.state?.uf].filter(Boolean).join(' - ') }}
-          </p>
-        </div>
-        <Badge tone="neutral">{{ TYPE_LABEL[item.type] ?? item.type }}</Badge>
-      </div>
+        :icon="TYPE_ICON[item.type] ?? 'calendar'"
+        :image-url="item.imageUrl"
+        :badge="TYPE_LABEL[item.type] ?? item.type"
+        :title="item.title"
+        :meta="formatDate(item.date)"
+        :subtitle="[item.location, item.city?.name, item.state?.uf].filter(Boolean).join(' · ') || undefined"
+      />
     </section>
   </div>
 </template>

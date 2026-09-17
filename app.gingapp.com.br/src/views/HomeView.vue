@@ -23,6 +23,7 @@ interface CalendarItem {
   title: string
   date: string
   location: string | null
+  imageUrl: string | null
   state: { uf: string } | null
   city: { name: string } | null
 }
@@ -49,6 +50,7 @@ interface FeedItem {
   meta: string
   subtitle?: string
   to?: string
+  imageUrl?: string | null
 }
 
 const auth = useAuthStore()
@@ -106,6 +108,7 @@ const feedItems = computed<FeedItem[]>(() => {
     meta: formatShortDate(item.date),
     subtitle: [item.location, item.city?.name, item.state?.uf].filter(Boolean).join(' · ') || undefined,
     to: item.source === 'RODA' ? '/app/rodas' : '/app/comunidade',
+    imageUrl: item.imageUrl,
   }))
 
   const combined = [...avisos, ...calendar]
@@ -202,6 +205,7 @@ onMounted(async () => {
           :meta="item.meta"
           :subtitle="item.subtitle"
           :to="item.to"
+          :image-url="item.imageUrl"
         />
       </section>
     </template>

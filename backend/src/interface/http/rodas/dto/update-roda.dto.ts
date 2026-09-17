@@ -1,4 +1,4 @@
-import { IsDateString, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString, IsUrl, MinLength } from 'class-validator';
 
 export class UpdateRodaDto {
   @IsOptional()
@@ -29,4 +29,8 @@ export class UpdateRodaDto {
   @IsOptional()
   @IsInt()
   communityId?: number;
+
+  @IsOptional()
+  @IsUrl()
+  imageUrl?: string;
 }

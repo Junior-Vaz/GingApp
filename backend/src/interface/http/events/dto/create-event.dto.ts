@@ -1,4 +1,4 @@
-import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUrl, MinLength } from 'class-validator';
 import { EVENT_TYPES } from './event-type';
 
 export class CreateEventDto {
@@ -36,4 +36,8 @@ export class CreateEventDto {
   @IsOptional()
   @IsInt()
   cityId?: number;
+
+  @IsOptional()
+  @IsUrl()
+  imageUrl?: string;
 }
