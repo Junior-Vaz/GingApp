@@ -8,7 +8,10 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 
-const LOGIN_THROTTLE = { default: { limit: 5, ttl: 60_000 } };
+// Configurável via env para permitir um limite mais alto em testes e2e (que fazem vários
+// logins reais em sequência) sem afetar o padrão de produção (5/min).
+const LOGIN_THROTTLE_LIMIT = Number(process.env.LOGIN_THROTTLE_LIMIT ?? 5);
+const LOGIN_THROTTLE = { default: { limit: LOGIN_THROTTLE_LIMIT, ttl: 60_000 } };
 
 @Controller('auth')
 export class AuthController {

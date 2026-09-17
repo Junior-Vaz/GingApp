@@ -1157,3 +1157,78 @@ Com isso, o **MVP completo está de pé** (`projeto.txt` §78, Gestão + Comunid
 os módulos, RBAC, painel administrativo funcional, e o PWA do aluno consumindo dados reais de ponta a
 ponta. Os itens ainda pendentes são poli­mento (design real do GestorPrint, testes automatizados,
 Dockerfiles de produção) e Fase 2 (billing, planos dinâmicos, certificados, QR Code).
+
+### 10.10 Fase 1 — Testes automatizados do backend (e2e)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — infraestrutura de teste montada do zero e **um
+obstáculo técnico real de ecossistema encontrado e contornado** (não uma simples configuração).
+
+Pendência mais repetida em quase toda fase anterior ("nenhum teste automatizado ainda"). Escolhido
+como próxima frente por ser a que mais protege o que já foi construído contra regressão — em
+particular o teste de isolamento multi-tenant, que o próprio plano (§8) chama de "o teste de
+segurança mais importante do projeto".
+
+#### Obstáculo real: Jest não consegue rodar contra `@nestjs/common@12.0.3` (pacote ESM puro)
+
+Primeira tentativa: Jest + ts-jest (padrão de mercado para NestJS). Falhou com
+`Must use import to load ES Module` ao carregar `@nestjs/common`. Investigação:
+`@nestjs/common@12.0.3` é publicado como **ESM puro** (`"type": "module"`, sem entrada CommonJS) —
+confirmado lendo o `package.json` do pacote instalado. O backend em si roda normalmente
+(`node dist/main.js`, testado dezenas de vezes nesta sessão) porque o **Node 22.17 já suporta
+`require()` nativo de ESM síncrono** (`require(esm)`) — confirmado com um teste isolado
+(`node -e "require('@nestjs/common')"` funcionou). O problema é que o **carregador de módulos do
+próprio Jest não delega para esse mecanismo nativo do Node** — reimplementa `require` por conta
+própria e não sabe lidar com ESM.
+
+Tentativas de contornar dentro do Jest (`transformIgnorePatterns` para forçar o ts-jest a
+retranspilar os arquivos ESM de `@nestjs/common` para CommonJS antes do require) reduziram o erro
+mas não eliminaram — a cadeia de imports internos do pacote (`validation.pipe.js` →
+`load-package.util.js`) reapresentava o mesmo erro mais fundo, e cada camada exigiria mapear mais
+pacotes transitivos. **Decisão**: abandonar Jest para os testes e2e (só para eles — não afeta o
+resto do projeto) e usar o **test runner nativo do Node** (`node:test` + `node:assert/strict`),
+que usa o `require` normal do Node e portanto herda o suporte nativo a `require(esm)` já confirmado.
+Rodando via `node --require ts-node/register --test`, os 3 specs passaram de primeira.
+
+#### O que foi montado
+
+- `test/global-setup.ts` — roda `prisma migrate deploy` + `prisma db seed` uma vez antes da suíte
+  (script npm separado, não um hook do test runner), garantindo que o Postgres tem o schema
+  migrado e os dados base do seed (matriz RolePermission, organização/usuários de exemplo).
+- `test/env-setup.ts` — sobe o limite do throttle de login (`LOGIN_THROTTLE_LIMIT`, novo — env var
+  configurável adicionada em `auth.controller.ts`, default 5/min mantido em produção) para 100
+  só nos testes, porque a suíte faz vários logins reais em sequência e bateria no limite de
+  produção (achado confirmado empiricamente nas sessões manuais anteriores, §10.7-§10.9).
+- `test/utils/test-app.ts` — bootstrap da aplicação real via `@nestjs/testing`, mesmos guards/pipes
+  globais de `src/main.ts` (nenhum mock).
+- `test/utils/assert-helpers.ts` — `assertMatchObject`, um helper mínimo para checagem parcial de
+  objeto (equivalente ao `toMatchObject` do Jest) usando só `node:assert`.
+- 3 suítes, **21 testes, todos passando, rodados duas vezes seguidas para confirmar idempotência**:
+  1. **`auth.e2e-spec.ts`** (8 testes): login MEMBER válido, senha errada, e-mail inexistente
+     (mesma mensagem genérica nos dois — não vaza qual credencial está errada), cross-login
+     bloqueado nos dois sentidos (MEMBER→platform-login, PLATFORM→login), platform-login válido,
+     rota protegida sem token (401), rota pública sem token (200).
+  2. **`multi-tenant-isolation.e2e-spec.ts`** (6 testes) — **o mais importante**: cria uma segunda
+     organização isolada de verdade (própria da suíte, apagada no `after`) com seu próprio
+     mestre e aluno, e confirma que nenhuma das duas organizações consegue LER (nem por listagem
+     nem por id direto), EDITAR ou APAGAR dados da outra — sempre `404`, nunca `200`/`403` (o que
+     vazaria a existência do registro). Depois de cada tentativa de mutação bloqueada, confirma
+     **direto no Postgres** que o dado da vítima continua intacto — não confia só no código HTTP.
+  3. **`rbac.e2e-spec.ts`** (7 testes): ALUNO bloqueado de criar turma (com verificação de que
+     nada foi gravado no banco), MESTRE consegue criar (com verificação de que a linha existe de
+     verdade), ALUNO bloqueado de ver professores, MESTRE consegue, e a dupla
+     `GET /finance` (403 para ALUNO) vs. `GET /finance/me` (200 para ALUNO) que prova que a
+     restrição de privacidade de §10.7 está mesmo ativa.
+- `npm run test:e2e` roda tudo (setup + suíte). Pré-requisito documentado: `docker compose up -d
+  postgres` já rodando.
+
+**Pendências novas desta etapa:**
+
+31. Só 3 dos ~15 módulos do backend têm teste automatizado (auth, isolamento multi-tenant via
+    students, RBAC via classes/teachers/finance) — os demais (turmas completas, aulas, frequência,
+    graduações, eventos, rodas, comunicados, notificações, dashboard) continuam sem teste. A
+    infraestrutura montada aqui (test-app, assert-helpers, padrão de fixture/cleanup) já serve de
+    molde para estender a cobertura módulo a módulo.
+32. Nenhum teste de frontend (painel, admin, PWA) — só o backend.
+33. `test:e2e:setup` assume que `docker compose up -d postgres` já está rodando — não sobe/derruba
+    o container sozinho (decisão deliberada, para não interferir com um Postgres de dev já em uso
+    pela mesma pessoa rodando os testes).

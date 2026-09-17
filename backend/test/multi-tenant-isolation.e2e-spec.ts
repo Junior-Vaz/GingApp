@@ -1,0 +1,154 @@
+import { INestApplication } from '@nestjs/common';
+import { OrganizationType, OrgRole, PrismaClient, RecordStatus, StudentStatus } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+import assert from 'node:assert/strict';
+import { after, before, describe, it } from 'node:test';
+import request from 'supertest';
+import { createTestApp } from './utils/test-app';
+
+/**
+ * O teste de segurança mais importante do projeto (PLANO_PROJETO.md §8 / projeto.txt §95):
+ *
+ *   "Um usuário de uma organização nunca deve conseguir acessar dados privados de outra
+ *    organização."
+ *
+ * Cria uma SEGUNDA organização isolada (própria desta suíte, apagada no final) e confirma
+ * que o MESTRE da organização A (seed de dev) não enxerga nada da organização B, e
+ * vice-versa — tanto em listagem (GET /students) quanto em acesso direto por id
+ * (GET /students/:id) e em mutação (PATCH/DELETE /students/:id).
+ */
+const DEV_PASSWORD = 'Dev@12345';
+const ORG_A_MESTRE_EMAIL = 'mestre@gingabrasil.com.br'; // seed de dev — organização "Grupo Ginga Brasil"
+const ORG_B_MESTRE_EMAIL = 'mestre-b@e2e-isolation-test.local';
+
+describe('Isolamento multi-tenant (e2e)', () => {
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+
+  let orgAToken: string;
+  let orgBToken: string;
+  let orgAStudentId: number;
+  let orgBStudentId: number;
+  let orgBId: number;
+  let orgBUserId: number;
+
+  before(async () => {
+    app = await createTestApp();
+
+    // --- Organização B, isolada, criada só para este teste ---
+    const orgB = await prisma.organization.create({
+      data: {
+        name: 'E2E Isolation Org B',
+        slug: `e2e-isolation-org-b-${Date.now()}`,
+        type: OrganizationType.GROUP,
+        status: RecordStatus.ACTIVE,
+      },
+    });
+    orgBId = orgB.id;
+
+    const passwordHash = await bcrypt.hash(DEV_PASSWORD, 4); // custo baixo só para acelerar o teste
+    const userB = await prisma.user.create({
+      data: {
+        email: ORG_B_MESTRE_EMAIL,
+        passwordHash,
+        name: 'Mestre E2E Org B',
+        userType: 'MEMBER',
+        status: 'ACTIVE',
+      },
+    });
+    orgBUserId = userB.id;
+
+    await prisma.organizationUser.create({
+      data: { organizationId: orgB.id, userId: userB.id, role: OrgRole.MESTRE, status: 'ACTIVE' },
+    });
+
+    const studentB = await prisma.student.create({
+      data: { organizationId: orgB.id, name: 'Aluno Secreto da Org B', status: StudentStatus.ACTIVE },
+    });
+    orgBStudentId = studentB.id;
+
+    // --- Login nas duas organizações (via API real, não direto no banco) ---
+    const loginA = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: ORG_A_MESTRE_EMAIL, password: DEV_PASSWORD })
+      .expect(200);
+    orgAToken = loginA.body.accessToken;
+
+    const loginB = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: ORG_B_MESTRE_EMAIL, password: DEV_PASSWORD })
+      .expect(200);
+    orgBToken = loginB.body.accessToken;
+
+    // Um aluno qualquer já existente na organização A (seed de dev) para o teste simétrico.
+    const anyOrgAStudent = await prisma.student.findFirstOrThrow({
+      where: { organizationId: loginA.body.user.organizationId },
+    });
+    orgAStudentId = anyOrgAStudent.id;
+  });
+
+  after(async () => {
+    // Limpa só o que esta suíte criou — nunca mexe nos dados do seed de dev (organização A).
+    await prisma.student.deleteMany({ where: { organizationId: orgBId } });
+    await prisma.organizationUser.deleteMany({ where: { organizationId: orgBId } });
+    await prisma.organization.delete({ where: { id: orgBId } });
+    await prisma.user.delete({ where: { id: orgBUserId } });
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  it('GET /students da organização A nunca inclui o aluno da organização B', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/students')
+      .set('Authorization', `Bearer ${orgAToken}`)
+      .expect(200);
+
+    const ids = res.body.map((s: { id: number }) => s.id);
+    assert.ok(!ids.includes(orgBStudentId));
+  });
+
+  it('GET /students da organização B nunca inclui o aluno da organização A', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/students')
+      .set('Authorization', `Bearer ${orgBToken}`)
+      .expect(200);
+
+    const ids = res.body.map((s: { id: number }) => s.id);
+    assert.ok(!ids.includes(orgAStudentId));
+  });
+
+  it('organização A não consegue LER o aluno da organização B por id direto (404, não 200 nem 403)', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/students/${orgBStudentId}`)
+      .set('Authorization', `Bearer ${orgAToken}`)
+      .expect(404);
+  });
+
+  it('organização B não consegue LER o aluno da organização A por id direto', async () => {
+    await request(app.getHttpServer())
+      .get(`/api/students/${orgAStudentId}`)
+      .set('Authorization', `Bearer ${orgBToken}`)
+      .expect(404);
+  });
+
+  it('organização A não consegue EDITAR o aluno da organização B', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/students/${orgBStudentId}`)
+      .set('Authorization', `Bearer ${orgAToken}`)
+      .send({ name: 'Nome Adulterado Pela Org A' })
+      .expect(404);
+
+    const stillIntact = await prisma.student.findUniqueOrThrow({ where: { id: orgBStudentId } });
+    assert.equal(stillIntact.name, 'Aluno Secreto da Org B');
+  });
+
+  it('organização A não consegue APAGAR (inativar) o aluno da organização B', async () => {
+    await request(app.getHttpServer())
+      .delete(`/api/students/${orgBStudentId}`)
+      .set('Authorization', `Bearer ${orgAToken}`)
+      .expect(404);
+
+    const stillActive = await prisma.student.findUniqueOrThrow({ where: { id: orgBStudentId } });
+    assert.equal(stillActive.status, 'ACTIVE');
+  });
+});
