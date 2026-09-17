@@ -12,10 +12,12 @@ import FeedCard from '../components/ui/FeedCard.vue'
 import AnnouncementCard from '../components/ui/AnnouncementCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 import SlidingTabs from '../components/ui/SlidingTabs.vue'
+import AvatarCircle from '../components/ui/AvatarCircle.vue'
 
 interface Student {
   id: number
   unitId: number | null
+  photo: string | null
 }
 
 interface CalendarItem {
@@ -78,6 +80,7 @@ const hasStudent = ref(true)
 const calendarItems = ref<CalendarItem[]>([])
 const announcements = ref<Announcement[]>([])
 const activeFilter = ref<FeedFilter>('todos')
+const profilePhoto = ref<string | null>(null)
 
 function formatShortDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '')
@@ -129,6 +132,7 @@ onMounted(async () => {
 
     hasStudent.value = studentsRes.length > 0
     calendarItems.value = calendarRes
+    profilePhoto.value = studentsRes[0]?.photo ?? null
     const myUnitId = studentsRes[0]?.unitId ?? null
     announcements.value = announcementsRes
       .filter((a) => a.isActive && (a.unitId === null || a.unitId === myUnitId))
@@ -144,13 +148,18 @@ onMounted(async () => {
 <template>
   <div class="flex flex-col gap-5 pb-6">
     <header class="flex items-center justify-between px-5 pt-6">
-      <div>
-        <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">
-          {{ auth.user?.organizationName ?? 'Seu grupo' }}
-        </p>
-        <h1 class="font-display text-4xl leading-tight text-accent">
-          Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }}
-        </h1>
+      <div class="flex min-w-0 items-center gap-3">
+        <router-link to="/app/perfil" class="transition-transform duration-150 active:scale-90">
+          <AvatarCircle :photo="profilePhoto" :name="auth.user?.name" :size="48" />
+        </router-link>
+        <div class="min-w-0">
+          <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">
+            {{ auth.user?.organizationName ?? 'Seu grupo' }}
+          </p>
+          <h1 class="font-display text-4xl leading-tight text-accent">
+            Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }}
+          </h1>
+        </div>
       </div>
       <router-link
         to="/app/notificacoes"

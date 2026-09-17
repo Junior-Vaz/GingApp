@@ -2506,3 +2506,68 @@ container branco embaixo da imagem**.
    exibida no §10.26, removida nesta correção pra bater com o visual da Home) — perguntar ao owner
    se isso é aceitável ou se ele quer a descrição de volta de alguma forma (ex.: só num modal de
    detalhes, nunca no card em si).
+
+### 10.28 Dropdowns estilizados + foto de perfil na Home
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído. Pedido do owner: "melhore os dropdowns mais
+estilosos. tambem coloque a foto de perfil na home" — dois pedidos independentes na mesma
+mensagem.
+
+#### Dropdowns
+
+Os três `<select>` de filtro do Calendário (`tipo`/`estado`/`cidade`, em `ComunidadeView.vue`)
+eram `<select>` nativos crus (`rounded-card bg-surface`, sem mais nada) — apareciam com a seta e a
+aparência default do navegador/SO, destoando do resto do app (pílulas, sombras suaves, ícones
+próprios). Eram os **únicos** `<select>` de todo o PWA (confirmado por grep antes de mexer — nada
+mais ficou de fora).
+
+- **Novo ícone `chevron-down`** em `AppIcon.vue` (mesmo estilo dos outros, path `M6 9l6 6 6-6`).
+- **Novo `SelectField.vue`** (`components/ui/`): envolve o `<select>` nativo (mantém teclado,
+  acessibilidade e o picker mobile nativo de graça — não é um dropdown customizado do zero) só
+  trocando a casca visual — `appearance-none` remove a seta do navegador, pílula `rounded-full
+  bg-surface` (mesmo tom da trilha do `SlidingTabs`), ícone `chevron-down` próprio posicionado à
+  direita, anel de foco `focus:ring-2 ring-accent/30`, opacidade reduzida quando `disabled`.
+- `ComunidadeView.vue` atualizado pra usar `<SelectField>` nos 3 filtros — `v-model` continua
+  funcionando igual (o componente emite `update:modelValue` no `@change` do select interno).
+
+#### Foto de perfil na Home
+
+`Student.photo` (campo que já existia no schema, mesma convenção leve de `Roda.imageUrl` — só
+URL, sem upload) nunca era lido em lugar nenhum do PWA: nem a Home, nem o próprio `PerfilView.vue`
+(que mostrava **sempre** um círculo com a inicial do nome, mesmo pra quem tinha foto cadastrada).
+
+- **Novo `AvatarCircle.vue`** (`components/ui/`): mostra a foto real quando existe (`<img
+  rounded-full object-cover>`), cai pro círculo com a inicial do nome (`bg-accent`, mesmo padrão
+  que já existia hardcoded só dentro do `PerfilView.vue`) quando não há. Props `photo`, `name`,
+  `size` — reusável em qualquer tamanho.
+- **`HomeView.vue`**: `photo: string | null` adicionado à interface `Student` (endpoint `GET
+  /students/me` já retornava o campo — só a view não lia, mesma situação do `imageUrl` antes do
+  §10.22). Header ganhou o avatar (48px) à esquerda da saudação, dentro de um `router-link` pra
+  `/app/perfil` — cabeçalho agora é avatar + [nome do grupo / saudação] de um lado, sino do outro.
+- **`PerfilView.vue`** também atualizado pra usar `AvatarCircle` com a foto real (80px) no lugar do
+  círculo de inicial hardcoded — não foi pedido explicitamente pro Perfil, mas fazia pouco sentido
+  mostrar a foto na Home e continuar escondendo ela na própria tela de Perfil; decisão sinalizada
+  aqui, não escondida.
+- **Sem gestão de foto ainda** (nem no painel, nem autoatendimento) — mesma limitação que
+  `Roda.imageUrl` tinha antes do painel ganhar o campo; registrado como pendência 70.
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`).
+2. **Validação ao vivo no navegador**: dropdowns do Calendário testados via `form_input`
+   (mudança de Estado pra "Goiás" disparou corretamente o carregamento de cidades e habilitou o
+   select de Cidade — confirmado via `read_page`, não só visual) — a leitura inicial do
+   screenshot pareceu mostrar o texto acinzentado mesmo sem estar desabilitado, then verificado via
+   `getComputedStyle` que a cor do texto (`#16181d`, o token `--color-text`) e `disabled: false`
+   estavam corretos nos três selects; era só artefato de renderização do screenshot, não um bug
+   real (mesma categoria de falso-alarme já visto com timing de animação nesta sessão).
+3. **Validação da foto de perfil**: backfill temporário de `Student.photo` (foto real de retrato
+   via Unsplash, confirmada com `HEAD` 200 antes de usar) pro aluno de teste "Ana Capoeirista" —
+   confirmado na Home e no Perfil mostrando a foto de verdade; depois `photo = NULL` de volta via
+   `psql`, confirmado o fallback pro círculo com inicial "A" renderizando corretamente (esta foi
+   uma validação pontual da minha parte, não um pedido de backfill permanente como o do §10.23 —
+   por isso foi revertida ao final, e não mantida).
+4. **Pendência nova:** 70. Não há como um aluno/responsável definir a própria foto de perfil ainda
+   (nem no painel, nem autoatendimento no PWA) — o campo `photo` existe e agora é exibido, mas
+   fica sempre vazio na prática até existir algum fluxo de upload/URL, igual ao que
+   `Roda.imageUrl`/`Event.imageUrl` precisaram do painel pra virar utilizável de verdade (§10.22).

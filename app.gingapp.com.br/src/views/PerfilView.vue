@@ -7,10 +7,12 @@ import { api, ApiError } from '../utils/api'
 import AppIcon from '../components/icons/AppIcon.vue'
 import StatTile from '../components/ui/StatTile.vue'
 import SectionHeader from '../components/ui/SectionHeader.vue'
+import AvatarCircle from '../components/ui/AvatarCircle.vue'
 
 interface Student {
   id: number
   name: string
+  photo: string | null
 }
 
 interface Passport {
@@ -140,9 +142,7 @@ onMounted(async () => {
 <template>
   <div class="flex flex-col gap-7 px-5 pb-6 pt-6">
     <header class="flex flex-col items-center gap-3 text-center">
-      <span class="flex h-20 w-20 items-center justify-center rounded-full bg-accent text-2xl font-bold text-white">
-        {{ auth.user?.name?.charAt(0) ?? 'A' }}
-      </span>
+      <AvatarCircle :photo="students[0]?.photo" :name="auth.user?.name" :size="80" />
       <div>
         <h1 class="text-lg font-bold text-text">{{ auth.user?.name ?? 'Aluno' }}</h1>
         <p class="text-sm text-text-muted">{{ auth.user?.email }}</p>

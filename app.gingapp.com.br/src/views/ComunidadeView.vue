@@ -10,6 +10,7 @@ import { type IconName } from '../components/icons/AppIcon.vue'
 import FeedCard from '../components/ui/FeedCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 import SlidingTabs from '../components/ui/SlidingTabs.vue'
+import SelectField from '../components/ui/SelectField.vue'
 
 type Scope = 'today' | 'week' | 'month' | ''
 
@@ -152,25 +153,18 @@ onMounted(() => {
     </div>
 
     <div class="grid grid-cols-3 gap-2 px-5">
-      <select
-        v-model="typeFilter"
-        class="rounded-card bg-surface px-2 py-2 text-xs text-text outline-none"
-      >
+      <SelectField v-model="typeFilter">
         <option value="">Todos os tipos</option>
         <option v-for="[value, label] in typeOptions" :key="value" :value="value">{{ label }}</option>
-      </select>
-      <select v-model="stateId" class="rounded-card bg-surface px-2 py-2 text-xs text-text outline-none">
+      </SelectField>
+      <SelectField v-model="stateId">
         <option value="">Estado</option>
         <option v-for="state in states" :key="state.id" :value="state.id">{{ state.name }}</option>
-      </select>
-      <select
-        v-model="cityId"
-        :disabled="!stateId"
-        class="rounded-card bg-surface px-2 py-2 text-xs text-text outline-none disabled:opacity-50"
-      >
+      </SelectField>
+      <SelectField v-model="cityId" :disabled="!stateId">
         <option value="">Cidade</option>
         <option v-for="city in cities" :key="city.id" :value="city.id">{{ city.name }}</option>
-      </select>
+      </SelectField>
     </div>
 
     <p v-if="loadError" class="mx-5 rounded-card bg-danger/10 px-4 py-3 text-sm text-danger">

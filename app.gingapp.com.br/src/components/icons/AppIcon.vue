@@ -25,6 +25,7 @@ export type IconName =
   | 'ticket'
   | 'megaphone'
   | 'chevron-right'
+  | 'chevron-down'
   | 'arrow-left'
   | 'alert-circle'
   | 'external-link'
@@ -148,6 +149,10 @@ withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 22 })
 
     <template v-else-if="name === 'chevron-right'">
       <path d="M9 6l6 6-6 6" />
+    </template>
+
+    <template v-else-if="name === 'chevron-down'">
+      <path d="M6 9l6 6 6-6" />
     </template>
 
     <template v-else-if="name === 'arrow-left'">
