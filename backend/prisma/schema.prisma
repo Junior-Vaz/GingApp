@@ -129,16 +129,23 @@ model Plan {
   subscriptions Subscription[]
 }
 
+/// gatewayProvider/gatewayCustomerId/gatewaySubscriptionId: referencia do gateway de pagamento
+/// externo (Fase 2, PLANO_PROJETO.md §10.13). "stub" por enquanto (BillingGatewayService
+/// simulado, sem credenciais reais de nenhum gateway) — trocar por "asaas"/"stripe"/etc quando
+/// houver credenciais de verdade, sem precisar de migration nova (os campos já existem).
 model Subscription {
-  id               Int                @id @default(autoincrement())
-  organizationId   Int
-  planId           Int
-  status           SubscriptionStatus @default(TRIALING)
-  startedAt        DateTime           @default(now())
-  currentPeriodEnd DateTime?
-  canceledAt       DateTime?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  id                    Int                @id @default(autoincrement())
+  organizationId        Int
+  planId                Int
+  status                SubscriptionStatus @default(TRIALING)
+  gatewayProvider       String             @default("stub")
+  gatewayCustomerId     String?
+  gatewaySubscriptionId String?
+  startedAt             DateTime           @default(now())
+  currentPeriodEnd      DateTime?
+  canceledAt            DateTime?
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
 
   organization Organization        @relation(fields: [organizationId], references: [id])
   plan         Plan                @relation(fields: [planId], references: [id])
