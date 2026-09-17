@@ -2401,3 +2401,61 @@ num só balaço:
    baixa por um instante ao remontar a Home (fetch assíncrono de `/calendar`+`/announcements` +
    `animate-rise` em cascata) antes de assentar — comportamento esperado, não é regressão.
 3. Não foram tocados: painel/admin (fora de escopo, só o PWA foi pedido), lógica de dados/API.
+
+### 10.26 Imagens e estilo hero nas telas dedicadas de Rodas e Eventos
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído. Pedido do owner: "TELA de rodas e eventos tambem
+adicionar a imagens e estilos" — as telas dedicadas `/app/rodas` e `/app/eventos` (acessadas pelos
+quick-links da Home, diferentes do feed unificado Home/Comunidade) ainda estavam no estilo antigo
+pré-redesign: `<article>` com `bg-surface p-5` plano, sem imagem nenhuma (o campo `imageUrl` do
+§10.22 nunca tinha chegado nessas duas telas — só em `HomeView`/`ComunidadeView` via `/calendar`).
+
+#### Por que não dava pra só reusar o `FeedCard` como estava
+
+Rodas e Eventos têm ação de verdade (botão "Quero participar"/"Cancelar presença", contagem de
+confirmados, descrição do evento) que o `FeedCard` do feed não precisa — lá o card inteiro é só um
+link (`to`). Em vez de duplicar o markup do hero (imagem + degradê + badge + texto sobreposto) nas
+duas views, **`FeedCard.vue` ganhou um slot default opcional**: o miolo da imagem virou uma `<div
+class="relative h-48">` interna (antes essa altura fixa era do card inteiro), e um `<slot />` foi
+adicionado depois dela, em fluxo normal — sem slot usado (Home/Comunidade), o card continua sendo
+só a imagem hero, pixel-idêntico a antes. Com slot (Rodas/Eventos), o conteúdo extra (botão,
+contagem, descrição) aparece abaixo da imagem, num `bg-surface` (aproveitando a mesma regra global
+de sombra `.rounded-card-lg.bg-surface` do `style.css`, já que o card passou a ter essa classe).
+**SSOT mantido** — zero duplicação do markup de hero entre as 3 telas que agora usam `FeedCard`.
+
+**Correção colateral:** o ícone de "external-link" no canto superior direito (indicando "isso é um
+link, toque pra abrir") aparecia sempre, mesmo quando o card não tinha `to` — no uso de
+`ComunidadeView.vue` (que nunca passou `to`) isso já era inconsistente antes deste pedido, só
+ninguém tinha notado. Corrigido: o ícone agora só aparece `v-if="to"`.
+
+#### O que foi construído
+
+- **`RodasView.vue`**: `imageUrl: string | null` adicionado à interface `Roda` (a resposta de
+  `GET /rodas` já retornava o campo desde o §10.22 — só a view não lia). Card antigo trocado por
+  `<FeedCard icon="drum" :image-url="roda.imageUrl" badge="Roda" ...>` com o botão de participação
+  e "N confirmados" dentro do slot.
+- **`EventosView.vue`**: mesma coisa — `imageUrl` na interface `Event`, `<FeedCard icon="ticket"
+  :badge="evento.isPublic ? 'Evento público' : 'Evento'" ...>`, descrição + botão no slot. Estado
+  vazio também trocado do parágrafo solto antigo pro `EmptyState` (mesmo componente já usado nas
+  outras telas — mais uma pequena inconsistência de estilo antiga corrigida de graça).
+- Entrada em cascata (`animate-rise` + `animationDelay` por índice, mesmo padrão do §10.25)
+  aplicada nos cards de ambas as telas.
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`).
+2. **Validação ao vivo no navegador**: `/app/rodas` e `/app/eventos` mostrando os cards hero com
+   foto real, badge, botão de participação funcionando visualmente (estado "Cancelar presença"
+   pra quem já confirmou presença, "Quero participar" pra quem não confirmou). Confirmado que o
+   ícone de external-link não aparece mais em nenhum card sem `to` (Rodas, Eventos, Comunidade).
+   **Achado durante a validação, não um bug de código:** o card do "Evento Acentuado" apareceu
+   quase todo cinza — investigado (`naturalWidth`/`complete` da tag `<img>` via `javascript_tool`
+   confirmaram que a imagem *carregou* normalmente) e a causa era a própria foto: uma das 3
+   escolhidas no backfill do §10.23 é uma cena de praia com muito céu/mar claro no terço superior,
+   que em um crop bem baixo e largo (`object-cover` num card de 192px de altura por quase 1000px
+   de largura) mostra quase só o céu nublado. Trocado por outra foto de capoeira do mesmo banco de
+   busca (berimbau em close, sujeito mais centralizado verticalmente) via `psql` direto — não
+   precisou tocar em código, é dado de teste, mesma natureza do §10.23.
+3. Não foram tocados: painel/admin, `AnnouncementCard` (não é usado nessas telas), lógica de
+   dados/API (o `imageUrl` já existia no backend desde o §10.22; esta etapa só passou a exibi-lo
+   nas duas telas que faltavam).

@@ -6,8 +6,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { api, ApiError } from '../utils/api'
-import AppIcon from '../components/icons/AppIcon.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
+import FeedCard from '../components/ui/FeedCard.vue'
 
 interface Roda {
   id: number
@@ -15,6 +15,7 @@ interface Roda {
   description: string | null
   date: string
   location: string | null
+  imageUrl: string | null
   stateId: number | null
   cityId: number | null
   communityId: number | null
@@ -138,30 +139,31 @@ async function toggleParticipation(roda: Roda): Promise<void> {
       </p>
 
       <section class="flex flex-col gap-4">
-        <article v-for="roda in upcomingRodas" :key="roda.id" class="rounded-card-lg bg-surface p-5">
-          <div class="flex items-start gap-3">
-            <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
-              <AppIcon name="drum" :size="18" />
-            </span>
-            <div class="min-w-0">
-              <h3 class="text-sm font-semibold text-text">{{ roda.title }}</h3>
-              <p class="mt-0.5 text-xs text-text-muted">
-                {{ formatDate(roda.date) }}<span v-if="roda.location"> · {{ roda.location }}</span>
-              </p>
-              <p class="mt-1 text-xs font-semibold text-accent">{{ countConfirmed(roda.id) }} confirmados</p>
-            </div>
+        <FeedCard
+          v-for="(roda, index) in upcomingRodas"
+          :key="roda.id"
+          class="animate-rise"
+          :style="{ animationDelay: `${index * 60}ms` }"
+          icon="drum"
+          :image-url="roda.imageUrl"
+          badge="Roda"
+          :title="roda.title"
+          :meta="formatDate(roda.date)"
+          :subtitle="roda.location ?? undefined"
+        >
+          <div class="p-4">
+            <p class="text-xs font-semibold text-accent">{{ countConfirmed(roda.id) }} confirmados</p>
+            <button
+              type="button"
+              class="mt-2 w-full rounded-full px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60"
+              :class="isParticipating(roda.id) ? 'bg-bg-elevated text-text' : 'bg-accent text-white'"
+              :disabled="pendingRodaId === roda.id"
+              @click="toggleParticipation(roda)"
+            >
+              {{ pendingRodaId === roda.id ? 'Aguarde…' : isParticipating(roda.id) ? 'Cancelar presença' : 'Quero participar' }}
+            </button>
           </div>
-
-          <button
-            type="button"
-            class="mt-4 w-full rounded-full px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-60"
-            :class="isParticipating(roda.id) ? 'bg-bg-elevated text-text' : 'bg-accent text-white'"
-            :disabled="pendingRodaId === roda.id"
-            @click="toggleParticipation(roda)"
-          >
-            {{ pendingRodaId === roda.id ? 'Aguarde…' : isParticipating(roda.id) ? 'Cancelar presença' : 'Quero participar' }}
-          </button>
-        </article>
+        </FeedCard>
       </section>
     </template>
   </div>

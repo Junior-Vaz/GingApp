@@ -7,6 +7,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { api, ApiError } from '../utils/api'
+import FeedCard from '../components/ui/FeedCard.vue'
+import EmptyState from '../components/ui/EmptyState.vue'
 
 interface Student {
   id: number
@@ -21,6 +23,7 @@ interface Event {
   description: string | null
   date: string
   location: string | null
+  imageUrl: string | null
   isPublic: boolean
   createdAt: string
   updatedAt: string
@@ -147,9 +150,7 @@ async function toggleParticipation(event: Event): Promise<void> {
 
     <p v-else-if="isLoading" class="text-center text-sm text-text-faint">Carregando…</p>
 
-    <p v-else-if="sortedEvents.length === 0" class="rounded-card bg-surface px-4 py-3 text-sm text-text-muted">
-      Nenhum evento programado no momento.
-    </p>
+    <EmptyState v-else-if="sortedEvents.length === 0" icon="ticket" message="Nenhum evento programado no momento." />
 
     <template v-else>
       <p v-if="actionError" class="rounded-card bg-danger/15 px-4 py-3 text-sm text-danger">
@@ -157,36 +158,35 @@ async function toggleParticipation(event: Event): Promise<void> {
       </p>
 
       <section class="flex flex-col gap-4">
-        <article v-for="evento in sortedEvents" :key="evento.id" class="rounded-card-lg bg-surface p-5">
-          <div class="flex items-start justify-between gap-2">
-            <div>
-              <p class="text-xs font-semibold text-accent">{{ formatDate(evento.date) }}</p>
-              <h3 class="mt-1 text-sm font-semibold text-text">{{ evento.title }}</h3>
-            </div>
-            <span
-              v-if="evento.isPublic"
-              class="flex-shrink-0 rounded-full bg-accent/15 px-2 py-1 text-[10px] font-semibold text-accent"
+        <FeedCard
+          v-for="(evento, index) in sortedEvents"
+          :key="evento.id"
+          class="animate-rise"
+          :style="{ animationDelay: `${index * 60}ms` }"
+          icon="ticket"
+          :image-url="evento.imageUrl"
+          :badge="evento.isPublic ? 'Evento público' : 'Evento'"
+          :title="evento.title"
+          :meta="formatDate(evento.date)"
+          :subtitle="evento.location ?? undefined"
+        >
+          <div class="p-4">
+            <p v-if="evento.description" class="text-xs text-text-muted">{{ evento.description }}</p>
+            <button
+              type="button"
+              class="mt-3 w-full rounded-card px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60"
+              :class="
+                isParticipating(evento.id)
+                  ? 'bg-surface-hover text-text-muted'
+                  : 'bg-accent text-white'
+              "
+              :disabled="pendingEventId === evento.id"
+              @click="toggleParticipation(evento)"
             >
-              Público
-            </span>
+              {{ pendingEventId === evento.id ? 'Aguarde…' : isParticipating(evento.id) ? 'Cancelar presença' : 'Quero participar' }}
+            </button>
           </div>
-          <p v-if="evento.location" class="mt-1 text-xs text-text-muted">{{ evento.location }}</p>
-          <p v-if="evento.description" class="mt-2 text-xs text-text-faint">{{ evento.description }}</p>
-
-          <button
-            type="button"
-            class="mt-4 w-full rounded-card px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60"
-            :class="
-              isParticipating(evento.id)
-                ? 'bg-surface-hover text-text-muted'
-                : 'bg-accent text-white'
-            "
-            :disabled="pendingEventId === evento.id"
-            @click="toggleParticipation(evento)"
-          >
-            {{ pendingEventId === evento.id ? 'Aguarde…' : isParticipating(evento.id) ? 'Cancelar presença' : 'Quero participar' }}
-          </button>
-        </article>
+        </FeedCard>
       </section>
     </template>
   </div>
