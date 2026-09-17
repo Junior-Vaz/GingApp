@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
+import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 
 /** Alunos do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
@@ -41,6 +43,30 @@ export class StudentsService {
       }
     }
     return students;
+  }
+
+  /**
+   * Auto-atendimento do próprio perfil (PATCH /students/me/profile) — nunca passa por
+   * @CanAccess: a segurança vem de só encontrar/editar o Student cujo userId é o do token, igual
+   * ao raciocínio de findMine acima. Só aceita campos de UpdateMyProfileDto (foto/capa/redes
+   * sociais) — nunca os campos administrativos, que exigem @CanAccess('students', 'edit') via
+   * update() abaixo. Um RESPONSAVEL sem Student próprio (só dependentes) recebe 404 — este
+   * endpoint edita o PRÓPRIO perfil, não o de terceiros mesmo que dependentes.
+   */
+  async updateMyProfile(organizationId: number, userId: number, dto: UpdateMyProfileDto) {
+    const student = await this.prisma.student.findFirst({ where: { organizationId, userId } });
+    if (!student) {
+      throw new NotFoundException('Nenhum aluno vinculado a esta conta.');
+    }
+
+    return this.prisma.student.update({
+      where: { id: student.id },
+      data: {
+        photo: dto.photo,
+        coverPhoto: dto.coverPhoto,
+        socialLinks: dto.socialLinks ? ({ ...dto.socialLinks } as Prisma.InputJsonValue) : undefined,
+      },
+    });
   }
 
   async findOne(organizationId: number, id: number) {

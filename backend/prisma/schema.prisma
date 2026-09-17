@@ -355,6 +355,13 @@ model Student {
   phone          String?
   email          String?
   photo          String?
+  /// URL de uma foto de capa/fundo pro cartão de perfil no PWA (mesmo padrão leve de photo
+  /// acima — só URL, sem upload). Auto-atendimento: o próprio aluno/responsável define a sua
+  /// via PATCH /students/me/profile — não é um campo gerenciado pelo painel/admin.
+  coverPhoto     String?
+  /// Links de redes sociais do praticante ({ instagram?, youtube?, tiktok?, facebook?,
+  /// whatsapp? }, todos opcionais) — mesmo raciocínio de auto-atendimento do coverPhoto acima.
+  socialLinks    Json?
   status         StudentStatus @default(ACTIVE)
   joinedAt       DateTime?
   createdAt      DateTime      @default(now())

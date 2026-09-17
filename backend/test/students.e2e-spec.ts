@@ -1,5 +1,5 @@
 import { INestApplication } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
@@ -126,5 +126,52 @@ describe('Students CRUD (e2e)', () => {
 
     assert.ok(Array.isArray(res.body));
     assert.ok(res.body.some((s: { name: string }) => s.name === 'Ana Capoeirista'));
+  });
+
+  it('PATCH /students/me/profile edita foto/capa/redes sociais do próprio perfil, confirmado via Prisma', async () => {
+    const payload = {
+      photo: 'https://images.unsplash.com/photo-e2e-profile-1?w=200',
+      coverPhoto: 'https://images.unsplash.com/photo-e2e-profile-2?w=800',
+      socialLinks: { instagram: 'https://instagram.com/e2e-teste', whatsapp: 'https://wa.me/5511999999999' },
+    };
+
+    await request(app.getHttpServer())
+      .patch('/api/students/me/profile')
+      .set('Authorization', `Bearer ${alunoToken}`)
+      .send(payload)
+      .expect(200);
+
+    // Segunda via independente: confirma direto no Postgres, não só no corpo da resposta HTTP.
+    const persisted = await prisma.student.findFirstOrThrow({ where: { name: 'Ana Capoeirista' } });
+    assert.equal(persisted.photo, payload.photo);
+    assert.equal(persisted.coverPhoto, payload.coverPhoto);
+    assert.deepEqual(persisted.socialLinks, payload.socialLinks);
+
+    // Este é o Student do seed (não uma fixture desta suíte) — restaura o estado original.
+    await prisma.student.update({
+      where: { id: persisted.id },
+      data: { photo: null, coverPhoto: null, socialLinks: Prisma.JsonNull },
+    });
+  });
+
+  it('PATCH /students/me/profile com URL inválida em socialLinks retorna 400 e nada é gravado', async () => {
+    const before = await prisma.student.findFirstOrThrow({ where: { name: 'Ana Capoeirista' } });
+
+    await request(app.getHttpServer())
+      .patch('/api/students/me/profile')
+      .set('Authorization', `Bearer ${alunoToken}`)
+      .send({ socialLinks: { instagram: 'nao-e-uma-url' } })
+      .expect(400);
+
+    const after = await prisma.student.findFirstOrThrow({ where: { name: 'Ana Capoeirista' } });
+    assert.deepEqual(after.socialLinks, before.socialLinks);
+  });
+
+  it('PATCH /students/me/profile logado sem Student próprio (MESTRE) retorna 404', async () => {
+    await request(app.getHttpServer())
+      .patch('/api/students/me/profile')
+      .set('Authorization', `Bearer ${mestreToken}`)
+      .send({ coverPhoto: 'https://images.unsplash.com/photo-e2e-profile-3?w=800' })
+      .expect(404);
   });
 });

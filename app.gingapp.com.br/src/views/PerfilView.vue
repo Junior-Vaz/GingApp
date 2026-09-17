@@ -1,19 +1,48 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import QRCode from 'qrcode'
 import { useAuthStore } from '../stores/auth'
 import { api, ApiError } from '../utils/api'
-import AppIcon from '../components/icons/AppIcon.vue'
+import AppIcon, { type IconName } from '../components/icons/AppIcon.vue'
 import StatTile from '../components/ui/StatTile.vue'
 import SectionHeader from '../components/ui/SectionHeader.vue'
 import AvatarCircle from '../components/ui/AvatarCircle.vue'
 
+interface SocialLinks {
+  instagram?: string
+  youtube?: string
+  tiktok?: string
+  facebook?: string
+  whatsapp?: string
+}
+
 interface Student {
   id: number
+  userId: number | null
   name: string
   photo: string | null
+  coverPhoto: string | null
+  socialLinks: SocialLinks | null
 }
+
+interface SocialFieldDef {
+  key: keyof SocialLinks
+  label: string
+  icon: IconName
+  placeholder: string
+}
+
+// Estilo de referência colado pelo owner (card de perfil com foto de capa + avatar sobreposto +
+// redes sociais, PLANO_PROJETO.md §10.31) — conjunto fixo de plataformas, não um link genérico
+// qualquer, pra manter a validação de URL simples no backend.
+const SOCIAL_FIELDS: SocialFieldDef[] = [
+  { key: 'instagram', label: 'Instagram', icon: 'instagram', placeholder: 'https://instagram.com/seu_usuario' },
+  { key: 'youtube', label: 'YouTube', icon: 'youtube', placeholder: 'https://youtube.com/@seu_canal' },
+  { key: 'tiktok', label: 'TikTok', icon: 'tiktok', placeholder: 'https://tiktok.com/@seu_usuario' },
+  { key: 'facebook', label: 'Facebook', icon: 'facebook', placeholder: 'https://facebook.com/seu_perfil' },
+  { key: 'whatsapp', label: 'WhatsApp', icon: 'whatsapp', placeholder: 'https://wa.me/5511999999999' },
+]
 
 interface Passport {
   student: { id: number; name: string }
@@ -52,6 +81,75 @@ const roleLabel = computed(() => {
 // Só um responsável (nunca o próprio aluno) autoriza o perfil público de um menor —
 // PLANO_PROJETO.md §3.4/§10.16. O botão de consentimento só faz sentido pra esse papel.
 const isGuardian = computed(() => auth.user?.role === 'RESPONSAVEL')
+
+// `students` (GET /students/me) traz o PRÓPRIO Student (se existir) + os dependentes de quem o
+// usuário é responsável, sem ordem garantida a partir do índice — "meu" Student de verdade é o
+// que tem userId igual ao do usuário logado, nunca students[0] (que pode ser um dependente pra
+// um RESPONSAVEL sem Student próprio). Foto de capa/social só fazem sentido no PRÓPRIO perfil,
+// nunca no de um dependente (auto-atendimento, PATCH /students/me/profile é sempre sobre "eu").
+const myStudent = computed<Student | null>(() => students.value.find((s) => s.userId === auth.user?.id) ?? null)
+
+const socialButtons = computed(() => {
+  const links = myStudent.value?.socialLinks
+  if (!links) return []
+  return SOCIAL_FIELDS.filter((field) => links[field.key]).map((field) => ({ ...field, url: links[field.key]! }))
+})
+
+const isEditModalOpen = ref(false)
+const isSavingProfile = ref(false)
+const profileFormError = ref('')
+
+const editForm = reactive({
+  photo: '',
+  coverPhoto: '',
+  instagram: '',
+  youtube: '',
+  tiktok: '',
+  facebook: '',
+  whatsapp: '',
+})
+
+function openEditModal(): void {
+  if (!myStudent.value) return
+  editForm.photo = myStudent.value.photo ?? ''
+  editForm.coverPhoto = myStudent.value.coverPhoto ?? ''
+  const links = myStudent.value.socialLinks ?? {}
+  editForm.instagram = links.instagram ?? ''
+  editForm.youtube = links.youtube ?? ''
+  editForm.tiktok = links.tiktok ?? ''
+  editForm.facebook = links.facebook ?? ''
+  editForm.whatsapp = links.whatsapp ?? ''
+  profileFormError.value = ''
+  isEditModalOpen.value = true
+}
+
+function closeEditModal(): void {
+  isEditModalOpen.value = false
+}
+
+async function submitProfile(): Promise<void> {
+  profileFormError.value = ''
+  isSavingProfile.value = true
+  try {
+    await api.patch('/students/me/profile', {
+      photo: editForm.photo.trim() || undefined,
+      coverPhoto: editForm.coverPhoto.trim() || undefined,
+      socialLinks: {
+        instagram: editForm.instagram.trim() || undefined,
+        youtube: editForm.youtube.trim() || undefined,
+        tiktok: editForm.tiktok.trim() || undefined,
+        facebook: editForm.facebook.trim() || undefined,
+        whatsapp: editForm.whatsapp.trim() || undefined,
+      },
+    })
+    students.value = await api.get<Student[]>('/students/me')
+    isEditModalOpen.value = false
+  } catch (error) {
+    profileFormError.value = error instanceof ApiError ? error.message : 'Não foi possível salvar o perfil.'
+  } finally {
+    isSavingProfile.value = false
+  }
+}
 
 function verificationUrl(code: string): string {
   return `${window.location.origin}/verificar-passaporte/${code}`
@@ -141,19 +239,54 @@ onMounted(async () => {
 
 <template>
   <div class="flex flex-col gap-7 px-5 pb-6 pt-6">
-    <header class="flex flex-col items-center gap-3 text-center">
-      <AvatarCircle :photo="students[0]?.photo" :name="auth.user?.name" :size="80" />
-      <div>
-        <h1 class="text-lg font-bold text-text">{{ auth.user?.name ?? 'Aluno' }}</h1>
-        <p class="text-sm text-text-muted">{{ auth.user?.email }}</p>
+    <header class="flex flex-col">
+      <div class="relative">
+        <div class="relative h-40 w-full overflow-hidden rounded-card-lg">
+          <img
+            v-if="myStudent?.coverPhoto"
+            :src="myStudent.coverPhoto"
+            alt=""
+            class="absolute inset-0 h-full w-full object-cover"
+          />
+          <div v-else class="absolute inset-0 bg-gradient-to-br from-accent-hover to-accent/50" />
+          <div class="absolute inset-0 bg-gradient-to-t from-black/40 via-black/5 to-transparent" />
+          <button
+            v-if="myStudent"
+            type="button"
+            class="absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full bg-white/85 text-text shadow-sm backdrop-blur-sm transition-transform duration-150 active:scale-90"
+            aria-label="Editar perfil"
+            @click="openEditModal"
+          >
+            <AppIcon name="pencil" :size="16" />
+          </button>
+        </div>
+        <div class="absolute -bottom-11 left-5">
+          <AvatarCircle :photo="myStudent?.photo" :name="auth.user?.name" :size="88" class="ring-4 ring-bg" />
+        </div>
       </div>
-      <div class="flex flex-col items-center gap-1.5">
-        <span v-if="roleLabel" class="rounded-full bg-accent-soft px-3 py-1 text-xs font-semibold text-accent">
-          {{ roleLabel }}
-        </span>
-        <p v-if="auth.user?.organizationName" class="text-xs text-text-faint">
-          {{ auth.user.organizationName }}
-        </p>
+
+      <div class="mt-14 flex flex-col gap-3 px-1">
+        <div>
+          <h1 class="text-xl font-bold text-text">{{ auth.user?.name ?? 'Aluno' }}</h1>
+          <p class="text-sm text-text-muted">
+            <span v-if="roleLabel">{{ roleLabel }}</span>
+            <span v-if="auth.user?.organizationName"> · {{ auth.user.organizationName }}</span>
+          </p>
+        </div>
+
+        <div v-if="socialButtons.length > 0" class="flex flex-wrap gap-2">
+          <a
+            v-for="social in socialButtons"
+            :key="social.key"
+            :href="social.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="flex h-9 w-9 items-center justify-center rounded-full bg-surface text-text-muted transition-transform duration-150 active:scale-90"
+            :aria-label="social.label"
+          >
+            <AppIcon :name="social.icon" :size="16" />
+          </a>
+        </div>
       </div>
     </header>
 
@@ -254,6 +387,73 @@ onMounted(async () => {
         <button type="button" class="mt-4 rounded-full bg-bg-elevated px-4 py-2 text-xs font-semibold text-text" @click="closeQrModal">
           Fechar
         </button>
+      </div>
+    </div>
+
+    <!-- Modal de edição do perfil (foto, capa, redes sociais) -->
+    <div
+      v-if="isEditModalOpen"
+      class="fixed inset-0 z-50 flex items-end justify-center bg-text/40 sm:items-center sm:px-6"
+      @click.self="closeEditModal"
+    >
+      <div class="max-h-[85vh] w-full overflow-y-auto rounded-t-card-lg bg-surface p-6 sm:max-w-sm sm:rounded-card-lg">
+        <h2 class="text-lg font-semibold text-text">Editar perfil</h2>
+
+        <form class="mt-4 flex flex-col gap-4" @submit.prevent="submitProfile">
+          <div>
+            <label class="mb-1 block text-xs font-medium text-text-muted">Foto de perfil (URL)</label>
+            <input
+              v-model="editForm.photo"
+              type="url"
+              placeholder="https://..."
+              class="w-full rounded-full bg-bg-elevated px-4 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-accent/30"
+            />
+          </div>
+
+          <div>
+            <label class="mb-1 block text-xs font-medium text-text-muted">Foto de capa/fundo (URL)</label>
+            <input
+              v-model="editForm.coverPhoto"
+              type="url"
+              placeholder="https://..."
+              class="w-full rounded-full bg-bg-elevated px-4 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-accent/30"
+            />
+          </div>
+
+          <p class="mt-1 text-xs font-semibold uppercase tracking-wide text-text-faint">Redes sociais</p>
+
+          <div v-for="field in SOCIAL_FIELDS" :key="field.key">
+            <label class="mb-1 flex items-center gap-1.5 text-xs font-medium text-text-muted">
+              <AppIcon :name="field.icon" :size="14" />
+              {{ field.label }}
+            </label>
+            <input
+              v-model="editForm[field.key]"
+              type="url"
+              :placeholder="field.placeholder"
+              class="w-full rounded-full bg-bg-elevated px-4 py-2 text-sm text-text outline-none focus:ring-2 focus:ring-accent/30"
+            />
+          </div>
+
+          <p v-if="profileFormError" class="text-xs text-danger">{{ profileFormError }}</p>
+
+          <div class="mt-2 flex justify-end gap-2">
+            <button
+              type="button"
+              class="rounded-full px-4 py-2 text-xs font-semibold text-text-muted transition-transform duration-150 active:scale-95"
+              @click="closeEditModal"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              :disabled="isSavingProfile"
+              class="rounded-full bg-accent px-5 py-2 text-xs font-semibold text-white transition-transform duration-150 active:scale-95 disabled:opacity-60"
+            >
+              {{ isSavingProfile ? 'Salvando…' : 'Salvar' }}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

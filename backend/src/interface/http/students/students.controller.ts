@@ -5,6 +5,7 @@ import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { StudentsService } from './students.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
+import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 
 @Controller('students')
 export class StudentsController {
@@ -22,6 +23,17 @@ export class StudentsController {
   @Get('me')
   findMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
     return this.studentsService.findMine(organizationId, userId);
+  }
+
+  /** Auto-atendimento do próprio perfil — precisa vir antes de `:id` pelo mesmo motivo de
+   * `me` acima (path com 2 segmentos, mas mais seguro registrar antes por clareza). */
+  @Patch('me/profile')
+  updateMyProfile(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser('id') userId: number,
+    @Body() dto: UpdateMyProfileDto,
+  ) {
+    return this.studentsService.updateMyProfile(organizationId, userId, dto);
   }
 
   @Get(':id')

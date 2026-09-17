@@ -2674,3 +2674,91 @@ enchendo a tela toda com poucos itens, como no print).
    id = 17`) logo depois da validação — não é backfill permanente, era só pra ver 3 nós na tela.
 3. Não foram tocados: card "Graduação atual" (o pedido era só sobre a timeline), certificados,
    lógica de dados/API.
+
+### 10.31 Perfil redesenhado: capa + avatar sobreposto + redes sociais (auto-atendimento de verdade)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído. Owner colou um print de referência (card de
+perfil de designer: foto de capa/paisagem, avatar circular sobreposto na borda inferior da capa,
+nome + tagline, ícones de redes sociais, stats, botão de contato) e pediu:
+
+> "a tela de perfil quero assim neste estilo. tambem com fundo e poder adicionar foto de fundo, e
+> botões das redes sociais."
+
+Diferente dos pedidos de imagem anteriores (§10.22, Roda/Event — dado gerenciado pelo painel/
+admin), aqui o owner pediu explicitamente **poder adicionar** a foto de capa — é dado pessoal do
+próprio praticante, então precisa de auto-atendimento de verdade (o próprio usuário edita, sem
+depender do painel), não só exibição de um campo populado por outra pessoa.
+
+#### Backend — novo endpoint de auto-atendimento
+
+- **Schema**: `Student.coverPhoto` (`String?`) e `Student.socialLinks` (`Json?`, objeto com chaves
+  fixas `instagram`/`youtube`/`tiktok`/`facebook`/`whatsapp`, todas opcionais) — migration
+  `add_student_cover_social` (mesmo procedimento manual não-interativo de sempre: `migrate diff
+  --script` + pasta manual + `migrate deploy`; **gotcha da vez**: o timestamp gerado por `date
+  +%Y%m%d%H%M%S` ficou **anterior** ao de uma migration já aplicada mais cedo nesta sessão —
+  aparentemente o relógio do sistema tinha avançado e voltou, ou a sessão anterior rodou num
+  horário adiantado; `migrate deploy` aplicou normalmente mesmo assim, sem reclamar de ordem).
+- **Novo `PATCH /students/me/profile`** (`UpdateMyProfileDto`, campo novo
+  `update-my-profile.dto.ts`) — o `PATCH /students/:id` existente exige `@CanAccess('students',
+  'edit')` (só MESTRE/admin), então não servia pra um ALUNO comum editar o próprio registro.
+  O novo endpoint **não passa por `@CanAccess`**: a segurança vem de só encontrar/editar o
+  `Student` cujo `userId` bate com o token (mesmo raciocínio de `findMine`, usado desde o
+  `GET /students/me`), igual peer-review de autorização por posse em vez de RBAC. Só aceita
+  `photo`/`coverPhoto`/`socialLinks` — nunca os campos administrativos (`name`, `status`,
+  `document`...), que continuam exclusivos do `PATCH /students/:id`. Um usuário sem `Student`
+  próprio (ex.: RESPONSAVEL puro, só com dependentes) recebe 404 — este endpoint edita o PRÓPRIO
+  perfil, nunca o de terceiros mesmo que dependentes.
+- `SocialLinksDto` aninhado, validado com `@ValidateNested()` + `@Type(() => SocialLinksDto)`
+  (primeiro uso desse padrão no projeto — `class-transformer`/`ValidationPipe({transform:true})`
+  já estavam configurados globalmente, só nunca tinha sido preciso validar um objeto aninhado
+  antes). Cada rede social validada com `@IsUrl()` — submeter `socialLinks` sempre **substitui** o
+  objeto inteiro (o formulário do PWA sempre envia os 5 campos juntos, nunca um patch parcial).
+- **3 novos testes e2e** em `students.e2e-spec.ts`: PATCH de sucesso (confirmado via Prisma,
+  restaurado ao final por ser o Student do seed, não uma fixture da suíte), PATCH com URL inválida
+  em `socialLinks` → 400 (nada gravado), PATCH como MESTRE (sem Student próprio) → 404. **Suíte
+  completa revalidada: 148 testes, 148 passaram** (subiu de 145 — as 3 novas menos as antigas que
+  já existiam batem com a matemática: 145 + 3 = 148).
+
+#### PWA — header no estilo do print
+
+- **`AppIcon.vue`**: 6 ícones novos — `pencil` (botão de editar) e 5 ícones de rede social
+  (`instagram`, `facebook`, `whatsapp`, `youtube`, `tiktok`), todos versões **simplificadas em
+  traço** no mesmo estilo do resto do conjunto (viewBox 24x24, stroke 2px) — não os logos oficiais
+  pixel-a-pixel, o bastante pra reconhecer a plataforma num botão pequeno sem sair do sistema de
+  ícones minimalista do app (nunca emoji, nunca logo colorido importado).
+- **`PerfilView.vue`** reestruturado: capa (`h-40 rounded-card-lg`, foto real ou degradê da
+  paleta) com filtro escuro sutil por cima (mesmo raciocínio de contraste do `FeedCard`/timeline
+  da Jornada) e botão de lápis no canto superior direito; `AvatarCircle` (88px, anel `ring-bg`)
+  sobreposto na borda inferior via posicionamento absoluto (`-bottom-11`); nome + cargo/organização
+  abaixo; fileira de ícones de rede social (só renderiza os que têm link preenchido).
+- **`myStudent` computed** — achado importante durante a implementação: `GET /students/me` pode
+  retornar o Student do PRÓPRIO usuário **e/ou** dependentes (se for RESPONSAVEL), sem ordem
+  garantida por índice. Usar `students[0]` pra "meu perfil" seria **errado** — pra um RESPONSAVEL
+  sem Student próprio, `students[0]` seria um dependente, e mostrar/editar a capa dele como se
+  fosse a "minha" seria um bug de identidade. Corrigido: `myStudent` filtra por
+  `s.userId === auth.user?.id`, nunca por posição no array.
+- **Modal de edição** (`isEditModalOpen`): campos de foto de perfil, foto de capa e os 5 links de
+  rede social, populados a partir de `myStudent` ao abrir, enviados via `PATCH
+  /students/me/profile` ao salvar, recarregando `students` depois — pencil button só aparece
+  quando `myStudent` existe (RESPONSAVEL puro não vê a opção de editar um perfil que não tem).
+
+#### Validação empírica
+
+1. Backend: build limpo, suíte e2e completa 148/148.
+2. Frontend: build limpo (`vue-tsc -b && vite build`).
+3. **Validação ao vivo no navegador**, fluxo completo: abriu o modal, preencheu capa + Instagram +
+   WhatsApp, salvou — confirmado que a primeira URL de capa "chutada" sem verificar quebrou (ícone
+   de imagem quebrada), corrigido buscando uma foto real no Unsplash e confirmando com `HEAD` 200
+   antes de usar (lição já aprendida antes nesta sessão, dessa vez escorregou por pressa — mesmo
+   fluxo de correção de sempre). Depois da correção: capa, avatar e os 2 botões de rede social
+   (só os 2 preenchidos, não os 5) renderizando exatamente como o print de referência. Confirmado
+   também o estado vazio (sem capa/redes) voltando ao degradê + iniciais + sem fileira de botões,
+   sem erro. Dados de teste restaurados a `NULL` via `psql` ao final — mesmo padrão de disciplina
+   do §10.22/§10.23/§10.28/§10.30 (validação pontual, não backfill permanente).
+
+**Pendência nova:** 71. Não há como **limpar** um campo já preenchido (só sobrescrever com outro
+valor) — o DTO usa `@IsOptional()`, que só pula validação pra `undefined`/campo omitido, nunca
+aceita `null` explícito pra "apagar". Mesma limitação de design já presente em `Roda.imageUrl`/
+`Event.imageUrl` desde o §10.22, agora também em `Student.photo`/`coverPhoto`/`socialLinks` — se
+virar um problema real de uso, precisa de um tratamento explícito de "limpar campo" (ex.: string
+vazia tratada como null no service, em vez de omitida no payload).

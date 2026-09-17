@@ -26,6 +26,12 @@ export type IconName =
   | 'megaphone'
   | 'chevron-right'
   | 'chevron-down'
+  | 'pencil'
+  | 'instagram'
+  | 'facebook'
+  | 'whatsapp'
+  | 'youtube'
+  | 'tiktok'
   | 'arrow-left'
   | 'alert-circle'
   | 'external-link'
@@ -174,6 +180,41 @@ withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 22 })
     <template v-else-if="name === 'map-pin'">
       <path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21Z" />
       <circle cx="12" cy="9.5" r="2.3" />
+    </template>
+
+    <template v-else-if="name === 'pencil'">
+      <path d="M4 20l4-1 10.3-10.3a1.5 1.5 0 0 0 0-2.1l-1-1a1.5 1.5 0 0 0-2.1 0L5 16l-1 4Z" />
+      <path d="M13.5 6.5l3 3" />
+    </template>
+
+    <!-- Ícones de redes sociais — versões simplificadas em traço (mesmo estilo do resto do
+    conjunto), não os logos oficiais pixel-a-pixel; suficiente pra reconhecer a plataforma num
+    botão pequeno sem sair do sistema de ícones minimalista do app. -->
+    <template v-else-if="name === 'instagram'">
+      <rect x="3" y="3" width="18" height="18" rx="5" />
+      <circle cx="12" cy="12" r="4" />
+      <circle cx="17.2" cy="6.8" r="0.6" fill="currentColor" stroke="none" />
+    </template>
+
+    <template v-else-if="name === 'facebook'">
+      <path d="M15 4h-2a3 3 0 0 0-3 3v3H8v3h2v7h3v-7h2.4l.5-3H13V7a1 1 0 0 1 1-1h1V4Z" />
+    </template>
+
+    <template v-else-if="name === 'whatsapp'">
+      <path d="M12 3a9 9 0 0 0-7.8 13.5L3 21l4.6-1.2A9 9 0 1 0 12 3Z" />
+      <path
+        d="M8.5 9.7c0-.6.5-1.1 1-1.1h.6c.3 0 .5.2.6.4l.5 1.2c.1.3.1.6-.1.8l-.5.6c.4 1 1.2 1.8 2.2 2.2l.6-.5c.2-.2.5-.2.8-.1l1.2.5c.2.1.4.3.4.6v.6c0 .5-.5 1-1.1 1-3.4 0-6.2-2.8-6.2-6.2Z"
+      />
+    </template>
+
+    <template v-else-if="name === 'youtube'">
+      <rect x="2.5" y="6" width="19" height="12" rx="4" />
+      <path d="M10.5 9.5l5 2.5-5 2.5v-5Z" />
+    </template>
+
+    <template v-else-if="name === 'tiktok'">
+      <path d="M13.5 3v11.8a3.3 3.3 0 1 1-3.3-3.3" />
+      <path d="M13.5 7a4 4 0 0 0 4 4" />
     </template>
   </svg>
 </template>
