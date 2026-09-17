@@ -107,7 +107,7 @@ async function openQrModal(): Promise<void> {
   if (!passport.value?.publicProfile) return
   qrDataUrl.value = await QRCode.toDataURL(verificationUrl(passport.value.publicProfile.publicCode), {
     margin: 1,
-    color: { dark: '#1a1625', light: '#f2eef8' },
+    color: { dark: '#16181d', light: '#ffffff' },
   })
   isQrModalOpen.value = true
 }

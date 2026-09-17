@@ -2,40 +2,41 @@
 
 /*
   GingApp — app.gingapp.com.br (PWA do Capoeirista)
-  Tema escuro dedicado (único tema do app — ver PLANO_PROJETO.md §5.6).
-  Tokens de cor centralizados aqui via Tailwind 4 (@theme). Nunca hardcode
-  hex espalhado pelos componentes — use as classes utilitárias geradas
-  (bg-bg, bg-surface, text-accent, border-subtle, etc.).
+  Tema claro, minimalista, cards arredondados com sombra suave (redesign pedido pelo owner,
+  PLANO_PROJETO.md §10.19 — referência visual: app de rastreamento de pet, estilo card-based
+  claro; paleta verde/amarelo escolhida no lugar de copiar as cores exatas da referência).
+  Tokens de cor centralizados aqui via Tailwind 4 (@theme). Nunca hardcode hex espalhado pelos
+  componentes — use as classes utilitárias geradas (bg-bg, bg-surface, text-accent, etc.).
 */
 @theme {
-  /* base */
-  --color-bg: #1a1625;
-  --color-bg-elevated: #201b30;
+  /* base — cinza bem claro, os cards brancos "flutuam" por cima */
+  --color-bg: #f4f5f7;
+  --color-bg-elevated: #eef0f2;
 
   /* surfaces (cards) */
-  --color-surface: #241f36;
-  --color-surface-hover: #2c2640;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f7f8fa;
 
-  /* destaque (CTAs, badges, ícones ativos) */
-  --color-accent: #ec4899;
-  --color-accent-hover: #f472b6;
-  --color-accent-soft: #ec489926;
+  /* destaque (CTAs, badges, ícones ativos, estados positivos) */
+  --color-accent: #22c55e;
+  --color-accent-hover: #16a34a;
+  --color-accent-soft: #22c55e1a;
 
   /* texto */
-  --color-text: #f2eef8;
-  --color-text-muted: #a99fbd;
-  --color-text-faint: #6f6585;
+  --color-text: #16181d;
+  --color-text-muted: #6b7280;
+  --color-text-faint: #9ca3af;
 
-  /* bordas/divisores sutis — uso raro; hierarquia é por espaçamento */
-  --color-border: #332c4a;
+  /* bordas/divisores sutis — uso raro; hierarquia é por sombra/espaçamento */
+  --color-border: #e5e7eb;
 
-  /* estado */
-  --color-success: #34d399;
-  --color-warning: #fbbf24;
-  --color-danger: #f87171;
+  /* estado — warning é o amarelo da paleta (badges de pendência, ex.: financeiro) */
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
 
-  --radius-card: 1.125rem; /* ~18px, dentro da faixa 16–20px pedida */
-  --radius-card-lg: 1.25rem;
+  --radius-card: 1.25rem; /* ~20px */
+  --radius-card-lg: 1.5rem; /* ~24px */
 
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
 }
@@ -53,6 +54,17 @@ body {
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
   overscroll-behavior-y: none;
+}
+
+/* Sombra suave padrão de todo card (fundo claro precisa de elevação visível, diferente do
+ * tema escuro anterior, que já tinha contraste bg/surface suficiente sem sombra). Aplicada só
+ * a elementos que já combinam bg-surface com um dos raios de card — nunca em badges/pills
+ * pequenos que usam bg-surface sem esses raios. */
+.rounded-card.bg-surface,
+.rounded-card-lg.bg-surface {
+  box-shadow:
+    0 1px 2px rgba(16, 24, 40, 0.04),
+    0 2px 8px rgba(16, 24, 40, 0.06);
 }
 
 /* rolagem sem scrollbar visível nos carrosséis horizontais */

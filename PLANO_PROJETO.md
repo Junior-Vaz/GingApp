@@ -1965,3 +1965,71 @@ eram emoji de verdade, mas foram trocados do mesmo jeito por não pertencerem ao
     "mobile"; os outros 2 apps usam Tailwind puro (slate, sem ícones decorativos na maior parte
     das telas) e não têm o mesmo problema de emoji, mas também não têm um sistema de ícones
     (`AppIcon`) próprio ainda.
+
+### 10.19 Redesign visual do app.gingapp.com.br — tema claro (mudança de direção do owner)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — o owner mudou de ideia sobre a identidade
+visual do PWA: da referência dark mockup usada desde a fundação (§0) para uma referência nova,
+um app de rastreamento de pet em tema **claro**, cards brancos arredondados com sombra suave e
+bottom nav ícone+texto. Decisão explícita: copiar o **estilo visual**, não as funcionalidades
+(mapa/GPS não fazem sentido aqui); paleta **verde/amarelo** escolhida no lugar de imitar as
+cores exatas da referência ou manter o rosa/magenta do tema escuro anterior.
+
+#### O que foi feito
+
+- **`style.css`**: `@theme` inteiro reescrito — de um tema escuro (bg `#1a1625`, accent rosa
+  `#ec4899`) para um tema claro (bg `#f4f5f7` cinza bem claro, surface `#ffffff`, accent verde
+  `#22c55e`, texto quase-preto `#16181d`). A relação entre os tokens (bg < bg-elevated < surface
+  < surface-hover em "proeminência") foi preservada — só os valores hex mudaram — o que
+  significa que **nenhuma classe Tailwind precisou mudar em nenhuma view**: todo o app já usava
+  classes semânticas (`bg-surface`, `text-text-muted`, `text-accent` etc.), nunca hex
+  hardcoded, então a troca de tema inteira ficou concentrada em um arquivo só. `--color-warning`
+  (`#f59e0b`, âmbar) já existia e cobre o "amarelo" da paleta pedida — não foi preciso criar um
+  token novo.
+- **Sombra de card nova**: tema escuro anterior não precisava de sombra (contraste bg/surface já
+  bastava); tema claro precisa de elevação visível. Adicionada via uma regra CSS global
+  (`.rounded-card(-lg).bg-surface { box-shadow: ... }`) em vez de editar cada view — pega todo
+  card real (que combina `bg-surface` com um raio) sem afetar badges/pills pequenos que usam só
+  `bg-surface`.
+  `radius-card`/`radius-card-lg` aumentados (1.125rem/1.25rem → 1.25rem/1.5rem) pra bater mais
+  com o arredondamento generoso da referência.
+- **Metadados do PWA**: `theme-color` (meta tag + `manifest.theme_color`/`background_color` no
+  `vite.config.ts`) e `apple-mobile-web-app-status-bar-style` (`black-translucent` →
+  `default`) atualizados pro tema claro — sem isso, a barra de status do iOS e a cor do Chrome
+  ficariam com o tom escuro antigo mesmo com o app renderizando claro.
+- **2 hex hardcoded corrigidos**: `JornadaView.vue`/`PerfilView.vue` geravam o QR Code do
+  certificado/passaporte com cores do tema escuro antigo escritas na mão (`dark: '#1a1625',
+  light: '#f2eef8'`) — não eram lidas de nenhuma variável CSS, então não teriam mudado sozinhas.
+  Atualizadas pra `dark: '#16181d', light: '#ffffff'` (preto quase puro em papel branco — máximo
+  contraste pra leitura de QR, independente do accent do momento).
+
+#### Achados
+
+Nenhum bug — a arquitetura de tokens semânticos (nunca hex direto nas views, estabelecida desde
+a fundação do projeto) fez o redesign inteiro ser, na prática, **um arquivo CSS + 4 valores
+hardcoded encontrados por grep**, não uma reescrita de 13 telas. Confirma o valor de ter seguido
+essa disciplina desde o início.
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`).
+2. `grep` por hex/rgb/`shadow-` em todo `app.gingapp.com.br/src` confirmou só 2 arquivos com hex
+   hardcoded (os dois do QR Code, corrigidos) — nenhum outro ponto escondido.
+3. **Validação visual completa no navegador** (backend + PWA rodando), todas as telas
+   principais: Login, Home (saudação, atalhos, avisos), Jornada (graduação + timeline),
+   Calendário (chips de período, filtros, cards de roda/evento), Perfil (Passaporte com grid de
+   estatísticas), Financeiro (badge "Em aberto" em âmbar), Aulas (badge "Confirmada" em verde),
+   Rodas (botão pill "Quero participar"), Notificações, e a página pública
+   `/verificar/:code` (estado "não encontrado") — todas renderizando o tema claro
+   consistentemente, cards com sombra visível, sem nenhum resquício do tema escuro anterior.
+
+**Pendências novas desta etapa:**
+
+60. O QR Code do Passaporte/Certificado não foi revalidado visualmente pós-redesign (não havia
+    um certificado/passaporte publicado no ambiente de dev no momento do teste) — a lógica de
+    cor não mudou (só os 2 hex corrigidos), risco baixo, mas fica como item de verificação visual
+    pendente na próxima vez que a tela for aberta com um QR de verdade.
+61. `painel.gingapp.com.br` e `admin.gingapp.com.br` continuam no visual Tailwind slate genérico
+    (pendência 41/59 já registradas) — o pedido desta etapa foi só "mobile"; um eventual
+    alinhamento visual entre os 3 apps (ou uso deliberado de temas distintos por público) fica
+    em aberto.

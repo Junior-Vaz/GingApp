@@ -20,10 +20,10 @@ export default defineConfig({
         scope: '/',
         display: 'standalone',
         orientation: 'portrait',
-        // Tema escuro do app (PLANO_PROJETO.md §5.6) — mesmas cores usadas no
+        // Tema claro do app (PLANO_PROJETO.md §10.19) — mesmas cores usadas no
         // Tailwind (src/style.css @theme: --color-bg / --color-accent).
-        background_color: '#1a1625',
-        theme_color: '#1a1625',
+        background_color: '#f4f5f7',
+        theme_color: '#f4f5f7',
         lang: 'pt-BR',
         icons: [
           {
