@@ -2571,3 +2571,51 @@ URL, sem upload) nunca era lido em lugar nenhum do PWA: nem a Home, nem o própr
    (nem no painel, nem autoatendimento no PWA) — o campo `photo` existe e agora é exibido, mas
    fica sempre vazio na prática até existir algum fluxo de upload/URL, igual ao que
    `Roda.imageUrl`/`Event.imageUrl` precisaram do painel pra virar utilizável de verdade (§10.22).
+
+### 10.29 Redesign da tela de Jornada — cor real da graduação, timeline conectada
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído. Pedido do owner: "AGORA preciso que melhore a
+tela de jornada" — pedido aberto (sem referência específica), então a leitura foi: trazer
+`JornadaView.vue` pro mesmo nível visual do resto do app já redesenhado (Home, Comunidade,
+Rodas, Eventos), que ela tinha ficado pra trás (ainda no estilo flat da era do redesign v2,
+§10.20 — card de destaque bloco de cor sólida, lista simples sem conexão visual de "linha do
+tempo" apesar do nome da seção).
+
+#### Achado: `GraduationLevel.color` existia no schema e nunca era usado em lugar nenhum
+
+Investigação antes de redesenhar: `GraduationLevel` tem um campo `color: String?` (confirmado via
+`psql`: `Crua` = `#e5e5e5`, `Verde` = `#22c55e`, `Azul` = `#3b82f6` — cores reais das cordas já
+cadastradas) que a tela nunca lia. O card "Graduação atual" usava sempre `bg-accent` (verde fixo,
+igual pra qualquer graduação) e os pontos da timeline usavam sempre `bg-accent-soft`/`bg-bg-elevated`
+genéricos — a cor de cada corda, que é justamente o dado mais identitário de uma graduação de
+capoeira, não aparecia em lugar nenhum da tela que existe pra mostrar exatamente isso.
+
+#### O que foi construído
+
+1. **Card "Graduação atual"** agora usa `backgroundColor: currentGraduation.graduationLevel.color`
+   (inline style, com fallback pra `var(--color-accent)` se `color` vier `null`) em vez de
+   `bg-accent` fixo — com um `<div class="absolute inset-0 bg-black/30">` por cima, mesmo
+   raciocínio do filtro escuro do `FeedCard` (§10.24): garante texto branco legível em cima de
+   **qualquer** cor, inclusive uma bem clara como o cinza-quase-branco da "Crua" (sem o filtro, o
+   texto branco ficaria ilegível nessa cor).
+2. **Timeline com linha conectora de verdade**: cada nó agora é um anel colorido (`border-[3px]`
+   na cor da graduação, fundo `bg-surface` — nunca preenchido sólido, pra não ter problema de
+   contraste com o ícone dentro, que também usa a cor da graduação) ligado ao próximo por uma
+   barrinha vertical (`w-0.5 flex-1 bg-border`, dentro de um `flex-col` — cresce automaticamente
+   pra preencher o espaço até o próximo nó, sem medir pixel nenhum). Antes era só uma lista de
+   linhas soltas dentro de um card, sem nenhuma conexão visual — não parecia de fato uma "linha do
+   tempo".
+3. Entrada em cascata (`animate-rise` + delay por índice, mesmo padrão do resto do app desde o
+   §10.25) nos itens da timeline e nos certificados; feedback de toque (`active:scale-95`) nos
+   botões "QR Code"/"Copiar link"/"Fechar" que ainda não tinham.
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`).
+2. **Validação ao vivo no navegador**: aluno de teste com graduação "Azul" (`#3b82f6`) — card de
+   destaque renderizou em azul com o filtro escuro por cima (texto branco legível), timeline
+   mostrando o nó "Crua" com anel cinza-claro e "Azul" com anel azul, linha conectora entre os
+   dois nós visível. Seção de certificados testada implicitamente (vazia pra esse aluno de teste —
+   `v-if` escondeu a seção corretamente, sem erro).
+3. Não foi criado nenhum backfill de dados pra esta etapa — as cores já existiam no banco desde
+   antes (provavelmente do seed original do projeto, nunca tocadas nesta sessão).

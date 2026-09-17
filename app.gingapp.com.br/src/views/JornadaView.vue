@@ -121,11 +121,16 @@ onMounted(async () => {
     <EmptyState v-else-if="!isLoading && !hasStudent" icon="user" message="Nenhum aluno vinculado a esta conta." />
 
     <template v-else>
-      <section v-if="currentGraduation" class="flex items-center gap-4 rounded-card-lg bg-accent p-5 text-white">
-        <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/20">
+      <section
+        v-if="currentGraduation"
+        class="relative flex items-center gap-4 overflow-hidden rounded-card-lg p-5 text-white shadow-md"
+        :style="{ backgroundColor: currentGraduation.graduationLevel.color ?? 'var(--color-accent)' }"
+      >
+        <div class="absolute inset-0 bg-black/30" />
+        <span class="relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/20">
           <AppIcon name="graduation" :size="24" />
         </span>
-        <div>
+        <div class="relative z-10">
           <p class="text-xs font-medium text-white/80">Graduação atual</p>
           <p class="text-xl font-bold">{{ currentGraduation.graduationLevel.name }}</p>
         </div>
@@ -134,19 +139,32 @@ onMounted(async () => {
 
       <section v-if="timeline.length > 0" class="flex flex-col gap-3">
         <SectionHeader title="Linha do tempo" />
-        <ol class="flex flex-col gap-3 rounded-card-lg bg-surface p-2">
-          <li v-for="(grad, index) in timeline" :key="grad.id" class="flex items-center gap-3 px-3 py-2.5">
-            <span
-              class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-              :class="index === timeline.length - 1 ? 'bg-accent-soft text-accent' : 'bg-bg-elevated text-text-faint'"
-            >
-              <AppIcon name="graduation" :size="16" />
-            </span>
-            <div class="min-w-0 flex-1">
-              <p class="text-sm font-semibold text-text">{{ grad.graduationLevel.name }}</p>
-              <p v-if="grad.notes" class="truncate text-xs text-text-faint">{{ grad.notes }}</p>
+        <ol class="flex flex-col rounded-card-lg bg-surface p-4">
+          <li
+            v-for="(grad, index) in timeline"
+            :key="grad.id"
+            class="animate-rise flex gap-3"
+            :class="index === timeline.length - 1 ? '' : 'pb-5'"
+            :style="{ animationDelay: `${index * 60}ms` }"
+          >
+            <div class="flex flex-col items-center">
+              <span
+                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[3px] bg-surface"
+                :style="{ borderColor: grad.graduationLevel.color ?? 'var(--color-accent)' }"
+              >
+                <AppIcon name="graduation" :size="15" :style="{ color: grad.graduationLevel.color ?? 'var(--color-accent)' }" />
+              </span>
+              <span v-if="index < timeline.length - 1" class="mt-1 w-0.5 flex-1 bg-border" />
             </div>
-            <span class="shrink-0 text-xs text-text-muted">{{ formatDate(grad.graduatedAt) }}</span>
+            <div class="min-w-0 flex-1 pt-1">
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <p class="text-sm font-semibold text-text">{{ grad.graduationLevel.name }}</p>
+                  <p v-if="grad.notes" class="mt-0.5 truncate text-xs text-text-faint">{{ grad.notes }}</p>
+                </div>
+                <span class="shrink-0 text-xs font-medium text-text-muted">{{ formatDate(grad.graduatedAt) }}</span>
+              </div>
+            </div>
           </li>
         </ol>
       </section>
@@ -155,9 +173,10 @@ onMounted(async () => {
         <SectionHeader title="Certificados" />
         <ul class="flex flex-col gap-3">
           <li
-            v-for="cert in certificates"
+            v-for="(cert, index) in certificates"
             :key="cert.id"
-            class="flex items-center gap-3 rounded-card-lg bg-surface p-4"
+            class="animate-rise flex items-center gap-3 rounded-card-lg bg-surface p-4"
+            :style="{ animationDelay: `${index * 60}ms` }"
           >
             <span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
               <AppIcon name="trophy" :size="18" />
@@ -168,7 +187,7 @@ onMounted(async () => {
             </div>
             <button
               type="button"
-              class="shrink-0 rounded-full bg-bg-elevated px-3 py-1.5 text-xs font-semibold text-text"
+              class="shrink-0 rounded-full bg-bg-elevated px-3 py-1.5 text-xs font-semibold text-text transition-transform duration-150 active:scale-95"
               @click="openQrModal(cert)"
             >
               QR Code
@@ -191,12 +210,16 @@ onMounted(async () => {
         <div class="mt-4 flex justify-center gap-2">
           <button
             type="button"
-            class="rounded-full bg-accent-soft px-4 py-2 text-xs font-semibold text-accent"
+            class="rounded-full bg-accent-soft px-4 py-2 text-xs font-semibold text-accent transition-transform duration-150 active:scale-95"
             @click="copyVerificationLink(qrModalCertificate.verificationCode)"
           >
             Copiar link
           </button>
-          <button type="button" class="rounded-full bg-bg-elevated px-4 py-2 text-xs font-semibold text-text" @click="closeQrModal">
+          <button
+            type="button"
+            class="rounded-full bg-bg-elevated px-4 py-2 text-xs font-semibold text-text transition-transform duration-150 active:scale-95"
+            @click="closeQrModal"
+          >
             Fechar
           </button>
         </div>
