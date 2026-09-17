@@ -2268,3 +2268,66 @@ os dados de teste agora** (recomendado).
 **Nota:** isto é backfill de **dados de ambiente de dev/teste**, não uma mudança de produto — em
 produção, cada Roda/Event real só vai ter foto quando alguém colar a URL no painel (funcionalidade
 entregue no §10.22). As pendências 67/68 do §10.22 continuam abertas.
+
+### 10.24 Refino visual pós-feed: aviso sem imagem, tabs/menu deslizantes, card hero
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído. Feedback direto do owner logo após o §10.23,
+quatro pontos num só pedido:
+
+> "Cards de Aviso não precisa ser um card com imagem não faz sentido. e menu quero que seja
+> redondo flutuante com animação de slide ao trocar. todos os filtros e tabs quero que sejam
+> estilo Tabs redondo deslizantes tambem. os estilos dos cards quero melhor, imagem com filtro
+> transparente por cima, e textos por cima sem um container branco por baixo."
+
+#### O que foi construído
+
+1. **`AnnouncementCard.vue`** (novo, `components/ui/`): card de Aviso sem imagem — ícone
+   `megaphone` num círculo `bg-accent-soft`, título + corpo + horário relativo, `bg-surface`
+   simples. Antes, Avisos usavam o mesmo `FeedCard` dos eventos/rodas e sempre caíam no
+   placeholder ilustrado de imagem (não fazia sentido pra um item que é só texto). `HomeView.vue`
+   agora decide por `item.kind === 'aviso'` qual dos dois cards renderizar dentro do mesmo loop do
+   feed (`<template v-for>` com `v-if`/`v-else`).
+2. **`SlidingTabs.vue`** (novo, `components/ui/`, genérico via `<script setup generic="T extends
+   string">` pra preservar o tipo literal do `v-model`, ex.: `Scope`/`FeedFilter`, em vez de
+   alargar pra `string`): pill de filtro com indicador deslizante — mede `offsetLeft`/`offsetWidth`
+   do botão ativo (via refs, `nextTick`) e anima com `transition-all duration-300`, funciona com
+   opções de largura desigual. **SSOT** de todo filtro/tab redondo do app: substituiu os dois loops
+   manuais de `<button>` que existiam duplicados (`ComunidadeView.vue`'s `SCOPE_OPTIONS` e
+   `HomeView.vue`'s `FILTERS`). Os `<select>` de tipo/estado/cidade do Calendário **não** foram
+   convertidos — são dropdowns com listas longas (ex.: 27 estados), não cabem no paradigma de tabs;
+   só os grupos de botão-pill existentes viraram `SlidingTabs`.
+3. **`MobileLayout.vue`** — bottom nav virou um menu **flutuante redondo**: `fixed bottom-4`
+   (antes era fixo colado embaixo, full-width, com borda), `rounded-full bg-surface shadow-lg`
+   dentro de um `max-w-[22rem]` centralizado. Indicador de aba ativa é uma cápsula `bg-accent` que
+   desliza via `transform: translateX(calc(index * 100%))` — como as 5 colunas são
+   `grid-cols-5` (largura igual), não precisa medir pixel nenhum: `translateX(N * 100%)` desloca
+   exatamente N larguras de coluna, só trocando o índice a cada navegação
+   (`transition-transform duration-300`). `pb-24` do `<main>` virou `pb-28` pra dar espaço ao nav
+   flutuante (que agora tem `bottom-4` de gap, diferente do nav anterior colado no rodapé).
+4. **`FeedCard.vue`** — reformulado de "imagem em cima + painel branco embaixo" pra **hero card**:
+   a imagem (ou o degradê+ícone de placeholder) ocupa o card inteiro (`h-48`), com um filtro escuro
+   transparente por cima (`bg-gradient-to-t from-black/85 via-black/15 to-black/5`) pra dar
+   contraste, e badge/título/meta/localização ficam posicionados diretamente sobre a imagem em
+   texto branco (`absolute`, sem nenhum container `bg-surface` embaixo). Badge moveu de
+   baixo-esquerda pra cima-esquerda (o rodapé agora é só texto). Placeholder sem imagem usa o
+   mesmo esquema (degradê da paleta + ícone bem grande e translúcido + o mesmo filtro escuro por
+   cima), pra manter os dois casos (com/sem foto) visualmente consistentes.
+
+#### Validação empírica
+
+1. Build do `app.gingapp.com.br` limpo (`vue-tsc -b && vite build`) — inclusive o genérico do
+   `SlidingTabs` tipando corretamente contra `Scope` e `FeedFilter` sem precisar de `as` nem
+   alargar pra `string` nos dois call-sites.
+2. **Validação ao vivo no navegador** (dev server já estava de pé, reaproveitado): Home mostra
+   Avisos como card de texto simples (sem imagem), filtro "Tudo/Rodas/Eventos/Avisos" com pílula
+   verde deslizando ao trocar (clicado em "Eventos", pílula moveu e a lista filtrou — vazio porque
+   não há evento público hoje, esperado), cards de Roda como hero com foto+filtro escuro+texto
+   branco sobreposto (sem painel branco). Bottom nav flutuante confirmado em `/app` e
+   `/app/comunidade` — cápsula verde desliza pra trás do ícone certo em cada rota (conferido via
+   `read_page`, não só visual, depois de notar que um screenshot capturado a meio da transição CSS
+   mostrava a cápsula ainda deslizando por cima do vizinho — não era bug, só timing do screenshot).
+   Calendário com os mesmos cards hero, confirma que `FeedCard` continua compartilhado entre Home e
+   Comunidade.
+3. Não foram tocados: `.vue` do painel/admin (fora de escopo deste pedido, que era só sobre o PWA),
+   `<select>` de tipo/estado/cidade do Calendário (decisão registrada acima), lógica de dados/API
+   (mudança 100% visual, nenhum endpoint ou DTO tocado).

@@ -9,6 +9,7 @@ import { api, ApiError } from '../utils/api'
 import { type IconName } from '../components/icons/AppIcon.vue'
 import FeedCard from '../components/ui/FeedCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
+import SlidingTabs from '../components/ui/SlidingTabs.vue'
 
 type Scope = 'today' | 'week' | 'month' | ''
 
@@ -146,17 +147,8 @@ onMounted(() => {
       <p class="text-sm text-text-muted">Rodas e eventos da capoeira, no Brasil todo</p>
     </header>
 
-    <div class="flex gap-2 overflow-x-auto px-5 scrollbar-none">
-      <button
-        v-for="option in SCOPE_OPTIONS"
-        :key="option.value"
-        type="button"
-        class="shrink-0 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors"
-        :class="scope === option.value ? 'bg-accent text-white' : 'bg-surface text-text-muted'"
-        @click="scope = option.value"
-      >
-        {{ option.label }}
-      </button>
+    <div class="px-5">
+      <SlidingTabs v-model="scope" :options="SCOPE_OPTIONS" />
     </div>
 
     <div class="grid grid-cols-3 gap-2 px-5">

@@ -9,7 +9,9 @@ import { useAuthStore } from '../stores/auth'
 import { api, ApiError } from '../utils/api'
 import AppIcon, { type IconName } from '../components/icons/AppIcon.vue'
 import FeedCard from '../components/ui/FeedCard.vue'
+import AnnouncementCard from '../components/ui/AnnouncementCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
+import SlidingTabs from '../components/ui/SlidingTabs.vue'
 
 interface Student {
   id: number
@@ -176,17 +178,8 @@ onMounted(async () => {
         </router-link>
       </section>
 
-      <div class="flex gap-2 overflow-x-auto px-5 scrollbar-none">
-        <button
-          v-for="filter in FILTERS"
-          :key="filter.value"
-          type="button"
-          class="shrink-0 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors"
-          :class="activeFilter === filter.value ? 'bg-accent text-white' : 'bg-surface text-text-muted'"
-          @click="activeFilter = filter.value"
-        >
-          {{ filter.label }}
-        </button>
+      <div class="px-5">
+        <SlidingTabs v-model="activeFilter" :options="FILTERS" />
       </div>
 
       <p v-if="isLoading" class="px-5 text-center text-sm text-text-faint">Carregando…</p>
@@ -196,17 +189,19 @@ onMounted(async () => {
       </div>
 
       <section v-else class="flex flex-col gap-4 px-5">
-        <FeedCard
-          v-for="item in feedItems"
-          :key="item.key"
-          :icon="item.icon"
-          :badge="item.badge"
-          :title="item.title"
-          :meta="item.meta"
-          :subtitle="item.subtitle"
-          :to="item.to"
-          :image-url="item.imageUrl"
-        />
+        <template v-for="item in feedItems" :key="item.key">
+          <AnnouncementCard v-if="item.kind === 'aviso'" :title="item.title" :meta="item.meta" :body="item.subtitle ?? ''" />
+          <FeedCard
+            v-else
+            :icon="item.icon"
+            :badge="item.badge"
+            :title="item.title"
+            :meta="item.meta"
+            :subtitle="item.subtitle"
+            :to="item.to"
+            :image-url="item.imageUrl"
+          />
+        </template>
       </section>
     </template>
   </div>
