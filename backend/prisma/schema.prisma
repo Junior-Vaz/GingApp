@@ -553,11 +553,21 @@ model FinancialRecord {
   @@index([studentId, dueDate])
 }
 
+/// type: categoria livre (BATIZADO/WORKSHOP/CAMPEONATO/FESTIVAL/ENCONTRO/FORMATURA/VIAGEM/
+/// AULA_ESPECIAL/OUTRO, projeto.txt §43 — "RODA" fica de fora, esse tipo já tem o model Roda
+/// dedicado). String (não enum) de propósito, mesmo espírito de Notification.type/
+/// SubscriptionEvent.type: é uma tag de categorização/filtro, não uma regra de negócio.
+///
+/// stateId/cityId: mesmos campos que Roda já tinha desde a fundação — permitem o Calendário
+/// estadual (projeto.txt §42, Fase 2 §10.17) agregar Roda+Event num só feed público filtrável.
 model Event {
   id             Int      @id @default(autoincrement())
   organizationId Int
   unitId         Int?
+  stateId        Int?
+  cityId         Int?
   title          String
+  type           String   @default("OUTRO")
   description    String?
   date           DateTime
   location       String?
@@ -567,9 +577,13 @@ model Event {
 
   organization Organization       @relation(fields: [organizationId], references: [id])
   unit         Unit?              @relation(fields: [unitId], references: [id])
+  state        State?             @relation(fields: [stateId], references: [id])
+  city         City?              @relation(fields: [cityId], references: [id])
   participants EventParticipant[]
 
   @@index([organizationId, date])
+  @@index([stateId, date])
+  @@index([cityId, date])
 }
 
 /// guestName cobre participantes sem cadastro de student/user (ex.: convidado externo em
@@ -642,6 +656,7 @@ model State {
   cities      City[]
   communities Community[]
   rodas       Roda[]
+  events      Event[]
 }
 
 model City {
@@ -650,8 +665,9 @@ model City {
   name      String
   createdAt DateTime @default(now())
 
-  state State  @relation(fields: [stateId], references: [id])
-  rodas Roda[]
+  state  State   @relation(fields: [stateId], references: [id])
+  rodas  Roda[]
+  events Event[]
 
   @@index([stateId])
 }

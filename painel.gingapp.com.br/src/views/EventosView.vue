@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { api, ApiError } from '@/utils/api'
 
 interface EventItem {
@@ -10,6 +10,9 @@ interface EventItem {
   date: string
   location: string | null
   isPublic: boolean
+  type: string
+  stateId: number | null
+  cityId: number | null
 }
 
 interface Unit {
@@ -20,6 +23,28 @@ interface Unit {
 interface Student {
   id: number
   name: string
+}
+
+interface State {
+  id: number
+  name: string
+}
+
+interface City {
+  id: number
+  name: string
+}
+
+const EVENT_TYPE_LABEL: Record<string, string> = {
+  BATIZADO: 'Batizado',
+  WORKSHOP: 'Workshop',
+  CAMPEONATO: 'Campeonato',
+  FESTIVAL: 'Festival',
+  ENCONTRO: 'Encontro',
+  FORMATURA: 'Formatura',
+  VIAGEM: 'Viagem',
+  AULA_ESPECIAL: 'Aula especial',
+  OUTRO: 'Outro',
 }
 
 type ParticipantStatus = 'INVITED' | 'CONFIRMED' | 'DECLINED' | 'ATTENDED' | 'CANCELLED'
@@ -41,6 +66,9 @@ interface EventFormState {
   location: string
   unitId: string
   isPublic: boolean
+  type: string
+  stateId: string
+  cityId: string
 }
 
 const STATUS_LABEL: Record<ParticipantStatus, string> = {
@@ -54,6 +82,8 @@ const STATUS_LABEL: Record<ParticipantStatus, string> = {
 const events = ref<EventItem[]>([])
 const units = ref<Unit[]>([])
 const students = ref<Student[]>([])
+const states = ref<State[]>([])
+const cities = ref<City[]>([])
 const isLoading = ref(false)
 const listError = ref('')
 
@@ -62,10 +92,49 @@ const isSubmitting = ref(false)
 const formError = ref('')
 
 function emptyForm(): EventFormState {
-  return { id: null, title: '', description: '', date: '', location: '', unitId: '', isPublic: false }
+  return {
+    id: null,
+    title: '',
+    description: '',
+    date: '',
+    location: '',
+    unitId: '',
+    isPublic: false,
+    type: 'OUTRO',
+    stateId: '',
+    cityId: '',
+  }
 }
 
 const form = reactive<EventFormState>(emptyForm())
+
+async function loadStates(): Promise<void> {
+  try {
+    states.value = await api.get<State[]>('/rodas/reference/states')
+  } catch {
+    // Selects de estado/cidade ficam vazios se isso falhar — não bloqueia a tela.
+  }
+}
+
+async function loadCitiesFor(stateId: string): Promise<void> {
+  if (!stateId) {
+    cities.value = []
+    return
+  }
+  try {
+    cities.value = await api.get<City[]>(`/rodas/reference/cities?stateId=${stateId}`)
+  } catch {
+    cities.value = []
+  }
+}
+
+watch(
+  () => form.stateId,
+  (stateId) => {
+    form.cityId = ''
+    void loadCitiesFor(stateId)
+  },
+)
 
 // --- Participantes ---
 const isParticipantsModalOpen = ref(false)
@@ -117,6 +186,7 @@ function formatDate(date: string): string {
 
 function openCreateModal(): void {
   Object.assign(form, emptyForm())
+  cities.value = []
   formError.value = ''
   isModalOpen.value = true
 }
@@ -130,7 +200,11 @@ function openEditModal(event: EventItem): void {
     location: event.location ?? '',
     unitId: event.unitId ? String(event.unitId) : '',
     isPublic: event.isPublic,
+    type: event.type,
+    stateId: event.stateId ? String(event.stateId) : '',
+    cityId: event.cityId ? String(event.cityId) : '',
   })
+  if (event.stateId) void loadCitiesFor(String(event.stateId))
   formError.value = ''
   isModalOpen.value = true
 }
@@ -158,6 +232,9 @@ async function submitForm(): Promise<void> {
     location: form.location || undefined,
     unitId: form.unitId ? Number(form.unitId) : undefined,
     isPublic: form.isPublic,
+    type: form.type,
+    stateId: form.stateId ? Number(form.stateId) : undefined,
+    cityId: form.cityId ? Number(form.cityId) : undefined,
   }
 
   try {
@@ -288,6 +365,7 @@ onMounted(() => {
   void loadEvents()
   void loadUnits()
   void loadStudents()
+  void loadStates()
 })
 </script>
 
@@ -314,6 +392,7 @@ onMounted(() => {
         <thead class="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
             <th class="px-4 py-3 font-medium">Título</th>
+            <th class="px-4 py-3 font-medium">Tipo</th>
             <th class="px-4 py-3 font-medium">Data</th>
             <th class="px-4 py-3 font-medium">Local</th>
             <th class="px-4 py-3 font-medium">Público</th>
@@ -322,13 +401,14 @@ onMounted(() => {
         </thead>
         <tbody class="divide-y divide-slate-100">
           <tr v-if="isLoading">
-            <td colspan="5" class="px-4 py-8 text-center text-slate-400">Carregando…</td>
+            <td colspan="6" class="px-4 py-8 text-center text-slate-400">Carregando…</td>
           </tr>
           <tr v-else-if="events.length === 0">
-            <td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhum evento cadastrado ainda.</td>
+            <td colspan="6" class="px-4 py-8 text-center text-slate-400">Nenhum evento cadastrado ainda.</td>
           </tr>
           <tr v-for="event in events" v-else :key="event.id" class="hover:bg-slate-50">
             <td class="px-4 py-3 font-medium text-slate-900">{{ event.title }}</td>
+            <td class="px-4 py-3 text-slate-600">{{ EVENT_TYPE_LABEL[event.type] ?? event.type }}</td>
             <td class="px-4 py-3 text-slate-600">{{ formatDate(event.date) }}</td>
             <td class="px-4 py-3 text-slate-600">{{ event.location || '—' }}</td>
             <td class="px-4 py-3">
@@ -412,20 +492,57 @@ onMounted(() => {
             </div>
           </div>
 
-          <div>
-            <label class="mb-1 block text-sm font-medium text-slate-700">Unidade</label>
-            <select
-              v-model="form.unitId"
-              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
-            >
-              <option value="">—</option>
-              <option v-for="unit in units" :key="unit.id" :value="unit.id">{{ unit.name }}</option>
-            </select>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="mb-1 block text-sm font-medium text-slate-700">Unidade</label>
+              <select
+                v-model="form.unitId"
+                class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+              >
+                <option value="">—</option>
+                <option v-for="unit in units" :key="unit.id" :value="unit.id">{{ unit.name }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-medium text-slate-700">Tipo</label>
+              <select
+                v-model="form.type"
+                class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+              >
+                <option v-for="(label, value) in EVENT_TYPE_LABEL" :key="value" :value="value">{{ label }}</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="mb-1 block text-sm font-medium text-slate-700">Estado</label>
+              <select
+                v-model="form.stateId"
+                class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+              >
+                <option value="">—</option>
+                <option v-for="state in states" :key="state.id" :value="state.id">{{ state.name }}</option>
+              </select>
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-medium text-slate-700">Cidade</label>
+              <select
+                v-model="form.cityId"
+                :disabled="!form.stateId"
+                class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500 disabled:bg-slate-50 disabled:text-slate-400"
+              >
+                <option value="">—</option>
+                <option v-for="city in cities" :key="city.id" :value="city.id">{{ city.name }}</option>
+              </select>
+            </div>
           </div>
 
           <div class="flex items-center gap-2">
             <input id="event-is-public" v-model="form.isPublic" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
-            <label for="event-is-public" class="text-sm font-medium text-slate-700">Evento público</label>
+            <label for="event-is-public" class="text-sm font-medium text-slate-700">
+              Evento público (aparece no Calendário da capoeira)
+            </label>
           </div>
 
           <p v-if="formError" class="text-sm text-red-600">{{ formError }}</p>

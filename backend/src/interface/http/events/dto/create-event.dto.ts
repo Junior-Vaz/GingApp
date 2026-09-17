@@ -1,4 +1,5 @@
-import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { EVENT_TYPES } from './event-type';
 
 export class CreateEventDto {
   @IsString()
@@ -23,4 +24,16 @@ export class CreateEventDto {
   @IsOptional()
   @IsBoolean()
   isPublic?: boolean;
+
+  @IsOptional()
+  @IsIn(EVENT_TYPES)
+  type?: string;
+
+  @IsOptional()
+  @IsInt()
+  stateId?: number;
+
+  @IsOptional()
+  @IsInt()
+  cityId?: number;
 }

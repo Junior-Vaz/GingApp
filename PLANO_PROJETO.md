@@ -1829,3 +1829,78 @@ pendência à parte por ser uma feature distinta (calendário público, não Pas
     pra desativar consentimento chamando `PATCH /passport/guardian-consent` diretamente (sem UI),
     já que `unpublish` não mexe no consentimento (decisão deliberada: permite republicar depois
     sem reconsentir).
+
+### 10.17 Fase 2 — Jornada do Capoeirista, parte 3: Calendário estadual (fecha a Jornada)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — **fecha 100% a "Jornada do Capoeirista"**
+(projeto.txt §41/§42/§45/§51/§52, as 4 partes do roadmap somadas em §10.15/§10.16/§10.17).
+
+#### O que foi construído
+
+- **`Event` ganhou `type`, `stateId`, `cityId`**: `type` é `String @default("OUTRO")` (não enum,
+  de propósito — mesmo espírito de tag de categorização de `Notification.type`), com os valores
+  de projeto.txt §43 (`BATIZADO/WORKSHOP/CAMPEONATO/FESTIVAL/ENCONTRO/FORMATURA/VIAGEM/
+  AULA_ESPECIAL/OUTRO` — "RODA" fica de fora, já tem o model `Roda` dedicado). `stateId`/`cityId`
+  espelham os mesmos campos que `Roda` já tinha desde a fundação. Migration
+  `add_event_calendar_fields`.
+- **`CalendarModule`** (`interface/http/calendar/`), `GET /calendar` público (sem autenticação):
+  agrega `Roda` (já pública/cross-organização desde a fundação) + `Event` com **`isPublic=true`**
+  de **qualquer organização** — diferente de `GET /events`, que é escopado a uma organização só.
+  Cada item carrega `source: 'RODA'|'EVENTO'` (o `id` sozinho colide entre as duas tabelas).
+  Filtros: `stateId`, `cityId`, `type` (`RODA` ou um `EVENT_TYPES`), `scope`
+  (`today`/`week`/`month`, projeto.txt §42 — sem `scope`, mostra tudo a partir de hoje sem limite
+  futuro). Reaproveita `/rodas/reference/states`/`/cities` para os selects — não duplica.
+- **Frontend**:
+  - `painel.gingapp.com.br`: `EventosView.vue` ganhou os campos Tipo/Estado/Cidade (mesmo padrão
+    de cascata estado→cidade de `RodasView.vue`) no formulário de criar/editar, e uma coluna
+    "Tipo" na tabela.
+  - `app.gingapp.com.br`: `ComunidadeView.vue` deixou de ser um feed simples (`GET /rodas` +
+    `GET /events`, que só trazia eventos do **próprio** grupo) e virou o Calendário de verdade —
+    chama `GET /calendar`, com chips de período (Tudo/Hoje/Semana/Mês) e selects de
+    tipo/estado/cidade (cidade em cascata), tudo reativo (`watch` recarrega a cada filtro
+    mudado).
+
+#### Achados
+
+Nenhum bug de execução nesta etapa — migration, build e suíte e2e passaram de primeira (terceira
+etapa seguida sem incidente, depois dos 2 achados de §10.16). Único ponto de atenção deliberado:
+`Event.type` foi feito **String livre**, não um enum Prisma, para não precisar de nova migration
+toda vez que uma categoria for ajustada — a validação de valores aceitos fica só na camada HTTP
+(`@IsIn(EVENT_TYPES)` no DTO, mesma lista usada no filtro do calendário).
+
+#### Validação empírica
+
+1. Migration aplicada (mesmo procedimento não-interativo de §10.15/§10.16) e confirmada via
+   `psql` (`\d "Event"`, colunas `type`/`stateId`/`cityId` com os índices e FKs certos) antes do
+   commit.
+2. Backend compilado limpo (`npm run build`) na primeira tentativa.
+3. **Suíte e2e nova** (`test/calendar.e2e-spec.ts`, 9 casos) — cria Estado/Cidade isolados desta
+   suíte (uf sintética, nunca colide com o "GO"/seed) para poder afirmar contagem exata: evento
+   público com `type`/`stateId`/`cityId` criado e confirmado via Prisma; `type` default `OUTRO`
+   quando omitido; `stateId` inexistente → 400; `GET /calendar` sem filtro traz a roda **e** o
+   evento público, mas **nunca** um evento privado (`isPublic=false`) criado na mesma suíte;
+   `type=RODA` só traz rodas; `type=WORKSHOP` só traz esse tipo; `stateId` isola exatamente os 2
+   itens da suíte (`length === 2`, não só "contém"); `scope=today` corretamente exclui itens
+   datados 3 dias no futuro; `scope`/`type` inválidos → 400. **Suíte e2e completa rodada do
+   zero** (20 specs): **143 testes, 143 passaram, 0 falhas**.
+4. Frontend (`painel`/`app.gingapp.com.br`) buildado limpo.
+5. **Validação ao vivo no navegador**: no painel, criado um evento "Workshop de teste do
+   calendario" com Tipo=Workshop, Estado=Goiás, Cidade=Goiânia, marcado como público — a cidade
+   carregou certo assim que o estado foi selecionado (cascata funcionando). No PWA, aba
+   Comunidade (agora "Calendário"): o workshop recém-criado apareceu junto com a `Roda Mensal —
+   Valparaíso` do seed, cada um com ícone/rótulo de tipo certo e "Cidade - UF"; filtro
+   `type=WORKSHOP` isolou só o workshop; filtro `type=RODA` isolou só as rodas. Evento de teste
+   apagado via `psql` ao final.
+
+**Pendências novas desta etapa:**
+
+56. `GET /calendar` não pagina (`take: 100` fixo em cada fonte) — aceitável no volume atual, mas
+    um calendário nacional de verdade com muitas organizações vai precisar de paginação/scroll
+    infinito mais cedo que os outros módulos.
+57. Sem endpoint de detalhe (`GET /calendar/:source/:id`) nem link pra ação (inscrever-se,
+    confirmar presença) direto a partir do card do calendário — hoje é só visualização; pra
+    interagir, o usuário ainda precisa ir em `/app/rodas` ou `/app/eventos` separadamente.
+58. `EventosView.vue` (painel) e `ComunidadeView.vue` (PWA) duplicam o dicionário
+    `EVENT_TYPE_LABEL`/`TYPE_LABEL` (mesmos 9 valores, escritos 2 vezes em projetos diferentes)
+    — sem um pacote compartilhado entre os 3 frontends, isso vai se repetir a cada campo de
+    categoria nova; candidato a um pacote `@gingapp/shared` no futuro.

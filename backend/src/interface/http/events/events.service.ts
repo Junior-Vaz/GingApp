@@ -41,16 +41,20 @@ export class EventsService {
     if (dto.unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
     }
+    await this.assertLocationReferencesExist(dto);
 
     return this.prisma.event.create({
       data: {
         organizationId,
         unitId: dto.unitId,
         title: dto.title,
+        type: dto.type,
         description: dto.description,
         date: new Date(dto.date),
         location: dto.location,
         isPublic: dto.isPublic ?? false,
+        stateId: dto.stateId,
+        cityId: dto.cityId,
       },
     });
   }
@@ -61,16 +65,20 @@ export class EventsService {
     if (dto.unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
     }
+    await this.assertLocationReferencesExist(dto);
 
     return this.prisma.event.update({
       where: { id },
       data: {
         unitId: dto.unitId,
         title: dto.title,
+        type: dto.type,
         description: dto.description,
         date: dto.date ? new Date(dto.date) : undefined,
         location: dto.location,
         isPublic: dto.isPublic,
+        stateId: dto.stateId,
+        cityId: dto.cityId,
       },
     });
   }
@@ -230,6 +238,19 @@ export class EventsService {
     const unit = await this.prisma.unit.findFirst({ where: { id: unitId, organizationId } });
     if (!unit) {
       throw new BadRequestException('Unidade inválida para esta organização.');
+    }
+  }
+
+  /** State/City são dados públicos (não pertencem a nenhuma organização) — mesmo espírito de
+   * RodasService.assertReferencesExist: só confirma que o id existe de verdade. */
+  private async assertLocationReferencesExist(dto: Pick<CreateEventDto, 'stateId' | 'cityId'>): Promise<void> {
+    if (dto.stateId !== undefined) {
+      const state = await this.prisma.state.findUnique({ where: { id: dto.stateId } });
+      if (!state) throw new BadRequestException('Estado inválido.');
+    }
+    if (dto.cityId !== undefined) {
+      const city = await this.prisma.city.findUnique({ where: { id: dto.cityId } });
+      if (!city) throw new BadRequestException('Cidade inválida.');
     }
   }
 }

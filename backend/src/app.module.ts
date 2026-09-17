@@ -28,6 +28,7 @@ import { FeatureOverridesModule } from './interface/http/feature-overrides/featu
 import { PlatformAnnouncementsModule } from './interface/http/platform-announcements/platform-announcements.module';
 import { CertificatesModule } from './interface/http/certificates/certificates.module';
 import { PassportModule } from './interface/http/passport/passport.module';
+import { CalendarModule } from './interface/http/calendar/calendar.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { PassportModule } from './interface/http/passport/passport.module';
     PlatformAnnouncementsModule,
     CertificatesModule,
     PassportModule,
+    CalendarModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

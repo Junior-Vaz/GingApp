@@ -1,4 +1,5 @@
-import { IsBoolean, IsDateString, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { EVENT_TYPES } from './event-type';
 
 /** Todos os campos opcionais (update parcial) — mesmo padrão de UpdateStudentDto. */
 export class UpdateEventDto {
@@ -26,4 +27,16 @@ export class UpdateEventDto {
   @IsOptional()
   @IsBoolean()
   isPublic?: boolean;
+
+  @IsOptional()
+  @IsIn(EVENT_TYPES)
+  type?: string;
+
+  @IsOptional()
+  @IsInt()
+  stateId?: number;
+
+  @IsOptional()
+  @IsInt()
+  cityId?: number;
 }
