@@ -2226,3 +2226,45 @@ owner logo em seguida ("sim, adiciona imageUrl e deixa o painel colar o link").
     via `@IsUrl()`) — uma URL de uma página HTML comum passaria na validação e quebraria o
     `<img>` do card (cairia silenciosamente pro placeholder do navegador, não pro placeholder
     ilustrado do `FeedCard`, já que este só ativa quando `imageUrl` é `null`/vazio).
+
+### 10.23 Backfill de `imageUrl` nos dados existentes — cards sem foto de verdade
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído. Owner reportou "ta faltando imagens nos cards,
+eventos rodas e etcs.." logo após o §10.22 fechar. Investigação (`psql` direto nas 3 linhas
+existentes de `Roda`/`Event`) confirmou que **não era bug**: o código estava correto, mas
+nenhum registro real tinha `imageUrl` preenchido ainda — inclusive a roda do `seed.ts`, restaurada
+a `NULL` de propósito no fim do §10.22 pra bater com o que o seed declarava. Ou seja, todo card
+caía no placeholder ilustrado por falta de dado, não por defeito.
+
+Perguntado ao owner via AskUserQuestion como preferia resolver (popular dados de teste com fotos
+vs. deixar ele cadastrar manualmente pelo painel vs. melhorar o placeholder) — escolheu **popular
+os dados de teste agora** (recomendado).
+
+#### O que foi feito
+
+- **`seed.ts`**: a roda seed ("Roda Mensal — Valparaíso") ganhou um `imageUrl` fixo (foto real de
+  capoeira do Unsplash) — daqui pra frente, um `db reset`/seed limpo já nasce com foto.
+- **Backfill via `psql`** nas 3 linhas que já existiam no banco de dev antes do seed ter o campo:
+  `Roda` #1 ("Roda Mensal — Valparaíso", a mesma do seed — atualizada pra bater com o que o
+  `seed.ts` agora declara), `Roda` #2 ("Roda de Teste") e `Event` #2 ("Evento Acentuado") — cada
+  uma com uma foto de capoeira distinta do Unsplash (busca `capoeira` no site, 3 fotos diferentes,
+  confirmadas com `HEAD` request 200 antes de usar).
+- Fotos escolhidas via busca real no unsplash.com (navegador), não inventadas — evita o problema
+  do antigo `source.unsplash.com` (descontinuado/instável); usa a URL direta
+  `images.unsplash.com/photo-<id>?q=80&w=800&auto=format&fit=crop`, mesmo padrão de tamanho já
+  usado no teste manual do §10.22.
+
+#### Validação empírica
+
+1. `psql` direto confirmou as 3 linhas atualizadas com URLs distintas.
+2. **Validação ao vivo no navegador** (servidores de dev já estavam de pé, reaproveitados): Home
+   mostra os cards de "Roda Mensal — Valparaíso" e "Roda de Teste" com fotos reais de capoeira
+   (pessoas jogando capoeira na rua, roda com atabaque) em vez do placeholder ilustrado.
+   Calendário (`ComunidadeView`) mostra as mesmas duas rodas com foto — confirma que `FeedCard`
+   compartilhado entre Home e Comunidade renderiza igual nos dois lugares. "Evento Acentuado" não
+   apareceu no `/calendar` nesta checagem (esperado — só entra se `isPublic=true`; não é regressão
+   deste backfill, é o filtro de visibilidade já existente do `/calendar`).
+
+**Nota:** isto é backfill de **dados de ambiente de dev/teste**, não uma mudança de produto — em
+produção, cada Roda/Event real só vai ter foto quando alguém colar a URL no painel (funcionalidade
+entregue no §10.22). As pendências 67/68 do §10.22 continuam abertas.

@@ -394,6 +394,7 @@ async function main() {
         description: 'Roda aberta, entrada gratuita.',
         date: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
         location: 'Praça Central, Valparaíso de Goiás',
+        imageUrl: 'https://images.unsplash.com/photo-1583166614297-a97b68d5cead?q=80&w=800&auto=format&fit=crop',
       },
     });
     await prisma.rodaParticipant.create({
