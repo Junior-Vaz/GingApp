@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { api, ApiError } from '../utils/api'
 import AvatarCarousel, { type AvatarCarouselItem } from '../components/layout/AvatarCarousel.vue'
+import AppIcon, { type IconName } from '../components/icons/AppIcon.vue'
 
 interface Student {
   id: number
@@ -68,11 +69,11 @@ interface Announcement {
 
 const auth = useAuthStore()
 
-const quickLinks = [
-  { to: '/app/frequencia', label: 'Frequência', icon: '✓' },
-  { to: '/app/financeiro', label: 'Financeiro', icon: '$' },
-  { to: '/app/eventos', label: 'Eventos', icon: '★' },
-  { to: '/app/rodas', label: 'Rodas', icon: '◎' },
+const quickLinks: { to: string; label: string; icon: IconName }[] = [
+  { to: '/app/frequencia', label: 'Frequência', icon: 'check-circle' },
+  { to: '/app/financeiro', label: 'Financeiro', icon: 'wallet' },
+  { to: '/app/eventos', label: 'Eventos', icon: 'ticket' },
+  { to: '/app/rodas', label: 'Rodas', icon: 'drum' },
 ]
 
 const isLoading = ref(true)
@@ -165,7 +166,7 @@ onMounted(async () => {
   <div class="flex flex-col gap-7 pb-6">
     <header class="flex items-center justify-between px-5 pt-6">
       <div>
-        <p class="text-sm text-text-muted">Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }} 👋</p>
+        <p class="text-sm text-text-muted">Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }}</p>
         <h1 class="text-xl font-semibold text-text">{{ auth.user?.organizationName ?? 'Seu grupo' }}</h1>
       </div>
       <router-link
@@ -173,7 +174,7 @@ onMounted(async () => {
         class="flex h-10 w-10 items-center justify-center rounded-full bg-surface text-text-muted"
         aria-label="Notificações"
       >
-        🔔
+        <AppIcon name="bell" :size="18" />
       </router-link>
     </header>
 
@@ -206,7 +207,7 @@ onMounted(async () => {
           :to="link.to"
           class="flex flex-col items-center gap-2 rounded-card bg-surface py-4 text-center transition-colors active:bg-surface-hover"
         >
-          <span class="text-lg text-accent">{{ link.icon }}</span>
+          <span class="text-accent"><AppIcon :name="link.icon" :size="20" /></span>
           <span class="text-[11px] font-medium text-text-muted">{{ link.label }}</span>
         </router-link>
       </section>

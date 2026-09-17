@@ -99,7 +99,7 @@ onMounted(async () => {
             </p>
           </div>
           <span class="text-xs font-semibold" :class="item.present ? 'text-success' : 'text-danger'">
-            {{ item.present ? '✓ Presente' : '✗ Falta' }}
+            {{ item.present ? 'Presente' : 'Falta' }}
           </span>
         </div>
       </section>

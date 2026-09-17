@@ -6,6 +6,7 @@
 // grupo) — não era um calendário nacional de verdade.
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, ApiError } from '../utils/api'
+import AppIcon, { type IconName } from '../components/icons/AppIcon.vue'
 
 type Scope = 'today' | 'week' | 'month' | ''
 
@@ -44,17 +45,17 @@ const TYPE_LABEL: Record<string, string> = {
   OUTRO: 'Outro',
 }
 
-const TYPE_ICON: Record<string, string> = {
-  RODA: '🥁',
-  BATIZADO: '🎓',
-  WORKSHOP: '🎓',
-  CAMPEONATO: '🏆',
-  FESTIVAL: '🎉',
-  ENCONTRO: '🤝',
-  FORMATURA: '🎓',
-  VIAGEM: '✈️',
-  AULA_ESPECIAL: '🥋',
-  OUTRO: '📅',
+const TYPE_ICON: Record<string, IconName> = {
+  RODA: 'drum',
+  BATIZADO: 'graduation',
+  WORKSHOP: 'book',
+  CAMPEONATO: 'trophy',
+  FESTIVAL: 'sparkles',
+  ENCONTRO: 'chat',
+  FORMATURA: 'graduation',
+  VIAGEM: 'plane',
+  AULA_ESPECIAL: 'flame',
+  OUTRO: 'calendar',
 }
 
 const SCOPE_OPTIONS: { value: Scope; label: string }[] = [
@@ -193,8 +194,8 @@ onMounted(() => {
         :key="`${item.source}-${item.id}`"
         class="flex items-center gap-3 rounded-card-lg bg-surface p-4"
       >
-        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-card bg-accent-soft text-xl">
-          {{ TYPE_ICON[item.type] ?? '📅' }}
+        <span class="flex h-11 w-11 shrink-0 items-center justify-center rounded-card bg-accent-soft text-accent">
+          <AppIcon :name="TYPE_ICON[item.type] ?? 'calendar'" :size="20" />
         </span>
         <div class="min-w-0 flex-1">
           <p class="truncate text-sm font-medium text-text">{{ item.title }}</p>

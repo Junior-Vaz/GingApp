@@ -1904,3 +1904,64 @@ toda vez que uma categoria for ajustada — a validação de valores aceitos fic
     `EVENT_TYPE_LABEL`/`TYPE_LABEL` (mesmos 9 valores, escritos 2 vezes em projetos diferentes)
     — sem um pacote compartilhado entre os 3 frontends, isso vai se repetir a cada campo de
     categoria nova; candidato a um pacote `@gingapp/shared` no futuro.
+
+### 10.18 Refino de UI/UX — remoção de emojis do app.gingapp.com.br (PWA)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — pedido direto do owner ("refino de UI Ux do
+mobile, minimalista e sem icones emojis"), fora da sequência da Fase 2 (não é uma feature nova,
+é polimento visual do que já existia).
+
+#### O que foi feito
+
+- **Auditoria completa** (agente de exploração, Sonnet) de todo `app.gingapp.com.br/src` —
+  16 arquivos `.vue` verificados um a um por emoji em template/script. Achado: uso confinado a
+  **3 arquivos** (`ComunidadeView.vue`, `HomeView.vue`, `FrequenciaView.vue`), nunca em
+  `MobileLayout.vue` (que já usava ícones SVG em stroke-line desde a fundação — nenhum emoji ali).
+- **Novo componente `AppIcon.vue`** (`components/icons/`): SSOT de ícones — um único `<svg>`
+  parametrizado por `name`, replicando exatamente o estilo que só existia inline dentro de
+  `MobileLayout.vue` (`viewBox 0 0 24 24`, `stroke-width 2`, `stroke="currentColor"`, linhas
+  arredondadas — cor 100% herdada da classe Tailwind do elemento pai, nunca hardcoded no SVG).
+  17 ícones: os 5 que já existiam (`home/compass/calendar/users/user`, portados de
+  `MobileLayout.vue` para o componente compartilhado — refatoração, mesmo visual) + 12 novos
+  (`drum/graduation/book/trophy/sparkles/chat/plane/flame/bell/check-circle/wallet/ticket`).
+- **Trocas por arquivo**:
+  - `MobileLayout.vue`: os 5 ícones inline (~35 linhas de SVG duplicado) viraram
+    `<AppIcon :name="item.icon" />` — elimina a única duplicação de ícone do projeto.
+  - `ComunidadeView.vue`: dicionário `TYPE_ICON` (10 emojis: 🥁🎓🏆🎉🤝✈️🥋📅) virou um dicionário
+    de `IconName`, renderizado via `<AppIcon>` dentro do badge circular de cada item do
+    calendário.
+  - `HomeView.vue`: os 4 ícones dos atalhos rápidos (✓/$/★/◎ — nem todos emoji de verdade, mas
+    símbolos ad-hoc fora do design system) viraram `check-circle/wallet/ticket/drum`; o sino de
+    notificações (🔔) virou `<AppIcon name="bell">`; removido o "👋" decorativo do texto de
+    saudação ("Olá, {nome}").
+  - `FrequenciaView.vue`: removidos os glifos `✓`/`✗` prefixados no status de presença — decisão
+    deliberada de **não** substituir por outro ícone aqui: a cor (`text-success`/`text-danger`)
+    já comunica o status sozinha, um ícone a mais seria redundante nesse contexto específico
+    (minimalismo = também saber quando NÃO usar um ícone).
+
+#### Achados
+
+Nenhum bug — troca mecânica e de baixo risco (só camada visual, nenhuma lógica de negócio
+tocada). Único ponto de atenção: dois dos "ícones" trocados em `HomeView.vue` (`$` e `◎`) não
+eram emoji de verdade, mas foram trocados do mesmo jeito por não pertencerem ao novo sistema de
+ícones consistente — o pedido do owner era "minimalista", não só "sem emoji".
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`) depois de cada arquivo tocado.
+2. Busca por emoji (`grep` com ranges Unicode de emoji) confirmou **zero ocorrências
+   remanescentes** em qualquer `.vue`/`.ts` de `app.gingapp.com.br/src` fora de comentários de
+   código não visíveis ao usuário (uma seta `→` em 2 comentários, sem relação com UI).
+3. **Validação visual no navegador** (backend + PWA já rodando): Home (ícones de sino,
+   frequência/financeiro/eventos/rodas, sem saudação com emoji), Calendário (ícone de tambor nas
+   rodas), Frequência (status "Presente" só com cor, sem glifo) — todas renderizando os novos
+   ícones SVG corretamente, visual consistente entre as 3 telas e com a bottom nav que já
+   existia.
+
+**Pendências novas desta etapa:**
+
+59. O mesmo refino (remoção de símbolos ad-hoc, ícones SVG consistentes) não foi replicado em
+    `painel.gingapp.com.br` nem `admin.gingapp.com.br` — o pedido do owner foi especificamente
+    "mobile"; os outros 2 apps usam Tailwind puro (slate, sem ícones decorativos na maior parte
+    das telas) e não têm o mesmo problema de emoji, mas também não têm um sistema de ícones
+    (`AppIcon`) próprio ainda.
