@@ -1631,3 +1631,104 @@ scaffold Tailwind atual**, sem bloquear billing por um retrabalho visual maior e
     por decisão (owner pediu "escopo backend+admin, similar ao billing").
 48. Sem paginação em `GET /platform-announcements` nem `GET .../feature-overrides` — mesmo
     problema já registrado na pendência 45 para organizations/subscriptions.
+
+### 10.15 Fase 2 — Jornada do Capoeirista, parte 1: Check-in de presença + Certificados com QR Code
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — primeira fatia da "Jornada do Capoeirista"
+(decisão do owner, entre 3 frentes possíveis de Fase 2 restantes: "Jornada do capoeirista
+(Recomendado)"). A frente completa tem 4 partes (projeto.txt §41/§42/§45/§51/§52): check-in,
+certificados+QR, passaporte e calendário estadual — esta etapa entrega as duas primeiras;
+passaporte e calendário estadual ficam para a próxima.
+
+#### O que foi construído
+
+- **Check-in de presença em eventos** (`EventsService.checkIn`, projeto.txt §41/§45: "Futuramente:
+  Check-in" — implementado agora): novo endpoint `PATCH /events/:eventId/participants/:id/check-in`,
+  restrito a MESTRE/PROFESSOR (nunca self-service, diferente de `addParticipant`), marca
+  `EventParticipant.status = ATTENDED` — enum que já existia no schema desde a fundação, nunca
+  usado por nenhum código até agora. Botão "Confirmar presença" adicionado ao modal de
+  participantes do `EventosView.vue` (painel), some da lista de ações quando já `ATTENDED`.
+- **Certificados com QR Code** (projeto.txt §52): migration `add_certificate_verification_code`
+  adiciona `Certificate.verificationCode` (`String @unique @default(cuid())`) — o QR aponta pra
+  esse código não-sequencial, nunca pro `id` (evita enumeração trivial de certificados). Novo
+  `CertificatesModule`: CRUD org-scoped (`GET/POST/PATCH/DELETE /certificates`, `GET /certificates/
+  me` para o próprio aluno/dependente, mesmo padrão de `StudentsService.findMine`) + um
+  `PublicCertificatesController` **sem autenticação** (`GET /public/certificates/:code`) que
+  retorna só o mínimo pra confirmar autenticidade (título, nome do aluno, nome da organização,
+  data) — nunca `studentId`/`organizationId` internos. RBAC: recurso `certificates` adicionado à
+  matriz do seed com o mesmo tratamento de `finance` (ALUNO/RESPONSAVEL sem `view` na listagem
+  geral — vazaria certificados de outros alunos — só em `/certificates/me`). `DELETE` é hard delete
+  de verdade (mesmo raciocínio de `Event`: sem campo status, e um certificado "cancelado" não devia
+  continuar validando via QR).
+- **Frontend**:
+  - `painel.gingapp.com.br`: `CertificadosView.vue` (nova) — MESTRE/PROFESSOR emitem certificados
+    (aluno + título + data opcional), lista com apagar.
+  - `app.gingapp.com.br` (PWA, tema escuro): `JornadaView.vue` ganhou uma seção "Certificados"
+    (reaproveita a mesma view que já mostrava a timeline de graduações) com um botão "QR Code" por
+    certificado, abrindo um modal com o QR gerado no cliente (biblioteca `qrcode`, instalada nesta
+    etapa) apontando pra uma URL própria do app (`/verificar/:code`), não direto pro JSON da API.
+    Nova `CertificateVerificationView.vue`: página **pública** (rota `requiresAuth: false`, fora do
+    `/app` autenticado — quem escaneia o QR de um certificado físico não tem conta GingApp)
+    exibindo "Certificado autêntico" ou "não encontrado".
+
+#### Achados
+
+- Nenhum problema de execução nesta etapa (diferente das duas anteriores) — migration, build e
+  suíte e2e passaram de primeira. Único ponto validado com atenção: `prisma migrate dev` recusou
+  rodar em modo não-interativo (ambiente sem TTY) por causa do aviso de constraint única em
+  `verificationCode` — mesmo com a tabela `Certificate` vazia (confirmado via `psql` antes:
+  `count = 0`). **Contornado** gerando o SQL via `prisma migrate diff --script` (não-interativo),
+  escrevendo o arquivo de migration manualmente na pasta com o timestamp correto, e aplicando via
+  `prisma migrate deploy` (comando não-interativo, seguro para CI/deploy) — sem tocar no fluxo real
+  de `migrate dev` para desenvolvimento futuro, só para este caso específico de warning-sem-risco.
+- Confirmado (mais uma vez) o achado de processo órfão da §10.13: `nest start --watch` morto por
+  `Stop-Process` no processo da CLI ainda deixa o `dist/main` filho escutando a porta — mitigação
+  já em uso (matar por `CommandLine -match 'backend'`) funcionou de novo sem incidente.
+
+#### Validação empírica
+
+1. Migration aplicada e confirmada via `psql` (`\d "Certificate"`, coluna `verificationCode`
+   presente com índice único) antes de qualquer commit.
+2. Backend compilado limpo (`npm run build`) logo na primeira tentativa, incluindo o check-in.
+3. **Suítes e2e estendidas**: `events.e2e-spec.ts` ganhou 2 casos (ALUNO bloqueado do check-in,
+   MESTRE fazendo check-in com status `ATTENDED` confirmado via Prisma); nova
+   `test/certificates.e2e-spec.ts` (10 casos) — emissão com graduação vinculada, `studentId`/
+   `studentGraduationId` inválidos → 400, RBAC (`ALUNO` 403 na lista geral, 200 em `/me`,
+   `PROFESSOR` 403 no delete pela matriz padrão), verificação pública com e sem código válido
+   (confirmado que a resposta pública **não** inclui `studentId`/`organizationId`), delete
+   confirmando que o código para de validar (`404` na verificação pública depois). **Suíte e2e
+   completa rodada do zero**: **123 testes, 123 passaram, 0 falhas** — primeira rodada limpa desde
+   a Fase 2 começar (as duas etapas anteriores tiveram bugs no próprio teste corrigidos antes do
+   verde final; esta não precisou).
+4. Frontend `app.gingapp.com.br` e `painel.gingapp.com.br` buildados limpos
+   (`vue-tsc -b && vite build`) depois de adicionar as novas views/dependência (`qrcode`).
+5. **Validação ao vivo no navegador**, backend + painel + PWA subidos limpos: no painel, emitido um
+   certificado de teste pela UI para a Ana (confirmado na tabela); no mesmo evento de teste já
+   existente no ambiente de dev, adicionado um participante e clicado "Confirmar presença" —
+   status mudou para "Compareceu" e o botão de check-in sumiu (não pode confirmar de novo). No PWA,
+   logado como o usuário ALUNO da Ana: seção "Certificados" na Jornada mostrando o certificado
+   recém-emitido; clique em "QR Code" abriu o modal com a imagem do QR renderizada; extraído o
+   código de verificação da resposta de rede e aberto `/verificar/:code` numa aba nova (sem
+   reaproveitar sessão autenticada) — mostrou "Certificado autêntico" com os dados corretos; testado
+   também um código inexistente na mesma rota → "Certificado não encontrado". Certificado de teste
+   apagado via `psql` ao final (o clique no botão "Apagar" da UI dispara `confirm()` nativo, que o
+   ambiente automatizado recusa por padrão, mesmo comportamento já visto em cancelamentos/remoções
+   anteriores — não é uma falha, é a barreira de confirmação funcionando).
+
+**Pendências novas desta etapa:**
+
+49. Passaporte do Capoeirista (projeto.txt §51) ainda não construído — endpoint agregando
+    estatísticas do aluno (aulas/rodas/eventos/graduações/certificados) e uma página pública
+    compartilhável (o schema já tem `PublicProfile.isPublished` pronto pra isso). Fica para a
+    próxima etapa desta mesma frente.
+50. Calendário estadual/geral da capoeira (projeto.txt §42) ainda não construído — precisa de
+    `stateId`/`cityId` no `Event` (a `Roda` já tem esses campos desde a fundação) e um endpoint
+    público agregando Rodas + Eventos filtráveis por cidade/estado/tipo/data. Fica para a próxima
+    etapa desta mesma frente.
+51. `CertificadosView.vue` (painel) não oferece vincular um certificado a uma `StudentGraduation`
+    específica na UI (o backend suporta via `studentGraduationId`, só não tem seletor na tela) —
+    simplificação deliberada para não inflar o escopo desta etapa.
+52. O `EventosView.vue` do painel não distingue visualmente `CONFIRMED` de `INVITED`/`DECLINED` na
+    ação disponível — o botão "Confirmar presença" aparece pra qualquer status diferente de
+    `ATTENDED`, incluindo `DECLINED`/`CANCELLED` (o backend aceita, mas fazer check-in de alguém
+    que recusou/cancelou é um caso estranho que a UI não impede).

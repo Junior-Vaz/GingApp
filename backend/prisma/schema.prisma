@@ -742,6 +742,9 @@ model PublicProfile {
 
 /// Modelo simples (Certificate e Fase 2 no roadmap, PLANO_PROJETO.md §7) — presente desde
 /// ja no schema apenas para nao exigir migration nova quando a feature for implementada.
+/// verificationCode: token público não-sequencial (projeto.txt §52: "QR Code poderá validar a
+/// autenticidade") — o QR aponta para uma URL pública com esse código, nunca com o `id`
+/// (sequencial, enumerável). Ver Fase 2, PLANO_PROJETO.md §10.15.
 model Certificate {
   id                  Int       @id @default(autoincrement())
   organizationId      Int
@@ -750,6 +753,7 @@ model Certificate {
   title               String
   issuedAt            DateTime?
   fileUrl             String?
+  verificationCode    String    @unique @default(cuid())
   createdAt           DateTime  @default(now())
 
   organization      Organization       @relation(fields: [organizationId], references: [id])

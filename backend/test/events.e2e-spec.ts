@@ -160,6 +160,30 @@ describe('Eventos e participantes (e2e)', () => {
     assert.equal(persisted?.studentId, secondStudentId);
   });
 
+  it('PATCH .../participants/:id/check-in como ALUNO → 403 (só MESTRE/PROFESSOR confirma presença)', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/api/events/${eventId}/participants/${secondParticipantId}/check-in`)
+      .set('Authorization', `Bearer ${alunoToken}`)
+      .expect(403);
+
+    assert.equal(res.body.message, 'Só MESTRE/PROFESSOR pode confirmar presença.');
+
+    const stillConfirmed = await prisma.eventParticipant.findUniqueOrThrow({ where: { id: secondParticipantId } });
+    assert.equal(stillConfirmed.status, 'CONFIRMED');
+  });
+
+  it('PATCH .../participants/:id/check-in como MESTRE → 200, status vira ATTENDED, confirmado via Prisma', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/api/events/${eventId}/participants/${secondParticipantId}/check-in`)
+      .set('Authorization', `Bearer ${mestreToken}`)
+      .expect(200);
+
+    assert.equal(res.body.status, 'ATTENDED');
+
+    const persisted = await prisma.eventParticipant.findUniqueOrThrow({ where: { id: secondParticipantId } });
+    assert.equal(persisted.status, 'ATTENDED');
+  });
+
   it('DELETE .../participants/:id como ALUNO tentando remover inscrição que não é dela (a do segundo aluno, feita pelo MESTRE) → 403', async () => {
     const res = await request(app.getHttpServer())
       .delete(`/api/events/${eventId}/participants/${secondParticipantId}`)

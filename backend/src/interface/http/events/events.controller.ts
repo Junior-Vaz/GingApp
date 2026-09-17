@@ -67,6 +67,18 @@ export class EventsController {
     return this.eventsService.addParticipant(organizationId, eventId, user, dto);
   }
 
+  /** Sem @CanAccess: a checagem de papel (MESTRE/PROFESSOR) é feita no service — mesmo
+   * espírito de addParticipant/removeParticipant, para dar a mensagem de erro certa. */
+  @Patch(':eventId/participants/:participantId/check-in')
+  checkIn(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('participantId', ParseIntPipe) participantId: number,
+  ) {
+    return this.eventsService.checkIn(organizationId, eventId, participantId, user);
+  }
+
   @Delete(':eventId/participants/:participantId')
   removeParticipant(
     @CurrentOrganization() organizationId: number,

@@ -191,6 +191,35 @@ export class EventsService {
     await this.prisma.eventParticipant.delete({ where: { id: participantId } });
   }
 
+  /**
+   * Check-in de presença (projeto.txt §41/§45: "Futuramente: Check-in" — implementado agora
+   * como parte da Jornada do Capoeirista, PLANO_PROJETO.md §10.15). Marca `ATTENDED`, o status
+   * que a Passaporte/Certificados vão contar como "esteve lá de verdade" (diferente de
+   * `CONFIRMED`, que é só a intenção/RSVP). Sempre uma ação de quem organiza (MESTRE/PROFESSOR
+   * na entrada do evento), nunca self-service — por isso não tem a mesma lógica de
+   * "é meu aluno" de add/removeParticipant.
+   */
+  async checkIn(organizationId: number, eventId: number, participantId: number, requester: AuthenticatedUser) {
+    await this.findOne(organizationId, eventId);
+
+    if (!this.isOrgAdmin(requester)) {
+      throw new ForbiddenException('Só MESTRE/PROFESSOR pode confirmar presença.');
+    }
+
+    const participant = await this.prisma.eventParticipant.findFirst({
+      where: { id: participantId, eventId, organizationId },
+    });
+    if (!participant) {
+      throw new NotFoundException('Participante não encontrado.');
+    }
+
+    return this.prisma.eventParticipant.update({
+      where: { id: participantId },
+      data: { status: 'ATTENDED' },
+      include: { student: { select: { id: true, name: true } } },
+    });
+  }
+
   private isOrgAdmin(user: AuthenticatedUser): boolean {
     return !!user.role && ADMIN_ROLES.includes(user.role);
   }

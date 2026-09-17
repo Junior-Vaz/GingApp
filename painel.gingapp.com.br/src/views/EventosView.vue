@@ -258,6 +258,18 @@ async function addParticipant(): Promise<void> {
   }
 }
 
+async function checkIn(participant: Participant): Promise<void> {
+  if (!selectedEvent.value) return
+  participantsError.value = ''
+  try {
+    await api.patch(`/events/${selectedEvent.value.id}/participants/${participant.id}/check-in`)
+    await loadParticipants()
+  } catch (error) {
+    participantsError.value =
+      error instanceof ApiError ? error.message : 'Não foi possível confirmar a presença.'
+  }
+}
+
 async function removeParticipant(participant: Participant): Promise<void> {
   if (!selectedEvent.value) return
   if (!confirm(`Remover "${participantName(participant)}" deste evento?`)) {
@@ -469,10 +481,18 @@ onMounted(() => {
               <tr v-for="participant in participants" v-else :key="participant.id" class="hover:bg-slate-50">
                 <td class="px-3 py-2 text-slate-900">{{ participantName(participant) }}</td>
                 <td class="px-3 py-2 text-slate-600">{{ STATUS_LABEL[participant.status] }}</td>
-                <td class="px-3 py-2 text-right">
+                <td class="px-3 py-2 text-right whitespace-nowrap">
+                  <button
+                    v-if="participant.status !== 'ATTENDED'"
+                    type="button"
+                    class="text-sm font-medium text-emerald-600 hover:text-emerald-700"
+                    @click="checkIn(participant)"
+                  >
+                    Confirmar presença
+                  </button>
                   <button
                     type="button"
-                    class="text-sm font-medium text-red-600 hover:text-red-700"
+                    class="ml-3 text-sm font-medium text-red-600 hover:text-red-700"
                     @click="removeParticipant(participant)"
                   >
                     Remover

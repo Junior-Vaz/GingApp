@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import QRCode from 'qrcode'
 import { api, ApiError } from '../utils/api'
 
 interface Student {
@@ -23,12 +24,49 @@ interface StudentGraduation {
   graduationLevel: GraduationLevel
 }
 
+interface Certificate {
+  id: number
+  title: string
+  issuedAt: string | null
+  verificationCode: string
+}
+
 const isLoading = ref(true)
 const loadError = ref('')
 const hasStudent = ref(true)
 
 // Vem do backend já do mais recente para o mais antigo.
 const graduations = ref<StudentGraduation[]>([])
+const certificates = ref<Certificate[]>([])
+
+const qrModalCertificate = ref<Certificate | null>(null)
+const qrDataUrl = ref('')
+
+function verificationUrl(code: string): string {
+  return `${window.location.origin}/verificar/${code}`
+}
+
+async function openQrModal(certificate: Certificate): Promise<void> {
+  qrModalCertificate.value = certificate
+  qrDataUrl.value = await QRCode.toDataURL(verificationUrl(certificate.verificationCode), {
+    margin: 1,
+    color: { dark: '#1a1625', light: '#f2eef8' },
+  })
+}
+
+function closeQrModal(): void {
+  qrModalCertificate.value = null
+  qrDataUrl.value = ''
+}
+
+async function copyVerificationLink(code: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(verificationUrl(code))
+  } catch {
+    // Clipboard indisponível (ex.: contexto não-seguro) — sem esse recurso, o link
+    // continua visível/copiável manualmente na tela, não é uma falha bloqueante.
+  }
+}
 
 const currentGraduation = computed<StudentGraduation | null>(() => graduations.value[0] ?? null)
 
@@ -39,6 +77,11 @@ function formatDate(iso: string): string {
   // timeZone: 'UTC': graduatedAt vem do painel via <input type="date"> (meia-noite UTC) —
   // sem forçar UTC, um fuso negativo pode até mostrar o mês errado perto da virada do mês.
   return new Date(iso).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+}
+
+function formatCertificateDate(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleDateString('pt-BR', { timeZone: 'UTC' })
 }
 
 onMounted(async () => {
@@ -53,6 +96,7 @@ onMounted(async () => {
       return
     }
     graduations.value = await api.get<StudentGraduation[]>(`/graduations/students/${student.id}`)
+    certificates.value = await api.get<Certificate[]>('/certificates/me')
   } catch (error) {
     loadError.value =
       error instanceof ApiError ? error.message : 'Não foi possível carregar sua jornada.'
@@ -97,6 +141,54 @@ onMounted(async () => {
           </li>
         </ol>
       </section>
+
+      <section v-if="certificates.length > 0" class="flex flex-col gap-4">
+        <h2 class="text-sm font-medium text-text-muted">Certificados</h2>
+        <ul class="flex flex-col gap-3">
+          <li
+            v-for="cert in certificates"
+            :key="cert.id"
+            class="flex items-center justify-between gap-3 rounded-card bg-surface px-4 py-3"
+          >
+            <div class="min-w-0">
+              <p class="truncate text-sm font-medium text-text">{{ cert.title }}</p>
+              <p class="text-xs text-text-muted">{{ formatCertificateDate(cert.issuedAt) }}</p>
+            </div>
+            <button
+              type="button"
+              class="shrink-0 rounded-card bg-accent-soft px-3 py-1.5 text-xs font-medium text-accent"
+              @click="openQrModal(cert)"
+            >
+              QR Code
+            </button>
+          </li>
+        </ul>
+      </section>
     </template>
+
+    <!-- Modal QR Code -->
+    <div
+      v-if="qrModalCertificate"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-bg/80 px-6"
+      @click.self="closeQrModal"
+    >
+      <div class="w-full max-w-xs rounded-card-lg bg-surface p-6 text-center">
+        <p class="text-sm font-medium text-text">{{ qrModalCertificate.title }}</p>
+        <img v-if="qrDataUrl" :src="qrDataUrl" alt="QR Code de verificação" class="mx-auto mt-4 h-48 w-48 rounded-card" />
+        <p class="mt-3 text-xs text-text-muted">Escaneie para validar a autenticidade deste certificado.</p>
+        <div class="mt-4 flex justify-center gap-2">
+          <button
+            type="button"
+            class="rounded-card bg-accent-soft px-4 py-2 text-xs font-medium text-accent"
+            @click="copyVerificationLink(qrModalCertificate.verificationCode)"
+          >
+            Copiar link
+          </button>
+          <button type="button" class="rounded-card bg-bg-elevated px-4 py-2 text-xs font-medium text-text-muted" @click="closeQrModal">
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

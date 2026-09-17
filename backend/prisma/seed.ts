@@ -299,7 +299,7 @@ async function main() {
   //    ja ficam prontos para quando ele for construido.
   // ---------------------------------------------------------------------
   type Perms = { view: boolean; create: boolean; edit: boolean; delete: boolean };
-  const RESOURCES = ['students', 'classes', 'lessons', 'attendance', 'graduations', 'finance', 'events', 'rodas', 'announcements', 'teachers', 'dashboard'];
+  const RESOURCES = ['students', 'classes', 'lessons', 'attendance', 'graduations', 'finance', 'events', 'rodas', 'announcements', 'teachers', 'dashboard', 'certificates'];
   const DEFAULT_MATRIX: Record<OrgRole, Perms> = {
     [OrgRole.MESTRE]: { view: true, create: true, edit: true, delete: true },
     [OrgRole.PROFESSOR]: { view: true, create: true, edit: true, delete: false },
@@ -326,6 +326,13 @@ async function main() {
     // grupo inteiro — não é a Home do capoeirista (essa é o app.gingapp.com.br, sem RBAC
     // desta matriz). create/edit/delete não existem para este recurso (só view).
     dashboard: {
+      [OrgRole.ALUNO]: { view: false, create: false, edit: false, delete: false },
+      [OrgRole.RESPONSAVEL]: { view: false, create: false, edit: false, delete: false },
+    },
+    // GET /certificates lista TODOS os certificados da organização (não filtrado por aluno) —
+    // mesmo motivo de "finance": view=true do padrão exporia certificados de outros alunos.
+    // ALUNO/RESPONSAVEL usam /certificates/me (Fase 2, Jornada do Capoeirista).
+    certificates: {
       [OrgRole.ALUNO]: { view: false, create: false, edit: false, delete: false },
       [OrgRole.RESPONSAVEL]: { view: false, create: false, edit: false, delete: false },
     },

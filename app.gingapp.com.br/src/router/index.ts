@@ -13,6 +13,7 @@ import RodasView from '../views/RodasView.vue'
 import ComunidadeView from '../views/ComunidadeView.vue'
 import NotificacoesView from '../views/NotificacoesView.vue'
 import PerfilView from '../views/PerfilView.vue'
+import CertificateVerificationView from '../views/CertificateVerificationView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -21,6 +22,14 @@ const router = createRouter({
       path: '/login',
       name: 'login',
       component: LoginView,
+      meta: { requiresAuth: false },
+    },
+    {
+      // Aberta pelo QR Code de um certificado físico/PDF — quem escaneia não tem (nem
+      // precisa ter) conta GingApp, por isso fora do /app autenticado.
+      path: '/verificar/:code',
+      name: 'verify-certificate',
+      component: CertificateVerificationView,
       meta: { requiresAuth: false },
     },
     {
