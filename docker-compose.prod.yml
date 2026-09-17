@@ -1,0 +1,117 @@
+# Ambiente de PRODUÇÃO do GingApp — usa os Dockerfiles reais de cada serviço (multi-stage,
+# build completo), diferente de docker-compose.yml (dev: roda `npm run dev` num node:22-alpine
+# com bind mount, sem build de verdade — ver PLANO_PROJETO.md §1.2).
+#
+# Uso:
+#   cp .env.production.example .env.production
+#   # editar .env.production: POSTGRES_PASSWORD, JWT_SECRET (fortes, únicos) e VITE_API_URL
+#   # (o domínio público real da API — os 3 frontends embutem essa URL EM TEMPO DE BUILD,
+#   # não dá para trocar depois só reiniciando o container, precisa rebuildar a imagem).
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# Não expõe o Postgres para fora da rede docker (sem "ports:") — acesso só via
+# `docker compose -f docker-compose.prod.yml exec postgres psql -U gingapp -d gingapp`.
+#
+# Não inclui reverse proxy/TLS: cada serviço expõe uma porta HTTP simples no host
+# (PLANO_PROJETO.md §1.2 trata reverse proxy como infra separada, a configurar quando houver
+# domínio/certificado reais — ex.: nginx ou Caddy na frente destas portas).
+#
+# Migração do banco: o serviço "migrate" abaixo RODA AUTOMATICAMENTE em todo `docker compose up`
+# (achado empírico: mesmo sem restart policy, o compose sobe todo serviço definido — não é
+# "manual only" como uma primeira versão deste comentário dizia). Isso é seguro porque
+# `prisma migrate deploy` é idempotente (não reaplica migration já aplicada) e "depends_on:
+# condition: service_healthy" garante que só roda com o Postgres de pé. Ainda dá para rodar
+# isolado quando quiser (ex.: aplicar uma migration nova sem reiniciar os outros serviços):
+#   docker compose -f docker-compose.prod.yml run --rm migrate
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gingapp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD em .env.production}
+      POSTGRES_DB: gingapp
+    volumes:
+      - gingapp_prod_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gingapp -d gingapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Serviço auxiliar de migration — não fica no ar (sem restart), só roda uma vez via
+  # `docker compose -f docker-compose.prod.yml run --rm migrate` e sai. Usa o stage "migrate"
+  # do Dockerfile (baseado em "build", que tem a CLI do prisma — o "runner" do backend não tem).
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: migrate
+    environment:
+      DATABASE_URL: "postgresql://gingapp:${POSTGRES_PASSWORD}@postgres:5432/gingapp?schema=public"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      # Explícito de propósito: o Dockerfile tem um stage "migrate" depois de "runner" (para
+      # a imagem auxiliar de migration), e sem "target" o Docker builda por padrão o ÚLTIMO
+      # stage do arquivo — sem isso aqui, o backend "de produção" acabava buildando a imagem
+      # pesada de migration (759MB) em vez do runner enxuto (~560MB). Achado real ao validar
+      # esta stack (PLANO_PROJETO.md §10.12).
+      target: runner
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: "postgresql://gingapp:${POSTGRES_PASSWORD}@postgres:5432/gingapp?schema=public"
+      JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET em .env.production (string longa e aleatoria)}
+      JWT_EXPIRES_IN: "1d"
+      PORT: "3000"
+      PLATFORM_ALLOWED_IPS: ${PLATFORM_ALLOWED_IPS:-}
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  painel:
+    build:
+      context: ./painel.gingapp.com.br
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    depends_on:
+      - backend
+
+  app:
+    build:
+      context: ./app.gingapp.com.br
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
+    restart: unless-stopped
+    ports:
+      - "8082:80"
+    depends_on:
+      - backend
+
+  admin:
+    build:
+      context: ./admin.gingapp.com.br
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
+    restart: unless-stopped
+    ports:
+      - "8083:80"
+    depends_on:
+      - backend
+
+volumes:
+  gingapp_prod_pgdata:

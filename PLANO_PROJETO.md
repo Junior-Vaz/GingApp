@@ -1303,3 +1303,115 @@ inválido nos outros módulos).
     específico deste endpoint — vale uma varredura futura (`grep` por `return this.\w+Service\.\w+`
     em controllers que não envolvam `Promise<objeto>`) se mais endpoints desse tipo forem
     adicionados, para não repetir o mesmo bug em outro lugar.
+
+### 10.12 Fase 1 — Dockerfiles de produção testados de verdade (resolve pendência §10.1.3 item 4)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — **5 problemas reais encontrados e corrigidos**,
+não só configuração. Os 4 Dockerfiles já existiam desde a Fase de fundação (§10.1), mas nunca tinham
+sido efetivamente *buildados*: só o modo dev (node:22-alpine + `npm run dev` + bind mount) tinha sido
+validado até agora. Esta fase buildou e rodou as imagens de produção de verdade, pela primeira vez.
+
+#### Achado 1 — backend não buildava: `bcrypt` precisa compilar binding nativo, Alpine não tem build tools
+
+Primeira tentativa de `docker build` no backend falhou em `npm ci`: `node-gyp` não achava Python
+(`node:22-alpine` não traz `python3`/`make`/`g++` por padrão, e não existe binário pré-compilado do
+`bcrypt` para `linux-musl`, só para `glibc`). **Corrigido**: `apk add --no-cache python3 make g++`
+nos stages `deps` e `prod-deps` do `backend/Dockerfile`, antes de `npm ci`.
+
+#### Achado 2 — imagem final do backend com 688MB por causa de uma devDependency vazando
+
+Investigando o tamanho da imagem (`docker images`, 688MB), descobri que `node_modules/prisma`
+(a CLI, ~67MB) estava presente na imagem final, mesmo com `npm ci --omit=dev` — junto com ~130MB de
+dependências transitivas exclusivas dela (`effect`, `es-toolkit`, `fast-check`, `typescript`). **Causa
+raiz** (confirmada lendo `node_modules/@prisma/client/package.json`): `@prisma/client` declara
+`prisma` como **peer dependency opcional** (`peerDependenciesMeta.prisma.optional: true`) — o npm
+7+ auto-instala peers opcionais mesmo com `--omit=dev`, porque o `package-lock.json` registra essa
+resolução independente da flag de dev. **Corrigido**: `npm ci --omit=dev --omit=optional` no stage
+`prod-deps`, e o `@prisma/client` gerado (que precisa mesmo estar presente) passou a ser copiado do
+stage `build` (que tem a CLI de verdade via `npm ci` completo) em vez de regenerado no `prod-deps`.
+Resultado: 767MB → **558MB** (confirmado via `docker images` antes/depois).
+
+#### Achado 3 — a "correção" do Achado 2 quebrou a migration em produção
+
+Depois de remover a CLI do `prisma` da imagem de runtime, `docker compose run --rm backend npx
+prisma migrate deploy` falhou (`npx` tentando baixar `prisma@latest` da internet dentro do
+container, sem sucesso) — consequência direta e esperada da otimização do Achado 2, não um bug novo.
+**Corrigido**: novo stage `migrate` no `Dockerfile` (`FROM build AS migrate`), reaproveitando o
+stage `build` (que já tem a CLI completa + `prisma/migrations/`) só para essa tarefa pontual — nunca
+usado para servir tráfego, então seu tamanho maior não importa. Novo serviço `migrate` no
+`docker-compose.prod.yml`.
+
+#### Achado 4 — o serviço `backend` do compose buildava a imagem ERRADA (a pesada, não a enxuta)
+
+Depois de adicionar o stage `migrate` **depois** de `runner` no Dockerfile, o serviço `backend` no
+`docker-compose.prod.yml` (sem `target:` explícito) passou a buildar por padrão o **último** stage do
+arquivo — que virou `migrate` (759MB), não `runner` (558MB) — já que o Docker usa o último stage como
+alvo implícito quando nenhum é especificado. Encontrado comparando `docker images` do serviço
+`backend` construído via `docker compose build` contra o build manual anterior (tamanho batia com
+`migrate`, não com `runner`). **Corrigido**: `target: runner` explícito no serviço `backend` do
+compose. Revalidado: imagem voltou a 558MB.
+
+#### Achado 5 — `VITE_API_URL` nunca seria configurável em produção real
+
+Os 3 frontends (Vite) embutem variáveis de ambiente **em tempo de build**, não de execução — os
+Dockerfiles existentes faziam `COPY . .` + `RUN npm run build` sem nenhum mecanismo para receber essa
+URL de fora, então qualquer deploy real (domínio de verdade, não `localhost`) ficaria com a API
+incorreta embutida no bundle, sem jeito de corrigir sem editar código. **Corrigido**: `ARG
+VITE_API_URL` + `ENV VITE_API_URL=$VITE_API_URL` antes do `RUN npm run build` nos 3 Dockerfiles, e
+`build.args` correspondente nos 3 serviços do `docker-compose.prod.yml`. **Validado de verdade, não só
+lido no código**: buildei a imagem do painel com `--build-arg VITE_API_URL=https://api.gingapp.com.br/api`
+e confirmei via `grep` no JS compilado que a URL customizada realmente foi para dentro do bundle.
+
+#### Achados menores (gaps de configuração, não bugs de build)
+
+- `painel.gingapp.com.br` e `admin.gingapp.com.br` não tinham `.dockerignore` — sem isso, `COPY . .`
+  copiaria o `node_modules` local (Windows) para dentro do container Linux, misturando binários
+  incompatíveis com o que o `npm ci` do próprio container acabou de instalar. Criados os dois
+  arquivos (mesmo conteúdo do `app.gingapp.com.br`, que já tinha).
+- `.env.production` (o arquivo real que alguém criaria a partir de `.env.production.example`,
+  contendo `POSTGRES_PASSWORD`/`JWT_SECRET` reais) **não estava coberto pelo `.gitignore`** — os
+  padrões existentes só cobriam `.env`/`.env.local`/`.env.*.local`, nenhum deles casa com
+  `.env.production` (sem sufixo `.local`). Corrigido antes de gerar qualquer arquivo real com esse
+  nome — adicionado `.env.production`/`.env.*.production` ao `.gitignore`, com exceção explícita
+  para `.env.production.example`.
+
+#### O que foi criado
+
+- `docker-compose.prod.yml` — orquestra os 4 serviços via **build de verdade** (não bind mount):
+  Postgres sem porta exposta ao host (só acessível via `docker compose exec`), backend com `target:
+  runner` explícito, os 3 frontends com `build.args.VITE_API_URL`, e o serviço `migrate` auxiliar.
+- `.env.production.example` — documenta as variáveis obrigatórias (`POSTGRES_PASSWORD`, `JWT_SECRET`,
+  `PLATFORM_ALLOWED_IPS`, `VITE_API_URL`).
+
+#### Validação empírica final — stack de produção completa rodada do zero, de verdade
+
+1. As 4 imagens buildadas individualmente primeiro (`docker build` direto), cada achado acima
+   corrigido e revalidado antes de seguir para o próximo.
+2. Stack completa subida via `docker compose -f docker-compose.prod.yml --env-file ... up -d --build`
+   sob um namespace de projeto isolado (`-p gingapp-prod`, para não colidir com o ambiente de dev).
+3. Migration real aplicada via o novo serviço `migrate` — funciona tanto disparada automaticamente
+   pelo `up` (achado empírico, documentado) quanto isolada via `run --rm migrate`.
+4. Seed rodado (só para esta validação local, nunca em produção real) via
+   `run --rm migrate npx prisma db seed` (o stage `migrate` tem `ts-node`, herdado de `build`).
+5. `GET /api/health` → `database: up`; `POST /api/auth/login` → `200` com JWT real; os 3 frontends
+   (`painel`/`app`/`admin`) → `200`, título correto, SPA fallback funcionando (`try_files` do nginx),
+   manifest/service worker do PWA servidos corretamente com `Cache-Control: no-cache`.
+6. Confirmado visualmente no browser real (não só `curl`): a tela de login do PWA renderizou
+   corretamente a partir do container nginx de produção.
+7. Stack inteira derrubada com `down -v` ao final (containers, rede e volume removidos) — nenhum
+   artefato de teste (imagens `gingapp-prod-*`, `.env.production` de teste) deixado no sistema.
+
+**Pendências novas desta etapa:**
+
+37. Nenhum reverse proxy/TLS configurado ainda — cada serviço expõe uma porta HTTP simples
+    (`3000`/`8081`/`8082`/`8083`); um domínio real precisa de nginx/Caddy/Traefik na frente,
+    com certificado (Let's Encrypt ou equivalente), antes de ir ao ar de verdade.
+38. `admin`/`painel`/`app` ainda não têm `HEALTHCHECK` no Dockerfile (o backend também não tem —
+    só o Postgres tem `healthcheck` no compose) — útil para orquestradores decidirem quando
+    reiniciar um container travado.
+39. Nenhuma estratégia de backup automático do volume `gingapp_prod_pgdata` documentada ainda
+    (`projeto.txt` §99 pede isso explicitamente) — fica para quando houver um ambiente de produção
+    real, não só este de validação local.
+40. O serviço `migrate` roda em todo `docker compose up`, mesmo quando não há migration nova — é
+    idempotente e rápido, mas alguém rodando isso num CI/CD mais rígido pode preferir separar esse
+    passo do `up` normal (ex.: um job de deploy dedicado).
