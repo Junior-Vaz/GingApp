@@ -23,7 +23,11 @@ withDefaults(
 </script>
 
 <template>
-  <component :is="to ? 'router-link' : 'div'" :to="to" class="relative block h-48 overflow-hidden rounded-card-lg shadow-md">
+  <component
+    :is="to ? 'router-link' : 'div'"
+    :to="to"
+    class="relative block h-48 overflow-hidden rounded-card-lg shadow-md transition-transform duration-150 active:scale-[0.98]"
+  >
     <img v-if="imageUrl" :src="imageUrl" alt="" class="absolute inset-0 h-full w-full object-cover" />
     <template v-else>
       <div class="absolute inset-0 bg-gradient-to-br from-accent-hover to-accent/60" />

@@ -2331,3 +2331,73 @@ quatro pontos num só pedido:
 3. Não foram tocados: `.vue` do painel/admin (fora de escopo deste pedido, que era só sobre o PWA),
    `<select>` de tipo/estado/cidade do Calendário (decisão registrada acima), lógica de dados/API
    (mudança 100% visual, nenhum endpoint ou DTO tocado).
+
+### 10.25 Hierarquia da saudação, fonte de destaque, verde mais suave, mais fluidez
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído. Quarto refinamento visual seguido, pedido do owner
+num só balaço:
+
+> "a saudação quero maior que o ginga brasil, tem que ser ao contrario, a fonte do ola ana e
+> diferente uma fonte bonita. tambem quero mais fluides e animações melhores. os tons verdes to
+> achando muito forte, quero mais fraco."
+
+#### O que foi construído
+
+1. **Hierarquia do header da Home invertida**: antes o nome da organização (`h1`, `text-xl
+   font-bold`) era o elemento maior e a saudação (`Olá, Ana`) era um `p` pequeno em itálico acima
+   dele. Agora é o oposto — nome da organização virou um label pequeno (`text-xs uppercase
+   tracking-wide text-text-muted`) e a saudação virou o elemento grande (`text-4xl`).
+2. **Fonte de destaque só pra saudação**: nova variável `--font-display: "Caveat", "Segoe Script",
+   cursive` em `style.css`, carregada via `@import url(fonts.googleapis.com/...)` (Google Fonts,
+   `Caveat` pesos 600/700 — script/manuscrita, dá um ar pessoal/caloroso, bem diferente da sans
+   `Inter` usada no resto do app). Gera a utility `font-display` do Tailwind 4 automaticamente
+   (tema `--font-*`). Único lugar que usa: `<h1>` da saudação na Home — o resto do app continua
+   100% na sans.
+   - **Gotcha resolvido:** o `@import` do Google Fonts colocado *depois* de `@import "tailwindcss"`
+     gerava warning de build ("@import rules must precede all rules") porque o Vite/Lightning CSS
+     expande o `@import "tailwindcss"` em várias regras antes de processar o import seguinte.
+     Corrigido invertendo a ordem: `@import` da fonte **antes** de `@import "tailwindcss"`.
+3. **Verde mais suave em todo o app**: `--color-accent` de `#22c55e` (green-500, saturado/vívido)
+   pra `#3b9b5e` (mais dessaturado e um pouco mais escuro); `--color-accent-hover` de `#16a34a`
+   pra `#2f7d4c`; `--color-success` (que já era um alias do accent) atualizado igual.
+   `--color-accent-soft` recalculada pra mesma opacidade (~10%) sobre a nova cor-base. Como é tudo
+   token central (`@theme` em `style.css`, nenhuma view tem hex hardcoded), a troca afeta o app
+   inteiro sem tocar em nenhuma view. **Achado colateral:** o verde mais "fraco" pedido pelo owner
+   na verdade tem *melhor* contraste com texto branco em cima (calculado via WCAG relative
+   luminance: contraste branco-sobre-verde subiu de ~2.28:1 pro antigo `#22c55e` pra ~3.47:1 no
+   novo `#3b9b5e`) — dessaturar + escurecer levemente resolveu "parece forte" e "acessibilidade"
+   ao mesmo tempo, sem ter sido esse o objetivo original do pedido.
+4. **Mais fluidez e animações**:
+   - Nova curva de easing única (`--ease-fluid: cubic-bezier(0.22, 1, 0.36, 1)`, gera a utility
+     `ease-fluid` do Tailwind 4 via tema `--ease-*`) — substitui o `ease-out`/`ease` padrão do
+     navegador nas transições de destaque (indicador do `SlidingTabs`, cápsula do bottom nav).
+   - **Transição de rota**: `router-view` do `MobileLayout.vue` envolvido num
+     `<transition name="page" mode="out-in">` (API de slot do Vue Router 4) — fade + leve slide
+     vertical (8px) ao trocar de tela pela bottom nav, 220ms.
+   - **Entrada animada dos cards do feed**: nova utility `--animate-rise` (tema `--animate-*` do
+     Tailwind 4, referencia `@keyframes rise-in` — fade + sobe 12px), aplicada em cada
+     `FeedCard`/`AnnouncementCard` do loop via `class="animate-rise"` +
+     `:style="{ animationDelay: \`${index * 60}ms\` }"` — efeito de entrada em cascata (stagger),
+     em vez de tudo aparecer de uma vez. Usado em `HomeView.vue` e `ComunidadeView.vue`.
+   - **Feedback de toque**: `active:scale-95`/`active:scale-90`/`active:scale-[0.98]` +
+     `transition-transform` adicionados nos elementos tocáveis que ainda não tinham (botões de
+     quick-link da Home, sino de notificação, `FeedCard` inteiro, botões do `SlidingTabs`, itens
+     do bottom nav) — cada toque agora "afunda" visualmente em vez de mudar de estado
+     instantaneamente. `AnnouncementCard` ficou de fora de propósito (não é clicável, não navega
+     pra lugar nenhum).
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`), sem warnings — inclusive depois de corrigir a ordem
+   do `@import` da fonte. Conferido no CSS gerado (`dist/assets/index-*.css`) que as 3 novas
+   utilities (`ease-fluid`, `font-display`, `animate-rise`) e o `@font-face`/import do Caveat
+   saíram no bundle final, não só no source.
+2. **Validação ao vivo no navegador** (dev server reaproveitado): saudação "Olá, Ana" grande, em
+   itálico manuscrito (Caveat), acima do label pequeno "GINGA-BRASIL"; verde visivelmente mais
+   suave em toda a UI (pílula ativa do filtro, ícones de destaque, badge do card, cápsula do nav).
+   Troca de rota pela bottom nav mostrou o fade+slide da página (capturado um screenshot a meio da
+   transição, com a Jornada sumindo enquanto a cápsula do nav já deslizava pra Início — confirma
+   as duas animações rodando em paralelo, não sequencial). Cards do feed reaparecem com opacidade
+   baixa por um instante ao remontar a Home (fetch assíncrono de `/calendar`+`/announcements` +
+   `animate-rise` em cascata) antes de assentar — comportamento esperado, não é regressão.
+3. Não foram tocados: painel/admin (fora de escopo, só o PWA foi pedido), lógica de dados/API.

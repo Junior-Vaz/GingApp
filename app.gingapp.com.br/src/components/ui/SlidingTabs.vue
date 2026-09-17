@@ -49,7 +49,7 @@ watch(
 <template>
   <div class="relative flex gap-1 overflow-x-auto rounded-full bg-surface p-1 scrollbar-none">
     <span
-      class="absolute inset-y-1 rounded-full bg-accent transition-all duration-300 ease-out"
+      class="absolute inset-y-1 rounded-full bg-accent transition-all duration-300 ease-fluid"
       :style="{ left: `${thumbLeft}px`, width: `${thumbWidth}px` }"
     />
     <button
@@ -57,7 +57,7 @@ watch(
       :key="option.value"
       :ref="(el) => setButtonRef(el as Element | null, index)"
       type="button"
-      class="relative z-10 shrink-0 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors"
+      class="relative z-10 shrink-0 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-200 ease-fluid active:scale-95"
       :class="modelValue === option.value ? 'text-white' : 'text-text-muted'"
       @click="emit('update:modelValue', option.value)"
     >

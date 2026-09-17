@@ -185,8 +185,10 @@ onMounted(() => {
 
     <section v-else class="flex flex-col gap-4 px-5">
       <FeedCard
-        v-for="item in items"
+        v-for="(item, index) in items"
         :key="`${item.source}-${item.id}`"
+        class="animate-rise"
+        :style="{ animationDelay: `${index * 60}ms` }"
         :icon="TYPE_ICON[item.type] ?? 'calendar'"
         :image-url="item.imageUrl"
         :badge="TYPE_LABEL[item.type] ?? item.type"

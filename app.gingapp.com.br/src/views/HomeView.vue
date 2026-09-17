@@ -145,12 +145,16 @@ onMounted(async () => {
   <div class="flex flex-col gap-5 pb-6">
     <header class="flex items-center justify-between px-5 pt-6">
       <div>
-        <p class="text-sm italic text-accent">Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }}</p>
-        <h1 class="text-xl font-bold leading-tight text-text">{{ auth.user?.organizationName ?? 'Seu grupo' }}</h1>
+        <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">
+          {{ auth.user?.organizationName ?? 'Seu grupo' }}
+        </p>
+        <h1 class="font-display text-4xl leading-tight text-accent">
+          Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }}
+        </h1>
       </div>
       <router-link
         to="/app/notificacoes"
-        class="flex h-11 w-11 items-center justify-center rounded-full bg-surface text-text-muted"
+        class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface text-text-muted transition-transform duration-150 active:scale-90"
         aria-label="Notificações"
       >
         <AppIcon name="bell" :size="19" />
@@ -171,7 +175,7 @@ onMounted(async () => {
           v-for="link in quickLinks"
           :key="link.to"
           :to="link.to"
-          class="flex flex-col items-center gap-1.5 rounded-card bg-surface py-3 text-center active:bg-surface-hover"
+          class="flex flex-col items-center gap-1.5 rounded-card bg-surface py-3 text-center transition-transform duration-150 active:scale-95 active:bg-surface-hover"
         >
           <span class="text-accent"><AppIcon :name="link.icon" :size="18" /></span>
           <span class="text-[10px] font-medium text-text-muted">{{ link.label }}</span>
@@ -189,10 +193,19 @@ onMounted(async () => {
       </div>
 
       <section v-else class="flex flex-col gap-4 px-5">
-        <template v-for="item in feedItems" :key="item.key">
-          <AnnouncementCard v-if="item.kind === 'aviso'" :title="item.title" :meta="item.meta" :body="item.subtitle ?? ''" />
+        <template v-for="(item, index) in feedItems" :key="item.key">
+          <AnnouncementCard
+            v-if="item.kind === 'aviso'"
+            class="animate-rise"
+            :style="{ animationDelay: `${index * 60}ms` }"
+            :title="item.title"
+            :meta="item.meta"
+            :body="item.subtitle ?? ''"
+          />
           <FeedCard
             v-else
+            class="animate-rise"
+            :style="{ animationDelay: `${index * 60}ms` }"
             :icon="item.icon"
             :badge="item.badge"
             :title="item.title"

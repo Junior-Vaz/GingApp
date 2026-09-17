@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&display=swap");
 @import "tailwindcss";
 
 /*
@@ -17,10 +18,13 @@
   --color-surface: #ffffff;
   --color-surface-hover: #f7f8fa;
 
-  /* destaque (CTAs, badges, ícones ativos, estados positivos) */
-  --color-accent: #22c55e;
-  --color-accent-hover: #16a34a;
-  --color-accent-soft: #22c55e1a;
+  /* destaque (CTAs, badges, ícones ativos, estados positivos) — verde mais fraco/dessaturado
+   * que o green-500 original (pedido do owner, PLANO_PROJETO.md §10.25: "os tons verdes to
+   * achando muito forte, quero mais fraco"). Curiosamente contrasta melhor com texto branco em
+   * cima (mais escuro que o green-500 puro), não só "parece" mais suave. */
+  --color-accent: #3b9b5e;
+  --color-accent-hover: #2f7d4c;
+  --color-accent-soft: #3b9b5e1a;
 
   /* texto */
   --color-text: #16181d;
@@ -31,7 +35,7 @@
   --color-border: #e5e7eb;
 
   /* estado — warning é o amarelo da paleta (badges de pendência, ex.: financeiro) */
-  --color-success: #22c55e;
+  --color-success: #3b9b5e;
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
 
@@ -39,6 +43,42 @@
   --radius-card-lg: 1.5rem; /* ~24px */
 
   --font-sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+  /* fonte só pra saudação da Home — deliberadamente diferente da sans do resto do app
+   * (pedido do owner: "a fonte do ola ana e diferente uma fonte bonita") */
+  --font-display: "Caveat", "Segoe Script", cursive;
+
+  /* curva de easing única pra toda animação "fluida" do app (nav, tabs, entrada de card) —
+   * pedido do owner por "mais fluidez e animações melhores"; um ease-out suave, não o linear/
+   * ease padrão do navegador. */
+  --ease-fluid: cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-rise: rise-in 0.42s var(--ease-fluid) both;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* transição de página ao trocar de rota (bottom nav) — fade + leve slide vertical */
+.page-enter-active,
+.page-leave-active {
+  transition:
+    opacity 0.22s var(--ease-fluid),
+    transform 0.22s var(--ease-fluid);
+}
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 
 html,

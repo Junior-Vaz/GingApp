@@ -35,20 +35,24 @@ const activeIndex = computed(() => {
 <template>
   <div class="flex h-dvh flex-col bg-bg text-text">
     <main class="safe-top flex-1 overflow-y-auto pb-28">
-      <router-view />
+      <router-view v-slot="{ Component }">
+        <transition name="page" mode="out-in">
+          <component :is="Component" />
+        </transition>
+      </router-view>
     </main>
 
     <nav class="safe-bottom fixed inset-x-0 bottom-4 z-20 flex justify-center px-4" aria-label="Navegação principal">
       <ul class="relative grid w-full max-w-[22rem] grid-cols-5 rounded-full bg-surface p-1.5 shadow-lg">
         <span
-          class="pointer-events-none absolute inset-y-1.5 left-1.5 rounded-full bg-accent transition-transform duration-300 ease-out"
+          class="pointer-events-none absolute inset-y-1.5 left-1.5 rounded-full bg-accent transition-transform duration-[350ms] ease-fluid"
           style="width: calc((100% - 0.75rem) / 5)"
           :style="{ transform: `translateX(calc(${activeIndex} * 100%))` }"
         />
         <li v-for="item in navItems" :key="item.name" class="relative z-10">
           <router-link
             :to="{ name: item.name }"
-            class="flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-[10px] font-medium transition-colors"
+            class="flex flex-col items-center justify-center gap-0.5 rounded-full py-2 text-[10px] font-medium transition-all duration-200 ease-fluid active:scale-90"
             :class="isActive(item.name) ? 'text-white' : 'text-text-muted'"
           >
             <AppIcon :name="item.icon" :size="19" />
