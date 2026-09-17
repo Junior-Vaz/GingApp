@@ -1495,12 +1495,42 @@ gateway ainda).
 6. Processo de dev iniciado manualmente para o smoke test foi encerrado ao final (evitar deixar mais
    um processo órfão, o mesmo padrão de bug já visto nesta sessão).
 
+#### Frontend de billing (resolve pendência 41 desta seção)
+
+Perguntado ao owner como seguir, já que o admin.gingapp.com.br inteiro (todas as views, não só
+Plans) ainda era só placeholder e os tokens visuais reais do GestorPrint nunca tinham sido
+extraídos (pendência em aberto desde o início do projeto) — decisão: **construir agora, com o
+scaffold Tailwind atual**, sem bloquear billing por um retrabalho visual maior e separado.
+
+- **`admin.gingapp.com.br`**: `PlansView.vue` (CRUD completo, mesmo padrão de tabela+modal de
+  `AlunosView.vue` do painel — lista, criar, editar, desativar); `OrganizationsView.vue` (antes
+  placeholder, agora lista real das organizações, mínima, só para dar acesso ao detalhe);
+  `OrganizationDetailView.vue` (antes placeholder, agora com o bloco "Assinatura": plano atual,
+  status, renovação, atribuir/trocar plano, cancelar assinatura).
+- **`painel.gingapp.com.br`**: `ConfiguracoesView.vue` (antes placeholder, agora "Meu plano": plano
+  atual, preço, renovação, barra de uso alunos ativos/limite do plano, aviso quando o limite é
+  atingido).
+- **Achado**: `nest start --watch` gera um processo filho `node dist/main` que **sobrevive** a
+  `Stop-Process` no processo pai (`nest.js ... start --watch`) — o pai é só a CLI/watcher, o filho
+  é quem de fato escuta a porta. Descoberto ao subir o backend para o teste em navegador: a porta
+  3000 já estava em uso por um `dist/main` órfão de uma parada anterior (nesta mesma sessão) que só
+  tinha matado o processo pai. **Mitigação usada**: sempre matar por `CommandLine -match 'backend'`
+  (pega os dois, pai e filho), nunca só pelo padrão `nest.js.*start --watch`.
+- **Validação empírica no navegador de verdade** (não só `curl`/build): com os 3 processos (backend
+  + `admin` + `painel`, portas 3000/4175/4174) subidos limpos, testado ao vivo: login PLATFORM →
+  `/plans` lista o catálogo → criar um plano de teste pela UI (confirmado na tabela) → `/organizations`
+  → detalhe → trocar plano da "Grupo Ginga Brasil" para Essencial pela UI → `/painel/configuracoes`
+  como MEMBER mostrando "Essencial, 1/30 alunos" com a barra de progresso verde renderizando
+  corretamente → trocado de volta para "Plano Único" ao final. Plano de teste e estado da assinatura
+  restaurados via `psql` depois (nenhum artefato de teste manual deixado no banco de dev).
+
 **Pendências novas desta etapa:**
 
-41. Frontend de billing ainda não construído: `PlansView.vue` real em `admin.gingapp.com.br` (hoje
-    placeholder), UI de gestão de assinatura por organização (provavelmente em
-    `OrganizationDetailView.vue` ou uma view nova), e um indicador de plano/uso no painel do grupo
-    (ex.: Configurações ou Dashboard, mostrando "23/30 alunos do plano Essencial").
+41. ~~Frontend de billing ainda não construído~~ — **resolvido nesta mesma etapa**, ver "Frontend de
+    billing" acima (`PlansView.vue`, `OrganizationsView.vue`/`OrganizationDetailView.vue`,
+    `ConfiguracoesView.vue`). Ainda falta o visual definitivo (tokens reais do GestorPrint — ver
+    pendência histórica de design, nunca resolvida) e o restante do admin (Team, Audit, Settings,
+    Announcements continuam placeholder).
 42. Nenhum gateway de pagamento real integrado — `StubBillingGatewayService` é 100% simulado. Quando
     houver credenciais de sandbox (Asaas ou outro), criar uma nova classe implementando
     `BillingGatewayService` e trocar o `useClass` em `SharedModule` — nenhum outro código muda.
@@ -1509,3 +1539,6 @@ gateway ainda).
     `/subscriptions/me` ativamente.
 44. Sem endpoint de "trial self-service" (assinatura `TRIALING` criada pelo próprio grupo sem
     intervenção da equipe PLATFORM) — toda criação de assinatura hoje é manual, pela equipe PLATFORM.
+45. `GET /organizations` e `GET /subscriptions` não têm paginação real nem filtro por organização no
+    backend — `OrganizationDetailView.vue` busca todas as organizações/assinaturas e filtra no
+    cliente (aceitável na escala atual de dev, não escala para produção com muitos grupos).
