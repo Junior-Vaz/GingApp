@@ -2110,3 +2110,69 @@ o build, não um bug encontrado em produção.
     em `app.gingapp.com.br` — `painel`/`admin` continuam sem um sistema de componentes
     equivalente (mesma pendência 61, agora maior: o gap de maturidade de design system entre os
     3 frontends aumentou).
+
+### 10.21 Home vira feed com cards de imagem (referência: app de listagens estilo real estate)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído — pedido do owner com print de referência (app de
+listagens tipo imobiliária: cards grandes com foto, badge sobreposto, ícone de ação, linha de
+ícones com specs). Decisão explícita do próprio owner: copiar o **estilo dos cards**, não a
+funcionalidade de imóveis — adaptado para o domínio real do produto (Rodas, Eventos públicos,
+Avisos do grupo).
+
+#### O que foi construído
+
+- **`FeedCard.vue`** (novo, `components/ui/`): card de capa com imagem OU, na ausência de
+  `imageUrl` (nenhum `Roda`/`Event` tem foto ainda — não é regressão, nunca existiu), um
+  placeholder degradê com o ícone do tipo bem grande — nunca uma imagem quebrada. Réplica direta
+  da composição da referência: badge com bolinha colorida sobreposto no canto inferior esquerdo
+  da imagem, botão circular (ícone de "abrir/navegar") sobreposto no canto superior direito,
+  título + "preço" (aqui, a data) lado a lado abaixo da imagem, e uma linha de localização com
+  ícone de pino.
+- **`HomeView.vue` virou um feed de verdade**: removida a estrutura anterior (hero de graduação
+  grande, carrossel "Próximas aulas", grid de atalhos grande, seção de avisos separada) — agora é
+  cabeçalho compacto (saudação em itálico + nome do grupo + sino) → linha compacta de atalhos
+  (Frequência/Financeiro/Eventos/Rodas, ícone pequeno) → abas de filtro (Tudo/Rodas/Eventos/
+  Avisos, mesmo padrão de chip já usado no Calendário) → feed de `FeedCard` misturando **Avisos**
+  do próprio grupo (`GET /announcements`) com **Rodas e Eventos públicos de qualquer organização**
+  (reaproveita `GET /calendar`, já existia desde §10.17 — não foi preciso nenhum endpoint novo).
+- **`AvatarCarousel.vue` removido**: ficou órfão depois que "Próximas aulas" saiu da Home (única
+  tela que o usava) — apagado por completo em vez de deixar código morto (confirmado via grep
+  que nenhum outro arquivo importava).
+- **2 ícones novos** em `AppIcon.vue`: `external-link` (botão de ação no card) e `map-pin`
+  (linha de localização).
+
+#### Decisões de escopo (deliberadas, não esquecimento)
+
+- O carrossel "Próximas aulas" (pessoal/privado do aluno) foi removido da Home — continua
+  acessível em 1 toque via `/app/aulas` na bottom nav. Justificativa: o pedido do owner foi
+  "a home seria uma tela de feed" — manter uma seção pessoal fora do feed misturada com conteúdo
+  público (Rodas/Eventos/Avisos) prejudicaria a coerência do padrão de card único que a
+  referência tem (todo item do feed é visualmente igual).
+- A contagem de "confirmados" por Roda/Evento não aparece no card (o endpoint `/calendar`
+  agregado não traz esse número por item — evitar N+1 queries) — só data/local/tipo, equivalente
+  ao "sqft/beds/washroom" da referência mas com os dados que já existem sem custo extra de
+  backend.
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`) de primeira.
+2. `grep` confirmou `AvatarCarousel.vue` sem nenhum importador antes de apagar.
+3. **Validação visual em largura real de celular (375×812)**: feed renderizando com o padrão
+   exato da referência (imagem/placeholder + badge + botão de ação + título/data + localização);
+   abas de filtro testadas (clique em "Rodas" isolou corretamente só os itens desse tipo,
+   confirmado visualmente antes/depois do clique).
+4. Observação (não é bug): no preview desktop largo (800px) do navegador embutido, a linha de
+   4 atalhos compactos encosta na borda direita — a Home é uma tela de PWA mobile, nunca
+   dimensionada pra 800px de largura numa instalação real; validado onde importa (375px real).
+
+**Pendências novas desta etapa:**
+
+65. `Event`/`Roda` não têm campo de imagem de capa no schema — todo card do feed usa o
+    placeholder ilustrado hoje. Se o produto quiser fotos de verdade (mais fiel à referência),
+    precisa de um campo `imageUrl` (mesmo padrão leve de `Student.photo`/`PublicProfile.photo`,
+    sem upload de arquivo, só URL) + um jeito de o painel definir isso ao criar/editar.
+66. O feed da Home mistura Avisos (ordenados por recência de publicação) com Rodas/Eventos
+    (ordenados por data futura) em duas listas concatenadas, não uma ordenação cronológica única
+    — decisão deliberada (os dois conceitos de "recente" — publicado agora vs. acontecendo em
+    breve — não se comparam bem numa única chave de ordenação), mas vale reavaliar se o produto
+    crescer a ponto de ter muitos itens de cada tipo.

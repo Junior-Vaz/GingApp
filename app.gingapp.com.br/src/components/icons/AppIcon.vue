@@ -27,6 +27,8 @@ export type IconName =
   | 'chevron-right'
   | 'arrow-left'
   | 'alert-circle'
+  | 'external-link'
+  | 'map-pin'
 
 withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 22 })
 </script>
@@ -157,6 +159,16 @@ withDefaults(defineProps<{ name: IconName; size?: number }>(), { size: 22 })
       <circle cx="12" cy="12" r="9" />
       <line x1="12" y1="8" x2="12" y2="13" />
       <line x1="12" y1="16.5" x2="12" y2="16.51" />
+    </template>
+
+    <template v-else-if="name === 'external-link'">
+      <path d="M7 17 17 7" />
+      <path d="M9 7h8v8" />
+    </template>
+
+    <template v-else-if="name === 'map-pin'">
+      <path d="M12 21s-7-6.1-7-11.5A7 7 0 0 1 19 9.5C19 14.9 12 21 12 21Z" />
+      <circle cx="12" cy="9.5" r="2.3" />
     </template>
   </svg>
 </template>

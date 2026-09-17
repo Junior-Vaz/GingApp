@@ -1,73 +1,54 @@
 <script setup lang="ts">
+// Home como feed (PLANO_PROJETO.md §10.21, pedido direto do owner com referência visual de um
+// app de listagens — estilo copiado, não a funcionalidade): cards com "foto" de capa (placeholder
+// ilustrado quando não há imagem — nenhum Roda/Event tem foto ainda) + ícones, resumindo Rodas,
+// Eventos públicos (via GET /calendar, cross-organização) e Avisos do próprio grupo num só feed
+// rolável, com abas de filtro por tipo.
 import { computed, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { api, ApiError } from '../utils/api'
-import AvatarCarousel, { type AvatarCarouselItem } from '../components/layout/AvatarCarousel.vue'
 import AppIcon, { type IconName } from '../components/icons/AppIcon.vue'
-import StatTile from '../components/ui/StatTile.vue'
-import SectionHeader from '../components/ui/SectionHeader.vue'
+import FeedCard from '../components/ui/FeedCard.vue'
 import EmptyState from '../components/ui/EmptyState.vue'
 
 interface Student {
   id: number
-  organizationId: number
   unitId: number | null
-  userId: number | null
-  name: string
-  birthDate: string | null
-  document: string | null
-  phone: string | null
-  email: string | null
-  photo: string | null
-  status: 'ACTIVE' | 'INACTIVE' | 'SUSPENDED' | 'FORMER'
-  joinedAt: string | null
-  createdAt: string
-  updatedAt: string
 }
 
-interface Lesson {
+interface CalendarItem {
   id: number
-  organizationId: number
-  classId: number
-  unitId: number | null
-  teacherUserId: number | null
+  source: 'RODA' | 'EVENTO'
+  type: string
+  title: string
   date: string
-  startTime: string | null
-  endTime: string | null
-  notes: string | null
-  status: 'ACTIVE' | 'INACTIVE'
-  createdAt: string
-  updatedAt: string
-}
-
-interface GraduationLevel {
-  id: number
-  name: string
-  order: number
-  color: string | null
-}
-
-interface StudentGraduation {
-  id: number
-  studentId: number
-  graduationLevelId: number
-  graduatedAt: string
-  notes: string | null
-  createdAt: string
-  graduationLevel: GraduationLevel
+  location: string | null
+  state: { uf: string } | null
+  city: { name: string } | null
 }
 
 interface Announcement {
   id: number
-  organizationId: number
   unitId: number | null
   title: string
   body: string
   publishedAt: string | null
   isActive: boolean
-  createdByUserId: number | null
   createdAt: string
-  updatedAt: string
+}
+
+type FeedKind = 'roda' | 'evento' | 'aviso'
+type FeedFilter = 'todos' | FeedKind
+
+interface FeedItem {
+  key: string
+  kind: FeedKind
+  icon: IconName
+  badge: string
+  title: string
+  meta: string
+  subtitle?: string
+  to?: string
 }
 
 const auth = useAuthStore()
@@ -79,87 +60,76 @@ const quickLinks: { to: string; label: string; icon: IconName }[] = [
   { to: '/app/rodas', label: 'Rodas', icon: 'drum' },
 ]
 
+const FILTERS: { value: FeedFilter; label: string }[] = [
+  { value: 'todos', label: 'Tudo' },
+  { value: 'roda', label: 'Rodas' },
+  { value: 'evento', label: 'Eventos' },
+  { value: 'aviso', label: 'Avisos' },
+]
+
 const isLoading = ref(true)
 const loadError = ref('')
+const hasStudent = ref(true)
 
-const students = ref<Student[]>([])
-const lessons = ref<Lesson[]>([])
-const graduations = ref<StudentGraduation[]>([])
+const calendarItems = ref<CalendarItem[]>([])
 const announcements = ref<Announcement[]>([])
+const activeFilter = ref<FeedFilter>('todos')
 
-// TODO: seletor de aluno quando houver mais de um dependente
-const primaryStudent = computed<Student | null>(() => students.value[0] ?? null)
-const initials = computed(() => (primaryStudent.value?.name ?? auth.user?.name ?? 'C').charAt(0).toUpperCase())
-
-const latestGraduation = computed<StudentGraduation | null>(() => graduations.value[0] ?? null)
-
-// lesson.date vem do painel via <input type="date"> (sem hora) — chega como meia-noite UTC,
-// representando um DIA, não um instante. Comparar contra "meia-noite local" (Date(y,m,d))
-// desalinha em fusos negativos: uma aula de hoje ficaria "no passado" e sumiria do carrossel.
-// Por isso "hoje" também é expresso como meia-noite UTC do dia local atual, alinhando as duas
-// pontas na mesma convenção.
-function todayAsUtcMidnight(): number {
-  const now = new Date()
-  return Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+function formatShortDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '')
 }
 
-const upcomingLessons = computed<Lesson[]>(() => {
-  const todayUtcMidnight = todayAsUtcMidnight()
-  return lessons.value
-    .filter((lesson) => new Date(lesson.date).getTime() >= todayUtcMidnight)
-    .slice(0, 5)
+function formatRelative(iso: string): string {
+  const diffDays = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+  if (diffDays <= 0) return 'hoje'
+  if (diffDays === 1) return 'ontem'
+  return `há ${diffDays}d`
+}
+
+const feedItems = computed<FeedItem[]>(() => {
+  const avisos: FeedItem[] = announcements.value.map((a) => ({
+    key: `aviso-${a.id}`,
+    kind: 'aviso',
+    icon: 'megaphone',
+    badge: 'Aviso',
+    title: a.title,
+    meta: formatRelative(a.publishedAt ?? a.createdAt),
+    subtitle: a.body,
+  }))
+
+  const calendar: FeedItem[] = calendarItems.value.map((item) => ({
+    key: `${item.source}-${item.id}`,
+    kind: item.source === 'RODA' ? 'roda' : 'evento',
+    icon: item.source === 'RODA' ? 'drum' : 'ticket',
+    badge: item.source === 'RODA' ? 'Roda' : 'Evento',
+    title: item.title,
+    meta: formatShortDate(item.date),
+    subtitle: [item.location, item.city?.name, item.state?.uf].filter(Boolean).join(' · ') || undefined,
+    to: item.source === 'RODA' ? '/app/rodas' : '/app/comunidade',
+  }))
+
+  const combined = [...avisos, ...calendar]
+  return activeFilter.value === 'todos' ? combined : combined.filter((i) => i.kind === activeFilter.value)
 })
-
-const carouselItems = computed<AvatarCarouselItem[]>(() =>
-  upcomingLessons.value.map((lesson, index) => {
-    const date = new Date(lesson.date)
-    const isToday = date.getTime() === todayAsUtcMidnight()
-    const weekdayLabel = isToday
-      ? 'Hoje'
-      : date.toLocaleDateString('pt-BR', { weekday: 'short', timeZone: 'UTC' }).replace('.', '')
-    const label = weekdayLabel.charAt(0).toUpperCase() + weekdayLabel.slice(1)
-    return {
-      id: lesson.id,
-      label,
-      subtitle: lesson.startTime ?? undefined,
-      highlighted: index === 0,
-      initials: label.slice(0, 2).toUpperCase(),
-    }
-  }),
-)
-
-const visibleAnnouncements = computed<Announcement[]>(() =>
-  announcements.value
-    .filter((a) => a.isActive && (a.unitId === null || a.unitId === primaryStudent.value?.unitId))
-    .slice(0, 5),
-)
 
 onMounted(async () => {
   isLoading.value = true
   loadError.value = ''
   try {
-    const [studentsRes, lessonsRes, announcementsRes] = await Promise.all([
+    const [studentsRes, calendarRes, announcementsRes] = await Promise.all([
       api.get<Student[]>('/students/me'),
-      api.get<Lesson[]>('/lessons/me'),
+      api.get<CalendarItem[]>('/calendar'),
       api.get<Announcement[]>('/announcements'),
     ])
 
-    students.value = studentsRes
-    lessons.value = lessonsRes
+    hasStudent.value = studentsRes.length > 0
+    calendarItems.value = calendarRes
+    const myUnitId = studentsRes[0]?.unitId ?? null
     announcements.value = announcementsRes
-
-    const student = studentsRes[0]
-    if (student) {
-      try {
-        graduations.value = await api.get<StudentGraduation[]>(`/graduations/students/${student.id}`)
-      } catch {
-        // Sem graduações ainda não é um erro fatal para a Home.
-        graduations.value = []
-      }
-    }
+      .filter((a) => a.isActive && (a.unitId === null || a.unitId === myUnitId))
+      .slice(0, 3)
   } catch (error) {
-    loadError.value =
-      error instanceof ApiError ? error.message : 'Não foi possível carregar os dados da home.'
+    loadError.value = error instanceof ApiError ? error.message : 'Não foi possível carregar a home.'
   } finally {
     isLoading.value = false
   }
@@ -167,16 +137,11 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="flex flex-col gap-8 pb-6">
+  <div class="flex flex-col gap-5 pb-6">
     <header class="flex items-center justify-between px-5 pt-6">
-      <div class="flex items-center gap-3">
-        <span class="flex h-12 w-12 items-center justify-center rounded-full bg-accent text-lg font-bold text-white">
-          {{ initials }}
-        </span>
-        <div>
-          <p class="text-xs text-text-muted">Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }}</p>
-          <h1 class="text-lg font-bold leading-tight text-text">{{ auth.user?.organizationName ?? 'Seu grupo' }}</h1>
-        </div>
+      <div>
+        <p class="text-sm italic text-accent">Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }}</p>
+        <h1 class="text-xl font-bold leading-tight text-text">{{ auth.user?.organizationName ?? 'Seu grupo' }}</h1>
       </div>
       <router-link
         to="/app/notificacoes"
@@ -191,61 +156,53 @@ onMounted(async () => {
       {{ loadError }}
     </p>
 
-    <template v-else-if="!isLoading && students.length === 0">
-      <div class="px-5">
-        <EmptyState icon="user" message="Nenhum aluno vinculado a esta conta." />
-      </div>
-    </template>
+    <div v-else-if="!isLoading && !hasStudent" class="px-5">
+      <EmptyState icon="user" message="Nenhum aluno vinculado a esta conta." />
+    </div>
 
     <template v-else>
-      <section class="px-5">
-        <div class="flex items-center gap-4 rounded-card-lg bg-accent p-5 text-white">
-          <span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/20">
-            <AppIcon name="graduation" :size="24" />
-          </span>
-          <div class="min-w-0">
-            <p class="text-xs font-medium text-white/80">
-              Graduação atual{{ primaryStudent ? ` · ${primaryStudent.name}` : '' }}
-            </p>
-            <p class="truncate text-xl font-bold">
-              {{ latestGraduation ? latestGraduation.graduationLevel.name : 'Ainda sem graduação' }}
-            </p>
-          </div>
-        </div>
+      <section class="grid grid-cols-4 gap-2 px-5">
+        <router-link
+          v-for="link in quickLinks"
+          :key="link.to"
+          :to="link.to"
+          class="flex flex-col items-center gap-1.5 rounded-card bg-surface py-3 text-center active:bg-surface-hover"
+        >
+          <span class="text-accent"><AppIcon :name="link.icon" :size="18" /></span>
+          <span class="text-[10px] font-medium text-text-muted">{{ link.label }}</span>
+        </router-link>
       </section>
 
-      <section class="flex flex-col gap-3">
-        <SectionHeader title="Próximas aulas" action-label="Ver tudo" action-to="/app/aulas" />
-        <AvatarCarousel v-if="carouselItems.length > 0" :items="carouselItems" />
-        <p v-else-if="!isLoading" class="px-5 text-sm text-text-faint">Nenhuma aula agendada por enquanto.</p>
-      </section>
+      <div class="flex gap-2 overflow-x-auto px-5 scrollbar-none">
+        <button
+          v-for="filter in FILTERS"
+          :key="filter.value"
+          type="button"
+          class="shrink-0 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors"
+          :class="activeFilter === filter.value ? 'bg-accent text-white' : 'bg-surface text-text-muted'"
+          @click="activeFilter = filter.value"
+        >
+          {{ filter.label }}
+        </button>
+      </div>
 
-      <section class="flex flex-col gap-3 px-5">
-        <SectionHeader title="Acesso rápido" />
-        <div class="grid grid-cols-4 gap-2.5">
-          <StatTile v-for="link in quickLinks" :key="link.to" :to="link.to" :icon="link.icon" :label="link.label" />
-        </div>
-      </section>
+      <p v-if="isLoading" class="px-5 text-center text-sm text-text-faint">Carregando…</p>
 
-      <section class="flex flex-col gap-3 px-5">
-        <SectionHeader title="Avisos do grupo" />
+      <div v-else-if="feedItems.length === 0" class="px-5">
+        <EmptyState icon="compass" message="Nada por aqui ainda com esse filtro." />
+      </div>
 
-        <div v-if="visibleAnnouncements.length > 0" class="flex flex-col gap-3">
-          <article
-            v-for="announcement in visibleAnnouncements"
-            :key="announcement.id"
-            class="flex gap-3 rounded-card-lg bg-surface p-4"
-          >
-            <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent">
-              <AppIcon name="megaphone" :size="16" />
-            </span>
-            <div class="min-w-0">
-              <h3 class="text-sm font-semibold text-text">{{ announcement.title }}</h3>
-              <p class="mt-0.5 text-xs text-text-muted">{{ announcement.body }}</p>
-            </div>
-          </article>
-        </div>
-        <EmptyState v-else-if="!isLoading" icon="megaphone" message="Nenhum aviso publicado no momento." />
+      <section v-else class="flex flex-col gap-4 px-5">
+        <FeedCard
+          v-for="item in feedItems"
+          :key="item.key"
+          :icon="item.icon"
+          :badge="item.badge"
+          :title="item.title"
+          :meta="item.meta"
+          :subtitle="item.subtitle"
+          :to="item.to"
+        />
       </section>
     </template>
   </div>
