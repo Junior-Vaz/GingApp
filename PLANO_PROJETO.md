@@ -2619,3 +2619,58 @@ capoeira, não aparecia em lugar nenhum da tela que existe pra mostrar exatament
    `v-if` escondeu a seção corretamente, sem erro).
 3. Não foi criado nenhum backfill de dados pra esta etapa — as cores já existiam no banco desde
    antes (provavelmente do seed original do projeto, nunca tocadas nesta sessão).
+
+### 10.30 Timeline da Jornada refeita no estilo de referência (grande, data à esquerda, linha tracejada)
+
+**Data:** 2026-09-17 · **Status:** ✅ concluído. Logo após o §10.29, o owner colou um print de
+referência (app de reserva de voos, listagem de horários com foto circular, linha vertical
+tracejada com pontos laranja, data à esquerda) e pediu:
+
+> "que tal a timeline, numa listagem de linha do tempo mesmo assim. so que maior bem grande mesmo
+> de cima a baixo ta tela toda."
+
+Ou seja: manter o conceito de timeline vertical do §10.29 (isso já estava certo — ele só quis
+mais um ajuste de estilo, não uma reformulação), mas no layout específico da referência
+(data à esquerda da linha, não à direita) e com escala bem maior (item bem mais alto/espaçado,
+enchendo a tela toda com poucos itens, como no print).
+
+#### O que mudou
+
+- **Data movida pra esquerda da linha** (era à direita do conteúdo no §10.29): agora um grid de 3
+  colunas (`grid-cols-[2.75rem_2rem_1fr]`) — data | trilho da linha | conteúdo. Data em duas
+  linhas empilhadas (mês abreviado maiúsculo + ano), duas novas funções `formatMonthShort`/
+  `formatYear` (a antiga `formatDate` combinava as duas num string só, virou código morto e foi
+  removida).
+- **Escala bem maior**: círculo do ícone foi de 36px (`h-9 w-9`) pra 56px (`h-14 w-14`); espaço
+  vertical entre itens foi de `pb-5` (1.25rem) pra `pb-9` (2.25rem). Com isso, poucos itens (2-3)
+  já ocupam a maior parte da tela, igual ao print de referência (5 itens enchendo a tela toda).
+  Também tirado o `bg-surface p-4` que envolvia a lista inteira (rounded-card-lg) — a referência
+  não tem esse container, a timeline "respira" direto contra o fundo da página.
+- **Ponto na linha**: pequeno círculo colorido (cor da graduação) com um anel `ring-4 ring-surface`
+  ao redor, criando o efeito de "furar" a linha tracejada — mesmo efeito visual do ponto laranja
+  destacado do print.
+- **Contraste do ícone resolvido com heurística de luminância**: como agora o círculo é bem maior
+  e mais protagonista (parecido com a foto circular do print), o ícone precisa de contraste
+  garantido em cima de QUALQUER cor de graduação — nova função `readableIconColor(hex)` calcula
+  luminância relativa simplificada (sem correção gama, threshold 0.75) e escolhe ícone escuro
+  (`#16181d`) ou branco (`#ffffff`). Testado com as 3 cores reais do banco: "Crua" `#e5e5e5`
+  (luminância ~0.9) → ícone escuro; "Verde" `#22c55e` (~0.61) e "Azul" `#3b82f6` (~0.48) → ícone
+  branco. Substitui a abordagem do §10.29 (anel colorido em fundo branco), que evitava o problema
+  de contraste em vez de resolvê-lo — não dava mais pra usar essa abordagem com um círculo grande
+  e preenchido como o do print.
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build` — pegou e corrigiu um `formatDate` órfão depois da
+   troca pras duas funções novas).
+2. **Validação ao vivo no navegador com 2 e com 3 itens**: com as 2 graduações reais do aluno de
+   teste (Crua/Azul), confirma visual igual à referência. Pra testar o caso de 3 nós (a
+   referência tem 5), inserida temporariamente uma 3ª `StudentGraduation` de teste ("Verde",
+   entre as duas datas reais, via `psql` direto — precisou descobrir por tentativa que
+   `StudentGraduation` exige `organizationId` e não tem coluna `updatedAt`, diferente do que eu
+   assumi de início) — confirmado visualmente que o ícone da "Verde" ficou branco (contraste
+   correto) e a linha tracejada conecta os 3 nós corretamente. **Registro de disciplina de dados**
+   (mesmo padrão do §10.22/§10.23/§10.28): linha de teste **removida** via `psql` (`DELETE ... WHERE
+   id = 17`) logo depois da validação — não é backfill permanente, era só pra ver 3 nós na tela.
+3. Não foram tocados: card "Graduação atual" (o pedido era só sobre a timeline), certificados,
+   lógica de dados/API.

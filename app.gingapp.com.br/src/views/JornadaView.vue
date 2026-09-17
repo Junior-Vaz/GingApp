@@ -76,10 +76,29 @@ const currentGraduation = computed<StudentGraduation | null>(() => graduations.v
 // Timeline exibida em ordem cronológica crescente (mais antiga primeiro).
 const timeline = computed<StudentGraduation[]>(() => [...graduations.value].reverse())
 
-function formatDate(iso: string): string {
-  // timeZone: 'UTC': graduatedAt vem do painel via <input type="date"> (meia-noite UTC) —
-  // sem forçar UTC, um fuso negativo pode até mostrar o mês errado perto da virada do mês.
-  return new Date(iso).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric', timeZone: 'UTC' })
+// Data da timeline em duas linhas (mês/ano empilhados), como na referência do owner.
+// timeZone: 'UTC': graduatedAt vem do painel via <input type="date"> (meia-noite UTC) — sem
+// forçar UTC, um fuso negativo pode até mostrar o mês errado perto da virada do mês.
+function formatMonthShort(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', { month: 'short', timeZone: 'UTC' }).replace('.', '')
+}
+
+function formatYear(iso: string): string {
+  return new Date(iso).toLocaleDateString('pt-BR', { year: 'numeric', timeZone: 'UTC' })
+}
+
+// Heurística simples de luminância pra decidir ícone claro/escuro em cima da cor da graduação —
+// necessário porque as cores das cordas variam livremente (ex.: "Crua" é quase branca, #e5e5e5,
+// onde um ícone branco ficaria ilegível; "Azul"/"Verde" já são escuras o bastante pro branco).
+function readableIconColor(hex: string | null): string {
+  if (!hex) return '#ffffff'
+  const clean = hex.replace('#', '')
+  if (clean.length !== 6) return '#ffffff'
+  const r = parseInt(clean.slice(0, 2), 16) / 255
+  const g = parseInt(clean.slice(2, 4), 16) / 255
+  const b = parseInt(clean.slice(4, 6), 16) / 255
+  const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+  return luminance > 0.75 ? '#16181d' : '#ffffff'
 }
 
 function formatCertificateDate(iso: string | null): string {
@@ -137,32 +156,42 @@ onMounted(async () => {
       </section>
       <EmptyState v-else-if="!isLoading" icon="graduation" message="Nenhuma graduação registrada ainda." />
 
-      <section v-if="timeline.length > 0" class="flex flex-col gap-3">
+      <section v-if="timeline.length > 0" class="flex flex-col gap-1">
         <SectionHeader title="Linha do tempo" />
-        <ol class="flex flex-col rounded-card-lg bg-surface p-4">
+        <ol class="flex flex-col">
           <li
             v-for="(grad, index) in timeline"
             :key="grad.id"
-            class="animate-rise flex gap-3"
-            :class="index === timeline.length - 1 ? '' : 'pb-5'"
-            :style="{ animationDelay: `${index * 60}ms` }"
+            class="animate-rise grid grid-cols-[2.75rem_2rem_1fr] gap-2"
+            :class="index === timeline.length - 1 ? '' : 'pb-9'"
+            :style="{ animationDelay: `${index * 70}ms` }"
           >
+            <div class="pt-2 text-right">
+              <p class="text-xs font-bold uppercase text-text">{{ formatMonthShort(grad.graduatedAt) }}</p>
+              <p class="text-[10px] font-medium text-text-faint">{{ formatYear(grad.graduatedAt) }}</p>
+            </div>
+
             <div class="flex flex-col items-center">
               <span
-                class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-[3px] bg-surface"
-                :style="{ borderColor: grad.graduationLevel.color ?? 'var(--color-accent)' }"
-              >
-                <AppIcon name="graduation" :size="15" :style="{ color: grad.graduationLevel.color ?? 'var(--color-accent)' }" />
-              </span>
-              <span v-if="index < timeline.length - 1" class="mt-1 w-0.5 flex-1 bg-border" />
+                class="mt-3 h-3 w-3 shrink-0 rounded-full ring-4 ring-surface"
+                :style="{ backgroundColor: grad.graduationLevel.color ?? 'var(--color-accent)' }"
+              />
+              <span v-if="index < timeline.length - 1" class="mt-1 w-0 flex-1 border-l-2 border-dashed border-border" />
             </div>
-            <div class="min-w-0 flex-1 pt-1">
-              <div class="flex items-start justify-between gap-2">
-                <div class="min-w-0">
-                  <p class="text-sm font-semibold text-text">{{ grad.graduationLevel.name }}</p>
-                  <p v-if="grad.notes" class="mt-0.5 truncate text-xs text-text-faint">{{ grad.notes }}</p>
-                </div>
-                <span class="shrink-0 text-xs font-medium text-text-muted">{{ formatDate(grad.graduatedAt) }}</span>
+
+            <div class="flex items-center gap-3 pb-1">
+              <span
+                class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full shadow-sm"
+                :style="{
+                  backgroundColor: grad.graduationLevel.color ?? 'var(--color-accent)',
+                  color: readableIconColor(grad.graduationLevel.color),
+                }"
+              >
+                <AppIcon name="graduation" :size="24" />
+              </span>
+              <div class="min-w-0">
+                <p class="text-base font-semibold text-text">{{ grad.graduationLevel.name }}</p>
+                <p v-if="grad.notes" class="mt-0.5 truncate text-xs text-text-muted">{{ grad.notes }}</p>
               </div>
             </div>
           </li>
