@@ -2880,3 +2880,27 @@ folga pra qualquer heading futuro que use `font-extrabold`, ainda não usado).
    (400/500/600/700) com `status: "loaded"` de verdade, não só declarados no CSS — a fonte
    carregou e está sendo usada, não caiu num fallback silencioso. Visualmente, texto do app com as
    terminações arredondadas características da Nunito, nitidamente diferente da Inter anterior.
+
+### 10.35 Fonte da saudação trocada de Caveat pra Fraunces (serifada)
+
+**Data:** 2026-09-18 · **Status:** ✅ concluído. Pedido do owner: "quero outra fonte no Ola! ana" —
+sem especificar qual, então perguntado via `AskUserQuestion` (decisão de estilo, owner escolhe):
+4 opções (Fraunces serifada elegante, Playfair Display serifada clássica, Quicksand rounded
+display, Pacifico script alternativa). Escolhido **Fraunces** (a opção recomendada).
+
+- `--font-display` trocado de `"Caveat", "Segoe Script", cursive` pra `"Fraunces", "Georgia",
+  serif` — `@import` do Google Fonts atualizado (`Caveat` removida, `Fraunces:ital,wght@1,500;
+  1,600;1,700` adicionada; só pesos itálicos, a única variação usada). `HomeView.vue`: `h1` da
+  saudação ganhou as classes `italic font-semibold` (antes não precisava de `italic` explícito
+  porque a Caveat já é inerentemente inclinada; a Fraunces é uma família com estilo reto E itálico
+  separados, e só carregamos o itálico — sem a classe, o texto cairia no fallback serif do
+  navegador por não achar nenhuma face reta da Fraunces).
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`).
+2. **Validação ao vivo no navegador**: `getComputedStyle` do `h1` confirma `fontFamily: "Fraunces,
+   Georgia, serif"`, `fontStyle: "italic"`, `fontWeight: "600"`; `document.fonts` confirma a face
+   itálica 600 com `status: "loaded"` de verdade. Visualmente, "Olá, Ana" agora numa serifada
+   elegante e inclinada, nitidamente diferente tanto da Nunito do resto do app quanto da Caveat
+   script anterior.

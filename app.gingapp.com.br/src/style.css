@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Nunito:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@1,500;1,600;1,700&family=Nunito:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
 
 /*
@@ -43,11 +43,14 @@
   --radius-card-lg: 1.5rem; /* ~24px */
 
   /* fonte principal do app — pedido do owner: "mude a fonte para nunito" (carregada via Google
-   * Fonts no @import do topo do arquivo, junto com a Caveat). */
+   * Fonts no @import do topo do arquivo, junto com a Fraunces). */
   --font-sans: "Nunito", "Segoe UI", system-ui, -apple-system, sans-serif;
-  /* fonte só pra saudação da Home — deliberadamente diferente da sans do resto do app
-   * (pedido do owner: "a fonte do ola ana e diferente uma fonte bonita") */
-  --font-display: "Caveat", "Segoe Script", cursive;
+  /* fonte só pra saudação da Home — deliberadamente diferente da sans do resto do app. Era Caveat
+   * (script), trocada pra Fraunces (serifada) a pedido do owner. Só carregamos o peso itálico
+   * (o único usado, em HomeView.vue) — o texto PRECISA da classe `italic` do Tailwind pra pegar
+   * a face certa; sem ela, cai no fallback serif do navegador (nenhuma face reta da Fraunces foi
+   * carregada). */
+  --font-display: "Fraunces", "Georgia", serif;
 
   /* curva de easing única pra toda animação "fluida" do app (nav, tabs, entrada de card) —
    * pedido do owner por "mais fluidez e animações melhores"; um ease-out suave, não o linear/
