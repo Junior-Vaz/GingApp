@@ -2904,3 +2904,29 @@ display, Pacifico script alternativa). Escolhido **Fraunces** (a opção recomen
    itálica 600 com `status: "loaded"` de verdade. Visualmente, "Olá, Ana" agora numa serifada
    elegante e inclinada, nitidamente diferente tanto da Nunito do resto do app quanto da Caveat
    script anterior.
+
+### 10.36 Fonte da saudação trocada de Fraunces pra Sedgwick Ave
+
+**Data:** 2026-09-18 · **Status:** ✅ concluído. Owner pediu direto, com o nome exato da fonte:
+"poe essa fonte: Sedgwick Ave" — 3ª troca da fonte da saudação da Home nesta sessão (Caveat →
+Fraunces §10.35 → Sedgwick Ave agora), cada vez só trocando o token/import, nunca o resto do
+design (o `h1` continua isolado do restante do app via `--font-display`, então trocar de novo é
+barato).
+
+- `@import` do Google Fonts: `Fraunces` trocada por `Sedgwick+Ave` (família só com peso Regular
+  400, sem itálico nem negrito — confirmado na página da fonte antes de usar, mesma disciplina de
+  verificar antes de aplicar já usada nesta sessão pra imagens).
+  `--font-display: "Sedgwick Ave", "Segoe Script", cursive`.
+- **`HomeView.vue`**: classes `italic font-semibold` **removidas** do `h1` da saudação — eram
+  necessárias especificamente pra Fraunces (família com faces reta/itálica separadas, só a
+  itálica carregada). Sedgwick Ave só tem um peso/estilo; pedir itálico ou negrito que a família
+  não tem faria o navegador **sintetizar** um itálico/negrito falso (distorcendo os traços,
+  especialmente ruim em fonte manuscrita) em vez de simplesmente não aplicar.
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`).
+2. **Validação ao vivo no navegador**: `getComputedStyle` do `h1` confirma `fontFamily:
+   "\"Sedgwick Ave\", \"Segoe Script\", cursive"`, `fontStyle: "normal"`, `fontWeight: "400"`;
+   `document.fonts` confirma a face normal/400 com `status: "loaded"`. Visualmente, "Olá, Ana"
+   numa manuscrita mais informal/despojada que a Fraunces anterior.

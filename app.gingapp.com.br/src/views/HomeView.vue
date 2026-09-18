@@ -156,7 +156,7 @@ onMounted(async () => {
           <p class="text-xs font-semibold uppercase tracking-wide text-text-muted">
             {{ auth.user?.organizationName ?? 'Seu grupo' }}
           </p>
-          <h1 class="font-display italic font-semibold text-4xl leading-tight text-accent">
+          <h1 class="font-display text-4xl leading-tight text-accent">
             Olá, {{ auth.user?.name?.split(' ')[0] ?? 'capoeirista' }}
           </h1>
         </div>
