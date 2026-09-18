@@ -162,8 +162,7 @@ onMounted(async () => {
           <li
             v-for="(grad, index) in timeline"
             :key="grad.id"
-            class="animate-rise grid grid-cols-[2.75rem_2rem_1fr] gap-2"
-            :class="index === timeline.length - 1 ? '' : 'pb-9'"
+            class="animate-rise grid grid-cols-[2.5rem_1.5rem_1fr] items-stretch gap-1"
             :style="{ animationDelay: `${index * 70}ms` }"
           >
             <div class="pt-2 text-right">
@@ -173,13 +172,20 @@ onMounted(async () => {
 
             <div class="flex flex-col items-center">
               <span
-                class="mt-3 h-3 w-3 shrink-0 rounded-full ring-4 ring-surface"
+                class="mt-3.5 h-3.5 w-3.5 shrink-0 rounded-full ring-4 ring-bg"
                 :style="{ backgroundColor: grad.graduationLevel.color ?? 'var(--color-accent)' }"
               />
-              <span v-if="index < timeline.length - 1" class="mt-1 w-0 flex-1 border-l-2 border-dashed border-border" />
+              <!-- A linha precisa preencher a MESMA altura do bloco de conteúdo ao lado (que tem
+              o pb-9 de espaçamento entre itens) — se o espaçamento ficasse só no <li>, fora do
+              grid, a linha (flex-1 dentro da célula do grid) pararia bem antes do próximo ponto,
+              deixando um vão sem conexão visual (bug relatado pelo owner: "a linha do tempo
+              ainda não ficou bem desenhada"). Com o padding-bottom DENTRO da coluna de conteúdo,
+              o grid (items-stretch) estica as 3 colunas pra mesma altura, e a linha (flex-1)
+              cresce até encostar no próximo ponto de verdade. -->
+              <span v-if="index < timeline.length - 1" class="mt-0.5 w-0.5 flex-1 rounded-full bg-border" />
             </div>
 
-            <div class="flex items-center gap-3 pb-1">
+            <div class="flex items-center gap-3" :class="index === timeline.length - 1 ? '' : 'pb-9'">
               <span
                 class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full shadow-sm"
                 :style="{

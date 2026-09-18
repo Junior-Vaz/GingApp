@@ -2762,3 +2762,55 @@ aceita `null` explícito pra "apagar". Mesma limitação de design já presente 
 `Event.imageUrl` desde o §10.22, agora também em `Student.photo`/`coverPhoto`/`socialLinks` — se
 virar um problema real de uso, precisa de um tratamento explícito de "limpar campo" (ex.: string
 vazia tratada como null no service, em vez de omitida no payload).
+
+### 10.32 Correção: a linha conectora da timeline parava antes do próximo ponto
+
+**Data:** 2026-09-18 · **Status:** ✅ concluído. Owner colou um print zoomado da própria timeline
+(§10.30) e apontou: "a linha do tempo ainda não ficou bem desenhada" — feedback direto sobre o que
+já tinha sido entregue, não um novo pedido.
+
+#### Causa raiz (achada por medição de pixel, não só olhando)
+
+Reproduzido no navegador e medido via `getBoundingClientRect()` (não só visual — a screenshot
+sozinha não deixava claro *por que* estava ruim): a linha tracejada conectora **parava ~50px antes
+do próximo ponto**, deixando um vão sem conexão visual — e o ponto em si tinha um `ring-4
+ring-surface` (branco) sobre um fundo `bg-bg` (cinza claro), criando uma pequena mancha
+desalinhada de cor ao redor de cada nó.
+
+**Causa:** o espaçamento vertical entre itens (`pb-9`) estava no `<li>` (fora do grid), enquanto a
+linha conectora (`flex-1` dentro da coluna do ponto) só cresce até preencher a altura da PRÓPRIA
+linha do grid — que é definida pela altura do conteúdo mais alto entre as 3 colunas daquela linha
+(o círculo de 56px), **sem incluir o padding do `<li>`**, que fica fora da área que o CSS Grid
+estica (`align-items: stretch` estica só as células da grid-row, não o padding do elemento pai).
+Resultado: a linha crescia só dentro do círculo de conteúdo (~40-50px) e o `pb-9` (36px) inteiro
+ficava sem nada desenhado — daí o vão.
+
+#### Correção
+
+1. **Espaçamento movido pra dentro da coluna de conteúdo**: `pb-9` saiu do `<li>` e entrou na div
+   do círculo+texto (`:class="index === timeline.length - 1 ? '' : 'pb-9'"`); adicionado
+   `items-stretch` explícito no grid do `<li>`. Com isso, a coluna de conteúdo fica mais alta (ela
+   mesma incorpora o espaçamento), o grid estica as OUTRAS colunas (data, ponto/linha) pra
+   acompanhar essa altura maior, e a linha (`flex-1`) agora cresce até encostar de verdade no
+   próximo ponto — medido depois da correção: vão residual de ~14px (só a folga do próprio anel
+   `ring-4`), contra ~50px antes.
+2. **Linha tracejada → linha sólida**: `border-l-2 border-dashed` trocado por `w-0.5 rounded-full
+   bg-border` — bordas tracejadas em traços de 2px renderizam de forma inconsistente/apagada entre
+   navegadores (o "dash" fica curto demais pra ler como linha contínua); uma barra sólida fina é
+   mais previsível e ficou mais nítida.
+3. **`ring-surface` → `ring-bg`**: o anel ao redor do ponto agora usa a cor real do fundo da
+   página (`--color-bg`, cinza clarinho) em vez de branco puro — antes criava uma mancha branca
+   destacada sobre um fundo que não é branco (a timeline não tem mais o container `bg-surface` que
+   envolvia tudo, removido no próprio §10.30).
+4. Colunas um pouco mais compactas (`grid-cols-[2.5rem_1.5rem_1fr]`, `gap-1` em vez do `gap-2`
+   anterior) — reduz o vão horizontal entre a data e o ponto, que também contribuía pra sensação de
+   "desenho solto".
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`).
+2. **Medição de pixel antes/depois** via `javascript_tool` (`getBoundingClientRect` do ponto e da
+   linha) — não só uma inspeção visual, confirma numericamente que o vão fechou (~50px → ~14px).
+3. **Validação visual com 2 e 3 nós** (3º inserido temporariamente via `psql`, mesmo procedimento
+   do §10.30, removido logo depois — não é backfill permanente): linha contínua conectando os 3
+   pontos sem quebra, cores de cada corda corretas no anel/linha intermediária.
