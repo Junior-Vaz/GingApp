@@ -2857,3 +2857,26 @@ qualquer organização, sempre suavizando na mesma medida, sem alterar o dado em
    via `psql`, removida depois de conferir visualmente): tom sage suave em vez do verde vívido
    original, claramente ainda reconhecível como verde. "Crua" (já quase branca) sem mudança visual
    perceptível, como esperado.
+
+### 10.34 Fonte principal trocada para Nunito
+
+**Data:** 2026-09-18 · **Status:** ✅ concluído. Pedido do owner: "mude a fonte para nunito,
+https://fonts.google.com/specimen/Nunito".
+
+`--font-sans` (token usado em todo o app, exceto a saudação da Home que usa `--font-display`/
+Caveat desde o §10.25) trocado de `"Inter"` pra `"Nunito"`. **Achado**: `Inter` nunca tinha sido
+carregada de verdade via `@import`/`<link>` — o token só citava o nome e dependia do navegador ter
+a fonte instalada no sistema (fallback silencioso pra `Segoe UI`/`system-ui` quando não tinha).
+Pra Nunito não cair na mesma armadilha, adicionada de verdade ao `@import` do Google Fonts que já
+existia pra Caveat (`family=Nunito:wght@400;500;600;700;800` — os 4 primeiros pesos cobrem todo
+uso real de `font-medium`/`font-semibold`/`font-bold` no app, confirmado por grep; 800 incluído de
+folga pra qualquer heading futuro que use `font-extrabold`, ainda não usado).
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`), `Nunito` confirmada no CSS gerado.
+2. **Validação ao vivo no navegador**: `getComputedStyle(document.body).fontFamily` confirma
+   `"Nunito, ..."` aplicado; `document.fonts` (Font Loading API) confirma os 4 pesos usados
+   (400/500/600/700) com `status: "loaded"` de verdade, não só declarados no CSS — a fonte
+   carregou e está sendo usada, não caiu num fallback silencioso. Visualmente, texto do app com as
+   terminações arredondadas características da Nunito, nitidamente diferente da Inter anterior.
