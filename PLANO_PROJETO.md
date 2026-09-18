@@ -2814,3 +2814,46 @@ ficava sem nada desenhado — daí o vão.
 3. **Validação visual com 2 e 3 nós** (3º inserido temporariamente via `psql`, mesmo procedimento
    do §10.30, removido logo depois — não é backfill permanente): linha contínua conectando os 3
    pontos sem quebra, cores de cada corda corretas no anel/linha intermediária.
+
+### 10.33 Cores das graduações mais fracas — mistura com branco, não edição do dado cadastrado
+
+**Data:** 2026-09-18 · **Status:** ✅ concluído. Pedido do owner: "deixe as cores das graduações
+mais fracas" — mesmo espírito do §10.25 ("os tons verdes to achando muito forte, quero mais
+fraco"), agora sobre as cores de `GraduationLevel.color` (Crua `#e5e5e5`, Verde `#22c55e`, Azul
+`#3b82f6`) usadas no card de destaque e nos círculos da timeline da Jornada desde o §10.29.
+
+#### Decisão: suavizar na exibição, não editar o dado cadastrado
+
+Diferente do `--color-accent` do §10.25 (um token de tema do app, sem dono "de fora"), a cor de
+uma `GraduationLevel` é **dado da organização** — representa a cor real da corda no sistema de
+graduação daquele grupo de capoeira, editável pelo painel. Editar o valor cadastrado deixaria de
+representar a cor real da corda, e só resolveria pras 3 graduações do seed atual — qualquer outra
+organização que cadastrasse cores vívidas continuaria vendo cores fortes. Em vez disso, criada
+**`softenColor(hex)`**: mistura a cor cadastrada com 35% de branco (mesma proporção pra qualquer
+cor de entrada — não é um valor por-cor hardcoded), então funciona igual pra cor cadastrada por
+qualquer organização, sempre suavizando na mesma medida, sem alterar o dado em si.
+
+#### O que foi construído
+
+- `softenColor()`: mistura RGB canal-a-canal (`valor*0.65 + 255*0.35`), devolve hex. Aplicada nos
+  3 lugares que usam `graduationLevel.color` como `backgroundColor`: card "Graduação atual", ponto
+  pequeno da timeline, círculo de 56px da timeline.
+- **`readableIconColor()` passou a receber a cor JÁ suavizada**, não a crua — a decisão de
+  ícone claro/escuro tem que bater com a cor de verdade renderizada na tela. Recalculado: Verde
+  suavizado (`~#6fd996`) e Azul suavizado (`~#80aef9`) continuam com luminância abaixo do limiar
+  de 0.75 → ícone branco continua correto; Crua suavizada (`~#eeeeee`) continua acima do limiar →
+  ícone escuro continua correto. Nenhuma das 3 graduações do seed mudou de lado do limiar depois
+  de suavizar, mas o cálculo agora está correto pra qualquer cor que uma organização cadastre no
+  futuro (uma cor mais vívida poderia cruzar o limiar depois de suavizada, e a versão anterior
+  teria calculado errado).
+
+#### Validação empírica
+
+1. Build limpo (`vue-tsc -b && vite build`).
+2. **Validação ao vivo no navegador**: "Azul" suavizado (`#3b82f6` → tom periwinkle mais claro) no
+   card de destaque e na timeline, texto branco ainda legível (o filtro escuro do card e a lógica
+   de contraste do círculo continuam garantindo isso independente de quão clara a cor suavizada
+   fique). "Verde" testado com uma 3ª graduação temporária (mesmo procedimento de sempre — inserida
+   via `psql`, removida depois de conferir visualmente): tom sage suave em vez do verde vívido
+   original, claramente ainda reconhecível como verde. "Crua" (já quase branca) sem mudança visual
+   perceptível, como esperado.

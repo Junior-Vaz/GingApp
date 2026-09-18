@@ -87,9 +87,31 @@ function formatYear(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { year: 'numeric', timeZone: 'UTC' })
 }
 
+// "Deixe as cores das graduações mais fracas" (pedido do owner, PLANO_PROJETO.md §10.33) — as
+// cores cadastradas em GraduationLevel.color são as cores reais das cordas (podem ser bem vívidas,
+// ex.: #22c55e), mas usadas em blocos grandes (card de destaque, círculo de 56px) ficam fortes
+// demais. Em vez de editar a cor cadastrada (que é dado da organização, deveria continuar
+// representando a cor real da corda no cadastro), a tela mistura a cor com branco na hora de
+// EXIBIR — sempre a mesma proporção, então funciona pra qualquer cor que uma organização cadastre,
+// não só pras 3 do seed atual.
+function softenColor(hex: string | null): string | null {
+  if (!hex) return null
+  const clean = hex.replace('#', '')
+  if (clean.length !== 6) return hex
+  const whiteMix = 0.35
+  const channel = (start: number, end: number): number => {
+    const value = parseInt(clean.slice(start, end), 16)
+    return Math.round(value * (1 - whiteMix) + 255 * whiteMix)
+  }
+  const toHex = (value: number): string => value.toString(16).padStart(2, '0')
+  return `#${toHex(channel(0, 2))}${toHex(channel(2, 4))}${toHex(channel(4, 6))}`
+}
+
 // Heurística simples de luminância pra decidir ícone claro/escuro em cima da cor da graduação —
 // necessário porque as cores das cordas variam livremente (ex.: "Crua" é quase branca, #e5e5e5,
 // onde um ícone branco ficaria ilegível; "Azul"/"Verde" já são escuras o bastante pro branco).
+// Recebe sempre a cor já suavizada (softenColor) — a decisão de contraste tem que bater com a cor
+// de verdade renderizada na tela, não com a cor crua do cadastro.
 function readableIconColor(hex: string | null): string {
   if (!hex) return '#ffffff'
   const clean = hex.replace('#', '')
@@ -143,7 +165,7 @@ onMounted(async () => {
       <section
         v-if="currentGraduation"
         class="relative flex items-center gap-4 overflow-hidden rounded-card-lg p-5 text-white shadow-md"
-        :style="{ backgroundColor: currentGraduation.graduationLevel.color ?? 'var(--color-accent)' }"
+        :style="{ backgroundColor: softenColor(currentGraduation.graduationLevel.color) ?? 'var(--color-accent)' }"
       >
         <div class="absolute inset-0 bg-black/30" />
         <span class="relative z-10 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/20">
@@ -173,7 +195,7 @@ onMounted(async () => {
             <div class="flex flex-col items-center">
               <span
                 class="mt-3.5 h-3.5 w-3.5 shrink-0 rounded-full ring-4 ring-bg"
-                :style="{ backgroundColor: grad.graduationLevel.color ?? 'var(--color-accent)' }"
+                :style="{ backgroundColor: softenColor(grad.graduationLevel.color) ?? 'var(--color-accent)' }"
               />
               <!-- A linha precisa preencher a MESMA altura do bloco de conteúdo ao lado (que tem
               o pb-9 de espaçamento entre itens) — se o espaçamento ficasse só no <li>, fora do
@@ -189,8 +211,8 @@ onMounted(async () => {
               <span
                 class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full shadow-sm"
                 :style="{
-                  backgroundColor: grad.graduationLevel.color ?? 'var(--color-accent)',
-                  color: readableIconColor(grad.graduationLevel.color),
+                  backgroundColor: softenColor(grad.graduationLevel.color) ?? 'var(--color-accent)',
+                  color: readableIconColor(softenColor(grad.graduationLevel.color)),
                 }"
               >
                 <AppIcon name="graduation" :size="24" />
