@@ -1,102 +1,48 @@
-import { fileURLToPath, URL } from 'node:url'
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import tailwindcss from '@tailwindcss/vite'
-import { VitePWA } from 'vite-plugin-pwa'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
+import { VitePWA } from "vite-plugin-pwa";
 
-// https://vite.dev/config/
+// SPA estática: `vite build` gera dist/ servível por nginx (sem SSR/Nitro).
 export default defineConfig({
   plugins: [
-    vue(),
+    tanstackRouter({ target: "react", autoCodeSplitting: true }),
+    react(),
     tailwindcss(),
     VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'icons/apple-touch-icon.png'],
+      strategies: "generateSW",
+      filename: "sw.js",
+      registerType: "autoUpdate",
+      injectRegister: null,
+      devOptions: { enabled: false },
       manifest: {
-        name: 'GingApp',
-        short_name: 'GingApp',
-        description: 'PWA do Capoeirista — acompanhe sua jornada, aulas e comunidade.',
-        start_url: '/app',
-        scope: '/',
-        display: 'standalone',
-        orientation: 'portrait',
-        // Tema claro do app (PLANO_PROJETO.md §10.19) — mesmas cores usadas no
-        // Tailwind (src/style.css @theme: --color-bg / --color-accent).
-        background_color: '#f4f5f7',
-        theme_color: '#f4f5f7',
-        lang: 'pt-BR',
+        name: "GingApp — A plataforma que conecta a capoeira",
+        short_name: "GingApp",
+        id: "/",
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+        lang: "pt-BR",
+        theme_color: "#164d38",
+        background_color: "#f7f9f7",
         icons: [
-          {
-            src: '/icons/icon-192.png',
-            sizes: '192x192',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: '/icons/icon-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'any',
-          },
-          {
-            src: '/icons/maskable-icon-512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable',
-          },
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
-        // Rota sensível (financeiro): nunca serve o app-shell do cache para
-        // essa navegação — força ida à rede, mesmo offline-first no resto do
-        // app (PLANO_PROJETO.md §6: "dados sensíveis sempre online").
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/app\/financeiro/],
-        runtimeCaching: [
-          {
-            // Endpoints financeiros: nunca cacheados.
-            urlPattern: /\/api\/finance(\/|$)/,
-            handler: 'NetworkOnly',
-          },
-          {
-            // Demais chamadas de API: tenta rede, cai para cache curto se offline.
-            urlPattern: /\/api\//,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'gingapp-api-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 5, // 5 minutos
-              },
-              networkTimeoutSeconds: 5,
-            },
-          },
-          {
-            // Imagens (fotos de rodas/eventos etc.): cache leve, revalida em segundo plano.
-            urlPattern: ({ request }) => request.destination === 'image',
-            handler: 'StaleWhileRevalidate',
-            options: {
-              cacheName: 'gingapp-images-cache',
-              expiration: {
-                maxEntries: 60,
-                maxAgeSeconds: 60 * 60 * 24 * 7, // 7 dias
-              },
-            },
-          },
-        ],
-      },
-      devOptions: {
-        enabled: false,
+        // Só shell e assets estáticos entram no precache.
+        globPatterns: ["**/*.{js,css,html,png,jpg,svg,woff2,woff}"],
+        // Navegações caem no shell (SPA) - exceto chamadas de API e QR públicos servidos pela API.
+        navigateFallback: "/index.html",
+        navigateFallbackDenylist: [/^\/api\//],
+        cleanupOutdatedCaches: true,
+        // Sem runtimeCaching: respostas da API (/api/) NUNCA são cacheadas pelo service worker.
+        runtimeCaching: [],
       },
     }),
   ],
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
-  },
-  server: {
-    port: 4173,
-  },
-})
+  resolve: { tsconfigPaths: true },
+  build: { outDir: "dist", sourcemap: false },
+});

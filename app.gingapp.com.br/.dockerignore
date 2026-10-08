@@ -1,9 +1,7 @@
 node_modules
 dist
-dist-ssr
-dev-dist
-.git
 .env
 .env.*
 !.env.example
 *.log
+.git

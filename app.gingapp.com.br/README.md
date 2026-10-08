@@ -1,5 +1,17 @@
-# Vue 3 + TypeScript + Vite
+# GingApp - app do aluno
 
-This template should help get you started developing with Vue 3 and TypeScript in Vite. The template uses Vue 3 `<script setup>` SFCs, check out the [script setup docs](https://v3.vuejs.org/api/sfc-script-setup.html#sfc-script-setup) to learn more.
+SPA estática (Vite + React 19 + TanStack Router/Query + shadcn + Tailwind 4) que consome a API NestJS.
+Substitui o app Vue anterior de `app.gingapp.com.br`.
 
-Learn more about the recommended Project Setup and IDE Support in the [Vue Docs TypeScript Guide](https://vuejs.org/guide/typescript/overview.html#project-setup).
+```sh
+npm install
+cp .env.example .env     # ajuste VITE_API_URL
+npm run dev              # http://localhost:5173
+npm run build            # gera dist/ (servível por nginx)
+npm run lint && npm test
+```
+
+- `VITE_API_URL` (build-time) aponta para a API (padrão `http://localhost:3000/api`).
+- Sessão em `localStorage` (`mb_token` / `mb_user`); 401 limpa a sessão e volta ao `/login`.
+- PWA: o service worker só cacheia shell e assets, nunca `/api/`.
+- Docker: `docker build --build-arg VITE_API_URL=https://api.gingapp.com.br/api -t gingapp-app .`

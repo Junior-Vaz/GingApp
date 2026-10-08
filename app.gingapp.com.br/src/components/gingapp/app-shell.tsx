@@ -1,0 +1,217 @@
+import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
+import {
+  House,
+  Route,
+  CalendarDays,
+  ChartNoAxesColumnIncreasing,
+  Wallet,
+  Users,
+  CircleDot,
+  Bell,
+  UserRound,
+  MapPin,
+  ChevronRight,
+  Download,
+  Sprout,
+  Heart,
+  Menu,
+  LogOut,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { logout } from "@/lib/auth";
+import { initials } from "@/lib/format";
+import { useSessionUser } from "@/lib/session";
+import { useNotifications, usePassport } from "@/lib/queries";
+
+const mainNav = [
+  { to: "/", label: "Início", icon: House },
+  { to: "/jornada", label: "Minha jornada", icon: Route },
+  { to: "/aulas", label: "Minhas aulas", icon: CalendarDays },
+  { to: "/frequencia", label: "Frequência", icon: ChartNoAxesColumnIncreasing },
+  { to: "/financeiro", label: "Financeiro", icon: Wallet },
+] as const;
+const communityNav = [
+  { to: "/comunidade", label: "Comunidade", icon: Users },
+  { to: "/eventos", label: "Eventos", icon: CalendarDays },
+  { to: "/rodas", label: "Rodas de capoeira", icon: CircleDot },
+] as const;
+const personalNav = [
+  { to: "/notificacoes", label: "Notificações", icon: Bell },
+  { to: "/perfil", label: "Meu perfil", icon: UserRound },
+] as const;
+const bottomNav = [mainNav[0], mainNav[1], communityNav[0], mainNav[2], personalNav[1]];
+type NavItem = (typeof mainNav)[number] | (typeof communityNav)[number] | (typeof personalNav)[number];
+
+export function Brand({ mobile = false }: { mobile?: boolean }) {
+  return (
+    <div className={`brand ${mobile ? "mobile-brand" : ""}`}>
+      <img src="/favicon.png" alt="" width="35" height="35" />
+      <span>
+        gingapp<span className="brand-dot">.</span>
+      </span>
+    </div>
+  );
+}
+
+export function AppShell({ children }: { children: ReactNode }) {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  const [installOpen, setInstallOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const user = useSessionUser();
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const passport = usePassport();
+  const notifications = useNotifications();
+  const unread = (notifications.data ?? []).filter((n) => n.readAt === null).length;
+  const groupName = passport.data?.organization.name ?? user?.organizationSlug ?? "Seu grupo";
+  const unitName = passport.data?.unit?.name ?? "";
+  const current = [...mainNav, ...communityNav, ...personalNav].find((item) => item.to === pathname)?.label ?? "GingApp";
+
+  function handleLogout() {
+    logout(queryClient);
+    setMenuOpen(false);
+    void navigate({ to: "/login", search: { redirect: undefined } });
+  }
+
+  const navigation = (items: readonly NavItem[]) =>
+    items.map((item) => (
+      <Link
+        key={item.to}
+        to={item.to}
+        className={`nav-item ${pathname === item.to ? "active" : ""}`}
+        onClick={() => setMenuOpen(false)}
+      >
+        <item.icon />
+        <span>{item.label}</span>
+        {item.to === "/notificacoes" && unread > 0 && <span className="nav-count">{unread > 9 ? "9+" : unread}</span>}
+      </Link>
+    ));
+
+  return (
+    <div className="app-shell">
+      <aside className="sidebar">
+        <Link to="/" className="no-underline">
+          <Brand />
+        </Link>
+        <p className="brand-sub">A plataforma que conecta a capoeira.</p>
+        <nav aria-label="Menu principal">
+          {navigation(mainNav)}
+          <div className="nav-caption">Na roda, juntos</div>
+          {navigation(communityNav)}
+          <div className="nav-caption">Sua conta</div>
+          {navigation(personalNav)}
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="group-mini">
+            <div className="group-icon">
+              <Sprout size={19} />
+            </div>
+            <div>
+              <strong>{groupName}</strong>
+              {unitName && <p>{unitName}</p>}
+            </div>
+            <ChevronRight size={13} className="text-muted-foreground" />
+          </div>
+          <Button variant="ghost" size="sm" className="w-full text-muted-foreground mt-3 text-xs" onClick={() => setInstallOpen(true)}>
+            <Download size={14} /> Instalar GingApp
+          </Button>
+          <Button variant="ghost" size="sm" className="w-full text-muted-foreground text-xs" onClick={handleLogout}>
+            <LogOut size={14} /> Sair
+          </Button>
+        </div>
+      </aside>
+      <div className="workspace">
+        <header className="topbar">
+          <div className="breadcrumb">
+            Meu GingApp <ChevronRight size={12} />
+            <strong>{current}</strong>
+          </div>
+          <Link to="/" className="no-underline">
+            <Brand mobile />
+          </Link>
+          <div className="top-actions">
+            {unitName && (
+              <span className="location-label">
+                <MapPin size={13} /> {unitName}
+              </span>
+            )}
+            <Button variant="ghost" size="icon" asChild title="Notificações">
+              <Link to="/notificacoes">
+                <Bell size={18} />
+              </Link>
+            </Button>
+            <Button variant="ghost" size="icon" className="md:hidden" aria-label="Abrir menu" onClick={() => setMenuOpen(true)}>
+              <Menu />
+            </Button>
+            <Link to="/perfil" aria-label="Meu perfil">
+              <div className="avatar">{initials(user?.name)}</div>
+            </Link>
+          </div>
+        </header>
+        <main className="main-content">
+          {children}
+          <footer className="footer">
+            <span>
+              Feito de ginga, história e conexão <Heart size={10} />
+            </span>
+            <span>GingApp © {new Date().getFullYear()} • Axé!</span>
+          </footer>
+        </main>
+      </div>
+      <nav className="bottom-nav" aria-label="Navegação inferior">
+        {bottomNav.map((item) => (
+          <Link key={item.to} to={item.to} className={pathname === item.to ? "active" : ""}>
+            <item.icon />
+            <span>
+              {item.to === "/jornada" ? "Jornada" : item.to === "/aulas" ? "Aulas" : item.to === "/perfil" ? "Perfil" : item.label}
+            </span>
+          </Link>
+        ))}
+      </nav>
+      <Dialog open={installOpen} onOpenChange={setInstallOpen}>
+        <DialogContent>
+          <DialogTitle>Leve sua capoeira com você</DialogTitle>
+          <DialogDescription>Instale o GingApp na tela inicial do seu celular.</DialogDescription>
+          <div className="space-y-4 text-sm">
+            <p>
+              <strong>No iPhone:</strong> abra no Safari, toque em Compartilhar e selecione “Adicionar à Tela de Início”.
+            </p>
+            <p>
+              <strong>No Android:</strong> abra no Chrome, toque no menu ⋮ e selecione “Instalar aplicativo” ou “Adicionar à tela inicial”.
+            </p>
+            <p className="text-muted-foreground">
+              A instalação e o acesso básico sem internet ficam disponíveis na versão publicada. Dados da sua conta sempre são buscados online.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={menuOpen} onOpenChange={setMenuOpen}>
+        <DialogContent>
+          <DialogTitle>Meu GingApp</DialogTitle>
+          <DialogDescription>
+            {groupName}
+            {unitName ? ` · ${unitName}` : ""}
+          </DialogDescription>
+          <nav>{navigation([...mainNav, ...communityNav, ...personalNav])}</nav>
+          <Button
+            variant="soft"
+            onClick={() => {
+              setMenuOpen(false);
+              setInstallOpen(true);
+            }}
+          >
+            <Download />
+            Instalar GingApp
+          </Button>
+          <Button variant="outline" onClick={handleLogout}>
+            <LogOut />
+            Sair
+          </Button>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
