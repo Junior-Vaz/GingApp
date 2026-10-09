@@ -3,6 +3,9 @@ import { PrismaClient } from '@prisma/client';
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
+import { PrismaService } from '../src/shared/prisma/prisma.service';
+import { MeFixture, createMeFixture } from './utils/me-fixtures';
+import { SecondOrg, createSecondOrg, loginAs } from './utils/list-helpers';
 import { createTestApp } from './utils/test-app';
 
 /**
@@ -327,5 +330,200 @@ describe('Calendário — paginação com total real (e2e)', () => {
     }
     await get('&limit=200&offset=10000').expect(200);
     await get('&scope=ano').expect(400); // validações antigas intactas
+  });
+});
+
+/**
+ * Calendário público com resumo de participação: cada item traz `participantsCount` (agregado,
+ * sem dado pessoal) e `myParticipation` (`{ id, studentId, status } | null`), como GET /events e
+ * GET /rodas, SEM N+1 (um groupBy + um findMany por ORIGEM e por página). @OptionalAuth: anônimo
+ * e token inválido => myParticipation null (nunca 401). RODA considera o usuário do token;
+ * EVENTO considera o aluno próprio (prioridade) e os dependentes, em QUALQUER organização (o
+ * feed mistura grupos). Nenhum nome de terceiro vaza.
+ */
+describe('Calendário — participantsCount e myParticipation (e2e)', () => {
+  const TAG = `CALP${Date.now()}`;
+  let app: INestApplication;
+  let prismaSvc: PrismaService;
+  const prisma = new PrismaClient();
+  let fx: MeFixture;
+  let mestre: Awaited<ReturnType<typeof loginAs>>;
+  let orgB: SecondOrg;
+  let stateId: number;
+  let cityId: number;
+  let depBId: number; // aluno da organização B de quem o RESPONSAVEL é responsável
+  let extraDepId: number; // 2º dependente do ALUNO "self" (prova a prioridade do próprio aluno)
+  const ids = {
+    roda1: 0, roda2: 0, ev1: 0, ev2B: 0, ev3: 0, evPrivate: 0,
+    rodaSelf: 0, rodaMestre: 0, evSelf: 0, evExtra: 0, evGuest: 0, evStranger: 0, evB: 0,
+  };
+  const GUEST = `Convidado Sentinela ${TAG}`;
+  const get = (qs: string, token?: string) => {
+    const req = request(app.getHttpServer()).get(`/api/calendar?stateId=${stateId}${qs}`);
+    return token ? req.set('Authorization', `Bearer ${token}`) : req;
+  };
+  type Row = {
+    id: number; source: 'RODA' | 'EVENTO'; title: string; participantsCount: number;
+    myParticipation: { id: number; studentId: number | null; status: string } | null;
+  };
+  const row = (body: Row[], source: 'RODA' | 'EVENTO', id: number) => {
+    const found = body.find((r) => r.source === source && r.id === id);
+    assert.ok(found, `${source}-${id} ausente do calendário`);
+    return found;
+  };
+
+  before(async () => {
+    app = await createTestApp();
+    prismaSvc = app.get(PrismaService);
+    fx = await createMeFixture(app, prisma, 'calp');
+    mestre = await loginAs(app, MESTRE_EMAIL);
+    orgB = await createSecondOrg(app, prisma, 'calp');
+    const state = await prisma.state.create({ data: { name: `${TAG} UF`, uf: `C${String(Date.now()).slice(-8)}` } });
+    stateId = state.id;
+    cityId = (await prisma.city.create({ data: { stateId, name: `${TAG} Cidade` } })).id;
+
+    const org = fx.organizationId;
+    const day = (n: number) => new Date(Date.now() + n * 24 * 60 * 60 * 1000);
+    const loc = { stateId, cityId };
+    ids.roda1 = (await prisma.roda.create({ data: { organizationId: org, title: `${TAG} roda 1`, date: day(2), ...loc } })).id;
+    ids.roda2 = (await prisma.roda.create({ data: { organizationId: org, title: `${TAG} roda 2`, date: day(3), ...loc } })).id;
+    ids.ev1 = (await prisma.event.create({ data: { organizationId: org, title: `${TAG} evento 1`, date: day(4), isPublic: true, ...loc } })).id;
+    ids.ev2B = (await prisma.event.create({ data: { organizationId: orgB.organizationId, title: `${TAG} evento orgB`, date: day(5), isPublic: true, ...loc } })).id;
+    ids.ev3 = (await prisma.event.create({ data: { organizationId: org, title: `${TAG} evento 3`, date: day(6), isPublic: true, ...loc } })).id;
+    ids.evPrivate = (await prisma.event.create({ data: { organizationId: org, title: `${TAG} privado`, date: day(7), isPublic: false, ...loc } })).id;
+
+    depBId = (await prisma.student.create({ data: { organizationId: orgB.organizationId, name: `${TAG} Dependente OrgB` } })).id;
+    await prisma.studentGuardian.create({ data: { organizationId: orgB.organizationId, studentId: depBId, userId: fx.guardian.userId, name: `${TAG} resp B` } });
+    extraDepId = (await prisma.student.create({ data: { organizationId: org, name: `${TAG} Segundo dependente` } })).id;
+    await prisma.studentGuardian.create({ data: { organizationId: org, studentId: extraDepId, userId: fx.self.userId, name: `${TAG} resp extra` } });
+
+    // RODA 1: ALUNO (self) + MESTRE. RODA 2: ninguém.
+    ids.rodaSelf = (await prisma.rodaParticipant.create({ data: { rodaId: ids.roda1, userId: fx.self.userId } })).id;
+    ids.rodaMestre = (await prisma.rodaParticipant.create({ data: { rodaId: ids.roda1, userId: mestre.userId, status: 'INVITED' } })).id;
+    // EVENTO 1: o dependente extra (criado ANTES, id menor) + o aluno self + um aluno alheio + um
+    // convidado + o dependente do RESPONSAVEL => 5. EVENTO orgB: o dependente de lá. Privado: 1.
+    ids.evExtra = (await prisma.eventParticipant.create({ data: { organizationId: org, eventId: ids.ev1, studentId: extraDepId } })).id;
+    ids.evSelf = (await prisma.eventParticipant.create({ data: { organizationId: org, eventId: ids.ev1, studentId: fx.self.studentId, status: 'ATTENDED' } })).id;
+    ids.evStranger = (await prisma.eventParticipant.create({ data: { organizationId: org, eventId: ids.ev1, studentId: fx.strangerId } })).id;
+    ids.evGuest = (await prisma.eventParticipant.create({ data: { organizationId: org, eventId: ids.ev1, guestName: GUEST } })).id;
+    await prisma.eventParticipant.create({ data: { organizationId: org, eventId: ids.ev1, studentId: fx.guardian.dependentId } });
+    ids.evB = (await prisma.eventParticipant.create({ data: { organizationId: orgB.organizationId, eventId: ids.ev2B, studentId: depBId } })).id;
+    await prisma.eventParticipant.create({ data: { organizationId: org, eventId: ids.evPrivate, studentId: fx.self.studentId } });
+  });
+
+  after(async () => {
+    const eventIds = [ids.ev1, ids.ev2B, ids.ev3, ids.evPrivate];
+    await prisma.eventParticipant.deleteMany({ where: { eventId: { in: eventIds } } });
+    await prisma.rodaParticipant.deleteMany({ where: { rodaId: { in: [ids.roda1, ids.roda2] } } });
+    await prisma.event.deleteMany({ where: { id: { in: eventIds } } });
+    await prisma.roda.deleteMany({ where: { id: { in: [ids.roda1, ids.roda2] } } });
+    await prisma.studentGuardian.deleteMany({ where: { studentId: { in: [depBId, extraDepId] } } });
+    await prisma.student.deleteMany({ where: { id: { in: [depBId, extraDepId] } } });
+    await prisma.city.deleteMany({ where: { id: cityId } });
+    await prisma.state.deleteMany({ where: { id: stateId } });
+    await fx.cleanup();
+    await orgB.cleanup();
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  it('anônimo: participantsCount agregado, myParticipation null em tudo, privado fora, nenhum nome/id pessoal; campos antigos e contrato preservados', async () => {
+    const res = await get('&limit=200').expect(200);
+    assert.ok(Array.isArray(res.body));
+    assert.equal(res.headers['x-total-count'], '5'); // 2 rodas + 3 eventos públicos (o privado não conta)
+    assert.equal(res.body.length, 5);
+    assert.deepEqual(res.body.map((r: Row) => `${r.source}-${r.id}`), [
+      `RODA-${ids.roda1}`, `RODA-${ids.roda2}`, `EVENTO-${ids.ev1}`, `EVENTO-${ids.ev2B}`, `EVENTO-${ids.ev3}`,
+    ]); // ordem cronológica determinística
+    const counts = Object.fromEntries(res.body.map((r: Row) => [`${r.source}-${r.id}`, r.participantsCount]));
+    assert.deepEqual(counts, {
+      [`RODA-${ids.roda1}`]: 2, [`RODA-${ids.roda2}`]: 0,
+      [`EVENTO-${ids.ev1}`]: 5, [`EVENTO-${ids.ev2B}`]: 1, [`EVENTO-${ids.ev3}`]: 0,
+    });
+    assert.ok(res.body.every((r: Row) => r.myParticipation === null));
+    for (const field of ['id', 'source', 'type', 'title', 'description', 'date', 'location', 'imageUrl', 'state', 'city']) {
+      assert.ok(res.body.every((r: object) => field in r), `campo ${field} sumiu do calendário`);
+    }
+    for (const leak of [GUEST, `${TAG} Dependente OrgB`, `${TAG} Segundo dependente`, 'alheio', fx.self.token]) {
+      assert.ok(!res.text.includes(leak), `vazou: ${leak}`);
+    }
+    // Nada de participante/ids pessoais soltos no item (só dentro de myParticipation, quando há).
+    assert.ok(res.body.every((r: object) => !('participants' in r) && !('userId' in r) && !('studentId' in r)));
+  });
+
+  it('token inválido em rota pública não vira 401: segue anônimo (idêntico ao anônimo)', async () => {
+    const anon = await get('&limit=200').expect(200);
+    const bad = await get('&limit=200', 'token-invalido').expect(200);
+    assert.deepEqual(bad.body, anon.body);
+    assert.equal(bad.headers['x-total-count'], '5');
+  });
+
+  it('ALUNO: roda = a própria participação do usuário (não a do MESTRE); evento = o PRÓPRIO aluno tem prioridade sobre dependente; orgB/sem inscrição = null', async () => {
+    const res = await get('&limit=200', fx.self.token).expect(200);
+    assert.deepEqual(row(res.body, 'RODA', ids.roda1).myParticipation, { id: ids.rodaSelf, studentId: null, status: 'CONFIRMED' });
+    assert.equal(row(res.body, 'RODA', ids.roda1).participantsCount, 2);
+    assert.equal(row(res.body, 'RODA', ids.roda2).myParticipation, null);
+    // evExtra (dependente do self) tem id MENOR que evSelf, mas o próprio aluno vem primeiro.
+    assert.ok(ids.evExtra < ids.evSelf);
+    assert.deepEqual(row(res.body, 'EVENTO', ids.ev1).myParticipation, { id: ids.evSelf, studentId: fx.self.studentId, status: 'ATTENDED' });
+    assert.equal(row(res.body, 'EVENTO', ids.ev1).participantsCount, 5);
+    assert.equal(row(res.body, 'EVENTO', ids.ev2B).myParticipation, null);
+    assert.equal(row(res.body, 'EVENTO', ids.ev3).myParticipation, null);
+    for (const leak of [GUEST, `${TAG} Dependente OrgB`, 'alheio']) assert.ok(!res.text.includes(leak), `vazou: ${leak}`);
+  });
+
+  it('RESPONSAVEL: evento do dependente é "seu" (inclusive de OUTRA organização); roda é só do usuário do token (null)', async () => {
+    const res = await get('&limit=200', fx.guardian.token).expect(200);
+    const ev1 = row(res.body, 'EVENTO', ids.ev1).myParticipation;
+    assert.ok(ev1 && ev1.studentId === fx.guardian.dependentId && ev1.status === 'CONFIRMED');
+    assert.deepEqual(row(res.body, 'EVENTO', ids.ev2B).myParticipation, { id: ids.evB, studentId: depBId, status: 'CONFIRMED' });
+    assert.equal(row(res.body, 'EVENTO', ids.ev3).myParticipation, null);
+    assert.ok(res.body.filter((r: Row) => r.source === 'RODA').every((r: Row) => r.myParticipation === null));
+  });
+
+  it('MESTRE: a própria roda (status INVITED) e nenhum evento; usuário de outro grupo não herda a participação de ninguém', async () => {
+    const res = await get('&limit=200', mestre.token).expect(200);
+    assert.deepEqual(row(res.body, 'RODA', ids.roda1).myParticipation, { id: ids.rodaMestre, studentId: null, status: 'INVITED' });
+    assert.ok(res.body.filter((r: Row) => r.source === 'EVENTO').every((r: Row) => r.myParticipation === null));
+    const other = await get('&limit=200', orgB.token).expect(200);
+    assert.ok(other.body.every((r: Row) => r.myParticipation === null));
+    assert.equal(row(other.body, 'EVENTO', ids.ev1).participantsCount, 5); // agregado é público
+  });
+
+  it('páginas pequenas atravessando as duas fontes recompõem exatamente o resultado completo (resumo sempre da origem certa)', async () => {
+    const full = await get('&limit=200', fx.guardian.token).expect(200);
+    const parts: Row[] = [];
+    for (const offset of [0, 2, 4]) parts.push(...(await get(`&limit=2&offset=${offset}`, fx.guardian.token).expect(200)).body);
+    assert.deepEqual(parts, full.body);
+    const filtered = await get('&type=RODA&limit=200', fx.self.token).expect(200);
+    assert.ok(filtered.body.every((r: Row) => r.source === 'RODA'));
+    assert.equal(filtered.headers['x-total-count'], '2');
+    assert.equal(row(filtered.body, 'RODA', ids.roda1).myParticipation?.id, ids.rodaSelf);
+    assert.equal((await get('&type=WORKSHOP', fx.self.token).expect(200)).body.length, 0);
+  });
+
+  it('sem N+1: UMA agregação (groupBy) e UMA busca de "minhas" por origem por página — independente do número de itens', async () => {
+    type Delegate = { groupBy: (...a: unknown[]) => unknown; findMany: (...a: unknown[]) => unknown };
+    const counts = { eventGroupBy: 0, eventFindMany: 0, rodaGroupBy: 0, rodaFindMany: 0 };
+    const patch = (delegate: Delegate, group: keyof typeof counts, find: keyof typeof counts) => {
+      const { groupBy, findMany } = delegate;
+      delegate.groupBy = (...a: unknown[]) => (counts[group]++, groupBy.apply(delegate, a));
+      delegate.findMany = (...a: unknown[]) => (counts[find]++, findMany.apply(delegate, a));
+      return () => Object.assign(delegate, { groupBy, findMany });
+    };
+    const restoreEvent = patch(prismaSvc.eventParticipant as unknown as Delegate, 'eventGroupBy', 'eventFindMany');
+    const restoreRoda = patch(prismaSvc.rodaParticipant as unknown as Delegate, 'rodaGroupBy', 'rodaFindMany');
+    try {
+      const res = await get('&limit=200', fx.self.token).expect(200);
+      assert.equal(res.body.length, 5);
+      assert.deepEqual(counts, { eventGroupBy: 1, eventFindMany: 1, rodaGroupBy: 1, rodaFindMany: 1 });
+      // Anônimo: só as agregações (não há "minhas" para buscar).
+      Object.assign(counts, { eventGroupBy: 0, eventFindMany: 0, rodaGroupBy: 0, rodaFindMany: 0 });
+      await get('&limit=200').expect(200);
+      assert.deepEqual(counts, { eventGroupBy: 1, eventFindMany: 0, rodaGroupBy: 1, rodaFindMany: 0 });
+    } finally {
+      restoreEvent();
+      restoreRoda();
+    }
   });
 });

@@ -42,6 +42,10 @@ export class AnnouncementsService {
    *   Quem não tem vínculo com nenhuma unidade só vê os gerais. Comunicado de OUTRA unidade do
    *   grupo (ou de outra organização) é invisível: some da lista (e do X-Total-Count) e, por id,
    *   dá o MESMO 404 de um id inexistente.
+   *   Estes papéis também NÃO veem comunicado inativo (isActive=false, o soft-delete de `remove`)
+   *   nem ainda não publicado (publishedAt no futuro; publishedAt nulo = já publicado) — mesma
+   *   semântica de PlatformAnnouncementsService.findActiveForOrganization. Vale para lista,
+   *   total e id (404 igual ao inexistente). Staff continua vendo tudo (inativos e agendados).
    * Os filtros da query (unitId, isActive, q) se COMBINAM com o escopo — nunca o ampliam.
    */
   private async memberScope(
@@ -63,7 +67,13 @@ export class AnnouncementsService {
       if (student.unitId !== null) unitIds.add(student.unitId);
     }
     for (const row of access) unitIds.add(row.unitId);
-    return { OR: [{ unitId: null }, { unitId: { in: [...unitIds] } }] };
+    return {
+      AND: [
+        { isActive: true },
+        { OR: [{ publishedAt: null }, { publishedAt: { lte: new Date() } }] },
+        { OR: [{ unitId: null }, { unitId: { in: [...unitIds] } }] },
+      ],
+    };
   }
 
   async findAll(

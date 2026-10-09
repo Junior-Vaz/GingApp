@@ -30,6 +30,9 @@ export class EventsService {
    * - `participantsCount`: total de inscrições do evento (qualquer status);
    * - `myParticipation`: `{ id, studentId, status }` da inscrição do PRÓPRIO usuário do token
    *   ou de um dependente (StudentsService.findMine; prioridade ao próprio aluno), senão `null`.
+   * Ordem: sem `order`, id desc (mais recém-cadastrados primeiro — é o que o painel lista);
+   * `order=asc` = data asc + id asc (próximos primeiro; o app combina com `from`);
+   * `order=desc` = data desc + id desc. Sempre com desempate por id: paginação estável.
    */
   async findAll(
     organizationId: number,
@@ -57,33 +60,51 @@ export class EventsService {
       AND: and,
     };
 
+    const orderBy: Prisma.EventOrderByWithRelationInput[] =
+      query.order === 'asc'
+        ? [{ date: 'asc' }, { id: 'asc' }]
+        : query.order === 'desc'
+          ? [{ date: 'desc' }, { id: 'desc' }]
+          : [{ id: 'desc' }];
+
     const [items, total] = await Promise.all([
-      this.prisma.event.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.event.findMany({ where, orderBy, ...pageArgs(query) }),
       this.prisma.event.count({ where }),
     ]);
-    return { items: await this.withParticipationSummary(organizationId, items, requester), total };
+    return { items: await this.withParticipationSummary(items, requester, organizationId), total };
   }
 
-  private async withParticipationSummary<T extends { id: number }>(
-    organizationId: number,
+  /**
+   * Anexa `participantsCount` e `myParticipation` a uma página de eventos (um groupBy + um
+   * findMany, nunca por item). Reusado por GET /events (`organizationId` = o do token) e por
+   * GET /calendar (eventos públicos de VÁRIAS organizações: sem `organizationId`, o vínculo
+   * "próprio ou dependente" é resolvido em todas as organizações). Nenhum nome de terceiro.
+   */
+  async withParticipationSummary<T extends { id: number }>(
     events: T[],
     requester?: AuthenticatedUser,
+    organizationId?: number,
   ): Promise<Array<T & { participantsCount: number; myParticipation: MyParticipation | null }>> {
     if (events.length === 0) return [];
     const eventIds = events.map((e) => e.id);
-    const myStudentIds = requester
-      ? (await this.studentsService.findMine(organizationId, requester.id)).map((s) => s.id)
-      : [];
+    const orgFilter = organizationId !== undefined ? { organizationId } : {};
+    let myStudentIds: number[] = [];
+    if (requester) {
+      myStudentIds =
+        organizationId !== undefined
+          ? (await this.studentsService.findMine(organizationId, requester.id)).map((s) => s.id)
+          : await this.findMyStudentIdsAcrossOrganizations(requester.id);
+    }
 
     const [counts, mine] = await Promise.all([
       this.prisma.eventParticipant.groupBy({
         by: ['eventId'],
-        where: { organizationId, eventId: { in: eventIds } },
+        where: { ...orgFilter, eventId: { in: eventIds } },
         _count: { _all: true },
       }),
       myStudentIds.length > 0
         ? this.prisma.eventParticipant.findMany({
-            where: { organizationId, eventId: { in: eventIds }, studentId: { in: myStudentIds } },
+            where: { ...orgFilter, eventId: { in: eventIds }, studentId: { in: myStudentIds } },
             select: { id: true, eventId: true, studentId: true, status: true },
             orderBy: { id: 'asc' },
           })
@@ -103,6 +124,16 @@ export class EventsService {
         myParticipation: own ? { id: own.id, studentId: own.studentId, status: own.status } : null,
       };
     });
+  }
+
+  /** Mesma regra de StudentsService.findMine ("próprio aluno" primeiro, depois dependentes), mas
+   * sem restringir a uma organização — o calendário público mistura eventos de vários grupos. */
+  private async findMyStudentIdsAcrossOrganizations(userId: number): Promise<number[]> {
+    const [own, guardianLinks] = await Promise.all([
+      this.prisma.student.findMany({ where: { userId }, select: { id: true }, orderBy: { id: 'asc' } }),
+      this.prisma.studentGuardian.findMany({ where: { userId }, select: { studentId: true }, orderBy: { id: 'asc' } }),
+    ]);
+    return [...new Set([...own.map((s) => s.id), ...guardianLinks.map((g) => g.studentId)])];
   }
 
   async findOne(organizationId: number, id: number) {

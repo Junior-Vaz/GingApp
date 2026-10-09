@@ -1,6 +1,8 @@
 import { BadRequestException, Controller, Get, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { Public } from '../../../shared/decorators/public.decorator';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
+import { OptionalAuth, Public } from '../../../shared/decorators/public.decorator';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { MAX_PAGE_SIZE, sendPage } from '../../../shared/pagination/pagination';
 import { EVENT_TYPES } from '../events/dto/event-type';
 import { CalendarService } from './calendar.service';
@@ -27,10 +29,14 @@ function intParam(name: string, raw: string | undefined, min: number, max: numbe
 export class CalendarController {
   constructor(private readonly calendarService: CalendarService) {}
 
+  /** Pública; com token válido (@OptionalAuth) cada item traz também `myParticipation` (token
+   * inválido/expirado = anônimo, nunca 401). */
   @Public()
+  @OptionalAuth()
   @Get()
   async findAll(
     @Res({ passthrough: true }) res: Response,
+    @CurrentUser() user: AuthenticatedUser | undefined,
     @Query('stateId') stateId?: string,
     @Query('cityId') cityId?: string,
     @Query('type') type?: string,
@@ -53,6 +59,7 @@ export class CalendarController {
         scope: scope as 'today' | 'week' | 'month' | undefined,
       },
       { limit: intParam('limit', limit, 1, MAX_PAGE_SIZE), offset: intParam('offset', offset, 0, MAX_OFFSET) },
+      user,
     );
     return sendPage(res, page);
   }

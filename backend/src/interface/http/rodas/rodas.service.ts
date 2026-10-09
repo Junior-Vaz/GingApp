@@ -51,9 +51,17 @@ export class RodasService {
       this.prisma.roda.findMany({ where, orderBy: [{ date: 'asc' }, { id: 'asc' }], ...pageArgs(query) }),
       this.prisma.roda.count({ where }),
     ]);
-    if (items.length === 0) return { items, total };
+    return { items: await this.withParticipationSummary(items, requester), total };
+  }
 
-    const rodaIds = items.map((r) => r.id);
+  /** Anexa `participantsCount` e `myParticipation` a uma página de rodas (um groupBy + um
+   * findMany, nunca por item). Reusado por GET /rodas e GET /calendar. */
+  async withParticipationSummary<T extends { id: number }>(
+    rodas: T[],
+    requester?: AuthenticatedUser,
+  ): Promise<Array<T & { participantsCount: number; myParticipation: MyParticipation | null }>> {
+    if (rodas.length === 0) return [];
+    const rodaIds = rodas.map((r) => r.id);
     const [counts, mine] = await Promise.all([
       this.prisma.rodaParticipant.groupBy({
         by: ['rodaId'],
@@ -69,16 +77,13 @@ export class RodasService {
         : Promise.resolve([]),
     ]);
     const countByRoda = new Map(counts.map((c) => [c.rodaId, c._count._all]));
-    return {
-      items: items.map((roda) => {
-        const own = mine.find((p) => p.rodaId === roda.id);
-        const myParticipation: MyParticipation | null = own
-          ? { id: own.id, studentId: own.studentId, status: own.status }
-          : null;
-        return { ...roda, participantsCount: countByRoda.get(roda.id) ?? 0, myParticipation };
-      }),
-      total,
-    };
+    return rodas.map((roda) => {
+      const own = mine.find((p) => p.rodaId === roda.id);
+      const myParticipation: MyParticipation | null = own
+        ? { id: own.id, studentId: own.studentId, status: own.status }
+        : null;
+      return { ...roda, participantsCount: countByRoda.get(roda.id) ?? 0, myParticipation };
+    });
   }
 
   /** Dados públicos de referência (não há endpoint dedicado de State/City ainda) — usados

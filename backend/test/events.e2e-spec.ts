@@ -346,3 +346,109 @@ describe('Eventos — lista paginada e limpar campos (e2e)', () => {
     await request(app.getHttpServer()).patch(`/api/events/${ev.id}`).set('Authorization', `Bearer ${aluno.token}`).send({ description: 'x' }).expect(403);
   });
 });
+/**
+ * Ordenação de GET /events. Sem `order` fica a ordem histórica (id desc = cadastrados por último
+ * primeiro), da qual o PAINEL depende (lista paginada no servidor, sem parâmetro de ordem: o
+ * evento recém-criado precisa aparecer na 1ª página, mesmo com data passada). O app pede
+ * `order=asc` (+ `from`) para receber os eventos mais próximos primeiro. As duas ordens por data
+ * são totais (desempate por id): "Carregar mais" nunca repete nem perde evento.
+ */
+describe('Eventos — ordenação por data (e2e)', () => {
+  const TAG = `ORDEVT${Date.now()}`;
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let mestre: Awaited<ReturnType<typeof loginAs>>;
+  let aluno: Awaited<ReturnType<typeof loginAs>>;
+  let orgB: SecondOrg;
+  const get = (qs: string, token = mestre.token) =>
+    request(app.getHttpServer()).get(`/api/events?q=${TAG}${qs}`).set('Authorization', `Bearer ${token}`);
+  const idsOf = (body: Array<{ id: number }>) => body.map((e) => e.id);
+  const day = (d: number) => new Date(Date.UTC(2032, 5, d)); // junho/2032
+
+  // Inserção FORA de ordem cronológica e com empates de data, para a ordenação não sair "de graça".
+  const SPEC: Array<[string, number]> = [['c', 20], ['a', 10], ['b', 15], ['a2', 10], ['c2', 20], ['past', 1]];
+  let rows: Array<{ id: number; title: string; date: Date }> = [];
+
+  before(async () => {
+    app = await createTestApp();
+    mestre = await loginAs(app, MESTRE);
+    aluno = await loginAs(app, ALUNO);
+    orgB = await createSecondOrg(app, prisma, 'ordevt');
+    for (const [name, d] of SPEC) {
+      await prisma.event.create({ data: { organizationId: mestre.organizationId, title: `${TAG} ${name}`, date: day(d) } });
+    }
+    await prisma.event.create({ data: { organizationId: orgB.organizationId, title: `${TAG} orgB`, date: day(5) } });
+    // Reescreve a linha de MENOR id de cada empate: a versão nova vai para o fim da tabela, então a
+    // ordem física deixa de coincidir com a ordem de id (um sort só por data não sairia certo por acaso).
+    for (const name of ['a', 'c']) {
+      await prisma.event.updateMany({ where: { title: `${TAG} ${name}` }, data: { location: 'reescrito' } });
+    }
+    rows = await prisma.event.findMany({
+      where: { organizationId: mestre.organizationId, title: { startsWith: TAG } },
+      select: { id: true, title: true, date: true },
+    });
+  });
+
+  after(async () => {
+    await prisma.event.deleteMany({ where: { title: { startsWith: TAG } } });
+    await orgB.cleanup();
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  // Expectativas calculadas à parte (JS puro), não pelo mesmo orderBy do service.
+  const expected = (dir: 'asc' | 'desc', from?: Date) => {
+    const f = dir === 'asc' ? 1 : -1;
+    return rows
+      .filter((r) => !from || r.date >= from)
+      .sort((x, y) => f * (x.date.getTime() - y.date.getTime() || x.id - y.id))
+      .map((r) => r.id);
+  };
+
+  it('sem order: continua id desc (compatível com o painel — recém-cadastrado primeiro, mesmo com data passada)', async () => {
+    const res = await get('&limit=200').expect(200);
+    assert.deepEqual(idsOf(res.body), rows.map((r) => r.id).sort((a, b) => b - a));
+    assert.equal(res.headers['x-total-count'], String(SPEC.length));
+  });
+
+  it('order=asc: data crescente, empates por id crescente (os mais próximos primeiro)', async () => {
+    const res = await get('&order=asc&limit=200').expect(200);
+    const exp = expected('asc');
+    assert.deepEqual(idsOf(res.body), exp);
+    assert.deepEqual(res.body.map((e: { title: string }) => e.title.slice(TAG.length + 1)), ['past', 'a', 'a2', 'b', 'c', 'c2']);
+    assert.equal(res.headers['x-total-count'], String(SPEC.length));
+    assert.ok(res.body.every((e: object) => 'participantsCount' in e && 'myParticipation' in e), 'agregados preservados');
+  });
+
+  it('order=desc: data decrescente, empates por id decrescente', async () => {
+    const res = await get('&order=desc&limit=200').expect(200);
+    assert.deepEqual(idsOf(res.body), expected('desc'));
+    assert.deepEqual(res.body.map((e: { title: string }) => e.title.slice(TAG.length + 1)), ['c2', 'c', 'b', 'a2', 'a', 'past']);
+  });
+
+  it('paginação com order é estável: páginas consecutivas (limit=2, que corta no meio dos empates) recompõem a lista sem repetir nem perder', async () => {
+    for (const dir of ['asc', 'desc'] as const) {
+      const parts: number[] = [];
+      for (const offset of [0, 2, 4, 6]) parts.push(...idsOf((await get(`&order=${dir}&limit=2&offset=${offset}`).expect(200)).body));
+      assert.deepEqual(parts, expected(dir));
+      assert.equal(new Set(parts).size, SPEC.length);
+    }
+  });
+
+  it('order=asc combina com from (e to): exclui o passado mantendo a ordem e o total', async () => {
+    const res = await get('&order=asc&from=2032-06-10&limit=200').expect(200);
+    assert.deepEqual(idsOf(res.body), expected('asc', day(10)));
+    assert.equal(res.headers['x-total-count'], '5'); // tudo menos "past"
+    const range = await get('&order=asc&from=2032-06-10&to=2032-06-15').expect(200);
+    assert.deepEqual(range.body.map((e: { title: string }) => e.title.slice(TAG.length + 1)), ['a', 'a2', 'b']);
+    assert.equal(range.headers['x-total-count'], '3');
+  });
+
+  it('isolamento e RBAC inalterados com order: outra organização não aparece; ALUNO lista (200); order inválido => 400; sem token => 401', async () => {
+    assert.ok(!(await get('&order=asc&limit=200')).text.includes('orgB'));
+    assert.equal((await get('&order=asc', orgB.token).expect(200)).body.length, 1);
+    assert.deepEqual(idsOf((await get('&order=asc&limit=200', aluno.token).expect(200)).body), expected('asc'));
+    for (const bad of ['order=ASC', 'order=date', 'order=', 'order=asc&order=desc']) await get(`&${bad}`).expect(400);
+    await request(app.getHttpServer()).get('/api/events?order=asc').expect(401);
+  });
+});

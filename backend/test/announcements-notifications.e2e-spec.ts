@@ -535,12 +535,92 @@ describe('Comunicados — visibilidade por vínculo e sem createdByUserId (e2e)'
     const own = await get(`/announcements?q=${TAG}&unitId=${unitMainId}&limit=200`, fx.self.token).expect(200);
     assert.equal(own.headers['x-total-count'], '8');
 
+    // isActive=true combina (já era o único estado visível ao membro); isActive=false nunca
+    // AMPLIA o escopo: o membro não vê inativos nem pedindo (staff vê — ver o teste de inativos/agendados).
+    const activeOnly = await get(`/announcements?q=${TAG}&isActive=true&unitId=${unitMainId}&limit=200`, fx.self.token).expect(200);
+    assert.equal(activeOnly.headers['x-total-count'], '8');
     await prisma.announcement.update({ where: { id: ids.mainExtra[0] }, data: { isActive: false } });
-    const inactive = await get(`/announcements?q=${TAG}&isActive=false`, fx.self.token).expect(200);
-    assert.deepEqual(idsOf(inactive.body), [ids.mainExtra[0]]);
-    const inactiveOther = await get(`/announcements?q=${TAG}&isActive=false`, fx.guardian.token).expect(200);
-    assert.deepEqual(inactiveOther.body, [], 'o inativo é da unidade principal: o RESPONSAVEL (outra unidade) não o vê');
-    await prisma.announcement.update({ where: { id: ids.mainExtra[0] }, data: { isActive: true } });
+    try {
+      for (const who of [fx.self, fx.guardian]) {
+        const inactive = await get(`/announcements?q=${TAG}&isActive=false`, who.token).expect(200);
+        assert.deepEqual(inactive.body, [], 'ALUNO/RESPONSAVEL não veem comunicado inativo nem com isActive=false');
+        assert.equal(inactive.headers['x-total-count'], '0');
+      }
+      const staff = await get(`/announcements?q=${TAG}&isActive=false`, mestre.token).expect(200);
+      assert.deepEqual(idsOf(staff.body), [ids.mainExtra[0]]);
+    } finally {
+      await prisma.announcement.update({ where: { id: ids.mainExtra[0] }, data: { isActive: true } });
+    }
+  });
+
+  it('ALUNO/RESPONSAVEL/orphan NÃO veem comunicado inativo (soft-delete) nem agendado (publishedAt futuro) — lista, total e id (404 idêntico); publishedAt nulo = publicado; MESTRE/PROFESSOR veem tudo', async () => {
+    const HOUR = 3_600_000;
+    const mkAt = (title: string, unitId: number | null, publishedAt: Date | null, isActive = true) =>
+      prisma.announcement.create({
+        data: { organizationId: fx.organizationId, createdByUserId: mestre.userId, title: `${TAG} ${title}`, body: `corpo ${TAG} ${title}`, unitId, publishedAt, isActive },
+      });
+    const visible = [
+      await mkAt('v-nulo', null, null),
+      await mkAt('v-passado', null, new Date(Date.now() - 24 * HOUR)),
+      await mkAt('v-principal-passado', unitMainId, new Date(Date.now() - HOUR)),
+    ];
+    const inactive = await mkAt('x-inativo', null, new Date(Date.now() - HOUR), false);
+    const inactiveNull = await mkAt('x-inativo-nulo', null, null, false);
+    const future = await mkAt('x-futuro', null, new Date(Date.now() + 24 * HOUR));
+    const futureMain = await mkAt('x-futuro-principal', unitMainId, new Date(Date.now() + HOUR));
+    const futureInactive = await mkAt('x-futuro-inativo', null, new Date(Date.now() + HOUR), false);
+    const softDeleted = await mkAt('x-removido-via-api', null, new Date(Date.now() - HOUR));
+    const hiddenIds = [inactive.id, inactiveNull.id, future.id, futureMain.id, futureInactive.id, softDeleted.id];
+    const created = [...visible.map((v) => v.id), ...hiddenIds];
+    try {
+      // Soft-delete pela própria API (o fluxo real do painel).
+      await request(app.getHttpServer()).delete(`/api/announcements/${softDeleted.id}`).set('Authorization', `Bearer ${mestre.token}`).expect(200);
+      assert.equal((await prisma.announcement.findUniqueOrThrow({ where: { id: softDeleted.id } })).isActive, false);
+
+      const ghost = await get('/announcements/2147483000', fx.self.token).expect(404);
+      for (const [who, unitIds, mustSeeMain] of [
+        [fx.self, [unitMainId], true],
+        [fx.guardian, [unitOtherId], false],
+        [fx.orphan, [], false],
+      ] as const) {
+        const res = await get(`/announcements?q=${TAG}&limit=200`, who.token).expect(200);
+        const exp = (await expectedFor([...unitIds])).filter((id) => !hiddenIds.includes(id));
+        assert.deepEqual(idsOf(res.body), exp);
+        assert.equal(res.headers['x-total-count'], String(exp.length), 'o total acompanha o filtro');
+        for (const id of hiddenIds) assert.ok(!idsOf(res.body).includes(id), `comunicado ${id} (inativo/agendado) vazou`);
+        assert.ok(idsOf(res.body).includes(visible[0]!.id) && idsOf(res.body).includes(visible[1]!.id), 'publishedAt nulo/passado continuam visíveis');
+        assert.equal(idsOf(res.body).includes(visible[2]!.id), mustSeeMain);
+        // Por id: o MESMO 404 de um id inexistente (não vaza que existe).
+        for (const id of hiddenIds) assert.deepEqual((await get(`/announcements/${id}`, who.token).expect(404)).body, ghost.body);
+        for (const v of [visible[0]!, visible[1]!]) await get(`/announcements/${v.id}`, who.token).expect(200);
+      }
+
+      // Paginação dentro do filtro: nenhuma página traz oculto e o total fecha.
+      const exp = (await expectedFor([unitMainId])).filter((id) => !hiddenIds.includes(id));
+      const pages: number[] = [];
+      for (let offset = 0; offset < exp.length; offset += 4) {
+        const p = await get(`/announcements?q=${TAG}&limit=4&offset=${offset}`, fx.self.token).expect(200);
+        assert.equal(p.headers['x-total-count'], String(exp.length));
+        pages.push(...idsOf(p.body));
+      }
+      assert.deepEqual(pages, exp);
+
+      // Staff (quem tem announcements:create) continua vendo TUDO, inclusive inativos e agendados.
+      for (const who of [mestre, professor]) {
+        const res = await get(`/announcements?q=${TAG}&limit=200`, who.token).expect(200);
+        for (const id of created) assert.ok(idsOf(res.body).includes(id), `staff deixou de ver ${id}`);
+        for (const id of hiddenIds) {
+          const one = await get(`/announcements/${id}`, who.token).expect(200);
+          assert.equal(one.body.createdByUserId, mestre.userId);
+        }
+      }
+      // Agendado que chega a hora passa a aparecer (sem cache): mover publishedAt para o passado.
+      await prisma.announcement.update({ where: { id: future.id }, data: { publishedAt: new Date(Date.now() - 1000) } });
+      await get(`/announcements/${future.id}`, fx.self.token).expect(200);
+      assert.ok(idsOf((await get(`/announcements?q=${TAG}&limit=200`, fx.orphan.token).expect(200)).body).includes(future.id));
+    } finally {
+      await prisma.announcement.deleteMany({ where: { id: { in: created } } });
+    }
   });
 
   it('GET /announcements/:id: do próprio vínculo abre (sem createdByUserId); de outra unidade/organização dá o MESMO 404 do inexistente', async () => {
