@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma, UserType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { isActiveSuperAdmin } from '../../../shared/access/super-admin';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
@@ -181,7 +182,7 @@ export class PlatformTeamService {
   }
 
   private assertSuperAdmin(actor: AuthenticatedUser): void {
-    if (actor.userType !== UserType.PLATFORM || !actor.isSuperAdmin) {
+    if (!isActiveSuperAdmin(actor)) {
       throw new ForbiddenException('Apenas super admins da plataforma podem gerir a equipe.');
     }
   }

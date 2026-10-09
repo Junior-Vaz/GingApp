@@ -213,6 +213,30 @@ describe('Plans & Subscriptions — billing (e2e)', () => {
       assert.equal(res.body.plan.code, planLow.code);
     });
 
+    it('GET /subscriptions/me é financeiro do grupo: só MESTRE (200); PROFESSOR/ALUNO/RESPONSAVEL => 403 sem vazar plano/preço/gateway', async () => {
+      // Org piloto do seed: tem assinatura ACTIVE (seed) — logo, um 200 SEMPRE traria priceCents e
+      // ids do gateway; o 403 prova que a regra (matriz finance.view) é que barra, não a ausência de dado.
+      const seeded = await prisma.subscription.findFirstOrThrow({
+        where: { organization: { slug: 'ginga-brasil' } },
+        orderBy: { id: 'desc' },
+      });
+      const mestre = await login(app, 'mestre@gingabrasil.com.br');
+      const ok = await request(app.getHttpServer()).get('/api/subscriptions/me').set('Authorization', `Bearer ${mestre}`).expect(200);
+      assert.equal(ok.body.id, seeded.id);
+      assert.equal(typeof ok.body.plan.priceCents, 'number');
+      assert.ok('gatewaySubscriptionId' in ok.body && 'gatewayCustomerId' in ok.body, 'o MESTRE continua vendo o registro completo (painel/Configurações)');
+
+      for (const email of ['professor@gingabrasil.com.br', 'aluno@gingabrasil.com.br', 'responsavel@gingabrasil.com.br']) {
+        const token = await login(app, email);
+        const res = await request(app.getHttpServer()).get('/api/subscriptions/me').set('Authorization', `Bearer ${token}`).expect(403);
+        for (const leaked of ['priceCents', 'gatewaySubscriptionId', 'gatewayCustomerId', ok.body.plan.name]) {
+          assert.ok(!res.text.includes(leaked), `${email} vazou "${leaked}" no 403`);
+        }
+      }
+      // Sem token continua 401.
+      await request(app.getHttpServer()).get('/api/subscriptions/me').expect(401);
+    });
+
     it('POST /students respeita Plan.maxStudents=1 da assinatura aberta', async () => {
       const first = await request(app.getHttpServer())
         .post('/api/students')

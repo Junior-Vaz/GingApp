@@ -4,6 +4,13 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
 import { MESTRE_EMAIL, loginAs } from './utils/list-helpers';
+import {
+  TEAM_DOMAIN,
+  createMemberSuperAdmin,
+  createPlatformUser,
+  memberLogin,
+  platformLogin,
+} from './utils/platform-team-fixtures';
 import { createTestApp } from './utils/test-app';
 
 /**
@@ -23,6 +30,11 @@ describe('Platform settings (e2e)', () => {
   let platformToken: string;
   let platformUserId: number;
   let memberToken: string;
+  let regularToken: string; // PLATFORM comum (isSuperAdmin = false)
+  let regularId: number;
+  let demotedToken: string; // super admin que o teste rebaixa/desativa depois do login
+  let demotedId: number;
+  let memberSuper: Awaited<ReturnType<typeof createMemberSuperAdmin>> & { token: string };
 
   const api = (method: 'get' | 'put' | 'delete', path: string, token?: string) => {
     const req = request(app.getHttpServer())[method](`/api/platform-settings${path}`);
@@ -38,10 +50,21 @@ describe('Platform settings (e2e)', () => {
     platformToken = platform.body.accessToken;
     platformUserId = platform.body.user.id;
     memberToken = (await loginAs(app, MESTRE_EMAIL)).token;
+
+    const regular = await createPlatformUser(prisma, 'settings-regular');
+    regularId = regular.id;
+    regularToken = await platformLogin(app, regular.email);
+    const demoted = await createPlatformUser(prisma, 'settings-demoted', { isSuperAdmin: true });
+    demotedId = demoted.id;
+    demotedToken = await platformLogin(app, demoted.email);
+    const memberSuperUser = await createMemberSuperAdmin(prisma, 'settings');
+    memberSuper = { ...memberSuperUser, token: await memberLogin(app, memberSuperUser.email) };
   });
 
   after(async () => {
     await prisma.platformSetting.deleteMany({ where: { key: { startsWith: PREFIX } } });
+    await prisma.user.deleteMany({ where: { id: { in: [regularId, demotedId] }, email: { endsWith: TEAM_DOMAIN } } });
+    await memberSuper.cleanup();
     await prisma.$disconnect();
     await app.close();
   });
@@ -56,6 +79,50 @@ describe('Platform settings (e2e)', () => {
       await api('delete', `/${k}`, token).expect(expected);
     }
     assert.equal(await prisma.platformSetting.count({ where: { key: key('guard') } }), 0);
+  });
+
+  it('escrita (PUT/DELETE) exige super admin ATIVO: PLATFORM comum lê (200) mas escreve => 403 com mensagem clara; nada muda no banco', async () => {
+    const k = key('ro');
+    await api('put', `/${k}`, platformToken).send({ value: 'original' }).expect(200);
+
+    const list = await api('get', `?q=${encodeURIComponent(PREFIX)}`, regularToken).expect(200);
+    assert.ok(list.body.some((s: { key: string }) => s.key === k), 'PLATFORM comum continua LENDO a lista');
+    await api('get', `/${k}`, regularToken).expect(200);
+
+    const put = await api('put', `/${k}`, regularToken).send({ value: 'adulterado' }).expect(403);
+    assert.match(put.body.message, /super admins ativos da plataforma/);
+    const del = await api('delete', `/${k}`, regularToken).expect(403);
+    assert.match(del.body.message, /super admins ativos da plataforma/);
+    // O 403 vem ANTES da validação: corpo inválido / chave inválida também dão 403 (não 400).
+    await api('put', `/${k}`, regularToken).send({}).expect(403);
+    await api('put', `/${key('novo-por-comum')}`, regularToken).send({ value: 1 }).expect(403);
+    await api('delete', '/UPPER', regularToken).expect(403);
+
+    // 2ª via independente (Prisma): valor intacto, chave nova não criada.
+    assert.equal((await prisma.platformSetting.findUniqueOrThrow({ where: { key: k } })).value, 'original');
+    assert.equal(await prisma.platformSetting.count({ where: { key: key('novo-por-comum') } }), 0);
+    // O super admin segue escrevendo.
+    await api('put', `/${k}`, platformToken).send({ value: 'pelo-super' }).expect(200);
+    await api('delete', `/${k}`, platformToken).expect(200);
+  });
+
+  it('MEMBER com isSuperAdmin=true não escreve (só userType PLATFORM); rebaixado/desativado depois do login perde a escrita na hora', async () => {
+    const k = key('member-super');
+    await api('put', `/${k}`, memberSuper.token).send({ value: 1 }).expect(403);
+    await api('delete', `/${k}`, memberSuper.token).expect(403);
+
+    // Super admin válido no login; rebaixado no banco com o MESMO token em mãos => 403 imediato.
+    await api('put', `/${k}`, demotedToken).send({ value: 'antes' }).expect(200);
+    await prisma.user.update({ where: { id: demotedId }, data: { isSuperAdmin: false } });
+    await api('put', `/${k}`, demotedToken).send({ value: 'depois' }).expect(403);
+    await api('delete', `/${k}`, demotedToken).expect(403);
+    assert.equal((await prisma.platformSetting.findUniqueOrThrow({ where: { key: k } })).value, 'antes');
+    await api('get', `/${k}`, demotedToken).expect(200); // continua PLATFORM: lê
+
+    // Super admin desativado (status INACTIVE) => a JwtStrategy barra antes: 401.
+    await prisma.user.update({ where: { id: demotedId }, data: { isSuperAdmin: true, status: 'INACTIVE' } });
+    await api('put', `/${k}`, demotedToken).send({ value: 'inativo' }).expect(401);
+    assert.equal((await prisma.platformSetting.findUniqueOrThrow({ where: { key: k } })).value, 'antes');
   });
 
   it('PUT cria (200), registra updatedByUserId do token e GET /:key devolve o valor', async () => {

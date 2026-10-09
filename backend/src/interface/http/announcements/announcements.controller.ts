@@ -5,6 +5,7 @@ import { ListAnnouncementsQueryDto } from './dto/list-announcements-query.dto';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { AnnouncementsService } from './announcements.service';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
@@ -17,16 +18,21 @@ export class AnnouncementsController {
   @CanAccess('announcements', 'view')
   async findAll(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListAnnouncementsQueryDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return sendPage(res, await this.announcementsService.findAll(organizationId, query));
+    return sendPage(res, await this.announcementsService.findAll(organizationId, user, query));
   }
 
   @Get(':id')
   @CanAccess('announcements', 'view')
-  findOne(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
-    return this.announcementsService.findOne(organizationId, id);
+  findOne(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.announcementsService.findOne(organizationId, id, user);
   }
 
   @Post()

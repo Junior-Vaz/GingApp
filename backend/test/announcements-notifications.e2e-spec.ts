@@ -402,3 +402,186 @@ describe('Notificações — paginação com total real (e2e)', () => {
     await request(app.getHttpServer()).get('/api/notifications').expect(401);
   });
 });
+
+/**
+ * Visibilidade de GET /announcements e /announcements/:id por vínculo (LGPD, menor privilégio).
+ * ALUNO/RESPONSAVEL só veem o comunicado GERAL do grupo (unitId nulo) + os da(s) unidade(s) do
+ * próprio vínculo (unidade do seu Student, dos dependentes e de UserUnitAccess), e SEM
+ * createdByUserId; comunicado de outra unidade/organização some da lista, do X-Total-Count e dá
+ * o MESMO 404 de um id inexistente. MESTRE/PROFESSOR continuam vendo tudo, com todos os campos.
+ *
+ * Fixtures: me-fixtures (self = ALUNO com Student próprio; guardian = RESPONSAVEL do dependente;
+ * orphan = ALUNO sem vínculo) com os alunos colocados em unidades diferentes; todos os números
+ * esperados são recalculados por uma 2ª via independente (Prisma).
+ */
+describe('Comunicados — visibilidade por vínculo e sem createdByUserId (e2e)', () => {
+  const TAG = `VISANN${Date.now()}`;
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let fx: MeFixture;
+  let mestre: Awaited<ReturnType<typeof loginAs>>;
+  let professor: Awaited<ReturnType<typeof loginAs>>;
+  let orgB: SecondOrg;
+  let unitMainId: number;
+  let unitOtherId: number;
+  const ids: { general?: number; main?: number; other?: number; orgB?: number; mainExtra: number[]; otherExtra: number[] } = {
+    mainExtra: [],
+    otherExtra: [],
+  };
+  const get = (path: string, token: string) =>
+    request(app.getHttpServer()).get(`/api${path}`).set('Authorization', `Bearer ${token}`);
+  const idsOf = (body: Array<{ id: number }>) => body.map((a) => a.id);
+  const mk = (organizationId: number, createdByUserId: number, title: string, unitId: number | null) =>
+    prisma.announcement.create({
+      data: { organizationId, createdByUserId, title: `${TAG} ${title}`, body: `corpo ${TAG} ${title}`, unitId, publishedAt: new Date() },
+    });
+
+  before(async () => {
+    app = await createTestApp();
+    fx = await createMeFixture(app, prisma, 'visann');
+    mestre = await loginAs(app, MESTRE);
+    professor = await loginAs(app, PROFESSOR_EMAIL);
+    orgB = await createSecondOrg(app, prisma, 'visann');
+    unitMainId = (await prisma.unit.findFirstOrThrow({ where: { organizationId: fx.organizationId }, orderBy: { id: 'asc' } })).id;
+    unitOtherId = (await prisma.unit.create({ data: { organizationId: fx.organizationId, name: `${TAG} outra unidade` } })).id;
+
+    // self (ALUNO) na unidade principal; o dependente do guardian (RESPONSAVEL) na OUTRA; orphan sem vínculo.
+    await prisma.student.update({ where: { id: fx.self.studentId }, data: { unitId: unitMainId } });
+    await prisma.student.update({ where: { id: fx.guardian.dependentId }, data: { unitId: unitOtherId } });
+
+    ids.general = (await mk(fx.organizationId, mestre.userId, 'geral', null)).id;
+    ids.main = (await mk(fx.organizationId, mestre.userId, 'unidade-principal', unitMainId)).id;
+    ids.other = (await mk(fx.organizationId, mestre.userId, 'unidade-outra', unitOtherId)).id;
+    ids.orgB = (await mk(orgB.organizationId, orgB.userId, 'orgB-geral', null)).id;
+    // Volume p/ paginação dentro do filtro: 7 extras na principal, 5 na outra.
+    for (let i = 0; i < 7; i++) ids.mainExtra.push((await mk(fx.organizationId, mestre.userId, `main-extra-${i}`, unitMainId)).id);
+    for (let i = 0; i < 5; i++) ids.otherExtra.push((await mk(fx.organizationId, mestre.userId, `other-extra-${i}`, unitOtherId)).id);
+  });
+
+  after(async () => {
+    await prisma.announcement.deleteMany({ where: { title: { startsWith: TAG } } });
+    await prisma.userUnitAccess.deleteMany({ where: { userId: fx.orphan.userId } });
+    await fx.cleanup();
+    await prisma.unit.deleteMany({ where: { id: unitOtherId } });
+    await orgB.cleanup();
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  const expectedFor = async (unitIds: number[]) =>
+    idsOf(
+      await prisma.announcement.findMany({
+        where: { organizationId: fx.organizationId, title: { startsWith: TAG }, OR: [{ unitId: null }, { unitId: { in: unitIds } }] },
+        orderBy: { id: 'desc' },
+        select: { id: true },
+      }),
+    );
+
+  it('ALUNO (unidade principal): geral + principal; nada da outra unidade nem de outra organização; sem createdByUserId; total correto', async () => {
+    const res = await get(`/announcements?q=${TAG}&limit=200`, fx.self.token).expect(200);
+    const expected = await expectedFor([unitMainId]);
+    assert.equal(expected.length, 1 + 1 + 7);
+    assert.deepEqual(idsOf(res.body), expected);
+    assert.equal(res.headers['x-total-count'], String(expected.length));
+    assert.ok(res.body.every((a: object) => !('createdByUserId' in a)), 'createdByUserId vazou para o ALUNO');
+    assert.ok(!res.text.includes('unidade-outra') && !res.text.includes('other-extra') && !res.text.includes('orgB-geral'));
+    assert.ok(res.body.length > 0 && 'title' in res.body[0] && 'unitId' in res.body[0], 'demais campos preservados');
+  });
+
+  it('RESPONSAVEL: vê a unidade do DEPENDENTE (outra) + geral — não a da principal; sem createdByUserId', async () => {
+    const res = await get(`/announcements?q=${TAG}&limit=200`, fx.guardian.token).expect(200);
+    const expected = await expectedFor([unitOtherId]);
+    assert.equal(expected.length, 1 + 1 + 5);
+    assert.deepEqual(idsOf(res.body), expected);
+    assert.equal(res.headers['x-total-count'], String(expected.length));
+    assert.ok(res.body.every((a: object) => !('createdByUserId' in a)));
+    assert.ok(!res.text.includes('unidade-principal') && !res.text.includes('main-extra'));
+  });
+
+  it('sem vínculo com unidade (orphan): só os gerais; com UserUnitAccess numa unidade passa a ver essa também', async () => {
+    const before = await get(`/announcements?q=${TAG}&limit=200`, fx.orphan.token).expect(200);
+    assert.deepEqual(idsOf(before.body), [ids.general]);
+    assert.equal(before.headers['x-total-count'], '1');
+
+    await prisma.userUnitAccess.create({ data: { organizationId: fx.organizationId, userId: fx.orphan.userId, unitId: unitOtherId } });
+    const after = await get(`/announcements?q=${TAG}&limit=200`, fx.orphan.token).expect(200);
+    assert.deepEqual(idsOf(after.body), await expectedFor([unitOtherId]));
+    assert.equal(after.headers['x-total-count'], '7');
+    await prisma.userUnitAccess.deleteMany({ where: { userId: fx.orphan.userId } });
+  });
+
+  it('paginação (limit/offset/X-Total-Count) acontece DENTRO do filtro de vínculo', async () => {
+    const expected = await expectedFor([unitMainId]); // 9 itens, id desc
+    const page1 = await get(`/announcements?q=${TAG}&limit=4`, fx.self.token).expect(200);
+    const page3 = await get(`/announcements?q=${TAG}&limit=4&offset=8`, fx.self.token).expect(200);
+    const beyond = await get(`/announcements?q=${TAG}&limit=4&offset=9`, fx.self.token).expect(200);
+    assert.deepEqual(idsOf(page1.body), expected.slice(0, 4));
+    assert.deepEqual(idsOf(page3.body), expected.slice(8));
+    assert.deepEqual(beyond.body, []);
+    for (const r of [page1, page3, beyond]) assert.equal(r.headers['x-total-count'], '9');
+    // Sem q, o total do ALUNO nunca conta comunicados de outras unidades/organizações.
+    const noQ = await get('/announcements?limit=200', fx.self.token).expect(200);
+    const expectedAll = await prisma.announcement.count({
+      where: { organizationId: fx.organizationId, OR: [{ unitId: null }, { unitId: unitMainId }] },
+    });
+    assert.equal(noQ.headers['x-total-count'], String(expectedAll));
+    assert.equal(noQ.body.length, Math.min(expectedAll, 200));
+  });
+
+  it('filtros da query só ESTREITAM o escopo: unitId de outra unidade => vazio; unitId da própria / isActive combinam', async () => {
+    const foreign = await get(`/announcements?q=${TAG}&unitId=${unitOtherId}`, fx.self.token).expect(200);
+    assert.deepEqual(foreign.body, []);
+    assert.equal(foreign.headers['x-total-count'], '0');
+    const own = await get(`/announcements?q=${TAG}&unitId=${unitMainId}&limit=200`, fx.self.token).expect(200);
+    assert.equal(own.headers['x-total-count'], '8');
+
+    await prisma.announcement.update({ where: { id: ids.mainExtra[0] }, data: { isActive: false } });
+    const inactive = await get(`/announcements?q=${TAG}&isActive=false`, fx.self.token).expect(200);
+    assert.deepEqual(idsOf(inactive.body), [ids.mainExtra[0]]);
+    const inactiveOther = await get(`/announcements?q=${TAG}&isActive=false`, fx.guardian.token).expect(200);
+    assert.deepEqual(inactiveOther.body, [], 'o inativo é da unidade principal: o RESPONSAVEL (outra unidade) não o vê');
+    await prisma.announcement.update({ where: { id: ids.mainExtra[0] }, data: { isActive: true } });
+  });
+
+  it('GET /announcements/:id: do próprio vínculo abre (sem createdByUserId); de outra unidade/organização dá o MESMO 404 do inexistente', async () => {
+    const ghost = await get('/announcements/2147483000', fx.self.token).expect(404);
+    for (const id of [ids.general!, ids.main!]) {
+      const ok = await get(`/announcements/${id}`, fx.self.token).expect(200);
+      assert.equal(ok.body.id, id);
+      assert.ok(!('createdByUserId' in ok.body));
+    }
+    for (const id of [ids.other!, ids.orgB!]) {
+      const hidden = await get(`/announcements/${id}`, fx.self.token).expect(404);
+      assert.deepEqual(hidden.body, ghost.body);
+    }
+    // RESPONSAVEL: o espelho (abre a da unidade do dependente; a da principal é 404).
+    await get(`/announcements/${ids.other}`, fx.guardian.token).expect(200);
+    assert.deepEqual((await get(`/announcements/${ids.main}`, fx.guardian.token).expect(404)).body, ghost.body);
+    // orphan: só o geral.
+    await get(`/announcements/${ids.general}`, fx.orphan.token).expect(200);
+    await get(`/announcements/${ids.main}`, fx.orphan.token).expect(404);
+  });
+
+  it('MESTRE e PROFESSOR continuam vendo TODAS as unidades da organização, com createdByUserId (e nunca a outra organização)', async () => {
+    for (const who of [mestre, professor]) {
+      const res = await get(`/announcements?q=${TAG}&limit=200`, who.token).expect(200);
+      const expected = idsOf(
+        await prisma.announcement.findMany({
+          where: { organizationId: fx.organizationId, title: { startsWith: TAG } },
+          orderBy: { id: 'desc' },
+          select: { id: true },
+        }),
+      );
+      assert.equal(expected.length, 3 + 7 + 5);
+      assert.deepEqual(idsOf(res.body), expected);
+      assert.equal(res.headers['x-total-count'], String(expected.length));
+      assert.ok(res.body.every((a: { createdByUserId?: number }) => a.createdByUserId === mestre.userId));
+      assert.ok(!res.text.includes('orgB-geral'));
+      for (const id of [ids.general!, ids.main!, ids.other!]) {
+        const one = await get(`/announcements/${id}`, who.token).expect(200);
+        assert.equal(one.body.createdByUserId, mestre.userId);
+      }
+      await get(`/announcements/${ids.orgB}`, who.token).expect(404);
+    }
+  });
+});

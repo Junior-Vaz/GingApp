@@ -58,12 +58,13 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/events', 'agenda do grupo (sem dado pessoal; agregados participantsCount/myParticipation)'],
   ['/api/events/:id', 'evento do grupo (escopo organizationId)'],
   ['/api/events/:eventId/participants', 'terceiros anonimizados; só a própria inscrição identificada'],
-  ['/api/announcements', 'comunicados do grupo'],
-  ['/api/announcements/:id', 'comunicado do grupo'],
+  ['/api/announcements', 'comunicados GERAIS + da(s) unidade(s) do próprio vínculo, sem createdByUserId (AnnouncementsService.memberScope)'],
+  ['/api/announcements/:id', 'idem; comunicado fora do vínculo = 404 igual ao inexistente'],
   ['/api/notifications', 'notificações do próprio usuário'],
   ['/api/notifications/unread-count', 'contador do próprio usuário'],
   ['/api/platform-announcements/mine', 'avisos da plataforma para a própria organização'],
-  ['/api/subscriptions/me', 'plano/assinatura da própria organização'],
+  // '/api/subscriptions/me' SAIU da allowlist: plano/preço/ids do gateway = financeiro do grupo,
+  // agora exige finance.view (só MESTRE) — ALUNO/RESPONSAVEL/PROFESSOR recebem 403.
   ['/api/calendar', 'pública: rodas + eventos isPublic, sem participantes'],
   ['/api/rodas', 'pública (comunidade): sem participantes; agregados de contagem'],
   ['/api/rodas/:id', 'pública (comunidade)'],
@@ -134,6 +135,8 @@ describe('Privacidade de ALUNO/RESPONSAVEL — varredura de rotas GET + fluxo do
     financeDescription: `Mensalidade sigilosa Zeca ${tag}`,
     certificateTitle: `Certificado sigiloso Zeca ${tag}`,
     graduationNotes: `Nota sigilosa Zeca ${tag}`,
+    // Comunicado de OUTRA unidade do mesmo grupo (ninguém de Ana/Carla pertence a ela).
+    announcementOtherUnit: `Aviso sigiloso de outra unidade ${tag}`,
   };
   const BIA = { name: `Bia Outra Org ${tag}`, document: `DOC-BIA-${tag}`, email: `bia-${tag}@outra-org.local` };
   const ANA_NAME = 'Ana Capoeirista'; // seed (ALUNO da org piloto, menor de idade)
@@ -161,6 +164,9 @@ describe('Privacidade de ALUNO/RESPONSAVEL — varredura de rotas GET + fluxo do
   let biaStudentId: number;
   let eventBId: number;
   let zecaEventParticipantId: number;
+  let otherUnitId: number;
+  let generalAnnouncementId: number;
+  let otherUnitAnnouncementId: number;
 
   before(async () => {
     app = await createTestApp({ disableThrottle: true });
@@ -230,6 +236,20 @@ describe('Privacidade de ALUNO/RESPONSAVEL — varredura de rotas GET + fluxo do
     rodaId = (await prisma.roda.create({ data: { organizationId: orgAId, title: `[e2e-privacy] Roda ${tag}`, date: future } })).id;
     await prisma.rodaParticipant.create({ data: { rodaId, userId: zecaUserId } });
 
+    // Comunicados da org A: um GERAL (todos veem; garante lista não vazia p/ as asserções sobre
+    // campos) e um de OUTRA unidade (nenhum dos vínculos de Ana/Carla pertence a ela).
+    otherUnitId = (await prisma.unit.create({ data: { organizationId: orgAId, name: `[e2e-privacy] Unidade ${tag}` } })).id;
+    generalAnnouncementId = (
+      await prisma.announcement.create({
+        data: { organizationId: orgAId, createdByUserId: mestre.userId, title: `[e2e-privacy] Aviso geral ${tag}`, body: 'corpo geral' },
+      })
+    ).id;
+    otherUnitAnnouncementId = (
+      await prisma.announcement.create({
+        data: { organizationId: orgAId, unitId: otherUnitId, createdByUserId: mestre.userId, title: ZECA.announcementOtherUnit, body: 'corpo sigiloso' },
+      })
+    ).id;
+
     // --- Org B: "Bia", ALUNO de OUTRA organização ---
     const orgB = await prisma.organization.create({
       data: { name: `E2E privacy Org B ${tag}`, slug: `e2e-privacy-org-b-${tag}`, type: OrganizationType.GROUP, status: RecordStatus.ACTIVE },
@@ -253,6 +273,8 @@ describe('Privacidade de ALUNO/RESPONSAVEL — varredura de rotas GET + fluxo do
   });
 
   after(async () => {
+    await prisma.announcement.deleteMany({ where: { id: { in: [generalAnnouncementId, otherUnitAnnouncementId].filter((id) => id !== undefined) } } });
+    if (otherUnitId) await prisma.unit.delete({ where: { id: otherUnitId } });
     const eventIds = [eventId, event2Id, eventBId].filter((id) => id !== undefined);
     await prisma.eventParticipant.deleteMany({ where: { eventId: { in: eventIds } } });
     await prisma.event.deleteMany({ where: { id: { in: eventIds } } });
@@ -332,7 +354,7 @@ describe('Privacidade de ALUNO/RESPONSAVEL — varredura de rotas GET + fluxo do
     ];
     const foreignIds = [
       zecaStudentId, zecaLessonId, zecaCertificateId, zecaFinanceId, eventId, rodaId, zecaEventParticipantId,
-      orgAId, orgBId, eventBId, biaStudentId,
+      orgAId, orgBId, eventBId, biaStudentId, otherUnitAnnouncementId,
     ].map(String);
     const urlsFor = (route: string): string[] => {
       if (!route.includes(':')) return [route, `${route}?q=${encodeURIComponent('Zeca Sentinela')}`, `${route}?q=${encodeURIComponent('Bia Outra')}`];
@@ -406,8 +428,14 @@ describe('Privacidade de ALUNO/RESPONSAVEL — varredura de rotas GET + fluxo do
         for (const marker of Object.values(ZECA)) assert.ok(!res.text.includes(marker), `${who} ${path} vazou ${marker}`);
       }
 
+      // Comunicados: nunca expõem o id interno do autor a quem não publica.
+      const announcements = await get('/api/announcements?limit=200', token).expect(200);
+      assert.ok(announcements.body.some((a: { id: number }) => a.id === generalAnnouncementId), 'comunicado geral deve aparecer');
+      assert.ok(announcements.body.every((a: { id: number }) => a.id !== otherUnitAnnouncementId), 'comunicado de outra unidade vazou');
+      assert.ok(announcements.body.every((a: object) => !('createdByUserId' in a)), `${who} recebeu createdByUserId`);
+
       // Rotas administrativas: fechadas.
-      for (const path of ['/api/students', `/api/students/${zecaStudentId}`, `/api/students/${anaStudentId}`, '/api/attendance',
+      for (const path of ['/api/subscriptions/me', '/api/students', `/api/students/${zecaStudentId}`, `/api/students/${anaStudentId}`, '/api/attendance',
         `/api/attendance/lessons/${zecaLessonId}`, '/api/lessons', '/api/classes', '/api/graduations', '/api/graduations/systems']) {
         await get(path, token).expect(403);
       }

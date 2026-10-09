@@ -31,6 +31,10 @@ describe('Isolamento multi-tenant (e2e)', () => {
   let orgBStudentId: number;
   let orgBId: number;
   let orgBUserId: number;
+  let orgAAlunoToken: string;
+  let orgAAnnouncementId: number;
+  let orgBAnnouncementId: number;
+  const ANN_TAG = `iso-ann-${Date.now()}`;
 
   before(async () => {
     app = await createTestApp();
@@ -85,10 +89,28 @@ describe('Isolamento multi-tenant (e2e)', () => {
       where: { organizationId: loginA.body.user.organizationId },
     });
     orgAStudentId = anyOrgAStudent.id;
+
+    // Comunicados (um por organização) + um ALUNO da organização A (papel sem permissão de escrita).
+    orgAAnnouncementId = (
+      await prisma.announcement.create({
+        data: { organizationId: loginA.body.user.organizationId, createdByUserId: loginA.body.user.id, title: `${ANN_TAG} A`, body: 'segredo da org A' },
+      })
+    ).id;
+    orgBAnnouncementId = (
+      await prisma.announcement.create({
+        data: { organizationId: orgB.id, createdByUserId: userB.id, title: `${ANN_TAG} B`, body: 'segredo da org B' },
+      })
+    ).id;
+    const loginAluno = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: 'aluno@gingabrasil.com.br', password: DEV_PASSWORD })
+      .expect(200);
+    orgAAlunoToken = loginAluno.body.accessToken;
   });
 
   after(async () => {
     // Limpa só o que esta suíte criou — nunca mexe nos dados do seed de dev (organização A).
+    await prisma.announcement.deleteMany({ where: { title: { startsWith: ANN_TAG } } });
     await prisma.student.deleteMany({ where: { organizationId: orgBId } });
     await prisma.organizationUser.deleteMany({ where: { organizationId: orgBId } });
     await prisma.organization.delete({ where: { id: orgBId } });
@@ -150,5 +172,53 @@ describe('Isolamento multi-tenant (e2e)', () => {
 
     const stillActive = await prisma.student.findUniqueOrThrow({ where: { id: orgBStudentId } });
     assert.equal(stillActive.status, 'ACTIVE');
+  });
+
+  it('comunicados: a lista de cada organização (MESTRE e ALUNO) nunca inclui a da outra, e o X-Total-Count não conta a outra', async () => {
+    const ask = (token: string) =>
+      request(app.getHttpServer()).get(`/api/announcements?q=${ANN_TAG}&limit=200`).set('Authorization', `Bearer ${token}`).expect(200);
+
+    const mestreA = await ask(orgAToken);
+    assert.deepEqual(mestreA.body.map((a: { id: number }) => a.id), [orgAAnnouncementId]);
+    assert.equal(mestreA.headers['x-total-count'], '1');
+    assert.ok(!mestreA.text.includes('segredo da org B'));
+
+    const alunoA = await ask(orgAAlunoToken);
+    assert.deepEqual(alunoA.body.map((a: { id: number }) => a.id), [orgAAnnouncementId]);
+    assert.equal(alunoA.headers['x-total-count'], '1');
+    assert.ok(!alunoA.text.includes('segredo da org B'));
+
+    const mestreB = await ask(orgBToken);
+    assert.deepEqual(mestreB.body.map((a: { id: number }) => a.id), [orgBAnnouncementId]);
+    assert.equal(mestreB.headers['x-total-count'], '1');
+    assert.ok(!mestreB.text.includes('segredo da org A'));
+  });
+
+  it('comunicados: ler por id de outra organização dá o MESMO 404 de um id inexistente (MESTRE e ALUNO); o da própria organização abre', async () => {
+    const get = (id: number | string, token: string) =>
+      request(app.getHttpServer()).get(`/api/announcements/${id}`).set('Authorization', `Bearer ${token}`);
+    const ghost = await get(2147483000, orgAToken).expect(404);
+    for (const token of [orgAToken, orgAAlunoToken]) {
+      const foreign = await get(orgBAnnouncementId, token).expect(404);
+      assert.deepEqual(foreign.body, ghost.body);
+      await get(orgAAnnouncementId, token).expect(200);
+    }
+    const reverse = await get(orgAAnnouncementId, orgBToken).expect(404);
+    assert.deepEqual(reverse.body, ghost.body);
+  });
+
+  it('comunicados: organização A não consegue EDITAR nem APAGAR (inativar) o comunicado da organização B', async () => {
+    await request(app.getHttpServer())
+      .patch(`/api/announcements/${orgBAnnouncementId}`)
+      .set('Authorization', `Bearer ${orgAToken}`)
+      .send({ title: 'Adulterado pela Org A' })
+      .expect(404);
+    await request(app.getHttpServer())
+      .delete(`/api/announcements/${orgBAnnouncementId}`)
+      .set('Authorization', `Bearer ${orgAToken}`)
+      .expect(404);
+    const intact = await prisma.announcement.findUniqueOrThrow({ where: { id: orgBAnnouncementId } });
+    assert.equal(intact.title, `${ANN_TAG} B`);
+    assert.equal(intact.isActive, true);
   });
 });
