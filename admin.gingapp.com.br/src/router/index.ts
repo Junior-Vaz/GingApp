@@ -50,12 +50,6 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, navLabel: 'Team' },
   },
   {
-    path: '/audit',
-    name: 'audit',
-    component: () => import('@/views/AuditView.vue'),
-    meta: { requiresAuth: true, navLabel: 'Audit' },
-  },
-  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
