@@ -383,6 +383,9 @@ describe("/eventos: lista paginada com o total real", () => {
     expect(container!.querySelectorAll(".discovery-grid > *")).toHaveLength(50);
     const first = callsTo("/events")[0]!;
     expect(first.searchParams.get("limit")).toBe("50");
+    // próximos primeiro: o servidor pagina na mesma ordem que a tela mostra
+    expect(first.searchParams.get("order")).toBe("asc");
+    expect(first.searchParams.get("from")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     // só a aba ativa busca: nada de /calendar nem /rodas
     expect(callsTo("/calendar")).toHaveLength(0);
     expect(callsTo("/rodas")).toHaveLength(0);

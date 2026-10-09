@@ -525,7 +525,10 @@ export function useFinanceSummary() {
   return scoped(query, scope);
 }
 
-export const useEvents = (enabled = true) => usePagedList<EventDto>(["events"], "/events", {}, { enabled });
+/** Eventos do grupo de hoje em diante, o mais próximo primeiro. Sem `order=asc&from=hoje` o servidor
+ * devolve por id desc, e o "Carregar mais" trazia páginas de uma ordem diferente da exibida. */
+export const useEvents = (enabled = true) =>
+  usePagedList<EventDto>(["events"], "/events", { from: todayParam(), order: "asc" }, { enabled });
 
 export interface CalendarFilters {
   scope?: string;
