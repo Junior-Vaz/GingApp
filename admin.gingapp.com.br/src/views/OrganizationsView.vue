@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api, errorMessage } from '@/utils/api'
 import { setFlash } from '@/utils/flash'
+import { NEW_PASSWORD_MIN_LENGTH as PASSWORD_MIN, PASSWORD_MAX_BYTES, passwordProblem } from '@/utils/password'
 
 interface Organization {
   id: number
@@ -29,8 +30,6 @@ interface CreateFormState {
   passwordConfirm: string
 }
 
-const PASSWORD_MIN = 12
-const PASSWORD_MAX_BYTES = 72
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const CREATED_NOTICE = 'Grupo criado — informe ao MESTRE a senha inicial por canal seguro.'
 
@@ -91,15 +90,6 @@ function closeModal(): void {
   isModalOpen.value = false
   // Nunca deixa uma senha digitada na memória do formulário depois de enviada/cancelada.
   Object.assign(form, emptyForm())
-}
-
-function passwordProblem(password: string, confirmation: string): string | null {
-  if (password.length < PASSWORD_MIN) return `A senha precisa ter no mínimo ${PASSWORD_MIN} caracteres.`
-  if (new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES) {
-    return `A senha pode ter no máximo ${PASSWORD_MAX_BYTES} caracteres.`
-  }
-  if (password !== confirmation) return 'A confirmação da senha não confere.'
-  return null
 }
 
 async function submitCreate(): Promise<void> {

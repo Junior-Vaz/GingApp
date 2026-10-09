@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import ChangePasswordModal from '@/components/ChangePasswordModal.vue'
 import { routes } from '@/router'
 import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const isChangePasswordOpen = ref(false)
 
 const navItems = computed(() =>
   routes
@@ -54,7 +56,15 @@ function handleLogout(): void {
         <p class="truncate px-3 text-sm text-slate-500">{{ authStore.user?.name ?? 'Usuário' }}</p>
         <button
           type="button"
+          data-testid="change-password"
           class="mt-1 w-full rounded-md px-3 py-2 text-left text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
+          @click="isChangePasswordOpen = true"
+        >
+          Alterar senha
+        </button>
+        <button
+          type="button"
+          class="w-full rounded-md px-3 py-2 text-left text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900"
           @click="handleLogout"
         >
           Sair
@@ -67,5 +77,7 @@ function handleLogout(): void {
         <RouterView />
       </div>
     </main>
+
+    <ChangePasswordModal v-if="isChangePasswordOpen" @close="isChangePasswordOpen = false" />
   </div>
 </template>

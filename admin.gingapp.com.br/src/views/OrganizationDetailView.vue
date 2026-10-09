@@ -1,8 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import { api, ApiError } from '@/utils/api'
 import { takeFlash } from '@/utils/flash'
+import {
+  NEW_PASSWORD_MIN_LENGTH,
+  PASSWORD_MAX_BYTES,
+  RESET_MESTRE_SUCCESS,
+  passwordErrorMessage,
+  passwordProblem,
+  resetMestrePassword,
+} from '@/utils/password'
 
 interface FeatureOverride {
   id: number
@@ -11,12 +20,21 @@ interface FeatureOverride {
   note: string | null
 }
 
+/** MESTRE do grupo (GET /organizations/:id). `id` é o id do USUÁRIO (o usado no reset); `status` é o do vínculo. */
+interface Mestre {
+  id: number
+  name: string
+  email: string
+  status: string
+}
+
 interface Organization {
   id: number
   name: string
   slug: string
   type: string
   status: string
+  mestres?: Mestre[]
 }
 
 interface Plan {
@@ -50,6 +68,7 @@ const STATUS_LABEL: Record<SubscriptionStatus, string> = {
 }
 
 const route = useRoute()
+const authStore = useAuthStore()
 const organizationId = Number(route.params.id)
 
 const organization = ref<Organization | null>(null)
@@ -69,6 +88,24 @@ const overrideForm = reactive({ featureKey: '', enabled: true, note: '' })
 const isSavingOverride = ref(false)
 const overrideError = ref('')
 
+// Redefinição de senha do MESTRE (modal).
+const resetTarget = ref<Mestre | null>(null)
+const resetForm = reactive({ password: '', passwordConfirm: '' })
+const isResetting = ref(false)
+const resetError = ref('')
+
+const mestres = computed(() => organization.value?.mestres ?? [])
+
+/**
+ * Só um super admin PLATFORM redefine a senha de um MESTRE (o backend responde 403 para o resto): mesmo
+ * critério das telas Team e Novo grupo. Além disso o vínculo do MESTRE precisa estar ACTIVE (o backend
+ * responde 404 para os demais).
+ */
+const canReset = computed(() => {
+  const me = authStore.user
+  return !!me && me.userType === 'PLATFORM' && me.isSuperAdmin
+})
+
 const activePlans = computed(() => plans.value.filter((p) => p.isActive))
 const hasOpenSubscription = computed(
   () => subscription.value !== null && OPEN_STATUSES.includes(subscription.value.status),
@@ -87,14 +124,14 @@ async function loadAll(): Promise<void> {
   isLoading.value = true
   loadError.value = ''
   try {
-    const [organizations, subscriptions, allPlans, overrides] = await Promise.all([
-      api.get<Organization[]>('/organizations'),
+    const [loadedOrganization, subscriptions, allPlans, overrides] = await Promise.all([
+      api.get<Organization>(`/organizations/${organizationId}`),
       api.get<Subscription[]>('/subscriptions'),
       api.get<Plan[]>('/plans'),
       api.get<FeatureOverride[]>(`/organizations/${organizationId}/feature-overrides`),
     ])
 
-    organization.value = organizations.find((o) => o.id === organizationId) ?? null
+    organization.value = loadedOrganization ?? null
     plans.value = allPlans
     featureOverrides.value = overrides
 
@@ -194,6 +231,46 @@ async function cancelSubscription(): Promise<void> {
   }
 }
 
+function closeReset(): void {
+  resetTarget.value = null
+  // Nunca deixa a senha digitada na memória do formulário depois de enviada/cancelada.
+  resetForm.password = ''
+  resetForm.passwordConfirm = ''
+}
+
+function openReset(mestre: Mestre): void {
+  if (!canReset.value || mestre.status !== 'ACTIVE') return
+  resetError.value = ''
+  resetForm.password = ''
+  resetForm.passwordConfirm = ''
+  resetTarget.value = mestre
+}
+
+async function submitReset(): Promise<void> {
+  const mestre = resetTarget.value
+  if (!mestre || isResetting.value) return // Enter repetido durante o envio não envia duas vezes
+  resetError.value = ''
+  const problem = passwordProblem(resetForm.password, resetForm.passwordConfirm)
+  if (problem) {
+    resetError.value = problem
+    return
+  }
+
+  isResetting.value = true
+  try {
+    await resetMestrePassword(organizationId, mestre.id, resetForm.password)
+    closeReset()
+    notice.value = RESET_MESTRE_SUCCESS
+  } catch (error) {
+    // A senha digitada nunca fica no formulário depois de enviada, nem em caso de erro.
+    resetForm.password = ''
+    resetForm.passwordConfirm = ''
+    resetError.value = passwordErrorMessage(error, 'Não foi possível redefinir a senha.')
+  } finally {
+    isResetting.value = false
+  }
+}
+
 onMounted(() => {
   void loadAll()
 })
@@ -278,6 +355,52 @@ onMounted(() => {
       <p v-if="actionError" class="mt-3 text-sm text-red-600">{{ actionError }}</p>
     </div>
 
+    <div v-if="!isLoading && organization" class="mt-6 rounded-xl border border-slate-200 bg-white p-6" data-testid="mestres">
+      <h2 class="text-lg font-semibold text-slate-900">MESTREs do grupo</h2>
+      <p class="mt-1 text-sm text-slate-500">
+        Quem administra este grupo. Se o MESTRE perder o acesso, redefina a senha e informe a nova por canal seguro.
+      </p>
+
+      <div v-if="mestres.length > 0" class="mt-4 divide-y divide-slate-100 border-t border-slate-100">
+        <div
+          v-for="mestre in mestres"
+          :key="mestre.id"
+          class="flex items-center justify-between gap-3 py-3 text-sm"
+          :data-testid="`mestre-${mestre.id}`"
+        >
+          <div class="min-w-0">
+            <p class="truncate font-medium text-slate-900">{{ mestre.name }}</p>
+            <p class="truncate text-slate-500">{{ mestre.email }}</p>
+          </div>
+          <div class="flex shrink-0 items-center gap-3">
+            <span
+              data-testid="mestre-status"
+              class="rounded-full px-2 py-0.5 text-xs font-medium"
+              :class="mestre.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'"
+            >
+              {{ mestre.status === 'ACTIVE' ? 'Ativo' : 'Inativo' }}
+            </span>
+            <button
+              v-if="canReset"
+              type="button"
+              data-action="reset-password"
+              :disabled="mestre.status !== 'ACTIVE'"
+              :title="mestre.status !== 'ACTIVE' ? 'Só é possível redefinir a senha de um MESTRE ativo.' : undefined"
+              class="font-medium text-slate-600 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-slate-600"
+              @click="openReset(mestre)"
+            >
+              Redefinir senha
+            </button>
+          </div>
+        </div>
+      </div>
+      <p v-else class="mt-4 text-sm text-slate-400">Nenhum MESTRE vinculado a este grupo.</p>
+
+      <p v-if="!canReset" data-testid="reset-readonly-note" class="mt-4 text-xs text-slate-500">
+        Somente super admins ativos podem redefinir a senha de um MESTRE.
+      </p>
+    </div>
+
     <div v-if="!isLoading" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
       <h2 class="text-lg font-semibold text-slate-900">Feature overrides</h2>
       <p class="mt-1 text-sm text-slate-500">
@@ -349,6 +472,58 @@ onMounted(() => {
 
     <div class="mt-6 rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-400">
       Uso, atividade e unidades serão implementados nas próximas fases.
+    </div>
+
+    <!-- Modal redefinir senha do MESTRE -->
+    <div v-if="resetTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="reset-title">
+        <h2 id="reset-title" class="text-lg font-semibold text-slate-900">Redefinir senha do MESTRE</h2>
+        <p class="mt-1 text-sm text-slate-500">
+          {{ resetTarget.name }} ({{ resetTarget.email }}) — as sessões atuais dele serão encerradas.
+        </p>
+
+        <form class="mt-4 space-y-4" autocomplete="off" @submit.prevent="submitReset">
+          <div>
+            <label for="reset-mestre-password" class="mb-1 block text-sm font-medium text-slate-700">Nova senha</label>
+            <input
+              id="reset-mestre-password"
+              v-model="resetForm.password"
+              type="password"
+              autocomplete="new-password"
+              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+            />
+            <p class="mt-1 text-xs text-slate-400">
+              De {{ NEW_PASSWORD_MIN_LENGTH }} a {{ PASSWORD_MAX_BYTES }} caracteres (bytes UTF-8); não pode ser a senha padrão de
+              desenvolvimento. Informe-a ao MESTRE por canal seguro.
+            </p>
+          </div>
+          <div>
+            <label for="reset-mestre-password-confirm" class="mb-1 block text-sm font-medium text-slate-700">Confirmar nova senha</label>
+            <input
+              id="reset-mestre-password-confirm"
+              v-model="resetForm.passwordConfirm"
+              type="password"
+              autocomplete="new-password"
+              class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
+            />
+          </div>
+
+          <p v-if="resetError" role="alert" class="text-sm text-red-600">{{ resetError }}</p>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" class="rounded-md px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" @click="closeReset">
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              :disabled="isResetting"
+              class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {{ isResetting ? 'Redefinindo…' : 'Redefinir senha' }}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   </div>
 </template>

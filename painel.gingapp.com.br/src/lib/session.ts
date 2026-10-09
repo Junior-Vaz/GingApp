@@ -85,6 +85,18 @@ export function saveSession(token: string, user: AuthUser): void {
   emit();
 }
 
+/**
+ * Troca SÓ o token, mantendo o usuário guardado. Usado após a troca de senha: o backend revoga todos
+ * os tokens antigos (inclusive o desta chamada) e devolve um novo - a sessão segue sem deslogar.
+ * Sem sessão guardada não há o que trocar (não cria sessão "pela metade").
+ */
+export function replaceToken(token: string): void {
+  const store = storage();
+  if (!store || store.getItem(USER_STORAGE_KEY) === null) return;
+  store.setItem(TOKEN_STORAGE_KEY, token);
+  emit();
+}
+
 export function clearSession(): void {
   const store = storage();
   store?.removeItem(TOKEN_STORAGE_KEY);

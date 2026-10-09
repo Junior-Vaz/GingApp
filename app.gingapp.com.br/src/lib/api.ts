@@ -52,7 +52,9 @@ async function requestRaw<T>(
 
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    if (response.status === 401 && !options.skipAuthRedirect) {
+    // 401 de uma chamada feita com um token que JÁ FOI TROCADO (troca de senha enquanto ela estava em
+    // voo) é obsoleto: a sessão atual é outra e válida - não pode ser derrubada por ele.
+    if (response.status === 401 && !options.skipAuthRedirect && getToken() === token) {
       clearSession();
       unauthorizedHandler?.();
     }

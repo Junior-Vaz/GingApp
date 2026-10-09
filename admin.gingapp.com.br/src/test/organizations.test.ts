@@ -262,7 +262,7 @@ describe('OrganizationDetailView — aviso de grupo criado', () => {
     await router.push('/organizations/9')
     await router.isReady()
     mockFetch((call) => {
-      if (call.path === '/organizations') return { body: [createdOrg] }
+      if (call.path === '/organizations/9') return { body: { ...createdOrg, mestres: [] } }
       return { body: [] }
     })
     const wrapper = mount(OrganizationDetailView, { global: { plugins: [pinia, router] }, attachTo: document.body })

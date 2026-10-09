@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { LogOut } from "lucide-react";
 import { Brand } from "@/components/painel/brand";
+import { ChangePasswordButton } from "@/components/painel/change-password-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -104,6 +105,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </Badge>
               </div>
             )}
+            <ChangePasswordButton />
             <Button variant="ghost" size="sm" onClick={handleLogout}>
               <LogOut />
               <span className="hidden sm:inline">Sair</span>

@@ -49,6 +49,12 @@ async function requestRaw<T>(path: string, options: RequestOptions = {}): Promis
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
 
+  if (response.status === 401 && token && !skipAuth && localStorage.getItem(AUTH_TOKEN_KEY) !== token) {
+    // 401 de uma chamada feita com um token que JÁ FOI TROCADO (troca de senha enquanto ela estava em
+    // voo) é obsoleto: a sessão atual é outra e válida - não pode ser derrubada por ele.
+    throw new ApiError('A sessão foi renovada. Tente novamente.', 401)
+  }
+
   if (response.status === 401) {
     localStorage.removeItem(AUTH_TOKEN_KEY)
     localStorage.removeItem(AUTH_USER_KEY)

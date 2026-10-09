@@ -69,6 +69,17 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(loggedUser))
   }
 
+  /**
+   * Troca SÓ o token, mantendo o usuário. Usado após a troca de senha: o backend revoga todos os tokens
+   * antigos (inclusive o desta chamada) e devolve um novo - a sessão segue sem deslogar. Sem sessão
+   * guardada não há o que trocar (não cria sessão "pela metade").
+   */
+  function replaceToken(newToken: string): void {
+    if (!user.value) return
+    token.value = newToken
+    localStorage.setItem(AUTH_TOKEN_KEY, newToken)
+  }
+
   function logout(): void {
     token.value = null
     user.value = null
@@ -76,5 +87,5 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem(AUTH_USER_KEY)
   }
 
-  return { token, user, isAuthenticated, login, logout }
+  return { token, user, isAuthenticated, login, logout, replaceToken }
 })
