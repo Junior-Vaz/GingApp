@@ -307,7 +307,7 @@ describe("Graduações - busca de aluno no servidor", () => {
   it("avisa quando há mais alunos que o limite da busca (total > 20)", async () => {
     setup({ studentsTotal: 57 });
     await goStudents();
-    expect(await screen.findByTestId("students-truncated")).toHaveTextContent("Mostrando 20 de 57 alunos");
+    expect(await screen.findByTestId("student-picker-status")).toHaveTextContent("Mostrando 20 de 57 alunos");
   });
 });
 

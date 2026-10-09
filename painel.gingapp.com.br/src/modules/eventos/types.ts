@@ -47,11 +47,6 @@ export interface Unit {
   name: string;
 }
 
-export interface StudentOption {
-  id: number;
-  name: string;
-}
-
 export interface EventParticipant {
   id: number;
   eventId: number;

@@ -38,10 +38,21 @@ function mockApi(routes: Record<string, (call: Call) => Response>) {
   return calls;
 }
 
+const STUDENTS = [
+  { id: 1, name: "Ana Souza" },
+  { id: 2, name: "Bia Lima" },
+];
+
+/** Busca no servidor: filtra por q (como o backend) e devolve o total no header. */
+const studentsRoute = (c: Call) => {
+  const q = (c.query.get("q") ?? "").toLowerCase();
+  const rows = STUDENTS.filter((s) => s.name.toLowerCase().includes(q));
+  return json(200, rows, { "X-Total-Count": String(rows.length) });
+};
+
 const base = () => ({
   "GET /certificates": () => json(200, certs, { "X-Total-Count": String(certs.length) }),
-  "GET /students": () =>
-    json(200, [{ id: 1, name: "Ana Souza" }, { id: 2, name: "Bia Lima" }], { "X-Total-Count": "2" }),
+  "GET /students": studentsRoute,
 });
 
 function renderPage() {
@@ -115,7 +126,11 @@ describe("CertificadosPage", () => {
     expect(lastOf(calls, "/certificates").query.get("from")).toBe("2025-01-01");
 
     fireEvent.change(screen.getByLabelText("Emitido até"), { target: { value: "2025-12-31" } });
-    fireEvent.change(await screen.findByLabelText("Filtrar por aluno"), { target: { value: "2" } });
+    // seletor em modo filtro: busca no servidor e só então escolhe o aluno
+    fireEvent.change(screen.getByLabelText("Buscar aluno"), { target: { value: "bia" } });
+    await waitFor(() => expect(lastOf(calls, "/students").query.get("q")).toBe("bia"));
+    await waitFor(() => expect(within(screen.getByLabelText("Filtrar por aluno")).queryByRole("option", { name: "Ana Souza" })).toBeNull());
+    fireEvent.change(screen.getByLabelText("Filtrar por aluno"), { target: { value: "2" } });
     await waitFor(() => expect(lastOf(calls, "/certificates").query.get("studentId")).toBe("2"));
     expect(Object.fromEntries(lastOf(calls, "/certificates").query)).toMatchObject({
       from: "2025-01-01",
@@ -126,6 +141,7 @@ describe("CertificadosPage", () => {
     });
 
     fireEvent.click(screen.getByText("Limpar"));
+    expect(screen.getByLabelText("Filtrar por aluno")).toHaveValue("");
     fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "xyz789" } });
     await waitFor(() => expect(lastOf(calls, "/certificates").query.get("q")).toBe("xyz789"));
     expect(lastOf(calls, "/certificates").query.has("from")).toBe(false);
@@ -175,16 +191,20 @@ describe("CertificadosPage", () => {
     expect(within(dialog).getByTestId("cert-link")).toHaveTextContent(/\/verificar\/cabc123$/);
   });
 
-  it("alunos do formulario vem de /students?limit=200 e avisa se total > 200", async () => {
-    const calls = mockApi({
-      ...base(),
-      "GET /students": () => json(200, [{ id: 1, name: "Ana Souza" }], { "X-Total-Count": "350" }),
-    });
+  it("seletor de aluno: busca no servidor (limit=20, nunca limit=200) e sem aviso de lista parcial", async () => {
+    const calls = mockApi(base());
     renderPage();
     await inTable.findByText("Ana Souza");
-    expect(calls.find((c) => c.path === "/students")!.query.get("limit")).toBe("200");
+    const studentCalls = () => calls.filter((c) => c.method === "GET" && c.path === "/students");
+    await waitFor(() => expect(studentCalls().length).toBeGreaterThan(0));
+    for (const c of studentCalls()) expect(c.query.get("limit")).toBe("20");
     fireEvent.click(screen.getByText("Emitir certificado", { selector: "button" }));
-    expect(await within(await screen.findByRole("dialog")).findByTestId("students-truncated")).toHaveTextContent("200 de 350");
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).queryByTestId("students-truncated")).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Buscar aluno"), { target: { value: "bia" } });
+    await waitFor(() => expect(studentCalls().at(-1)!.query.get("q")).toBe("bia"));
+    expect(studentCalls().at(-1)!.query.get("limit")).toBe("20");
+    expect(studentCalls().some((c) => c.query.get("limit") === "200")).toBe(false);
   });
 
   it("valida e emite (POST /certificates, vazios omitidos)", async () => {
@@ -205,6 +225,29 @@ describe("CertificadosPage", () => {
     await waitFor(() => expect(mutations(calls, "POST")).toHaveLength(1));
     expect(mutations(calls, "POST")[0]!.body).toEqual({ studentId: 2, title: "Roda de formatura" });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Certificado emitido."));
+  });
+
+  it("emite para um aluno que NAO esta nos 20 primeiros: acha por busca e o payload leva o studentId dele", async () => {
+    const calls = mockApi({
+      ...base(),
+      "GET /students": (c) =>
+        c.query.get("q") === "bia"
+          ? json(200, [STUDENTS[1]], { "X-Total-Count": "1" })
+          : json(200, [STUDENTS[0]], { "X-Total-Count": "300" }),
+      "POST /certificates": () => json(201, { id: 9 }),
+    });
+    renderPage();
+    await inTable.findByText("Ana Souza");
+    fireEvent.click(screen.getByText("Emitir certificado", { selector: "button" }));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByRole("option", { name: "Ana Souza" });
+    expect(within(dialog).queryByRole("option", { name: "Bia Lima" })).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("Buscar aluno"), { target: { value: "bia" } });
+    fireEvent.change(await within(dialog).findByRole("option", { name: "Bia Lima" }).then(() => within(dialog).getByLabelText("Aluno")), { target: { value: "2" } });
+    fireEvent.change(within(dialog).getByLabelText("Título"), { target: { value: "Formatura" } });
+    fireEvent.click(within(dialog).getByText("Emitir"));
+    await waitFor(() => expect(mutations(calls, "POST")).toHaveLength(1));
+    expect(mutations(calls, "POST")[0]!.body).toEqual({ studentId: 2, title: "Formatura" });
   });
 
   it("edita (PATCH sem studentId, fileUrl preservado)", async () => {

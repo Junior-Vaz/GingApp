@@ -1,12 +1,11 @@
 import { useState } from "react";
+import { StudentPicker } from "@/components/painel/student-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AuxLimitNotice } from "@/modules/rodas/aux-limit-notice";
 import { NativeSelect } from "@/modules/rodas/native-select";
-import { useAuxList } from "@/modules/rodas/reference";
 import { PARTICIPANT_STATUS_LABEL, type ParticipantStatus } from "@/modules/rodas/types";
-import type { ParticipantPayload, StudentOption } from "./types";
+import type { ParticipantPayload } from "./types";
 
 type Kind = "student" | "guest";
 const STATUS_OPTIONS: ParticipantStatus[] = ["CONFIRMED", "INVITED", "DECLINED", "ATTENDED", "CANCELLED"];
@@ -18,21 +17,18 @@ interface Props {
 /** Inscreve um aluno (studentId) OU um convidado (guestName) - nunca os dois (regra do backend). */
 export function AddParticipantForm({ onAdd }: Props) {
   const [kind, setKind] = useState<Kind>("student");
-  const [studentId, setStudentId] = useState("");
+  const [studentId, setStudentId] = useState<number | null>(null);
   const [guestName, setGuestName] = useState("");
   const [status, setStatus] = useState<ParticipantStatus>("CONFIRMED");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
-
-  // GET /students?limit=200 (students:view). Falha não bloqueia: ainda dá para inscrever convidado.
-  const students = useAuxList<StudentOption>("/students");
 
   async function submit() {
     setError("");
     const payload: ParticipantPayload = { status };
     if (kind === "student") {
       if (!studentId) return setError("Selecione um aluno.");
-      payload.studentId = Number(studentId);
+      payload.studentId = studentId;
     } else {
       const name = guestName.trim();
       if (name.length < 2) return setError("Informe o nome do convidado (mínimo 2 caracteres).");
@@ -41,7 +37,7 @@ export function AddParticipantForm({ onAdd }: Props) {
     setPending(true);
     try {
       await onAdd(payload);
-      setStudentId("");
+      setStudentId(null);
       setGuestName("");
     } catch {
       // toast de erro já exibido pelo chamador
@@ -63,18 +59,7 @@ export function AddParticipantForm({ onAdd }: Props) {
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {kind === "student" ? (
-          <div className="grid gap-1.5">
-            <Label htmlFor="participant-student">Aluno</Label>
-            <NativeSelect id="participant-student" value={studentId} onChange={(e) => setStudentId(e.target.value)}>
-              <option value="">Selecione…</option>
-              {students.items?.map((student) => (
-                <option key={student.id} value={String(student.id)}>
-                  {student.name}
-                </option>
-              ))}
-            </NativeSelect>
-            <AuxLimitNotice truncated={students.truncated} total={students.total} label="alunos" />
-          </div>
+          <StudentPicker value={studentId} onChange={(student) => setStudentId(student?.id ?? null)} />
         ) : (
           <div className="grid gap-1.5">
             <Label htmlFor="participant-guest">Nome do convidado</Label>

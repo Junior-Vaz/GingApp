@@ -6,9 +6,9 @@ import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
+import { StudentPicker } from "@/components/painel/student-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +17,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import type { QueryParams } from "@/lib/api";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
 import {
@@ -34,7 +33,6 @@ import {
   type CertificateFilters,
   type EditValues,
   type IssueValues,
-  type StudentRef,
 } from "./certificate-utils";
 
 type CertificateInput = Record<string, unknown>;
@@ -59,20 +57,11 @@ const certificates = createCrud<Certificate, CertificateInput>("/certificates", 
   updated: "Certificado atualizado.",
   removed: "Certificado apagado.",
 });
-const students = createCrud<StudentRef>("/students");
-
-/** Maximo aceito pelo backend em um GET paginado; usado na lista de alunos do formulario/filtro. */
-const STUDENT_PICKER_LIMIT = 200;
-const STUDENT_PICKER_PARAMS: QueryParams = { limit: STUDENT_PICKER_LIMIT };
-
-const nativeSelect =
-  "border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 export function CertificadosPage() {
   // Lista no servidor (padrao Alunos): useListParams -> usePage -> DataTable server.
   const lp = useListParams<CertificateFilters>({ pageSize: 10, filters: emptyCertificateFilters() });
   const list = certificates.usePage(lp.params);
-  const studentList = students.usePage(STUDENT_PICKER_PARAMS);
   const create = certificates.useCreate();
   const update = certificates.useUpdate();
   const remove = certificates.useRemove();
@@ -84,7 +73,6 @@ export function CertificadosPage() {
 
   const { filters } = lp;
   const hasFilter = !!(filters.studentId || filters.from || filters.to);
-  const studentsTruncated = studentList.total > STUDENT_PICKER_LIMIT;
 
   async function copyLink(code: string) {
     try {
@@ -127,19 +115,11 @@ export function CertificadosPage() {
         emptyMessage={hasFilter ? "Nenhum certificado para os filtros." : "Nenhum certificado emitido ainda."}
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              aria-label="Filtrar por aluno"
-              className={cn(nativeSelect, "w-44")}
-              value={filters.studentId}
-              onChange={(e) => lp.setFilter("studentId", e.target.value)}
-            >
-              <option value="">Todos os alunos</option>
-              {(studentList.items ?? []).map((s) => (
-                <option key={s.id} value={String(s.id)}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            <StudentPicker
+              mode="filter"
+              value={filters.studentId ? Number(filters.studentId) : null}
+              onChange={(student) => lp.setFilter("studentId", student ? String(student.id) : "")}
+            />
             <Input
               type="date"
               aria-label="Emitido de"
@@ -199,22 +179,10 @@ export function CertificadosPage() {
               name="studentId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Aluno</FormLabel>
-                  <FormControl>
-                    <select {...field} className={nativeSelect}>
-                      <option value="">Selecione…</option>
-                      {(studentList.items ?? []).map((s) => (
-                        <option key={s.id} value={String(s.id)}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  </FormControl>
-                  {studentsTruncated && (
-                    <p data-testid="students-truncated" className="text-xs text-muted-foreground">
-                      Mostrando os primeiros {STUDENT_PICKER_LIMIT} de {studentList.total} alunos.
-                    </p>
-                  )}
+                  <StudentPicker
+                    value={field.value ? Number(field.value) : null}
+                    onChange={(student) => field.onChange(student ? String(student.id) : "")}
+                  />
                   <FormMessage />
                 </FormItem>
               )}

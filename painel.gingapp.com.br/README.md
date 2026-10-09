@@ -126,6 +126,24 @@ const list = students.usePage(lp.params);                  // 2. GET ?limit&offs
 - Testes: ver `src/test/pagination.test.tsx` (getPage, usePage, tabela servidor) e `alunos.test.tsx` (mock de fetch que lê `query`).
 - Atenção: o backend tem throttle global de 60 req/min por IP (E2E que cria muitos registros deve espaçar as chamadas).
 
+## Seletor de aluno com busca no servidor (`StudentPicker`)
+
+Nunca carregue `/students?limit=200` num select (alunos além do teto ficam inalcançáveis). Use
+`src/components/painel/student-picker.tsx` (hooks em `src/lib/student-lookup.ts`): busca com debounce de 300ms em
+`GET /students?q=&limit=20`; o componente é controlado só pelo **id**.
+
+```tsx
+// formulário (react-hook-form guarda string; "" = sem aluno)
+<StudentPicker optional value={field.value ? Number(field.value) : null}
+  onChange={(s) => field.onChange(s ? String(s.id) : "")} />
+// filtro na toolbar do DataTable (opção vazia "Todos os alunos")
+<StudentPicker mode="filter" value={id} onChange={(s) => lp.setFilter("studentId", s ? String(s.id) : "")} />
+```
+
+Props: `value` (id|null), `onChange(student|null)`, `mode` (`form`|`filter`), `optional`, `label`, `emptyLabel`, `initial`, `disabled`.
+Edição: o aluno atual aparece mesmo fora dos resultados (objeto escolhido > `initial` > resultados > `GET /students/:id`).
+Para mostrar o nome do aluno numa coluna use `useStudentNames(ids)` (1 GET por id, cache de 5 min).
+
 ## Docker
 
 `docker build --build-arg VITE_API_URL=https://api.gingapp.com.br/api -t gingapp-painel .` (nginx, SPA).

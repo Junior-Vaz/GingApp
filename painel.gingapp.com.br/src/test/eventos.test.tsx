@@ -38,6 +38,11 @@ const EVENT = {
   imageUrl: "https://exemplo.com/capa.png",
 };
 
+const STUDENTS = [
+  { id: 11, name: "Ana Souza" },
+  { id: 12, name: "Bruno Lima" },
+];
+
 let calls: Call[];
 let events: unknown[];
 let participants: unknown[];
@@ -55,7 +60,11 @@ function installFetch() {
     if (override) return override();
     if (key === "GET /events") return json(200, events, { "X-Total-Count": String(events.length) });
     if (key === "GET /units") return json(200, [{ id: 3, name: "Sede" }]);
-    if (key === "GET /students") return json(200, [{ id: 11, name: "Ana Souza" }]);
+    if (key === "GET /students") {
+      const q = (new URLSearchParams(search).get("q") ?? "").toLowerCase();
+      const rows = STUDENTS.filter((s) => s.name.toLowerCase().includes(q));
+      return json(200, rows, { "X-Total-Count": String(rows.length) });
+    }
     if (key === "GET /rodas/reference/states") return json(200, [{ id: 1, name: "São Paulo", uf: "SP" }]);
     if (key.startsWith("GET /rodas/reference/cities")) return json(200, [{ id: 5, name: "Santos", stateId: 1 }]);
     if (key === "GET /events/7/participants") return json(200, participants);
@@ -357,14 +366,37 @@ describe("EventosPage - participantes", () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Participante adicionado."));
   });
 
-  it("inscreve aluno (studentId numérico)", async () => {
+  const studentCalls = () => calls.filter((c) => c.method === "GET" && c.path === "/students");
+
+  it("inscreve aluno (studentId numérico) escolhido no seletor com busca no servidor (limit=20, sem limit=200)", async () => {
     const dialog = await openParticipants();
     await within(dialog).findByRole("option", { name: "Ana Souza" });
+    expect(studentCalls()).toHaveLength(1);
+    expect(studentCalls()[0]!.query.get("limit")).toBe("20");
+    expect(studentCalls()[0]!.query.has("q")).toBe(false);
+    expect(within(dialog).queryByTestId("students-truncated")).toBeNull();
     fireEvent.change(within(dialog).getByLabelText("Aluno"), { target: { value: "11" } });
     fireEvent.change(within(dialog).getByLabelText("Situação"), { target: { value: "INVITED" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Adicionar" }));
     await waitFor(() => expect(sent("POST", "/events/7/participants")).toHaveLength(1));
     expect(sent("POST", "/events/7/participants")[0]!.body).toEqual({ studentId: 11, status: "INVITED" });
+    // depois de adicionar, o seletor volta a "Selecione…"
+    await waitFor(() => expect(within(dialog).getByLabelText("Aluno")).toHaveValue(""));
+  });
+
+  it("busca o aluno no servidor (q=bru) e inscreve quem só aparece na busca", async () => {
+    const dialog = await openParticipants();
+    await within(dialog).findByRole("option", { name: "Ana Souza" });
+    fireEvent.change(within(dialog).getByLabelText("Buscar aluno"), { target: { value: "bru" } });
+    await waitFor(() => expect(studentCalls().at(-1)!.query.get("q")).toBe("bru"));
+    expect(await within(dialog).findByRole("option", { name: "Bruno Lima" })).toBeInTheDocument();
+    await waitFor(() => expect(within(dialog).queryByRole("option", { name: "Ana Souza" })).toBeNull());
+    const last = studentCalls().at(-1)!;
+    expect(last.query.get("limit")).toBe("20");
+    fireEvent.change(within(dialog).getByLabelText("Aluno"), { target: { value: "12" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Adicionar" }));
+    await waitFor(() => expect(sent("POST", "/events/7/participants")).toHaveLength(1));
+    expect(sent("POST", "/events/7/participants")[0]!.body).toEqual({ studentId: 12, status: "CONFIRMED" });
   });
 
   it("check-in faz PATCH e remover pede confirmação antes do DELETE", async () => {

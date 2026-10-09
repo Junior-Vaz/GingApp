@@ -3,6 +3,7 @@ import { Plus } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { PageHeader } from "@/components/painel/page-header";
+import { StudentPicker, type StudentOption } from "@/components/painel/student-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -22,9 +23,7 @@ import {
   useStudentHistory,
   type GraduationSystem,
   type StudentGraduation,
-  type StudentOption,
 } from "./graduacoes-api";
-import { StudentPicker } from "./student-picker";
 import {
   levelSchema,
   registrationSchema,
@@ -215,8 +214,8 @@ function SistemasTab() {
 
 function AlunosTab() {
   const systemList = systems.useList();
-  const [student, setStudent] = useState<StudentOption | undefined>();
-  const selectedId = student?.id;
+  const [student, setStudent] = useState<StudentOption | null>(null);
+  const selectedId = student?.id; // undefined = nenhum aluno
   const history = useStudentHistory(selectedId);
   const register = useRegisterGraduation(selectedId);
   const [registering, setRegistering] = useState(false);
@@ -250,7 +249,7 @@ function AlunosTab() {
     <>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3 rounded-lg border bg-card p-4">
         <div className="w-full max-w-sm">
-          <StudentPicker selected={student} onSelect={setStudent} />
+          <StudentPicker value={selectedId ?? null} onChange={setStudent} />
         </div>
         <Button disabled={!selectedId} onClick={() => setRegistering(true)}>
           Registrar graduação

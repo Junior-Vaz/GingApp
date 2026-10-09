@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Clock, AlertTriangle } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
+import { StudentPicker } from "@/components/painel/student-picker";
 import { StatCard } from "@/components/painel/stat-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +13,7 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { api, buildQuery, type QueryParams } from "@/lib/api";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
+import { useStudentNames } from "@/lib/student-lookup";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -30,7 +32,6 @@ import {
   type FinanceRecord,
   type FinanceStatus,
   type FinanceSummary,
-  type StudentRef,
 } from "./finance-utils";
 
 type FinanceInput = Record<string, unknown>;
@@ -40,7 +41,6 @@ const finance = createCrud<FinanceRecord, FinanceInput>("/finance", {
   updated: "Lançamento atualizado.",
   removed: "Lançamento excluído.",
 });
-const students = createCrud<StudentRef>("/students");
 
 const nativeSelect =
   "border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
@@ -52,10 +52,6 @@ function StatusBadge({ status }: { status: FinanceStatus }) {
     </span>
   );
 }
-
-/** Maximo aceito pelo backend em um GET paginado; usado na lista de alunos do formulario/filtro. */
-const STUDENT_PICKER_LIMIT = 200;
-const STUDENT_PICKER_PARAMS: QueryParams = { limit: STUDENT_PICKER_LIMIT };
 
 /**
  * Totais (Recebido / A receber / Atrasado) vindos do servidor: GET /finance/summary com os MESMOS
@@ -76,7 +72,6 @@ export function FinanceiroPage() {
   const list = finance.usePage(lp.params);
   // Mesmos filtros + busca da lista; limit/offset ficam de fora (o summary agrega tudo).
   const summary = useFinanceSummary({ ...lp.filters, q: lp.params["q"] });
-  const studentList = students.usePage(STUDENT_PICKER_PARAMS);
   const create = finance.useCreate();
   const update = finance.useUpdate();
   const remove = finance.useRemove();
@@ -84,12 +79,9 @@ export function FinanceiroPage() {
   const [editing, setEditing] = useState<FinanceRecord | "new" | null>(null);
   const [deleting, setDeleting] = useState<FinanceRecord | null>(null);
 
-  const studentName = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const student of studentList.items ?? []) map.set(student.id, student.name);
-    return (id: number | null) => (id ? (map.get(id) ?? "—") : "—");
-  }, [studentList.items]);
-  const studentsTruncated = studentList.total > STUDENT_PICKER_LIMIT;
+  // Nome do aluno por id (GET /students/:id, cache compartilhado com o seletor): a coluna não
+  // depende de uma lista parcial de alunos.
+  const studentName = useStudentNames((list.items ?? []).map((r) => r.studentId));
 
   const money = (cents: number | undefined) => (cents === undefined ? "—" : formatCurrency(cents));
 
@@ -198,19 +190,11 @@ export function FinanceiroPage() {
                 </option>
               ))}
             </select>
-            <select
-              aria-label="Filtrar por aluno"
-              className={cn(nativeSelect, "w-44")}
-              value={filters.studentId}
-              onChange={(e) => lp.setFilter("studentId", e.target.value)}
-            >
-              <option value="">Todos os alunos</option>
-              {(studentList.items ?? []).map((s) => (
-                <option key={s.id} value={String(s.id)}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+            <StudentPicker
+              mode="filter"
+              value={filters.studentId ? Number(filters.studentId) : null}
+              onChange={(student) => lp.setFilter("studentId", student ? String(student.id) : "")}
+            />
             <Input
               type="date"
               aria-label="Vencimento de"
@@ -287,22 +271,11 @@ export function FinanceiroPage() {
                   name="studentId"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Aluno</FormLabel>
-                      <FormControl>
-                        <select {...field} className={nativeSelect}>
-                          <option value="">—</option>
-                          {(studentList.items ?? []).map((s) => (
-                            <option key={s.id} value={String(s.id)}>
-                              {s.name}
-                            </option>
-                          ))}
-                        </select>
-                      </FormControl>
-                      {studentsTruncated && (
-                        <p data-testid="students-truncated" className="text-xs text-muted-foreground">
-                          Mostrando os primeiros {STUDENT_PICKER_LIMIT} de {studentList.total} alunos.
-                        </p>
-                      )}
+                      <StudentPicker
+                        optional
+                        value={field.value ? Number(field.value) : null}
+                        onChange={(student) => field.onChange(student ? String(student.id) : "")}
+                      />
                       <FormMessage />
                     </FormItem>
                   )}

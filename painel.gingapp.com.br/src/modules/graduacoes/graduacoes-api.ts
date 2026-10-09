@@ -1,4 +1,4 @@
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { createCrud, notifyError } from "@/lib/crud";
@@ -17,12 +17,6 @@ export interface GraduationSystem {
   description: string | null;
   isActive: boolean;
   levels: GraduationLevel[];
-}
-
-export interface StudentOption {
-  id: number;
-  name: string;
-  status?: "ACTIVE" | "INACTIVE";
 }
 
 export interface StudentGraduation {
@@ -69,19 +63,6 @@ export function useCreateLevel() {
       toast.success("Nível adicionado.");
     },
     onError: (error) => notifyError(error, "Não foi possível adicionar o nível."),
-  });
-}
-
-/** Resultados por busca de aluno (backend aceita 1..200). */
-export const STUDENT_SEARCH_LIMIT = 20;
-
-/** Busca de alunos NO SERVIDOR: GET /students?q=&limit=20 (q vazio = os 20 mais recentes). */
-export function useStudentSearch(q: string) {
-  const params = { q, limit: STUDENT_SEARCH_LIMIT };
-  return useQuery({
-    queryKey: ["graduacoes", "students", params],
-    queryFn: () => api.getPage<StudentOption>("/students", params),
-    placeholderData: keepPreviousData,
   });
 }
 

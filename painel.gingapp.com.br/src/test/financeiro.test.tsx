@@ -70,11 +70,34 @@ function mockApi(routes: Record<string, (call: Call) => Response>) {
   return calls;
 }
 
+const STUDENTS = [
+  { id: 1, name: "Ana" },
+  { id: 2, name: "Bia" },
+];
+
+/** Busca no servidor: filtra por q (como o backend) e devolve o total no header. */
+const studentsRoute = (c: Call) => {
+  const q = (c.query.get("q") ?? "").toLowerCase();
+  const rows = STUDENTS.filter((s) => s.name.toLowerCase().includes(q));
+  return json(200, rows, { "X-Total-Count": String(rows.length) });
+};
+
 const base = () => ({
   "GET /finance": () => json(200, records, { "X-Total-Count": String(records.length) }),
   "GET /finance/summary": () => json(200, SUMMARY),
-  "GET /students": () =>
-    json(200, [{ id: 1, name: "Ana" }, { id: 2, name: "Bia" }], { "X-Total-Count": "2" }),
+  "GET /students": studentsRoute,
+  // aluno por id: coluna "Aluno" da tabela e aluno atual na edicao
+  "GET /students/1": () => json(200, STUDENTS[0]),
+  "GET /students/2": () => json(200, STUDENTS[1]),
+});
+
+/** Sem q so a Ana vem nos resultados (a Bia simula um aluno alem dos 20 primeiros: so aparece buscando). */
+const onlyAnaInResults = () => ({
+  ...base(),
+  "GET /students": (c: Call) =>
+    c.query.get("q") === "bia"
+      ? json(200, [STUDENTS[1]], { "X-Total-Count": "1" })
+      : json(200, [STUDENTS[0]], { "X-Total-Count": "300" }),
 });
 
 function renderPage() {
@@ -244,17 +267,102 @@ describe("FinanceiroPage", () => {
     expect(await screen.findByTestId("table-empty")).toHaveTextContent("Nenhum lançamento financeiro ainda.");
   });
 
-  it("alunos do formulario vem de /students?limit=200 e avisa se total > 200", async () => {
-    const calls = mockApi({
-      ...base(),
-      "GET /students": () => json(200, [{ id: 1, name: "Ana" }], { "X-Total-Count": "350" }),
-    });
+  it("seletor de aluno: busca no servidor com limit=20 (nunca limit=200) e sem aviso students-truncated", async () => {
+    const calls = mockApi(base());
     renderPage();
     await screen.findByText("Mensalidade Ana");
-    expect(calls.find((c) => c.path === "/students")!.query.get("limit")).toBe("200");
+    const studentCalls = () => calls.filter((c) => c.method === "GET" && c.path === "/students");
+    await waitFor(() => expect(studentCalls().length).toBeGreaterThan(0));
+    for (const c of studentCalls()) expect(c.query.get("limit")).toBe("20");
     fireEvent.click(screen.getByText("Novo lançamento", { selector: "button" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByTestId("students-truncated")).toHaveTextContent("200 de 350");
+    expect(within(dialog).queryByTestId("students-truncated")).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText("Buscar aluno"), { target: { value: "bi" } });
+    await waitFor(() => expect(studentCalls().at(-1)!.query.get("q")).toBe("bi"));
+    expect(studentCalls().some((c) => c.query.get("limit") === "200")).toBe(false);
+  });
+
+  it("coluna Aluno da tabela resolve o nome por id (GET /students/:id), mesmo fora da busca", async () => {
+    const calls = mockApi(onlyAnaInResults());
+    renderPage();
+    await screen.findByText("Mensalidade Bia");
+    const row = screen.getByText("Mensalidade Bia").closest("tr")!;
+    expect(await within(row).findByText("Bia")).toBeInTheDocument();
+    expect(calls.some((c) => c.path === "/students/2")).toBe(true);
+    expect(within(screen.getByText("Camiseta").closest("tr")!).queryByText("Bia")).toBeNull(); // sem aluno = "—"
+  });
+
+  it("filtro por aluno: busca no servidor, envia studentId na lista E no summary e voltar a Todos remove", async () => {
+    const calls = mockApi(onlyAnaInResults());
+    renderPage();
+    await screen.findByText("Mensalidade Ana");
+    fireEvent.change(screen.getByLabelText("Buscar aluno"), { target: { value: "bia" } });
+    await waitFor(() => expect(lastOf(calls, "/students").query.get("q")).toBe("bia"));
+    expect(lastOf(calls, "/students").query.get("limit")).toBe("20");
+    await waitFor(() => expect(within(screen.getByLabelText("Filtrar por aluno")).queryByRole("option", { name: "Bia" })).not.toBeNull());
+    fireEvent.change(screen.getByLabelText("Filtrar por aluno"), { target: { value: "2" } });
+    await waitFor(() => expect(lastOf(calls, "/finance/summary").query.get("studentId")).toBe("2"));
+    expect(lastOf(calls, "/finance").query.get("studentId")).toBe("2");
+    expect(lastOf(calls, "/finance").query.get("offset")).toBe("0");
+
+    fireEvent.change(screen.getByLabelText("Filtrar por aluno"), { target: { value: "" } });
+    await waitFor(() => expect(lastOf(calls, "/finance").query.has("studentId")).toBe(false));
+    expect(lastOf(calls, "/finance/summary").query.has("studentId")).toBe(false);
+  });
+
+  it("criacao: aluno achado so pela busca vai no POST como studentId numerico", async () => {
+    const calls = mockApi({ ...onlyAnaInResults(), "POST /finance": () => json(201, { id: 9 }) });
+    renderPage();
+    await screen.findByText("Mensalidade Ana");
+    fireEvent.click(screen.getByText("Novo lançamento", { selector: "button" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Descrição"), { target: { value: "Taxa" } });
+    fireEvent.change(within(dialog).getByLabelText("Valor (R$)"), { target: { value: "10,00" } });
+    fireEvent.change(within(dialog).getByLabelText("Vencimento"), { target: { value: "2099-05-10" } });
+    expect(within(dialog).getByRole("option", { name: "Sem aluno" })).toBeInTheDocument(); // campo opcional
+    fireEvent.change(within(dialog).getByLabelText("Buscar aluno"), { target: { value: "bia" } });
+    await within(dialog).findByRole("option", { name: "Bia" });
+    fireEvent.change(within(dialog).getByLabelText("Aluno"), { target: { value: "2" } });
+    fireEvent.click(within(dialog).getByText("Salvar"));
+    await waitFor(() => expect(mutations(calls, "POST")).toHaveLength(1));
+    expect(mutations(calls, "POST")[0]!.body).toMatchObject({ description: "Taxa", amountCents: 1000, studentId: 2 });
+  });
+
+  it("criacao sem escolher aluno omite studentId (campo opcional)", async () => {
+    const calls = mockApi({ ...base(), "POST /finance": () => json(201, { id: 9 }) });
+    renderPage();
+    await screen.findByText("Mensalidade Ana");
+    fireEvent.click(screen.getByText("Novo lançamento", { selector: "button" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Descrição"), { target: { value: "Taxa" } });
+    fireEvent.change(within(dialog).getByLabelText("Valor (R$)"), { target: { value: "10,00" } });
+    fireEvent.change(within(dialog).getByLabelText("Vencimento"), { target: { value: "2099-05-10" } });
+    fireEvent.click(within(dialog).getByText("Salvar"));
+    await waitFor(() => expect(mutations(calls, "POST")).toHaveLength(1));
+    expect(mutations(calls, "POST")[0]!.body).not.toHaveProperty("studentId");
+  });
+
+  it("edicao mostra o aluno ATUAL mesmo fora dos resultados (resolvido por id) e preserva o studentId no PATCH", async () => {
+    const calls = mockApi({ ...onlyAnaInResults(), "PATCH /finance/2": () => json(200, {}) });
+    renderPage();
+    await screen.findByText("Mensalidade Bia");
+    fireEvent.click(within(screen.getByText("Mensalidade Bia").closest("tr")!).getByText("Editar"));
+    const dialog = await screen.findByRole("dialog");
+    // os resultados so tem a Ana; a Bia (studentId 2) vem de GET /students/2
+    await within(dialog).findByRole("option", { name: "Bia" });
+    const select = within(dialog).getByLabelText("Aluno") as HTMLSelectElement;
+    expect(select).toHaveValue("2");
+    expect(select.selectedOptions[0]).toHaveTextContent("Bia");
+    expect(calls.some((c) => c.path === "/students/2")).toBe(true);
+
+    // a busca muda e a Bia deixa de casar: continua selecionada
+    fireEvent.change(within(dialog).getByLabelText("Buscar aluno"), { target: { value: "zzz" } });
+    await waitFor(() => expect(calls.some((c) => c.path === "/students" && c.query.get("q") === "zzz")).toBe(true));
+    expect(within(dialog).getByLabelText("Aluno")).toHaveValue("2");
+
+    fireEvent.click(within(dialog).getByText("Salvar"));
+    await waitFor(() => expect(mutations(calls, "PATCH")).toHaveLength(1));
+    expect(mutations(calls, "PATCH")[0]!.body).toMatchObject({ studentId: 2 });
   });
 
   it("valida o formulário e cria (POST /finance com centavos, vazios omitidos)", async () => {
@@ -263,7 +371,6 @@ describe("FinanceiroPage", () => {
     await screen.findByText("Mensalidade Ana");
     fireEvent.click(screen.getByText("Novo lançamento", { selector: "button" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).queryByTestId("students-truncated")).not.toBeInTheDocument();
     fireEvent.click(within(dialog).getByText("Salvar"));
     expect(await within(dialog).findByText("Informe a descrição do lançamento.")).toBeInTheDocument();
     expect(within(dialog).getByText("Informe um valor válido (maior que zero).")).toBeInTheDocument();
