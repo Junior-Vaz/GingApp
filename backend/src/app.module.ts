@@ -29,6 +29,9 @@ import { PlatformAnnouncementsModule } from './interface/http/platform-announcem
 import { CertificatesModule } from './interface/http/certificates/certificates.module';
 import { PassportModule } from './interface/http/passport/passport.module';
 import { CalendarModule } from './interface/http/calendar/calendar.module';
+import { PlatformDashboardModule } from './interface/http/platform-dashboard/platform-dashboard.module';
+import { PlatformSettingsModule } from './interface/http/platform-settings/platform-settings.module';
+import { PlatformTeamModule } from './interface/http/platform-team/platform-team.module';
 
 @Module({
   imports: [
@@ -61,6 +64,9 @@ import { CalendarModule } from './interface/http/calendar/calendar.module';
     CertificatesModule,
     PassportModule,
     CalendarModule,
+    PlatformDashboardModule,
+    PlatformSettingsModule,
+    PlatformTeamModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

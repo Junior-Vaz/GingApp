@@ -57,6 +57,12 @@ $ npm run test:e2e
 $ npm run test:cov
 ```
 
+## Endpoints exclusivos da plataforma (userType PLATFORM)
+
+- `GET /platform-dashboard` — métricas agregadas no banco (grupos, alunos ativos, assinaturas por status/plano, MRR estimado: soma de `priceCents` dos planos das assinaturas ACTIVE, YEARLY dividido por 12; outras periodicidades ficam fora do MRR e são contadas em `mrrIgnoredSubscriptions`).
+- `/platform-settings` — CRUD de `PlatformSetting` (chave `[a-z0-9_.-]{1,100}`, valor JSON até ~10KB, `isSecret` mascara o valor em todas as respostas). **Nada no sistema lê essas configurações ainda**: é só o cadastro para a tela do admin.
+- `/platform-team` — gestão dos usuários `PLATFORM` (listar: qualquer PLATFORM; criar/alterar/revogar sessões/resetar senha: só super admin; ninguém altera o próprio status/isSuperAdmin; a plataforma nunca fica sem super admin ativo). 2FA e trilha de auditoria ficam fora do escopo atual.
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
