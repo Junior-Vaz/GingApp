@@ -12,14 +12,13 @@ import {
 import { toast } from "sonner";
 import {
   findMyParticipant,
-  participantName,
   useMyStudent,
   useParticipants,
   useToggleParticipation,
   type Encounter,
 } from "@/lib/queries";
 import { errorMessage } from "@/lib/api";
-import { capitalize, fmt, initials, toDate } from "@/lib/format";
+import { capitalize, fmt, toDate } from "@/lib/format";
 
 export function PageHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
@@ -105,14 +104,19 @@ function icsStamp(date: Date): string {
 
 export function EventCard({ event }: { event: Encounter }) {
   const [open, setOpen] = useState(false);
-  const { student } = useMyStudent();
-  const participants = useParticipants(event.source, event.id);
+  const { student, isLoading: studentLoading } = useMyStudent();
   const toggle = useToggleParticipation(event.source, event.id);
 
   const myStudentId = student?.id ?? null;
-  const canJoin = participants.isSuccess;
-  const list = participants.data ?? [];
-  const mine = findMyParticipant(participants.data, event.source, myStudentId);
+  // Contagem e "inscrito" vêm do resumo da própria listagem (GET /events): zero chamadas por card.
+  // Fonte sem resumo (GET /calendar): lista só quando o usuário abre os detalhes. Sem aluno vinculado
+  // (inscrição como convidado, que o resumo não enxerga) também precisa da lista para saber se já entrou.
+  const hasSummary = event.participantsCount !== undefined;
+  const guestMode = event.source === "EVENTO" && !studentLoading && myStudentId === null;
+  const participants = useParticipants(event.source, event.id, open && (!hasSummary || guestMode));
+  const count = hasSummary ? event.participantsCount : participants.data?.length;
+  const canJoin = hasSummary ? !guestMode || participants.isSuccess : participants.isSuccess;
+  const mine = event.myParticipation ?? findMyParticipant(participants.data, event.source, myStudentId);
   const joined = mine !== null;
   const date = toDate(event.date);
   const time = timeLabel(event.date);
@@ -176,16 +180,7 @@ export function EventCard({ event }: { event: Encounter }) {
             {time ? ` • ${time}` : ""}
           </div>
           <div className="event-footer">
-            <div className="attendees">
-              {list.length > 0 && (
-                <div className="tiny-avatars">
-                  {list.slice(0, 3).map((p) => (
-                    <span key={p.id}>{initials(participantName(p))}</span>
-                  ))}
-                </div>
-              )}
-              {list.length > 0 && <span>{list.length} na roda</span>}
-            </div>
+            <div className="attendees">{count !== undefined && count > 0 && <span>{count} na roda</span>}</div>
             <Button
               variant={joined ? "soft" : "ghost"}
               size="sm"
@@ -218,10 +213,10 @@ export function EventCard({ event }: { event: Encounter }) {
                 {place}
               </div>
             )}
-            {participants.isSuccess && (
+            {count !== undefined && (
               <div className="detail-line">
                 <Users />
-                {list.length} participantes
+                {count} {count === 1 ? "participante" : "participantes"}
               </div>
             )}
             {event.description && (

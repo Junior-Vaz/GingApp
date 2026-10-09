@@ -139,6 +139,17 @@ export interface EventDto {
   location: string | null;
   imageUrl: string | null;
   isPublic: boolean;
+  /** Total de inscrições, agregado no servidor (GET /events). Ausente em backend antigo. */
+  participantsCount?: number;
+  /** Inscrição do PRÓPRIO usuário/dependente (GET /events); null = não inscrito. */
+  myParticipation?: MyParticipation | null;
+}
+
+/** Resumo da inscrição do usuário num evento/roda — o `id` basta para cancelar sem listar ninguém. */
+export interface MyParticipation {
+  id: number;
+  studentId: number | null;
+  status: string;
 }
 
 export interface CalendarItem {
@@ -154,14 +165,17 @@ export interface CalendarItem {
   city: { id: number; name: string } | null;
 }
 
+/**
+ * Item de GET .../participants. Para ALUNO/RESPONSAVEL o servidor anonimiza os terceiros (ids e nomes
+ * viram null): só a própria inscrição vem identificada — por isso o app só usa a lista como contagem
+ * (`length`) e para achar a própria inscrição, nunca para exibir quem mais vai.
+ */
 export interface Participant {
   id: number;
   userId: number | null;
   studentId: number | null;
   guestName: string | null;
   status: string;
-  user?: { id: number; name: string } | null;
-  student?: { id: number; name: string } | null;
 }
 
 export interface Announcement {
@@ -215,6 +229,12 @@ export interface Encounter {
   city: string | null;
   image: string;
   description: string | null;
+  /**
+   * Resumo de participação vindo da própria listagem (GET /events). `undefined` = a fonte (GET /calendar)
+   * não traz esse resumo: o card só consulta /participants quando o usuário abre os detalhes.
+   */
+  participantsCount?: number;
+  myParticipation?: MyParticipation | null;
 }
 
 export function fromCalendar(item: CalendarItem): Encounter {
@@ -246,6 +266,10 @@ export function fromEvent(event: EventDto): Encounter {
     city: null,
     image: event.imageUrl ?? communityImage,
     description: event.description,
+    // Backend antigo (sem o resumo) => campos ausentes => o card cai no fluxo sob demanda.
+    ...(event.participantsCount === undefined
+      ? {}
+      : { participantsCount: event.participantsCount, myParticipation: event.myParticipation ?? null }),
   };
 }
 
@@ -442,34 +466,46 @@ export const useUnreadCount = () =>
 const participantsPath = (source: "RODA" | "EVENTO", id: number) =>
   source === "RODA" ? `/rodas/${id}/participants` : `/events/${id}/participants`;
 
-export function useParticipants(source: "RODA" | "EVENTO", id: number) {
+/**
+ * Lista de participantes de UM encontro — nunca uma por card (era o N+1: 52 chamadas e 109 respostas 429
+ * numa página). Só roda sob demanda (`enabled`): fontes sem resumo (GET /calendar) ao abrir os detalhes.
+ * Itens com `participantsCount`/`myParticipation` (GET /events) não precisam dela.
+ */
+export function useParticipants(source: "RODA" | "EVENTO", id: number, enabled = true) {
   return useQuery({
     queryKey: ["participants", source, id],
     queryFn: () => api.get<Participant[]>(participantsPath(source, id)),
+    enabled,
     ...noRetry,
   });
 }
 
-export function participantName(p: Participant): string {
-  return p.student?.name ?? p.user?.name ?? p.guestName ?? "Capoeirista";
-}
-
+/** Acha a PRÓPRIA inscrição numa lista de participantes (os terceiros chegam anonimizados). */
 export function findMyParticipant(
   list: Participant[] | undefined,
   source: "RODA" | "EVENTO",
   myStudentId: number | null,
-): Participant | null {
+): MyParticipation | null {
   const user = getUser();
   if (!list || !user) return null;
-  if (source === "RODA") return list.find((p) => p.userId === user.id) ?? null;
-  if (myStudentId !== null) return list.find((p) => p.studentId === myStudentId) ?? null;
-  return list.find((p) => p.guestName === user.name) ?? null;
+  const own =
+    source === "RODA"
+      ? list.find((p) => p.userId === user.id)
+      : myStudentId !== null
+        ? list.find((p) => p.studentId === myStudentId)
+        : list.find((p) => p.guestName === user.name);
+  return own ? { id: own.id, studentId: own.studentId, status: own.status } : null;
 }
 
+/**
+ * Inscrever / cancelar. O cancelamento usa o `id` da própria inscrição (`mine`), sem listar ninguém.
+ * Depois invalida o que mostra a participação: a lista do encontro (fontes lazy), `["events"]` (as
+ * páginas de /events trazem contagem + minha inscrição) e, nas rodas, o Passaporte (conta rodas).
+ */
 export function useToggleParticipation(source: "RODA" | "EVENTO", id: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { mine: Participant | null; myStudentId: number | null }) => {
+    mutationFn: async (args: { mine: MyParticipation | null; myStudentId: number | null }) => {
       const base = participantsPath(source, id);
       if (args.mine) return api.delete(`${base}/${args.mine.id}`);
       if (source === "RODA") return api.post(base);
@@ -479,6 +515,11 @@ export function useToggleParticipation(source: "RODA" | "EVENTO", id: number) {
         args.myStudentId !== null ? { studentId: args.myStudentId } : { guestName: user?.name },
       );
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["participants", source, id] }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["participants", source, id] }),
+        source === "EVENTO" ? queryClient.invalidateQueries({ queryKey: ["events"] }) : undefined,
+        source === "RODA" ? queryClient.invalidateQueries({ queryKey: ["passport"] }) : undefined,
+      ]),
   });
 }

@@ -428,3 +428,118 @@ describe("/eventos: lista paginada com o total real", () => {
     expect(callsTo("/rodas")).toHaveLength(0);
   });
 });
+
+/* ------------------- Participação: resumo da listagem, sem N+1 ------------------- */
+
+const evp = (id: number, participantsCount: number, myParticipation: EventDto["myParticipation"] = null): EventDto => ({
+  ...ev(id),
+  participantsCount,
+  myParticipation,
+});
+const participantCalls = () => calls.filter((u) => /\/participants/.test(u.pathname));
+const bodyButton = (name: RegExp) => [...document.body.querySelectorAll("button")].find((b) => name.test(b.textContent ?? ""));
+const clickBody = async (name: RegExp) => {
+  const el = bodyButton(name);
+  expect(el, `botão ${String(name)}`).toBeTruthy();
+  await act(async () => el!.click());
+};
+const login = (id = 7, name = "Aluno Teste") =>
+  localStorage.setItem("mb_user", JSON.stringify({ id, name, email: "a@x", userType: "MEMBER", isSuperAdmin: false, organizationSlug: "x", organizationId: 1, role: "ALUNO" }));
+
+describe("Participação em eventos/rodas: contagem e 'inscrito' vêm da listagem (sem GET /participants por card)", () => {
+  it("/events com 50 cards: ZERO chamadas a /participants; contagem = participantsCount; 'Confirmado' = myParticipation; sem iniciais de terceiros", async () => {
+    login();
+    const items = Array.from({ length: 50 }, (_, i) =>
+      i === 3 ? evp(i + 1, 9, { id: 901, studentId: 5, status: "CONFIRMED" }) : evp(i + 1, i === 0 ? 0 : i % 5),
+    );
+    mockApi((url) => {
+      if (url.pathname === "/events") return { body: items, total: 50 };
+      if (/\/participants/.test(url.pathname)) return { body: [{ id: 1, userId: null, studentId: null, guestName: null, status: "CONFIRMED" }] };
+      if (url.pathname === "/students/me") return { body: [{ id: 5, userId: 7, unitId: 1, name: "Aluno Teste", photo: null, coverPhoto: null, socialLinks: null, joinedAt: null }] };
+      if (url.pathname === "/rodas/reference/states") return { body: [] };
+      return undefined;
+    });
+    render(<DiscoveryPage mode="events" />);
+    await waitFor(() => expect(container!.querySelectorAll(".discovery-grid > *")).toHaveLength(50));
+    await waitFor(() => expect(callsTo("/students/me").length).toBeGreaterThan(0));
+
+    expect(participantCalls()).toHaveLength(0); // era 1 por card (N+1 => 429)
+    expect(container!.textContent).toContain("9 na roda");
+    expect(container!.querySelectorAll(".tiny-avatars")).toHaveLength(0);
+    // exatamente 1 card inscrito
+    expect([...container!.querySelectorAll("button")].filter((b) => /Confirmado/.test(b.textContent ?? ""))).toHaveLength(1);
+  });
+
+  it("inscrever e cancelar: POST com studentId, DELETE pelo id da myParticipation (sem listar ninguém) e /events é refeito", async () => {
+    login();
+    let mine: EventDto["myParticipation"] = null;
+    let count = 4;
+    const writes: string[] = [];
+    mockApi((url) => {
+      const method = (vi.mocked(fetch).mock.calls.at(-1)?.[1] as RequestInit | undefined)?.method ?? "GET";
+      if (url.pathname === "/events") return { body: [evp(1, count, mine)], total: 1 };
+      if (url.pathname === "/events/1/participants" && method === "POST") {
+        writes.push(`POST ${url.pathname} ${String((vi.mocked(fetch).mock.calls.at(-1)?.[1] as RequestInit).body)}`);
+        mine = { id: 777, studentId: 5, status: "CONFIRMED" };
+        count += 1;
+        return { body: { id: 777 } };
+      }
+      if (url.pathname === "/events/1/participants/777" && method === "DELETE") {
+        writes.push(`DELETE ${url.pathname}`);
+        mine = null;
+        count -= 1;
+        return { body: undefined };
+      }
+      if (url.pathname === "/students/me") return { body: [{ id: 5, userId: 7, unitId: 1, name: "Aluno Teste", photo: null, coverPhoto: null, socialLinks: null, joinedAt: null }] };
+      if (url.pathname === "/rodas/reference/states") return { body: [] };
+      return undefined;
+    });
+    render(<DiscoveryPage mode="events" />);
+    await waitFor(() => expect(text()).toContain("4 na roda"));
+    await clickButton(/Ver detalhes/);
+    await waitFor(() => expect(bodyButton(/Quero participar/)).toBeTruthy());
+    const listsBefore = callsTo("/events").length;
+
+    await clickBody(/Quero participar/);
+    await waitFor(() => expect(text()).toContain("5 na roda"));
+    expect(writes).toEqual(['POST /events/1/participants {"studentId":5}']);
+    expect(callsTo("/events").length).toBeGreaterThan(listsBefore); // cache certo invalidado
+    expect(bodyButton(/Cancelar participação/)).toBeTruthy();
+
+    await clickBody(/Cancelar participação/);
+    await waitFor(() => expect(text()).toContain("4 na roda"));
+    expect(writes[1]).toBe("DELETE /events/1/participants/777");
+    expect(participantCalls().filter((u) => !/participants\/777$/.test(u.pathname) && u.pathname !== "/events/1/participants")).toHaveLength(0);
+    // nenhum GET de lista de participantes em todo o fluxo
+    expect(vi.mocked(fetch).mock.calls.filter(([u, init]) => /\/participants/.test(String(u)) && ((init as RequestInit | undefined)?.method ?? "GET") === "GET")).toHaveLength(0);
+  });
+
+  it("fonte sem resumo (/calendar): nada de /participants ao listar; ao abrir os detalhes consulta SÓ aquele card e acha a própria inscrição", async () => {
+    login();
+    mockApi((url) => {
+      if (url.pathname === "/calendar") {
+        return {
+          body: Array.from({ length: 12 }, (_, i) => ({
+            id: i + 1, source: "RODA", type: "RODA", title: `Roda ${i + 1}`, description: null,
+            date: "2026-12-01T00:00:00.000Z", location: null, imageUrl: null, state: null, city: null,
+          })),
+          total: 12,
+        };
+      }
+      if (url.pathname === "/rodas/3/participants") {
+        return { body: [{ id: 41, userId: null, studentId: null, guestName: null, status: "CONFIRMED" }, { id: 42, userId: 7, studentId: null, guestName: null, status: "CONFIRMED" }] };
+      }
+      if (url.pathname === "/students/me") return { body: [] };
+      if (url.pathname === "/rodas/reference/states") return { body: [] };
+      return undefined;
+    });
+    render(<DiscoveryPage mode="rodas" />);
+    await waitFor(() => expect(container!.querySelectorAll(".discovery-grid > *")).toHaveLength(12));
+    expect(participantCalls()).toHaveLength(0);
+
+    await act(async () => [...container!.querySelectorAll("button")].filter((b) => /Ver detalhes/.test(b.textContent ?? ""))[2]!.click());
+    await waitFor(() => expect(document.body.textContent).toContain("2 participantes"));
+    expect(participantCalls().map((u) => u.pathname)).toEqual(["/rodas/3/participants"]);
+    expect(bodyButton(/Cancelar participação/)).toBeTruthy(); // userId 7 = eu
+  });
+});
