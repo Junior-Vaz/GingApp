@@ -13,6 +13,10 @@ build/
 .env.production
 .env.*.production
 !.env.production.example
+# Easypanel: .env.easypanel (real, com segredos) e variantes ficam fora do git; so o .example entra
+.env.easypanel
+.env.easypanel.*
+!.env.easypanel.example
 
 # logs
 npm-debug.log*

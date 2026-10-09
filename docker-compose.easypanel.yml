@@ -1,0 +1,115 @@
+# GingApp - stack EASYPANEL (imagens PRONTAS do GHCR, sem build local)
+#
+# Servicos: migrate (one-shot) + backend (NestJS) + painel + app + admin (nginx estatico).
+# O POSTGRES NAO ENTRA AQUI: e um servico do proprio Easypanel (decisao do dono). A
+# DATABASE_URL aponta para o host interno desse servico (ver docs/EASYPANEL.md e
+# .env.easypanel.example).
+#
+# As imagens sao publicadas pelo CI (.github/workflows/build.yml) a cada push na master:
+#   ghcr.io/junior-vaz/gingapp-backend   (stage "runner" do backend/Dockerfile)
+#   ghcr.io/junior-vaz/gingapp-migrate   (stage "migrate": prisma migrate deploy + bootstrap)
+#   ghcr.io/junior-vaz/gingapp-painel | gingapp-app | gingapp-admin
+# Tags: "latest" e o SHA do commit. Para fixar/voltar uma versao, defina IMAGE_TAG=<sha>
+# (o mesmo valor vale para as 5 imagens, que sao publicadas juntas no mesmo commit).
+#
+# Variaveis: vem do painel do Easypanel (Compose > Environment) ou de um arquivo .env.easypanel
+# (copie de .env.easypanel.example). Local/teste de sintaxe:
+#   docker compose -f docker-compose.easypanel.yml --env-file .env.easypanel config
+#
+# NENHUMA porta e publicada no host: o Easypanel faz o proxy por dominio (HTTPS/Let's Encrypt)
+# para a porta interna de cada servico (backend 3000; painel/app/admin 80). Ver docs/EASYPANEL.md.
+#
+# FRONTENDS (painel/app/admin): sem env de runtime. VITE_API_URL e VITE_APP_URL sao EMBUTIDOS
+# NO BUNDLE na hora do build da imagem (GitHub Actions, secrets VITE_API_URL e VITE_APP_URL).
+# Nao adianta definir VITE_* aqui nem no Easypanel: trocar dominio da API exige novo build
+# das imagens do front no CI (rodar o workflow de novo) e redeploy.
+#
+# Rede: todos os servicos compartilham a rede interna "gingapp". Nao use IP fixo; use o nome do
+# servico (DNS do Docker).
+
+services:
+  # One-shot: aplica `prisma migrate deploy` e o bootstrap idempotente de producao (cria o super
+  # admin se ainda nao existir), e SAI. restart "no" => nao fica reiniciando. O backend so sobe
+  # depois que este servico termina com sucesso (service_completed_successfully).
+  migrate:
+    image: ghcr.io/junior-vaz/gingapp-migrate:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: "no"
+    networks:
+      - gingapp
+    environment:
+      # URL completa do Postgres do Easypanel, com ?schema=public (ver .env.easypanel.example).
+      DATABASE_URL: "${DATABASE_URL:?defina DATABASE_URL com a URL interna do Postgres do Easypanel e o sufixo ?schema=public}"
+      # Lidas por backend/prisma/bootstrap.ts (stage "migrate"): cria o super admin PLATFORM se o
+      # e-mail ainda nao existir; se existir, NAO altera nada. Devem ser definidas JUNTAS (EMAIL e
+      # PASSWORD) ou nenhuma: so uma = o migrate FALHA (exit 1); senha fraca/invalida = FALHA;
+      # nenhuma = so aplica a matriz de permissoes e avisa (sem admin). Preencha no 1o deploy.
+      SUPER_ADMIN_EMAIL: "${SUPER_ADMIN_EMAIL:-}"
+      SUPER_ADMIN_PASSWORD: "${SUPER_ADMIN_PASSWORD:-}"
+      SUPER_ADMIN_NAME: "${SUPER_ADMIN_NAME:-}"
+
+  backend:
+    # Stage "runner": enxuto, sem CLI do prisma (por isso as migrations rodam no servico acima).
+    image: ghcr.io/junior-vaz/gingapp-backend:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    networks:
+      - gingapp
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      # O backend so aplica as regras de seguranca abaixo com NODE_ENV=production (a imagem
+      # runner ja define NODE_ENV=production; mantido aqui de forma explicita).
+      NODE_ENV: "production"
+      DATABASE_URL: "${DATABASE_URL:?defina DATABASE_URL com a URL interna do Postgres do Easypanel e o sufixo ?schema=public}"
+      # Obrigatoria: minimo 32 caracteres e diferente de "dev-secret-change-me", senao o boot falha.
+      JWT_SECRET: "${JWT_SECRET:?defina JWT_SECRET com pelo menos 32 caracteres aleatorios - use openssl rand -hex 32}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-1d}"
+      PORT: "3000"
+      # Obrigatoria em producao (o boot falha sem): origens exatas dos 3 frontends, separadas
+      # por virgula, https, sem barra final e sem "*".
+      CORS_ORIGINS: "${CORS_ORIGINS:?defina CORS_ORIGINS com as origens https dos 3 frontends separadas por virgula e sem barra final}"
+      # Atras do proxy do Easypanel use 1; sem isto o backend ve o IP do proxy (PLATFORM_ALLOWED_IPS
+      # e o limite de tentativas de login passam a valer para todos juntos).
+      TRUST_PROXY: "${TRUST_PROXY:-1}"
+      # Opcional: IPs permitidos em POST /api/auth/platform-login (login do admin). Vazio = sem restricao.
+      PLATFORM_ALLOWED_IPS: "${PLATFORM_ALLOWED_IPS:-}"
+    healthcheck:
+      # GET /api/health (prefixo global "api" em main.ts; rota @Public que faz SELECT 1 no banco e
+      # responde 503 se o banco cair). 127.0.0.1 de proposito (evita localhost resolver para ::1).
+      # Usa o proprio Node (fetch global do Node 22) em vez de wget: nao depende de nenhum binario do
+      # Alpine ter sido confirmado na imagem node:22-alpine, que nunca foi baixada nesta maquina.
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Painel da escola. Easypanel: dominio do painel -> porta 80.
+  painel:
+    image: ghcr.io/junior-vaz/gingapp-painel:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    networks:
+      - gingapp
+
+  # App do aluno. Easypanel: dominio do app -> porta 80.
+  app:
+    image: ghcr.io/junior-vaz/gingapp-app:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    networks:
+      - gingapp
+
+  # Admin da plataforma. Easypanel: dominio do admin -> porta 80.
+  admin:
+    image: ghcr.io/junior-vaz/gingapp-admin:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    networks:
+      - gingapp
+
+networks:
+  gingapp:
+    driver: bridge
