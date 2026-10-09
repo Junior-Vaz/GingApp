@@ -240,6 +240,28 @@ Se for usar, teste primeiro com o seu IP **incluído** e valide o login antes de
 
 ---
 
+## 13. `TLS handshake timeout` ao baixar do `ghcr.io` (rede do servidor)
+
+Sintoma no deploy: `Error Get "https://ghcr.io/v2/": net/http: TLS handshake timeout` (as outras imagens, como o Postgres do Docker Hub, podem baixar normalmente). É rede do servidor até o GHCR, **antes** de qualquer autenticação: não é senha, nem imagem inexistente.
+
+1. **Diagnóstico** (no servidor, via SSH/console):
+   ```bash
+   curl -4 -sI -m 15 https://ghcr.io/v2/ | head -1   # IPv4
+   curl -6 -sI -m 15 https://ghcr.io/v2/ | head -1   # IPv6
+   curl    -sI -m 15 https://ghcr.io/v2/ | head -1   # padrão do sistema
+   ```
+   `HTTP/2 401` = alcançável (é o esperado sem login). Se `-4` responde e o padrão/`-6` dá timeout, o IPv6 do servidor está quebrado: desative-o (`sysctl -w net.ipv6.conf.all.disable_ipv6=1 net.ipv6.conf.default.disable_ipv6=1`, e persista em `/etc/sysctl.d/`) ou priorize IPv4 em `/etc/gai.conf` (`precedence ::ffff:0:0/96 100`) e reinicie o Docker. Outras causas comuns: DNS ruim (use `1.1.1.1`/`8.8.8.8`), MTU baixo do provedor, firewall bloqueando saída, ou congestionamento passageiro (o compose baixa as 5 imagens em paralelo).
+2. **Login (as imagens são privadas por padrão):** `echo SEU_PAT | docker login ghcr.io -u junior-vaz --password-stdin` (PAT clássico só com `read:packages`, seção 3).
+3. **Baixar uma por vez, com nova tentativa** (evita o paralelismo):
+   ```bash
+   for i in migrate backend painel app admin; do
+     until docker pull ghcr.io/junior-vaz/gingapp-$i:latest; do echo "tentando de novo..."; sleep 5; done
+   done
+   ```
+4. **Deploy sem contatar o registro:** com as imagens já baixadas, defina `PULL_POLICY=missing` no Environment e faça o deploy (o padrão `always` forçaria um novo pull e repetiria o timeout). Depois que a rede estiver estável, volte para `always`, senão os próximos deploys não atualizam as imagens.
+
+---
+
 ## 12. Lista do que NÃO foi verificado
 
 1. ~~Build real das imagens~~ **VERIFICADO (2026-10-09, máquina local):** as 5 imagens (backend `runner`, `migrate`, painel, app, admin) buildaram com os mesmos build-args do CI, usando o espelho `public.ecr.aws/docker/library` no lugar do Docker Hub (que dava timeout/`toomanyrequests`). Tamanhos: backend 566 MB, migrate 767 MB, frontends ~75 MB.
