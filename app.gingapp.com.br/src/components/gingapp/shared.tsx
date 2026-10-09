@@ -113,10 +113,20 @@ export function EventCard({ event }: { event: Encounter }) {
   // (inscrição como convidado, que o resumo não enxerga) também precisa da lista para saber se já entrou.
   const hasSummary = event.participantsCount !== undefined;
   const guestMode = event.source === "EVENTO" && !studentLoading && myStudentId === null;
-  const participants = useParticipants(event.source, event.id, open && (!hasSummary || guestMode));
+  // O resumo traz UMA inscrição da conta (a do primeiro aluno inscrito). Com vários dependentes só vale
+  // para o aluno ATIVO se for a dele — ou se ninguém da conta está inscrito (null). Se for de OUTRO
+  // dependente, o resumo não responde por este aluno: consulta a lista (só nesses cards) e a inscrição
+  // do aluno ativo sai dela. Nunca mostra "Confirmado"/cancela a inscrição do irmão.
+  const summaryOwn = event.myParticipation ?? null;
+  const summaryFits = hasSummary && (studentLoading || summaryOwn === null || summaryOwn.studentId === myStudentId);
+  const participants = useParticipants(
+    event.source,
+    event.id,
+    (open && (!hasSummary || guestMode)) || (hasSummary && !summaryFits),
+  );
   const count = hasSummary ? event.participantsCount : participants.data?.length;
-  const canJoin = hasSummary ? !guestMode || participants.isSuccess : participants.isSuccess;
-  const mine = event.myParticipation ?? findMyParticipant(participants.data, event.source, myStudentId);
+  const canJoin = summaryFits ? !guestMode || participants.isSuccess : participants.isSuccess;
+  const mine = (summaryFits ? summaryOwn : null) ?? findMyParticipant(participants.data, event.source, myStudentId);
   const joined = mine !== null;
   const date = toDate(event.date);
   const time = timeLabel(event.date);

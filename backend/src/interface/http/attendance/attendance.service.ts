@@ -4,6 +4,7 @@ import { civilDateRange } from '../../../shared/dates/date-range';
 import { pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { civilTodayStart } from '../finance/finance.service';
+import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { StudentsService } from '../students/students.service';
 import { ListMyAttendanceQueryDto } from './dto/list-my-attendance-query.dto';
 import { AttendanceEntryDto } from './dto/mark-attendance.dto';
@@ -62,10 +63,16 @@ export class AttendanceService {
     query: ListMyAttendanceQueryDto = {},
     now: Date = new Date(),
   ): Promise<MyAttendance> {
-    const students = await this.studentsService.findMine(organizationId, userId);
-    if (students.length === 0) return { records: [], total: 0, last30dPercent: null, currentStreak: 0 };
+    let studentIds: number[];
+    if (query.studentId !== undefined) {
+      await requireLinkedStudent(this.studentsService, organizationId, userId, query.studentId);
+      studentIds = [query.studentId];
+    } else {
+      studentIds = (await this.studentsService.findMine(organizationId, userId)).map((s) => s.id);
+    }
+    if (studentIds.length === 0) return { records: [], total: 0, last30dPercent: null, currentStreak: 0 };
 
-    const scope: Prisma.AttendanceWhereInput = { organizationId, studentId: { in: students.map((s) => s.id) } };
+    const scope: Prisma.AttendanceWhereInput = { organizationId, studentId: { in: studentIds } };
     const lessonDate = civilDateRange(query.from, query.to);
     const where: Prisma.AttendanceWhereInput = { ...scope, ...(lessonDate ? { lesson: { date: lessonDate } } : {}) };
     const order: Prisma.AttendanceOrderByWithRelationInput[] = [{ lesson: { date: 'desc' } }, { id: 'desc' }];

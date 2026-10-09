@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { logout } from "@/lib/auth";
 import { initials } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
-import { usePassport, useUnreadCount } from "@/lib/queries";
+import { useMyStudent, usePassport, useUnreadCount } from "@/lib/queries";
 
 const mainNav = [
   { to: "/", label: "Início", icon: House },
@@ -52,6 +52,37 @@ export function Brand({ mobile = false }: { mobile?: boolean }) {
       <span>
         gingapp<span className="brand-dot">.</span>
       </span>
+    </div>
+  );
+}
+
+/**
+ * Seletor de dependente: aparece SÓ quando a conta tem 2+ alunos ligados (responsável com mais de um
+ * dependente, ou aluno que também é responsável). ALUNO com um vínculo e responsável com 1 dependente
+ * não veem nada. O aluno escolhido guia TODAS as telas (passaporte, graduações, aulas, frequência,
+ * financeiro, inscrição em eventos) e a escolha persiste por usuário.
+ */
+export function StudentSwitcher() {
+  const { students, student, selectStudent } = useMyStudent();
+  if (students.length < 2 || !student) return null;
+  return (
+    <div className="student-bar" data-testid="student-switcher">
+      <label htmlFor="active-student">
+        <Users size={14} /> Acompanhando
+      </label>
+      <select
+        id="active-student"
+        className="select-field"
+        aria-label="Aluno ativo"
+        value={student.id}
+        onChange={(event) => selectStudent(Number(event.target.value))}
+      >
+        {students.map((item) => (
+          <option key={item.id} value={item.id}>
+            {item.name}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -150,6 +181,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           </div>
         </header>
+        <StudentSwitcher />
         <main className="main-content">
           {children}
           <footer className="footer">

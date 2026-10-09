@@ -1,4 +1,5 @@
 import { IsDateString, IsOptional } from 'class-validator';
+import { OptionalStudentId } from '../../../../shared/access/linked-student';
 import { LimitOffsetQueryDto } from '../../../../shared/pagination/pagination';
 
 /**
@@ -14,4 +15,9 @@ export class ListMyAttendanceQueryDto extends LimitOffsetQueryDto {
   @IsOptional()
   @IsDateString()
   to?: string;
+
+  /** Seletor de dependente: restringe a UM aluno ligado ao usuário (checado por resolveLink). Sem
+   * ele, agrega todos os alunos ligados (comportamento histórico). Vale também para os indicadores. */
+  @OptionalStudentId()
+  studentId?: number;
 }

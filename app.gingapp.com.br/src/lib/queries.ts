@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { fmt, startOfToday } from "@/lib/format";
-import { getUser, useSessionUser } from "@/lib/session";
+import { getUser, setStoredStudentId, useSessionUser, useStoredStudentId } from "@/lib/session";
 import rodaImage from "@/assets/capoeira-roda.jpg";
 import communityImage from "@/assets/capoeira-community.jpg";
 
@@ -43,6 +43,8 @@ export interface StudentGraduation {
 
 export interface Certificate {
   id: number;
+  /** Aluno dono do certificado (GET /certificates/me agrega os dependentes; o app filtra pelo ativo). */
+  studentId: number;
   title: string;
   issuedAt: string | null;
   verificationCode: string;
@@ -280,16 +282,68 @@ const noRetry = { retry: false } as const;
 export const useStudents = () =>
   useQuery({ queryKey: ["students", "me"], queryFn: () => api.get<Student[]>("/students/me") });
 
-/** "Meu" Student: o de userId igual ao logado; senão o primeiro dependente. */
-export function pickMyStudent(students: Student[] | undefined, userId: number | undefined) {
-  if (!students || students.length === 0) return null;
-  return students.find((s) => s.userId === userId) ?? students[0] ?? null;
+/** Ordem DETERMINÍSTICA dos alunos ligados à conta: nome (pt-BR, sem distinguir caixa) e, no empate, id. */
+export function sortStudents(students: Student[]): Student[] {
+  return [...students].sort((a, b) => a.name.localeCompare(b.name, "pt-BR", { sensitivity: "base" }) || a.id - b.id);
 }
 
+/**
+ * Aluno ATIVO do app (SSOT de "qual aluno as telas mostram"): a escolha guardada (se ainda for um
+ * aluno ligado à conta); senão o PRÓPRIO Student do usuário; senão o primeiro por nome/id. Um aluno
+ * guardado que deixou de existir/ser vinculado é ignorado (nunca fica preso num id inválido).
+ */
+export function resolveActiveStudent(
+  students: Student[] | undefined,
+  userId: number | undefined,
+  storedId: number | null = null,
+): Student | null {
+  if (!students || students.length === 0) return null;
+  const sorted = sortStudents(students);
+  return (
+    (storedId !== null ? sorted.find((s) => s.id === storedId) : undefined) ??
+    sorted.find((s) => s.userId !== null && s.userId === userId) ??
+    sorted[0] ??
+    null
+  );
+}
+
+/**
+ * Aluno ativo + lista (ordenada) para o seletor. ALUNO (um vínculo) e responsável com 1 dependente
+ * têm `students.length === 1` => sem seletor. `selectStudent` persiste a escolha (por usuário).
+ */
 export function useMyStudent() {
   const user = useSessionUser();
   const query = useStudents();
-  return { ...query, student: pickMyStudent(query.data, user?.id) };
+  const stored = useStoredStudentId(user?.id);
+  const students = useMemo(() => sortStudents(query.data ?? []), [query.data]);
+  const student = useMemo(() => resolveActiveStudent(query.data, user?.id, stored), [query.data, user?.id, stored]);
+  const userId = user?.id;
+  const selectStudent = useCallback((id: number) => setStoredStudentId(userId, id), [userId]);
+  return { ...query, students, student, selectStudent };
+}
+
+/**
+ * Escopo de aluno de TODAS as consultas que dependem de um aluno ("/me": passaporte, financeiro,
+ * frequência, aulas...). REGRA ÚNICA: tudo segue o aluno ativo — lista e banner/resumo usam o mesmo
+ * `studentId`, nunca um agregado de dependentes. As consultas só disparam depois que /students/me
+ * respondeu (`ready`): senão a 1ª chamada iria sem aluno e traria o agregado de todos os dependentes.
+ * Sem nenhum aluno ligado, `studentId` é undefined e o servidor devolve vazio.
+ */
+export interface StudentScope {
+  studentId: number | undefined;
+  ready: boolean;
+  loading: boolean;
+  error: Error | null;
+}
+
+export function useStudentScope(): StudentScope {
+  const { student, isSuccess, isLoading, error } = useMyStudent();
+  return { studentId: student?.id, ready: isSuccess, loading: isLoading, error };
+}
+
+/** Enquanto o aluno ativo não é conhecido a consulta ainda não rodou: conta como "carregando"; erro de /students/me vira erro da tela. */
+function scoped<T extends { isLoading: boolean; error: unknown }>(result: T, scope: StudentScope): T {
+  return { ...result, isLoading: result.isLoading || scope.loading, error: result.error ?? scope.error };
 }
 
 export const useGraduations = (studentId: number | undefined) =>
@@ -299,11 +353,27 @@ export const useGraduations = (studentId: number | undefined) =>
     enabled: studentId !== undefined,
   });
 
-export const useCertificates = () =>
-  useQuery({ queryKey: ["certificates", "me"], queryFn: () => api.get<Certificate[]>("/certificates/me") });
+/** Certificados do aluno ATIVO (o servidor devolve os de todos os dependentes; filtra-se por studentId). */
+export function useCertificates() {
+  const scope = useStudentScope();
+  const query = useQuery({
+    queryKey: ["certificates", "me"],
+    queryFn: () => api.get<Certificate[]>("/certificates/me"),
+    enabled: scope.ready,
+    select: (list) => (scope.studentId === undefined ? list : list.filter((c) => c.studentId === scope.studentId)),
+  });
+  return scoped(query, scope);
+}
 
-export const usePassport = () =>
-  useQuery({ queryKey: ["passport", "me"], queryFn: () => api.get<Passport | null>("/passport/me") });
+export function usePassport() {
+  const scope = useStudentScope();
+  const query = useQuery({
+    queryKey: ["passport", "me", scope.studentId ?? null],
+    queryFn: () => api.get<Passport | null>(withQuery("/passport/me", { studentId: scope.studentId })),
+    enabled: scope.ready,
+  });
+  return scoped(query, scope);
+}
 
 /* ---------- Listagens paginadas (limit/offset + X-Total-Count) ----------
  * Os endpoints "/me", /events, /calendar e /notifications devolvem 50 por padrão (teto 200) e o
@@ -362,24 +432,45 @@ export function usePagedList<T>(
   };
 }
 
-/** Aulas de hoje em diante (a mais próxima primeiro). */
-export const useUpcomingLessons = () =>
-  usePagedList<Lesson>(["lessons", "me", "upcoming"], "/lessons/me", { from: todayParam(), order: "asc" });
+/** Aulas de hoje em diante do aluno ativo (a mais próxima primeiro). */
+export function useUpcomingLessons() {
+  const scope = useStudentScope();
+  const list = usePagedList<Lesson>(
+    ["lessons", "me", "upcoming"],
+    "/lessons/me",
+    { from: todayParam(), order: "asc", studentId: scope.studentId },
+    { enabled: scope.ready },
+  );
+  return scoped(list, scope);
+}
 
-/** Aulas anteriores a hoje (a mais recente primeiro), 10 por vez. */
-export const usePastLessons = () => {
+/** Aulas do aluno ativo anteriores a hoje (a mais recente primeiro), 10 por vez. */
+export function usePastLessons() {
+  const scope = useStudentScope();
   const yesterday = fmt(new Date(startOfToday().getTime() - 1), "yyyy-MM-dd");
-  return usePagedList<Lesson>(["lessons", "me", "past"], "/lessons/me", { to: yesterday, order: "desc" }, { pageSize: 10 });
-};
+  const list = usePagedList<Lesson>(
+    ["lessons", "me", "past"],
+    "/lessons/me",
+    { to: yesterday, order: "desc", studentId: scope.studentId },
+    { pageSize: 10, enabled: scope.ready },
+  );
+  return scoped(list, scope);
+}
 
-/** Só a próxima aula ATIVA (a partir de hoje) — independe de quantas aulas a turma já tem. */
-export const useNextLessons = () => {
+/** Só a próxima aula ATIVA (a partir de hoje) do aluno ativo — independe de quantas aulas a turma já tem. */
+export function useNextLessons() {
+  const scope = useStudentScope();
   const from = todayParam();
-  return useQuery({
-    queryKey: ["lessons", "me", "next", from],
-    queryFn: () => api.get<Lesson[]>(withQuery("/lessons/me", { from, status: "ACTIVE", order: "asc", limit: 1 })),
+  const query = useQuery({
+    queryKey: ["lessons", "me", "next", from, scope.studentId ?? null],
+    queryFn: () =>
+      api.get<Lesson[]>(
+        withQuery("/lessons/me", { from, status: "ACTIVE", order: "asc", limit: 1, studentId: scope.studentId }),
+      ),
+    enabled: scope.ready,
   });
-};
+  return scoped(query, scope);
+}
 
 export const useClasses = () =>
   useQuery({ queryKey: ["classes", "me"], queryFn: () => api.get<ClassItem[]>("/classes/me") });
@@ -395,26 +486,44 @@ export interface AttendanceRange {
  * Frequência do período (`records`, até 200) + indicadores do servidor sobre todo o histórico
  * (last30dPercent, currentStreak). Sem período: só a primeira página e os indicadores.
  */
-export const useAttendance = (range: AttendanceRange = {}) =>
-  useQuery({
-    queryKey: ["attendance", "me", range.from ?? null, range.to ?? null, range.limit ?? null],
+export function useAttendance(range: AttendanceRange = {}) {
+  const scope = useStudentScope();
+  const query = useQuery({
+    queryKey: ["attendance", "me", scope.studentId ?? null, range.from ?? null, range.to ?? null, range.limit ?? null],
     queryFn: async (): Promise<AttendanceResponse> => {
       const { data, total } = await api.getWithTotal<Omit<AttendanceResponse, "total">>(
-        withQuery("/attendance/me", { from: range.from, to: range.to, limit: range.limit }),
+        withQuery("/attendance/me", { from: range.from, to: range.to, limit: range.limit, studentId: scope.studentId }),
       );
       return { ...data, total };
     },
+    enabled: scope.ready,
   });
+  return scoped(query, scope);
+}
 
-/** Lançamentos do aluno, paginados (vencimento mais recente primeiro). */
-export const useFinance = () => usePagedList<FinancialRecord>(["finance", "me", "list"], "/finance/me");
+/** Lançamentos do aluno ativo, paginados (vencimento mais recente primeiro). */
+export function useFinance() {
+  const scope = useStudentScope();
+  const list = usePagedList<FinancialRecord>(
+    ["finance", "me", "list"],
+    "/finance/me",
+    { studentId: scope.studentId },
+    { enabled: scope.ready },
+  );
+  return scoped(list, scope);
+}
 
-/** Totais "em aberto"/atrasado/pago agregados no banco — é DAQUI que sai o valor do banner. */
-export const useFinanceSummary = () =>
-  useQuery({
-    queryKey: ["finance", "me", "summary"],
-    queryFn: () => api.get<FinanceSummary>("/finance/me/summary"),
+/** Totais "em aberto"/atrasado/pago agregados no banco — é DAQUI que sai o valor do banner. MESMO
+ * escopo (aluno ativo) da lista: banner e linhas nunca falam de alunos diferentes. */
+export function useFinanceSummary() {
+  const scope = useStudentScope();
+  const query = useQuery({
+    queryKey: ["finance", "me", "summary", scope.studentId ?? null],
+    queryFn: () => api.get<FinanceSummary>(withQuery("/finance/me/summary", { studentId: scope.studentId })),
+    enabled: scope.ready,
   });
+  return scoped(query, scope);
+}
 
 export const useEvents = (enabled = true) => usePagedList<EventDto>(["events"], "/events", {}, { enabled });
 

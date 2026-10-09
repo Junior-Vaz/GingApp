@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { FinancialRecord, FinancialStatus, Prisma } from '@prisma/client';
 import { LimitOffsetQueryDto, Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { StudentsService } from '../students/students.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
 import { UpdateFinanceRecordDto } from './dto/update-finance-record.dto';
@@ -179,9 +180,9 @@ export class FinanceService {
   async findMine(
     organizationId: number,
     userId: number,
-    query: LimitOffsetQueryDto = {},
+    query: LimitOffsetQueryDto & { studentId?: number } = {},
   ): Promise<Page<FinancialRecord>> {
-    const where = await this.mineWhere(organizationId, userId);
+    const where = await this.mineWhere(organizationId, userId, query.studentId);
     if (!where) return { items: [], total: 0 };
 
     const [items, total] = await Promise.all([
@@ -202,7 +203,12 @@ export class FinanceService {
    * dia civil de São Paulo, vence hoje NÃO é atrasado, PENDING vencido conta como atrasado,
    * CANCELLED fora. "Em aberto" = a receber + atrasado.
    */
-  async summaryMine(organizationId: number, userId: number, now: Date = new Date()): Promise<MyFinanceSummary> {
+  async summaryMine(
+    organizationId: number,
+    userId: number,
+    now: Date = new Date(),
+    studentId?: number,
+  ): Promise<MyFinanceSummary> {
     const empty: MyFinanceSummary = {
       openCents: 0,
       openCount: 0,
@@ -212,7 +218,7 @@ export class FinanceService {
       paidCount: 0,
       oldestOpenDueDate: null,
     };
-    const scope = await this.mineWhere(organizationId, userId);
+    const scope = await this.mineWhere(organizationId, userId, studentId);
     if (!scope) return empty;
 
     const today = civilTodayStart(now);
@@ -234,11 +240,20 @@ export class FinanceService {
     };
   }
 
-  /** Escopo de "meu financeiro": organização + alunos do usuário (ele e dependentes); `null` = sem vínculo. */
+  /**
+   * Escopo ÚNICO de "meu financeiro" (lista E resumo): organização + alunos do usuário (ele e
+   * dependentes); `null` = sem vínculo. Com `studentId` (seletor de dependente do app) restringe a
+   * UM aluno, conferido por resolveLink — sem vínculo/inexistente/outra organização => 404 igual.
+   */
   private async mineWhere(
     organizationId: number,
     userId: number,
+    studentId?: number,
   ): Promise<Prisma.FinancialRecordWhereInput | null> {
+    if (studentId !== undefined) {
+      await requireLinkedStudent(this.studentsService, organizationId, userId, studentId);
+      return { organizationId, studentId };
+    }
     const students = await this.studentsService.findMine(organizationId, userId);
     if (students.length === 0) return null;
     return { organizationId, studentId: { in: students.map((s) => s.id) } };

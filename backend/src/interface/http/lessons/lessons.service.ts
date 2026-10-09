@@ -6,6 +6,8 @@ import { civilDateRange } from '../../../shared/dates/date-range';
 import { ListLessonsQueryDto } from './dto/list-lessons-query.dto';
 import { ListMyLessonsQueryDto } from './dto/list-my-lessons-query.dto';
 import { ClassesService } from '../classes/classes.service';
+import { StudentsService } from '../students/students.service';
+import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
 
@@ -17,6 +19,7 @@ export class LessonsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly classesService: ClassesService,
+    private readonly studentsService: StudentsService,
   ) {}
 
   async findAll(organizationId: number, query: ListLessonsQueryDto = {}): Promise<Page<Lesson>> {
@@ -41,10 +44,22 @@ export class LessonsService {
    * em X-Total-Count) e filtrável por from/to (data da aula) e status — assim o app busca "a partir
    * de hoje" e "anteriores" separadamente, sem depender de uma lista truncada. */
   async findMine(organizationId: number, userId: number, query: ListMyLessonsQueryDto = {}): Promise<Page<Lesson>> {
-    const myClasses = await this.classesService.findMine(organizationId, userId);
-    if (myClasses.length === 0) return { items: [], total: 0 };
+    let classIds: number[];
+    if (query.studentId !== undefined) {
+      // Seletor de dependente: só as turmas (matrícula ACTIVE, mesma regra de ClassesService.findMine)
+      // DESTE aluno, depois de conferir o vínculo por resolveLink (404 igual para sem vínculo/inexistente).
+      await requireLinkedStudent(this.studentsService, organizationId, userId, query.studentId);
+      const enrollments = await this.prisma.classStudent.findMany({
+        where: { organizationId, studentId: query.studentId, status: 'ACTIVE' },
+        select: { classId: true },
+      });
+      classIds = [...new Set(enrollments.map((e) => e.classId))];
+    } else {
+      classIds = (await this.classesService.findMine(organizationId, userId)).map((c) => c.id);
+    }
+    if (classIds.length === 0) return { items: [], total: 0 };
 
-    const where: Prisma.LessonWhereInput = { organizationId, classId: { in: myClasses.map((c) => c.id) } };
+    const where: Prisma.LessonWhereInput = { organizationId, classId: { in: classIds } };
     if (query.status) where.status = query.status;
     const date = civilDateRange(query.from, query.to);
     if (date) where.date = date;

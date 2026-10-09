@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { StudentsService } from '../students/students.service';
 
 /**
@@ -61,11 +62,14 @@ export class PassportService {
     };
   }
 
-  /** Passaporte do usuário autenticado — primeiro aluno vinculado (mesma simplificação de
-   * JornadaView.vue: TODO seletor de dependente quando houver mais de um). */
-  async getMine(organizationId: number, userId: number) {
-    const students = await this.studentsService.findMine(organizationId, userId);
-    const student = students[0];
+  /** Passaporte de UM aluno ligado ao usuário autenticado. Com `studentId` (seletor de dependente do
+   * app) o vínculo é conferido por resolveLink — sem vínculo/inexistente/outra organização => o MESMO
+   * 404. Sem `studentId`: o primeiro aluno vinculado (comportamento histórico) ou `null`. */
+  async getMine(organizationId: number, userId: number, studentId?: number) {
+    const student =
+      studentId !== undefined
+        ? await requireLinkedStudent(this.studentsService, organizationId, userId, studentId)
+        : (await this.studentsService.findMine(organizationId, userId))[0];
     if (!student) {
       return null;
     }

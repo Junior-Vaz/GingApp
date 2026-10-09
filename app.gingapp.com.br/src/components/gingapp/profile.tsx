@@ -135,7 +135,7 @@ export function ProfilePage() {
   const { student } = useMyStudent();
   const own = students.data?.find((s) => s.userId === user?.id) ?? null;
   const passport = usePassport();
-  const graduations = useGraduations(own?.id);
+  const graduations = useGraduations(student?.id); // passaporte e graduação: do aluno ATIVO (seletor)
   const [qrOpen, setQrOpen] = useState(false);
 
   const passportAction = useMutation({
@@ -153,7 +153,9 @@ export function ProfilePage() {
     onError: (error) => toast.error(errorMessage(error, "Não foi possível atualizar o passaporte.")),
   });
 
-  const first = graduations.data?.[0];
+  // A cordinha ao lado do nome da conta só vale quando o aluno ativo é o PRÓPRIO usuário; a de um
+  // dependente aparece no cartão do passaporte (abaixo), não ao lado do nome do responsável.
+  const first = own && student?.id === own.id ? graduations.data?.[0] : undefined;
   const links = own?.socialLinks ?? {};
   const socials = SOCIAL_FIELDS.filter((field) => links[field.key]);
   const p = passport.data;

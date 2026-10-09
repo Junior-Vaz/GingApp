@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { PassportService } from './passport.service';
 import { PublishPassportDto } from './dto/publish-passport.dto';
 import { GuardianConsentDto } from './dto/guardian-consent.dto';
+import { MyPassportQueryDto } from './dto/my-passport-query.dto';
 
 /** Sem @CanAccess em nenhuma rota: tudo aqui é self-service, escopado por vínculo com o aluno
  * (o próprio ou um dependente), nunca por papel/RBAC — mesmo espírito de StudentsService.findMine. */
@@ -11,9 +12,15 @@ import { GuardianConsentDto } from './dto/guardian-consent.dto';
 export class PassportController {
   constructor(private readonly passportService: PassportService) {}
 
+  /** `?studentId=` escolhe um dos alunos ligados ao usuário (seletor de dependente do app); sem ele,
+   * vale o primeiro vínculo (comportamento histórico). Sem vínculo => 404 igual a aluno inexistente. */
   @Get('me')
-  getMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
-    return this.passportService.getMine(organizationId, userId);
+  getMine(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser('id') userId: number,
+    @Query() query: MyPassportQueryDto,
+  ) {
+    return this.passportService.getMine(organizationId, userId, query.studentId);
   }
 
   @Post('publish')

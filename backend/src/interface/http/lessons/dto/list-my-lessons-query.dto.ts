@@ -1,5 +1,6 @@
 import { RecordStatus } from '@prisma/client';
 import { IsDateString, IsEnum, IsIn, IsOptional } from 'class-validator';
+import { OptionalStudentId } from '../../../../shared/access/linked-student';
 import { LimitOffsetQueryDto } from '../../../../shared/pagination/pagination';
 
 /**
@@ -24,4 +25,9 @@ export class ListMyLessonsQueryDto extends LimitOffsetQueryDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   order?: 'asc' | 'desc';
+
+  /** Seletor de dependente: só as aulas das turmas DESTE aluno ligado ao usuário (checado por
+   * resolveLink). Sem ele, agrega as turmas de todos os alunos ligados (comportamento histórico). */
+  @OptionalStudentId()
+  studentId?: number;
 }

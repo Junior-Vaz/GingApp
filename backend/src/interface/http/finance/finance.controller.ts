@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { LimitOffsetQueryDto, sendPage } from '../../../shared/pagination/pagination';
+import { sendPage } from '../../../shared/pagination/pagination';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
@@ -8,6 +8,8 @@ import { FinanceService } from './finance.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
 import { UpdateFinanceRecordDto } from './dto/update-finance-record.dto';
 import { ListFinanceQueryDto } from './dto/list-finance-query.dto';
+import { ListMyFinanceQueryDto } from './dto/list-my-finance-query.dto';
+import { MyFinanceSummaryQueryDto } from './dto/my-finance-summary-query.dto';
 
 @Controller('finance')
 export class FinanceController {
@@ -38,7 +40,7 @@ export class FinanceController {
   async findMine(
     @CurrentOrganization() organizationId: number,
     @CurrentUser('id') userId: number,
-    @Query() query: LimitOffsetQueryDto,
+    @Query() query: ListMyFinanceQueryDto,
     @Res({ passthrough: true }) res: Response,
   ) {
     return sendPage(res, await this.financeService.findMine(organizationId, userId, query));
@@ -47,8 +49,12 @@ export class FinanceController {
   /** Totais de /finance/me agregados no banco (não dependem da página carregada). Mesmo
    * escopo de /finance/me, sem @CanAccess. */
   @Get('me/summary')
-  summaryMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
-    return this.financeService.summaryMine(organizationId, userId);
+  summaryMine(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser('id') userId: number,
+    @Query() query: MyFinanceSummaryQueryDto,
+  ) {
+    return this.financeService.summaryMine(organizationId, userId, undefined, query.studentId);
   }
 
   @Get(':id')
