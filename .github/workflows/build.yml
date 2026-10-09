@@ -129,37 +129,51 @@ jobs:
             image: gingapp-backend
             context: ./backend
             target: runner
-            build_args: ""
           # Imagem auxiliar de migration (prisma migrate deploy): docker compose run --rm migrate
           - name: Migrate
             image: gingapp-migrate
             context: ./backend
             target: migrate
-            build_args: ""
           - name: Painel
             image: gingapp-painel
             context: ./painel.gingapp.com.br
             target: ""
-            build_args: |
-              VITE_API_URL=${{ secrets.VITE_API_URL || 'http://localhost:3000/api' }}
-              VITE_APP_URL=${{ secrets.VITE_APP_URL || 'http://localhost:8082' }}
           - name: App
             image: gingapp-app
             context: ./app.gingapp.com.br
             target: ""
-            build_args: |
-              VITE_API_URL=${{ secrets.VITE_API_URL || 'http://localhost:3000/api' }}
           - name: Admin
             image: gingapp-admin
             context: ./admin.gingapp.com.br
             target: ""
-            build_args: |
-              VITE_API_URL=${{ secrets.VITE_API_URL || 'http://localhost:3000/api' }}
     steps:
       - uses: actions/checkout@v4
 
       - name: Lowercase owner name
         run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+
+      # O contexto `secrets` nao existe dentro de `strategy.matrix`, so em steps: por isso os
+      # build-args dos frontends (embutidos no bundle em tempo de build) sao montados aqui.
+      - name: Compose build args
+        id: vite
+        env:
+          API_URL: ${{ secrets.VITE_API_URL || 'http://localhost:3000/api' }}
+          APP_URL: ${{ secrets.VITE_APP_URL || 'http://localhost:8082' }}
+          IMAGE: ${{ matrix.image }}
+        run: |
+          {
+            echo 'args<<EOF'
+            case "$IMAGE" in
+              gingapp-painel)
+                echo "VITE_API_URL=$API_URL"
+                echo "VITE_APP_URL=$APP_URL"
+                ;;
+              gingapp-app|gingapp-admin)
+                echo "VITE_API_URL=$API_URL"
+                ;;
+            esac
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -174,7 +188,7 @@ jobs:
           context: ${{ matrix.context }}
           target: ${{ matrix.target }}
           push: true
-          build-args: ${{ matrix.build_args }}
+          build-args: ${{ steps.vite.outputs.args }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
             ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:${{ github.sha }}
