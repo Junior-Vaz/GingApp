@@ -2,6 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, ApiError } from '@/utils/api'
+import { takeFlash } from '@/utils/flash'
 
 interface FeatureOverride {
   id: number
@@ -56,6 +57,8 @@ const subscription = ref<Subscription | null>(null)
 const plans = ref<Plan[]>([])
 const isLoading = ref(false)
 const loadError = ref('')
+// Aviso de uso único deixado pela tela anterior (ex.: "Grupo criado — informe ao MESTRE...").
+const notice = ref(takeFlash())
 
 const selectedPlanId = ref('')
 const isSaving = ref(false)
@@ -207,6 +210,9 @@ onMounted(() => {
     </h1>
     <p v-if="organization" class="mt-1 text-sm text-slate-500">{{ organization.slug }} · {{ organization.type }}</p>
 
+    <p v-if="notice" role="status" class="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+      {{ notice }}
+    </p>
     <p v-if="loadError" class="mt-4 text-sm text-red-600">{{ loadError }}</p>
     <p v-if="isLoading" class="mt-6 text-sm text-slate-400">Carregando…</p>
 
