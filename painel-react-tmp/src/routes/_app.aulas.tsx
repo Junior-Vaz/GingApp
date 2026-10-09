@@ -1,8 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { EmConstrucao } from "@/components/painel/em-construcao";
+import { AulasPage } from "@/modules/aulas/aulas-page";
 
-// Fase 2b: substitua EmConstrucao pela página do módulo (src/modules/aulas/).
 export const Route = createFileRoute("/_app/aulas")({
   head: () => ({ meta: [{ title: "Aulas — Painel GingApp" }] }),
-  component: () => <EmConstrucao title="Aulas" />,
+  component: AulasPage,
 });

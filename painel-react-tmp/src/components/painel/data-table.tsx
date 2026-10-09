@@ -40,7 +40,15 @@ interface DataTableProps<T> {
   rowActions?: (row: T) => ReactNode;
   /** Conteúdo ao lado da busca (filtros, botão "Novo"). */
   toolbar?: ReactNode;
+  /**
+   * Teto de registros que o backend devolve por lista (take fixo, sem paginação no servidor).
+   * Ao atingi-lo a tabela avisa que busca/filtros só enxergam esses registros. 0 desliga.
+   */
+  serverLimit?: number;
 }
+
+/** `take` fixo das listagens do backend; ver LACUNAS no README. */
+export const SERVER_LIST_LIMIT = 50;
 
 const normalize = (text: string) =>
   text
@@ -73,6 +81,7 @@ export function DataTable<T>({
   emptyMessage = "Nenhum registro encontrado.",
   rowActions,
   toolbar,
+  serverLimit = SERVER_LIST_LIMIT,
 }: DataTableProps<T>) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ id: string; dir: "asc" | "desc" } | null>(null);
@@ -213,6 +222,17 @@ export function DataTable<T>({
           <TableBody>{renderBody()}</TableBody>
         </Table>
       </div>
+
+      {!isLoading && !error && serverLimit > 0 && (data?.length ?? 0) >= serverLimit && (
+        <p
+          role="status"
+          data-testid="table-limit-warning"
+          className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+        >
+          O servidor devolve no máximo {serverLimit} registros por lista. Pode haver registros que não
+          aparecem aqui, e busca, filtros e totais consideram apenas estes {serverLimit}.
+        </p>
+      )}
 
       {!isLoading && !error && rows.length > 0 && (
         <div className="flex items-center justify-between text-xs text-muted-foreground">

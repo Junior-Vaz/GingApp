@@ -17,11 +17,18 @@ export function toDate(iso: string): Date {
 
 export const fmt = (date: Date, pattern: string) => format(date, pattern, { locale: ptBR });
 
+/**
+ * Origem do app do aluno, onde moram as páginas públicas de verificação (/verificar/:code).
+ * O painel NÃO tem essas rotas, então o link do QR não pode usar window.location.origin.
+ */
+const appOrigin = () =>
+  (((import.meta.env["VITE_APP_URL"] as string | undefined) ?? "http://localhost:4173").replace(/\/+$/, ""));
+
 /** URL pública (aberta pelo QR Code) de um certificado. */
-export const verificationUrl = (code: string) => `${window.location.origin}/verificar/${code}`;
+export const verificationUrl = (code: string) => `${appOrigin()}/verificar/${code}`;
 
 /** URL pública (aberta pelo QR Code) do Passaporte compartilhado. */
-export const passportUrl = (code: string) => `${window.location.origin}/verificar-passaporte/${code}`;
+export const passportUrl = (code: string) => `${appOrigin()}/verificar-passaporte/${code}`;
 
 export function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);

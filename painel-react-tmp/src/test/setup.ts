@@ -1,4 +1,18 @@
 import "@testing-library/jest-dom/vitest";
+import { cleanup } from "@testing-library/react";
+import { afterEach } from "vitest";
+
+// vitest sem globals não limpa o DOM sozinho entre testes.
+afterEach(() => cleanup());
+
+// jsdom não tem ResizeObserver (usado pelo Switch/Select do Radix).
+if (!("ResizeObserver" in globalThis)) {
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
 
 Object.defineProperty(window, "scrollTo", {
   writable: true,
