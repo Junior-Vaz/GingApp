@@ -142,7 +142,26 @@ Nunca carregue `/students?limit=200` num select (alunos além do teto ficam inal
 
 Props: `value` (id|null), `onChange(student|null)`, `mode` (`form`|`filter`), `optional`, `label`, `emptyLabel`, `initial`, `disabled`.
 Edição: o aluno atual aparece mesmo fora dos resultados (objeto escolhido > `initial` > resultados > `GET /students/:id`).
-Para mostrar o nome do aluno numa coluna use `useStudentNames(ids)` (1 GET por id, cache de 5 min).
+Para mostrar o nome do aluno numa coluna NÃO faça 1 GET por linha: o backend devolve `student: { id, name } | null` em cada item de `GET /finance` (e `GET /certificates`); use `r.student?.name`.
+
+## Seletor de unidade com busca no servidor (`UnitPicker`)
+
+Mesmo padrão do `StudentPicker`, para unidades: `src/components/painel/unit-picker.tsx` + hooks em `src/lib/unit-lookup.ts`
+(`GET /units?q=&limit=20`, debounce 300ms; a unidade atual é resolvida por `GET /units/:id`). `GET /units` aceita `limit`
+(1..200, padrão 50), `offset` e `q` (nome), com o total em `X-Total-Count`. Em módulos novos NÃO use `useAuxList("/units")`.
+
+```tsx
+// formulário (react-hook-form guarda string; "" = todo o grupo / sem unidade)
+<UnitPicker optional label="Público" emptyLabel="Todo o grupo" value={field.value ? Number(field.value) : null}
+  onChange={(u) => field.onChange(u ? String(u.id) : "")} />
+// filtro na toolbar do DataTable (opção vazia "Todas as unidades")
+<UnitPicker mode="filter" value={lp.filters.unitId ? Number(lp.filters.unitId) : null}
+  onChange={(u) => lp.setFilter("unitId", u ? String(u.id) : "")} />
+```
+
+Props: `value` (id|null), `onChange(unit|null)`, `mode` (`form`|`filter`), `optional`, `label`, `emptyLabel`, `initial`, `disabled`.
+Nome da unidade numa coluna: `useUnitNames(ids)` (1 GET por id distinto, cache de 5 min). Módulos que ainda usam
+`useAuxList('/units')` (limite de 200): Turmas, Aulas, Eventos, Alunos.
 
 ## Docker
 

@@ -5,26 +5,19 @@ import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { PageHeader } from "@/components/painel/page-header";
+import { UnitPicker } from "@/components/painel/unit-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
 import { fmt, toDate } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
-import { AuxLimitNotice } from "@/modules/rodas/aux-limit-notice";
+import { useUnitNames } from "@/lib/unit-lookup";
 import { NativeSelect } from "@/modules/rodas/native-select";
-import { useAuxList } from "@/modules/rodas/reference";
 
 /** Contrato de GET /announcements (backend: AnnouncementsService). */
 export interface Announcement {
@@ -51,19 +44,12 @@ const announcements = createCrud<Announcement, AnnouncementInput>("/announcement
   removed: "Comunicado desativado.",
 });
 
-const GROUP = "group";
-
-/** Unidade para escolha de escopo/filtro (GET /units?limit=200). */
-interface UnitOption {
-  id: number;
-  name: string;
-}
-
-// Regras do backend: título e texto com no mínimo 2 caracteres.
+// Regras do backend: título e texto com no mínimo 2 caracteres. `unitId` é o id da unidade como
+// texto; "" = todo o grupo (vira unitId null no payload).
 const schema = z.object({
   title: z.string().trim().min(2, "Informe o título (mínimo 2 caracteres)."),
   body: z.string().trim().min(2, "Informe o texto (mínimo 2 caracteres)."),
-  scope: z.string(),
+  unitId: z.string(),
   isActive: z.boolean(),
 });
 type Values = z.infer<typeof schema>;
@@ -72,7 +58,6 @@ export function ComunicadosPage() {
   // Lista no servidor: busca (q em título/corpo), situação (isActive) e unidade (unitId).
   const lp = useListParams({ pageSize: 10, filters: { isActive: "", unitId: "" } });
   const list = announcements.usePage(lp.params);
-  const units = useAuxList<UnitOption>("/units");
   const create = announcements.useCreate();
   const update = announcements.useUpdate();
   const remove = announcements.useRemove();
@@ -83,10 +68,10 @@ export function ComunicadosPage() {
   const [editing, setEditing] = useState<Announcement | "new" | null>(null);
   const [deleting, setDeleting] = useState<Announcement | null>(null);
 
+  // Nomes só das unidades desta página (GET /units/:id por id distinto), sem carregar a lista inteira.
+  const nameOfUnit = useUnitNames((list.items ?? []).map((a) => a.unitId));
   const unitName = (unitId: number | null) =>
-    unitId === null
-      ? "Todo o grupo"
-      : (units.items?.find((u) => u.id === unitId)?.name ?? `Unidade #${unitId}`);
+    unitId === null ? "Todo o grupo" : nameOfUnit(unitId, `Unidade #${unitId}`);
 
   const columns: Column<Announcement>[] = [
     {
@@ -119,12 +104,12 @@ export function ComunicadosPage() {
   const defaultValues: Values = {
     title: current?.title ?? "",
     body: current?.body ?? "",
-    scope: current?.unitId != null ? String(current.unitId) : GROUP,
+    unitId: current?.unitId != null ? String(current.unitId) : "",
     isActive: current?.isActive ?? true,
   };
 
   function submit(values: Values) {
-    const unitId = values.scope === GROUP ? null : Number(values.scope);
+    const unitId = values.unitId === "" ? null : Number(values.unitId);
     const base = { title: values.title, body: values.body, unitId };
     return current
       ? update.mutateAsync({ id: current.id, data: { ...base, isActive: values.isActive } })
@@ -166,19 +151,11 @@ export function ComunicadosPage() {
               <option value="true">Ativos</option>
               <option value="false">Inativos</option>
             </NativeSelect>
-            <NativeSelect
-              aria-label="Filtrar por unidade"
-              className="w-44"
-              value={lp.filters.unitId}
-              onChange={(e) => lp.setFilter("unitId", e.target.value)}
-            >
-              <option value="">Todas as unidades</option>
-              {(units.items ?? []).map((u) => (
-                <option key={u.id} value={String(u.id)}>
-                  {u.name}
-                </option>
-              ))}
-            </NativeSelect>
+            <UnitPicker
+              mode="filter"
+              value={lp.filters.unitId ? Number(lp.filters.unitId) : null}
+              onChange={(u) => lp.setFilter("unitId", u ? String(u.id) : "")}
+            />
           </div>
         }
         rowActions={(a) => (
@@ -238,26 +215,16 @@ export function ComunicadosPage() {
             />
             <FormField
               control={form.control}
-              name="scope"
+              name="unitId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Público</FormLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <FormControl>
-                      <SelectTrigger aria-label="Público">
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value={GROUP}>Todo o grupo</SelectItem>
-                      {(units.items ?? []).map((u) => (
-                        <SelectItem key={u.id} value={String(u.id)}>
-                          Somente {u.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <AuxLimitNotice truncated={units.truncated} total={units.total} label="unidades" />
+                  <UnitPicker
+                    optional
+                    label="Público"
+                    emptyLabel="Todo o grupo"
+                    value={field.value ? Number(field.value) : null}
+                    onChange={(u) => field.onChange(u ? String(u.id) : "")}
+                  />
                   <FormMessage />
                 </FormItem>
               )}
