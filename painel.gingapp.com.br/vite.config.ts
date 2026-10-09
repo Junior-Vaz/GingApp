@@ -1,17 +1,11 @@
-import path from 'node:path'
-import vue from '@vitejs/plugin-vue'
-import tailwindcss from '@tailwindcss/vite'
-import { defineConfig } from 'vite'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { tanstackRouter } from "@tanstack/router-plugin/vite";
 
-// https://vite.dev/config/
+// SPA estática: `vite build` gera dist/ servível por nginx (sem SSR, sem PWA/service worker).
 export default defineConfig({
-  plugins: [vue(), tailwindcss()],
-  resolve: {
-    alias: {
-      '@': path.resolve(import.meta.dirname, './src'),
-    },
-  },
-  server: {
-    port: 4174,
-  },
-})
+  plugins: [tanstackRouter({ target: "react", autoCodeSplitting: true }), react(), tailwindcss()],
+  resolve: { tsconfigPaths: true },
+  build: { outDir: "dist", sourcemap: false },
+});
