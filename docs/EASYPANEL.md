@@ -4,7 +4,9 @@ Guia passo a passo para quem nunca usou o Easypanel. Arquivos relacionados (na r
 
 - `docker-compose.easypanel.yml` – stack com imagens prontas do GHCR (migrate, backend, painel, app, admin).
 - `.env.easypanel.example` – todas as variáveis, comentadas (copie para `.env.easypanel`, que está no `.gitignore`).
-- `.github/workflows/build.yml` – CI que valida o código e publica as imagens no GHCR.
+- `docker-compose.easypanel-build.yml` – a mesma stack, mas **buildando as imagens no próprio servidor** (sem GHCR; ver seção 14). Use se o servidor não alcança o `ghcr.io`.
+- `.github/workflows/build.yml` – publica as imagens no GHCR a cada push na `master`, **sem esperar testes** (o `npm run build` do Dockerfile ainda reprova erro de tipo/compilação).
+- `.github/workflows/tests.yml` – lint, testes unitários/e2e e build; roda em pull request ou manualmente (Actions → Tests → Run workflow).
 
 > **Aviso de honestidade (leia primeiro).** Nada deste guia foi executado de ponta a ponta: **nenhuma imagem Docker do GingApp foi buildada e nenhum deploy real foi feito** nesta máquina (o Docker Hub deu timeout ao tentar baixar `node:22-alpine`). O que foi verificado de fato: o YAML do compose valida com `docker compose config`; os nomes de variáveis, rotas e o prefixo `/api` foram conferidos no código. **As telas e nomes de botões do Easypanel descritos abaixo são do conhecimento geral da ferramenta e NÃO foram vistos ao vivo** – se um rótulo for diferente na sua versão, siga a intenção do passo. Itens não verificados estão marcados com **[NÃO VERIFICADO]**; a lista completa está na seção 12.
 
@@ -91,7 +93,7 @@ Pontos críticos:
 
 - **Se os secrets não existirem, o CI NÃO falha**: `build.yml` usa o padrão `http://localhost:3000/api` e `http://localhost:8082` e publica imagens que só funcionam na máquina do desenvolvedor. Confira os secrets **antes** do primeiro build.
 - **Mudar o domínio da API (ou do app) exige rebuild das imagens dos frontends**: atualize os secrets, rode de novo o workflow *Build & Push Docker Images* (aba Actions → Run workflow, ou novo push na `master`) e faça redeploy dos frontends. Definir `VITE_*` no Easypanel **não tem efeito**.
-- O workflow só publica em `push` na `master` (ou disparo manual) e **depois** de passar validação (build, lint, testes unitários e e2e do backend). Imagem só existe no GHCR após um run verde.
+- O workflow *Build & Push Docker Images* publica em `push` na `master` (ou disparo manual) **sem esperar os testes** (que ficam em `tests.yml`, em pull request/manual). A imagem existe no GHCR assim que o build dela termina; um erro de compilação (`npm run build` no Dockerfile) reprova só aquela imagem.
 
 ---
 
@@ -259,6 +261,28 @@ Sintoma no deploy: `Error Get "https://ghcr.io/v2/": net/http: TLS handshake tim
    done
    ```
 4. **Deploy sem contatar o registro:** com as imagens já baixadas, defina `PULL_POLICY=missing` no Environment e faça o deploy (o padrão `always` forçaria um novo pull e repetiria o timeout). Depois que a rede estiver estável, volte para `always`, senão os próximos deploys não atualizam as imagens.
+
+---
+
+## 14. Alternativa que NÃO usa o GHCR: build das imagens no próprio servidor
+
+Use quando o servidor não alcança o `ghcr.io` de forma confiável (seção 13) ou quando você não quer depender do CI/GHCR. Arquivo: **`docker-compose.easypanel-build.yml`** (mesma stack e mesmas variáveis do compose do GHCR: `postgres` + `migrate` + `backend` + `painel` + `app` + `admin`).
+
+Como funciona: o Easypanel clona o repositório e **builda** cada imagem pelo Dockerfile do projeto. Só precisa do Docker Hub (`node`, `nginx`, `postgres`) e do registry npm — o que o servidor já alcança (o Postgres baixou normalmente). Não há GHCR, PAT nem secrets do GitHub.
+
+Passos:
+
+1. No projeto: **+ Service → Compose**, com **fonte Git**: repositório `junior-vaz/GingApp`, branch `master`, arquivo `docker-compose.easypanel-build.yml`. **Colar só o conteúdo do YAML não funciona** (faltariam as pastas `backend/`, `painel.gingapp.com.br/` etc. que o `build:` usa). Repositório privado: o Easypanel gera uma *deploy key*; cadastre-a em GitHub → repositório → *Settings → Deploy keys*. **[NÃO VERIFICADO]** rótulos exatos do Easypanel.
+2. **Environment** (além das variáveis das seções 2 e 5): `VITE_API_URL=https://api.seudominio.com.br/api` e `VITE_APP_URL=https://app.seudominio.com.br` (obrigatórias nesse compose: são embutidas no bundle dos frontends durante o build).
+3. **Deploy.** A 1ª vez leva ~5–10 min (compila o backend e os 3 frontends). Recomendado ≥ 4 GB de RAM livre (ou swap): os builds de `npm ci`/`nest build`/`vite` são pesados.
+4. Domínios (seção 5): `api.` → serviço `backend` porta 3000; `painel.`/`app.`/`admin.` → serviços respectivos, porta 80.
+
+Observações:
+
+- **Cada Deploy rebuilda a partir do commit atual** (não há "pull"): para atualizar, faça push e clique em Deploy.
+- Se o Docker Hub der `toomanyrequests`/timeout no servidor: `NODE_IMAGE`, `NGINX_IMAGE` e `POSTGRES_IMAGE` aceitam o espelho `public.ecr.aws/docker/library/...` (ver `.env.easypanel.example`).
+- Mudou o domínio da API ou do app? Altere `VITE_API_URL`/`VITE_APP_URL` e faça novo Deploy.
+- **Verificado localmente (2026-10-09):** `docker compose -f docker-compose.easypanel-build.yml up -d --build` builda as 5 imagens e sobe a stack (ver seção 12). **Não** foi testado dentro do Easypanel.
 
 ---
 

@@ -1,16 +1,21 @@
 name: Build & Push Docker Images
 
-# Mesmo desenho do GestorPrinte: valida cada projeto (build/type-check) e, so depois, builda e
-# publica as imagens no GHCR. Roda em push na master (branch de producao) ou disparo manual.
-# Em pull request roda so a validacao (nao publica imagem).
-# Diferenca para o GestorPrinte: a validacao tambem roda lint e testes (unitarios + e2e do backend
-# com Postgres de servico), porque aqui a suite existe e e o que impede um falso-verde.
+# Publica as imagens no GHCR a cada push na master (ou disparo manual) — SEM esperar testes.
+# Os testes (lint, unitarios, e2e, build dos frontends) ficam em .github/workflows/tests.yml e rodam
+# em pull request ou manualmente (decisao do dono: o pipeline de deploy estava lento demais).
+# Mesmo assim o build NAO e cego: o Dockerfile de cada projeto roda `npm run build` (tsc + nest build /
+# vite build), entao erro de tipo ou de compilacao reprova a imagem. Cache de camadas (GitHub Actions
+# cache) acelera os runs seguintes.
+
 on:
   push:
     branches: [master]
-  pull_request:
-    branches: [master]
   workflow_dispatch:
+
+# Um push novo cancela o build anterior ainda em andamento da mesma branch.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
@@ -22,107 +27,9 @@ env:
   NGINX_IMAGE: public.ecr.aws/docker/library/nginx:1.27-alpine
 
 jobs:
-  validate-backend:
-    name: Validate Backend
-    runs-on: ubuntu-latest
-    # Postgres so para a suite e2e (o test:e2e roda migrate deploy + seed no banco apontado).
-    services:
-      postgres:
-        # Espelho da AWS (ver comentario de NODE_IMAGE acima): postgres:16-alpine do Docker Hub
-        # bate no limite de pulls anonimos nos runners do GitHub.
-        image: public.ecr.aws/docker/library/postgres:16-alpine
-        env:
-          POSTGRES_USER: gingapp
-          POSTGRES_PASSWORD: gingapp
-          POSTGRES_DB: gingapp_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U gingapp -d gingapp_ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      DATABASE_URL: postgresql://gingapp:gingapp@localhost:5432/gingapp_ci?schema=public
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: backend/package-lock.json
-
-      - name: Install dependencies
-        working-directory: backend
-        run: npm ci
-
-      # Prisma client e necessario pro TS compilar — gera antes do build
-      - name: Generate Prisma client
-        working-directory: backend
-        run: npx prisma generate
-
-      - name: Build (NestJS — inclui type-check)
-        working-directory: backend
-        run: npm run build
-
-      - name: Unit tests
-        working-directory: backend
-        run: npm run test:unit
-
-      # migrate deploy + seed + todas as suites e2e (banco isolado do servico acima)
-      - name: E2E tests
-        working-directory: backend
-        run: npm run test:e2e
-
-  validate-frontends:
-    name: Validate ${{ matrix.project }}
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # build: app/painel fazem tsc + vite build; admin faz vue-tsc -b + vite build
-          - project: app.gingapp.com.br
-            lint: true
-          - project: painel.gingapp.com.br
-            lint: true
-          - project: admin.gingapp.com.br
-            lint: false # o admin nao tem eslint configurado
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: ${{ matrix.project }}/package-lock.json
-
-      - name: Install dependencies
-        working-directory: ${{ matrix.project }}
-        run: npm ci
-
-      - name: Lint
-        if: matrix.lint
-        working-directory: ${{ matrix.project }}
-        run: npm run lint
-
-      - name: Tests
-        working-directory: ${{ matrix.project }}
-        run: npm test
-
-      - name: Build (type-check + vite)
-        working-directory: ${{ matrix.project }}
-        run: npm run build
-
   build-images:
     name: Build ${{ matrix.name }}
     runs-on: ubuntu-latest
-    needs: [validate-backend, validate-frontends]
-    # So publica a partir de push/dispatch (nunca em pull request)
-    if: github.event_name != 'pull_request'
     permissions:
       contents: read
       packages: write
@@ -136,7 +43,7 @@ jobs:
             image: gingapp-backend
             context: ./backend
             target: runner
-          # Imagem auxiliar de migration (prisma migrate deploy): docker compose run --rm migrate
+          # Imagem auxiliar de migration (prisma migrate deploy + bootstrap)
           - name: Migrate
             image: gingapp-migrate
             context: ./backend
@@ -185,6 +92,10 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
+      # Buildx e necessario para o cache do tipo "gha".
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -199,6 +110,8 @@ jobs:
           target: ${{ matrix.target }}
           push: true
           build-args: ${{ steps.vite.outputs.args }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
             ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:${{ github.sha }}

@@ -1,0 +1,115 @@
+name: Tests
+
+# Validacao completa: build, lint, testes unitarios e e2e do backend (Postgres de servico) e
+# lint/testes/build dos 3 frontends. Roda em pull request e sob demanda (Actions > Tests > Run
+# workflow). NAO roda no push da master nem bloqueia a publicacao das imagens (build.yml): o pipeline
+# de deploy ficou lento demais com tudo junto (e2e do backend sozinho leva ~6 min). Antes de uma
+# mudanca grande, dispare este workflow ou abra um pull request.
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  validate-backend:
+    name: Validate Backend
+    runs-on: ubuntu-latest
+    # Postgres so para a suite e2e (o test:e2e roda migrate deploy + seed no banco apontado).
+    services:
+      postgres:
+        # Espelho da AWS: postgres:16-alpine do Docker Hub bate no limite de pulls anonimos
+        # ("toomanyrequests") nos runners do GitHub.
+        image: public.ecr.aws/docker/library/postgres:16-alpine
+        env:
+          POSTGRES_USER: gingapp
+          POSTGRES_PASSWORD: gingapp
+          POSTGRES_DB: gingapp_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gingapp -d gingapp_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://gingapp:gingapp@localhost:5432/gingapp_ci?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: backend
+        run: npm ci
+
+      # Prisma client e necessario pro TS compilar — gera antes do build
+      - name: Generate Prisma client
+        working-directory: backend
+        run: npx prisma generate
+
+      - name: Build (NestJS — inclui type-check)
+        working-directory: backend
+        run: npm run build
+
+      - name: Unit tests
+        working-directory: backend
+        run: npm run test:unit
+
+      # migrate deploy + seed + todas as suites e2e (banco isolado do servico acima)
+      - name: E2E tests
+        working-directory: backend
+        run: npm run test:e2e
+
+  validate-frontends:
+    name: Validate ${{ matrix.project }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # build: app/painel fazem tsc + vite build; admin faz vue-tsc -b + vite build
+          - project: app.gingapp.com.br
+            lint: true
+          - project: painel.gingapp.com.br
+            lint: true
+          - project: admin.gingapp.com.br
+            lint: false # o admin nao tem eslint configurado
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.project }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.project }}
+        run: npm ci
+
+      - name: Lint
+        if: matrix.lint
+        working-directory: ${{ matrix.project }}
+        run: npm run lint
+
+      - name: Tests
+        working-directory: ${{ matrix.project }}
+        run: npm test
+
+      - name: Build (type-check + vite)
+        working-directory: ${{ matrix.project }}
+        run: npm run build

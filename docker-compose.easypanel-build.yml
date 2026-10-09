@@ -1,0 +1,150 @@
+# GingApp - stack EASYPANEL que CONSTROI AS IMAGENS NO PROPRIO SERVIDOR (sem GHCR)
+#
+# Use ESTE arquivo quando o servidor nao consegue baixar do ghcr.io (erro "TLS handshake timeout")
+# ou quando voce nao quer depender do CI/GHCR. As imagens sao buildadas a partir do codigo do
+# repositorio (Dockerfile de cada projeto); so precisam do Docker Hub (node, nginx, postgres) e do
+# registry npm, que o servidor ja alcanca. Mesma stack e mesmas variaveis do
+# docker-compose.easypanel.yml: postgres + migrate (one-shot) + backend + painel + app + admin.
+#
+# REQUISITO: o Easypanel precisa ter o CODIGO do repositorio (os "build: context" abaixo sao
+# pastas do repo). No servico Compose do Easypanel use como fonte o Git (junior-vaz/GingApp, branch
+# master) e aponte para este arquivo - colar so o conteudo do YAML NAO funciona, porque faltariam
+# as pastas backend/, painel.gingapp.com.br/ etc. Repositorio privado: o Easypanel gera uma
+# deploy key para cadastrar no GitHub (Settings > Deploy keys). Ver docs/EASYPANEL.md, secao 14.
+#
+# DIFERENCAS em relacao ao docker-compose.easypanel.yml (GHCR):
+# - VITE_API_URL e VITE_APP_URL sao variaveis DESTE compose (build args): defina-as no Environment
+#   do Easypanel. Nao existem secrets do GitHub nem CI envolvidos. Mudou o dominio da API/app?
+#   Altere a variavel e faca um novo Deploy (rebuilda os frontends).
+# - O deploy demora mais (compila backend + 3 frontends no servidor; 1a vez ~5-10 min). Recomendado
+#   >= 4 GB de RAM livre (ou swap): o build do backend (npm ci + nest build) e o dos 3 frontends
+#   (vite) consomem memoria.
+# - Nao ha pull do registro: a imagem e rebuildada a cada Deploy a partir do codigo do commit.
+#
+# Variaveis (ver .env.easypanel.example): POSTGRES_PASSWORD, JWT_SECRET, CORS_ORIGINS,
+# SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD, VITE_API_URL, VITE_APP_URL (+ opcionais).
+#
+# NENHUMA porta e publicada no host: o Easypanel faz o proxy por dominio para a porta interna
+# (backend 3000; painel/app/admin 80). Rede interna "gingapp"; use o nome do servico (DNS do Docker).
+
+x-node-image: &node-image ${NODE_IMAGE:-node:22-alpine}
+x-nginx-image: &nginx-image ${NGINX_IMAGE:-nginx:1.27-alpine}
+
+services:
+  postgres:
+    # POSTGRES_IMAGE permite trocar o registro sem editar o arquivo (ex.: espelho da AWS
+    # public.ecr.aws/docker/library/postgres:16-alpine) se o Docker Hub der toomanyrequests/timeout.
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
+    networks:
+      - gingapp
+    environment:
+      POSTGRES_USER: gingapp
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD (senha so com letras e numeros, ex.: openssl rand -hex 24)}"
+      POSTGRES_DB: gingapp
+    volumes:
+      - gingapp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gingapp -d gingapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # One-shot: prisma migrate deploy + bootstrap idempotente (cria o super admin se nao existir) e SAI.
+  migrate:
+    build:
+      context: ./backend
+      target: migrate
+      args:
+        NODE_IMAGE: *node-image
+    image: gingapp-migrate:local
+    restart: "no"
+    networks:
+      - gingapp
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "${DATABASE_URL:-postgresql://gingapp:${POSTGRES_PASSWORD}@postgres:5432/gingapp?schema=public}"
+      SUPER_ADMIN_EMAIL: "${SUPER_ADMIN_EMAIL:-}"
+      SUPER_ADMIN_PASSWORD: "${SUPER_ADMIN_PASSWORD:-}"
+      SUPER_ADMIN_NAME: "${SUPER_ADMIN_NAME:-}"
+
+  backend:
+    build:
+      context: ./backend
+      target: runner
+      args:
+        NODE_IMAGE: *node-image
+    image: gingapp-backend:local
+    restart: unless-stopped
+    networks:
+      - gingapp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: "production"
+      DATABASE_URL: "${DATABASE_URL:-postgresql://gingapp:${POSTGRES_PASSWORD}@postgres:5432/gingapp?schema=public}"
+      JWT_SECRET: "${JWT_SECRET:?defina JWT_SECRET com pelo menos 32 caracteres aleatorios - use openssl rand -hex 32}"
+      JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-1d}"
+      PORT: "3000"
+      CORS_ORIGINS: "${CORS_ORIGINS:?defina CORS_ORIGINS com as origens https dos 3 frontends separadas por virgula e sem barra final}"
+      TRUST_PROXY: "${TRUST_PROXY:-1}"
+      PLATFORM_ALLOWED_IPS: "${PLATFORM_ALLOWED_IPS:-}"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Painel da escola. Easypanel: dominio do painel -> porta 80.
+  painel:
+    build:
+      context: ./painel.gingapp.com.br
+      args:
+        NODE_IMAGE: *node-image
+        NGINX_IMAGE: *nginx-image
+        VITE_API_URL: "${VITE_API_URL:?defina VITE_API_URL (ex.: https://api.seudominio.com.br/api) - e embutida no bundle do front}"
+        VITE_APP_URL: "${VITE_APP_URL:?defina VITE_APP_URL (ex.: https://app.seudominio.com.br) - usada nos QR de certificados}"
+    image: gingapp-painel:local
+    restart: unless-stopped
+    networks:
+      - gingapp
+
+  # App do aluno. Easypanel: dominio do app -> porta 80.
+  app:
+    build:
+      context: ./app.gingapp.com.br
+      args:
+        NODE_IMAGE: *node-image
+        NGINX_IMAGE: *nginx-image
+        VITE_API_URL: "${VITE_API_URL:?defina VITE_API_URL (ex.: https://api.seudominio.com.br/api) - e embutida no bundle do front}"
+    image: gingapp-app:local
+    restart: unless-stopped
+    networks:
+      - gingapp
+
+  # Admin da plataforma. Easypanel: dominio do admin -> porta 80.
+  admin:
+    build:
+      context: ./admin.gingapp.com.br
+      args:
+        NODE_IMAGE: *node-image
+        NGINX_IMAGE: *nginx-image
+        VITE_API_URL: "${VITE_API_URL:?defina VITE_API_URL (ex.: https://api.seudominio.com.br/api) - e embutida no bundle do front}"
+    image: gingapp-admin:local
+    restart: unless-stopped
+    networks:
+      - gingapp
+
+volumes:
+  gingapp_pgdata:
+
+networks:
+  gingapp:
+    driver: bridge
