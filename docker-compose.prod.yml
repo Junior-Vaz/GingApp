@@ -83,6 +83,8 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
+        # Origem do app do aluno: o QR de certificados do painel abre /verificar/:code nele.
+        VITE_APP_URL: ${VITE_APP_URL:-http://localhost:8082}
     restart: unless-stopped
     ports:
       - "8081:80"
