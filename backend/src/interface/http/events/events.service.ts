@@ -5,6 +5,7 @@ import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { ListEventsQueryDto } from './dto/list-events-query.dto';
 import { StudentsService } from '../students/students.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
+import { MyParticipation, redactParticipant } from '../../../shared/access/participant-privacy';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { AddEventParticipantDto } from './dto/add-event-participant.dto';
@@ -23,7 +24,18 @@ export class EventsService {
     private readonly studentsService: StudentsService,
   ) {}
 
-  async findAll(organizationId: number, query: ListEventsQueryDto = {}): Promise<Page<unknown>> {
+  /**
+   * Listagem do grupo. Cada item mantém TODOS os campos de Event (compatível com painel/admin)
+   * e ganha dois agregados (sem N+1: um groupBy + um findMany por página, nunca por item):
+   * - `participantsCount`: total de inscrições do evento (qualquer status);
+   * - `myParticipation`: `{ id, studentId, status }` da inscrição do PRÓPRIO usuário do token
+   *   ou de um dependente (StudentsService.findMine; prioridade ao próprio aluno), senão `null`.
+   */
+  async findAll(
+    organizationId: number,
+    query: ListEventsQueryDto = {},
+    requester?: AuthenticatedUser,
+  ): Promise<Page<unknown>> {
     const and: Prisma.EventWhereInput[] = [];
     // from/to: data do evento, datas civis (UTC) inclusivas.
     if (query.from) and.push({ date: { gte: new Date(`${query.from.slice(0, 10)}T00:00:00.000Z`) } });
@@ -49,7 +61,48 @@ export class EventsService {
       this.prisma.event.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
       this.prisma.event.count({ where }),
     ]);
-    return { items, total };
+    return { items: await this.withParticipationSummary(organizationId, items, requester), total };
+  }
+
+  private async withParticipationSummary<T extends { id: number }>(
+    organizationId: number,
+    events: T[],
+    requester?: AuthenticatedUser,
+  ): Promise<Array<T & { participantsCount: number; myParticipation: MyParticipation | null }>> {
+    if (events.length === 0) return [];
+    const eventIds = events.map((e) => e.id);
+    const myStudentIds = requester
+      ? (await this.studentsService.findMine(organizationId, requester.id)).map((s) => s.id)
+      : [];
+
+    const [counts, mine] = await Promise.all([
+      this.prisma.eventParticipant.groupBy({
+        by: ['eventId'],
+        where: { organizationId, eventId: { in: eventIds } },
+        _count: { _all: true },
+      }),
+      myStudentIds.length > 0
+        ? this.prisma.eventParticipant.findMany({
+            where: { organizationId, eventId: { in: eventIds }, studentId: { in: myStudentIds } },
+            select: { id: true, eventId: true, studentId: true, status: true },
+            orderBy: { id: 'asc' },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const countByEvent = new Map(counts.map((c) => [c.eventId, c._count._all]));
+    return events.map((event) => {
+      // findMine devolve o próprio aluno primeiro, depois os dependentes — mesma prioridade
+      // do pickMyStudent do app.
+      const own = myStudentIds
+        .map((studentId) => mine.find((p) => p.eventId === event.id && p.studentId === studentId))
+        .find((p) => p !== undefined);
+      return {
+        ...event,
+        participantsCount: countByEvent.get(event.id) ?? 0,
+        myParticipation: own ? { id: own.id, studentId: own.studentId, status: own.status } : null,
+      };
+    });
   }
 
   async findOne(organizationId: number, id: number) {
@@ -122,15 +175,38 @@ export class EventsService {
     ]);
   }
 
-  /** Lista os participantes de um evento, com o nome do aluno quando studentId estiver
-   * preenchido. Valida que o evento pertence à organização antes (404 se não). */
-  async listParticipants(organizationId: number, eventId: number) {
+  /**
+   * Lista os participantes de um evento, com o nome do aluno quando studentId estiver
+   * preenchido. Valida que o evento pertence à organização antes (404 se não).
+   *
+   * MESTRE/PROFESSOR (gestão da lista no painel) recebem a lista completa. Os demais membros
+   * (ALUNO/RESPONSAVEL) recebem a lista do MESMO tamanho e formato, mas só a própria inscrição
+   * (ou de dependente, ou de convidado com o próprio nome) vem identificada — as de terceiros
+   * (inclui menores) saem sem id de aluno/usuário e sem nome (redactParticipant, LGPD).
+   */
+  async listParticipants(organizationId: number, eventId: number, requester: AuthenticatedUser) {
     await this.findOne(organizationId, eventId);
 
-    return this.prisma.eventParticipant.findMany({
+    const participants = await this.prisma.eventParticipant.findMany({
       where: { organizationId, eventId },
       include: { student: { select: { id: true, name: true } } },
       orderBy: { id: 'desc' },
+    });
+    if (this.isOrgAdmin(requester)) {
+      return participants;
+    }
+
+    const [myStudents, me] = await Promise.all([
+      this.studentsService.findMine(organizationId, requester.id),
+      this.prisma.user.findUnique({ where: { id: requester.id }, select: { name: true } }),
+    ]);
+    const myStudentIds = new Set(myStudents.map((s) => s.id));
+    return participants.map((p) => {
+      const isMine =
+        (p.studentId != null && myStudentIds.has(p.studentId)) ||
+        p.userId === requester.id ||
+        (p.studentId == null && p.guestName != null && p.guestName === me?.name);
+      return isMine ? p : redactParticipant(p);
     });
   }
 

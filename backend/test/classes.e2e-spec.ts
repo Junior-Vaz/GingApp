@@ -240,11 +240,12 @@ describe('Classes: paginacao, filtros e limpar campos (e2e)', () => {
     }
   });
 
-  it('RBAC inalterado: ALUNO lista (200) com cabecalho, nao cria (403); sem token 401', async () => {
-    const r = await list(app, 'classes', alunoToken, 'limit=5');
+  it('RBAC: MESTRE lista (200) com cabecalho; ALUNO nao lista (403, menor privilegio — usa /classes/me) nem cria (403); sem token 401', async () => {
+    const r = await list(app, 'classes', mestreToken, 'limit=5');
     assert.equal(r.status, 200);
     assert.ok(r.body.length <= 5);
     assert.ok(Number.isFinite(r.total));
+    assert.equal((await list(app, 'classes', alunoToken, 'limit=5')).status, 403);
     await request(app.getHttpServer())
       .post('/api/classes')
       .set('Authorization', `Bearer ${alunoToken}`)

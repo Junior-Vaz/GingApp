@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query,
 import type { Response } from 'express';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { ListRodasQueryDto } from './dto/list-rodas-query.dto';
-import { Public } from '../../../shared/decorators/public.decorator';
+import { OptionalAuth, Public } from '../../../shared/decorators/public.decorator';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
@@ -15,10 +15,16 @@ import { UpdateRodaDto } from './dto/update-roda.dto';
 export class RodasController {
   constructor(private readonly rodasService: RodasService) {}
 
+  /** Pública; com token válido (@OptionalAuth) cada item traz também `myParticipation`. */
   @Public()
+  @OptionalAuth()
   @Get()
-  async findAll(@Query() query: ListRodasQueryDto, @Res({ passthrough: true }) res: Response) {
-    return sendPage(res, await this.rodasService.findAll(query));
+  async findAll(
+    @Query() query: ListRodasQueryDto,
+    @CurrentUser() user: AuthenticatedUser | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return sendPage(res, await this.rodasService.findAll(query, user));
   }
 
   @Public()
@@ -62,11 +68,13 @@ export class RodasController {
     return this.rodasService.remove(organizationId, id);
   }
 
-  /** Lista pública (quem confirmou presença) — mesmo espírito de findAll/findOne. */
+  /** Lista pública (quem confirmou presença), mas identificada só para a equipe organizadora
+   * (ou PLATFORM) — demais recebem terceiros anonimizados (RodasService.listParticipants). */
   @Public()
+  @OptionalAuth()
   @Get(':id/participants')
-  listParticipants(@Param('id', ParseIntPipe) id: number) {
-    return this.rodasService.listParticipants(id);
+  listParticipants(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser | undefined) {
+    return this.rodasService.listParticipants(id, user);
   }
 
   /** "Quero participar" — sem @CanAccess: qualquer MEMBER autenticado pode confirmar

@@ -166,19 +166,14 @@ export class PassportService {
    * dele (StudentGuardian.userId) — nunca confia em studentId sem confirmar o vínculo,
    * mesmo padrão de StudentsService.findMine. */
   private async resolveRelationship(organizationId: number, userId: number, studentId: number) {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, organizationId } });
-    if (!student) {
+    const link = await this.studentsService.resolveLink(organizationId, userId, studentId);
+    if (!link) {
       throw new NotFoundException('Aluno não encontrado.');
     }
-    if (student.userId === userId) {
-      return { student, guardian: null };
-    }
-
-    const guardian = await this.prisma.studentGuardian.findFirst({ where: { organizationId, studentId, userId } });
-    if (!guardian) {
+    if (!link.linked) {
       throw new ForbiddenException('Você não tem vínculo com este aluno.');
     }
-    return { student, guardian };
+    return { student: link.student, guardian: link.guardian };
   }
 
   /** Sem `birthDate` cadastrada, não há como confirmar menoridade — não bloqueia (mas o aluno

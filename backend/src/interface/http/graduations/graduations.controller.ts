@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { GraduationsService } from './graduations.service';
 import { CreateGraduationSystemDto } from './dto/create-graduation-system.dto';
 import { CreateGraduationLevelDto } from './dto/create-graduation-level.dto';
@@ -38,13 +40,19 @@ export class GraduationsController {
     return this.graduationsService.createLevel(organizationId, systemId, dto);
   }
 
+  /**
+   * Sem @CanAccess de propósito: a mesma rota serve o painel (staff com graduations.view na
+   * matriz vê qualquer aluno da organização) e o app do capoeirista (ALUNO/RESPONSAVEL, sem
+   * graduations.view, só vê o PRÓPRIO aluno ou um dependente — senão 404, sem vazar a
+   * existência). A decisão é feita no service (PermissionsService + StudentsService.resolveLink).
+   */
   @Get('students/:studentId')
-  @CanAccess('graduations', 'view')
   findStudentHistory(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('studentId', ParseIntPipe) studentId: number,
   ) {
-    return this.graduationsService.findStudentHistory(organizationId, studentId);
+    return this.graduationsService.findStudentHistory(organizationId, studentId, user);
   }
 
   @Post('students/:studentId')

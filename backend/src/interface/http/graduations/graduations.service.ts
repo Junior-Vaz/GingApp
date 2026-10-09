@@ -1,12 +1,19 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { PermissionsService } from '../../../shared/access/permissions.service';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
+import { StudentsService } from '../students/students.service';
 import { CreateGraduationSystemDto } from './dto/create-graduation-system.dto';
 import { CreateGraduationLevelDto } from './dto/create-graduation-level.dto';
 import { CreateStudentGraduationDto } from './dto/create-student-graduation.dto';
 
 @Injectable()
 export class GraduationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly permissions: PermissionsService,
+    private readonly studentsService: StudentsService,
+  ) {}
 
   /** Sistemas de graduação configuráveis do grupo, com seus níveis (projeto.txt §26). */
   findAll(organizationId: number) {
@@ -51,9 +58,21 @@ export class GraduationsService {
     });
   }
 
-  /** Histórico de graduações de um aluno da organização (projeto.txt §27), mais recente primeiro. */
-  async findStudentHistory(organizationId: number, studentId: number) {
-    await this.assertStudentBelongsToOrganization(organizationId, studentId);
+  /**
+   * Histórico de graduações de um aluno da organização (projeto.txt §27), mais recente primeiro.
+   * Staff (graduations.view na matriz RolePermission, ou PLATFORM) vê qualquer aluno da
+   * organização; os demais (ALUNO/RESPONSAVEL) só o próprio Student ou um dependente — aluno
+   * sem vínculo dá o MESMO 404 de aluno inexistente (não vaza existência).
+   */
+  async findStudentHistory(organizationId: number, studentId: number, requester: AuthenticatedUser) {
+    if (await this.permissions.can(requester, 'graduations', 'view')) {
+      await this.assertStudentBelongsToOrganization(organizationId, studentId);
+    } else {
+      const link = await this.studentsService.resolveLink(organizationId, requester.id, studentId);
+      if (!link?.linked) {
+        throw new NotFoundException('Aluno não encontrado.');
+      }
+    }
 
     return this.prisma.studentGraduation.findMany({
       where: { studentId, organizationId },

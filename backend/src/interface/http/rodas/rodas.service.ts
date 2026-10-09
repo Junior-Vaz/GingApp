@@ -4,6 +4,8 @@ import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { ListRodasQueryDto } from './dto/list-rodas-query.dto';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
+import { PermissionsService } from '../../../shared/access/permissions.service';
+import { MyParticipation, redactParticipant } from '../../../shared/access/participant-privacy';
 import { CreateRodaDto } from './dto/create-roda.dto';
 import { UpdateRodaDto } from './dto/update-roda.dto';
 
@@ -20,11 +22,17 @@ const ADMIN_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR];
  */
 @Injectable()
 export class RodasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly permissions: PermissionsService,
+  ) {}
 
   /** Lista PÚBLICA (todas as organizações, sem filtro de tenant — regra existente): o total
-   * também é global. `id` como desempate mantém a paginação determinística. */
-  async findAll(query: ListRodasQueryDto = {}): Promise<Page<unknown>> {
+   * também é global. `id` como desempate mantém a paginação determinística.
+   * Cada item ganha `participantsCount` (agregado, sem dado pessoal) e `myParticipation`
+   * (`{ id, studentId, status }` da participação do usuário do token; `null` para anônimos) —
+   * um groupBy + um findMany por página, nunca por item (evita o N+1 do app). */
+  async findAll(query: ListRodasQueryDto = {}, requester?: AuthenticatedUser): Promise<Page<unknown>> {
     const q = query.q?.trim();
     const where: Prisma.RodaWhereInput = {
       ...(query.stateId !== undefined ? { stateId: query.stateId } : {}),
@@ -43,7 +51,34 @@ export class RodasService {
       this.prisma.roda.findMany({ where, orderBy: [{ date: 'asc' }, { id: 'asc' }], ...pageArgs(query) }),
       this.prisma.roda.count({ where }),
     ]);
-    return { items, total };
+    if (items.length === 0) return { items, total };
+
+    const rodaIds = items.map((r) => r.id);
+    const [counts, mine] = await Promise.all([
+      this.prisma.rodaParticipant.groupBy({
+        by: ['rodaId'],
+        where: { rodaId: { in: rodaIds } },
+        _count: { _all: true },
+      }),
+      requester
+        ? this.prisma.rodaParticipant.findMany({
+            where: { rodaId: { in: rodaIds }, userId: requester.id },
+            select: { id: true, rodaId: true, studentId: true, status: true },
+            orderBy: { id: 'asc' },
+          })
+        : Promise.resolve([]),
+    ]);
+    const countByRoda = new Map(counts.map((c) => [c.rodaId, c._count._all]));
+    return {
+      items: items.map((roda) => {
+        const own = mine.find((p) => p.rodaId === roda.id);
+        const myParticipation: MyParticipation | null = own
+          ? { id: own.id, studentId: own.studentId, status: own.status }
+          : null;
+        return { ...roda, participantsCount: countByRoda.get(roda.id) ?? 0, myParticipation };
+      }),
+      total,
+    };
   }
 
   /** Dados públicos de referência (não há endpoint dedicado de State/City ainda) — usados
@@ -126,15 +161,35 @@ export class RodasService {
     return { success: true };
   }
 
-  /** Lista pública de quem confirmou presença — não é dado sensível, mesmo espírito de
-   * findAll/findOne (sem filtro por organização). */
-  async listParticipants(rodaId: number) {
-    await this.findOne(rodaId);
-    return this.prisma.rodaParticipant.findMany({
+  /**
+   * Quem confirmou presença. A rota segue pública (o tamanho da lista = "N na roda"), mas NOMES
+   * e ids de usuário/aluno são dado pessoal (LGPD; participantes podem ser menores, de qualquer
+   * organização): só a equipe que ORGANIZA a roda (MESTRE/PROFESSOR da organização dona, mesma
+   * regra de `leave`) ou PLATFORM recebe a lista identificada — é o que o painel usa. Qualquer
+   * outro autenticado vê a PRÓPRIA participação completa e as demais anonimizadas; anônimo vê
+   * todas anonimizadas (redactParticipant).
+   */
+  async listParticipants(rodaId: number, requester?: AuthenticatedUser) {
+    const roda = await this.findOne(rodaId);
+    const participants = await this.prisma.rodaParticipant.findMany({
       where: { rodaId },
       include: { user: { select: { id: true, name: true } }, student: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'asc' },
     });
+    if (requester && (this.permissions.isPlatform(requester) || this.isOrganizerAdmin(roda, requester))) {
+      return participants;
+    }
+    return participants.map((p) => (requester && p.userId === requester.id ? p : redactParticipant(p)));
+  }
+
+  /** MESTRE/PROFESSOR da organização que organiza a roda (gestão da lista de participantes). */
+  private isOrganizerAdmin(roda: { organizationId: number | null }, requester: AuthenticatedUser): boolean {
+    return (
+      roda.organizationId != null &&
+      roda.organizationId === requester.organizationId &&
+      !!requester.role &&
+      ADMIN_ROLES.includes(requester.role)
+    );
   }
 
   /**
@@ -166,12 +221,7 @@ export class RodasService {
     const isSelf = participant.userId === requester.id;
     if (!isSelf) {
       const roda = await this.prisma.roda.findUnique({ where: { id: rodaId }, select: { organizationId: true } });
-      const isOrgAdmin =
-        roda?.organizationId != null &&
-        roda.organizationId === requester.organizationId &&
-        !!requester.role &&
-        ADMIN_ROLES.includes(requester.role);
-      if (!isOrgAdmin) {
+      if (!roda || !this.isOrganizerAdmin(roda, requester)) {
         throw new ForbiddenException('Você só pode cancelar a própria participação.');
       }
     }

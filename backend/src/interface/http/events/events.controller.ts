@@ -19,10 +19,11 @@ export class EventsController {
   @CanAccess('events', 'view')
   async findAll(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListEventsQueryDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return sendPage(res, await this.eventsService.findAll(organizationId, query));
+    return sendPage(res, await this.eventsService.findAll(organizationId, query, user));
   }
 
   @Get(':id')
@@ -57,9 +58,10 @@ export class EventsController {
   @CanAccess('events', 'view')
   listParticipants(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('eventId', ParseIntPipe) eventId: number,
   ) {
-    return this.eventsService.listParticipants(organizationId, eventId);
+    return this.eventsService.listParticipants(organizationId, eventId, user);
   }
 
   /** Sem @CanAccess: "quero participar" é self-service para qualquer MEMBER, não uma ação

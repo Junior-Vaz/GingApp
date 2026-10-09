@@ -89,11 +89,22 @@ describe('RBAC — matriz RolePermission (e2e)', () => {
       .expect(200);
   });
 
-  it('ALUNO consegue ver a própria organização (canView=true padrão) — 200', async () => {
-    await request(app.getHttpServer())
-      .get('/api/classes')
-      .set('Authorization', `Bearer ${alunoToken}`)
-      .expect(200);
+  it('ALUNO NÃO lista turmas/alunos/aulas/presenças/graduações do grupo (menor privilégio, LGPD) — 403', async () => {
+    for (const path of ['/api/classes', '/api/students', '/api/lessons', '/api/attendance', '/api/graduations']) {
+      await request(app.getHttpServer())
+        .get(path)
+        .set('Authorization', `Bearer ${alunoToken}`)
+        .expect(403);
+    }
+  });
+
+  it('mas ALUNO continua vendo a agenda de eventos e os comunicados do grupo (view=true) — 200', async () => {
+    for (const path of ['/api/events', '/api/announcements']) {
+      await request(app.getHttpServer())
+        .get(path)
+        .set('Authorization', `Bearer ${alunoToken}`)
+        .expect(200);
+    }
   });
 
   it('ALUNO não pode ver registros financeiros da organização (restrição de privacidade, §10.7) — 403', async () => {

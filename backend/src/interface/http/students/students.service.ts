@@ -58,6 +58,26 @@ export class StudentsService {
   }
 
   /**
+   * Vínculo do usuário autenticado com UM aluno específico (SSOT da regra "próprio ou
+   * dependente", mesma de findMine acima): `null` = o aluno não existe nesta organização;
+   * `linked=false` = existe mas o usuário não é o próprio (Student.userId) nem responsável
+   * (StudentGuardian.userId). Nunca confia em studentId vindo da URL/corpo sem isso. Cada
+   * chamador decide o status HTTP (Passaporte: 404/403; rotas de leitura de dado do aluno:
+   * 404 nos dois casos, para não vazar a existência de alunos de terceiros).
+   */
+  async resolveLink(organizationId: number, userId: number, studentId: number) {
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, organizationId } });
+    if (!student) {
+      return null;
+    }
+    if (student.userId === userId) {
+      return { student, guardian: null, linked: true };
+    }
+    const guardian = await this.prisma.studentGuardian.findFirst({ where: { organizationId, studentId, userId } });
+    return { student, guardian, linked: guardian !== null };
+  }
+
+  /**
    * Auto-atendimento do próprio perfil (PATCH /students/me/profile) — nunca passa por
    * @CanAccess: a segurança vem de só encontrar/editar o Student cujo userId é o do token, igual
    * ao raciocínio de findMine acima. Só aceita campos de UpdateMyProfileDto (foto/capa/redes

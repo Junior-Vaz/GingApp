@@ -1,16 +1,8 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { UserType } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
+import { PermissionsService } from '../access/permissions.service';
 import { AuthenticatedRequest } from '../interfaces/authenticated-request.interface';
 import { CAN_ACCESS_KEY, CanAccessMetadata } from '../decorators/can-access.decorator';
-
-const ACTION_TO_COLUMN = {
-  view: 'canView',
-  create: 'canCreate',
-  edit: 'canEdit',
-  delete: 'canDelete',
-} as const;
 
 /**
  * Autorização por recurso (matriz RolePermission: role × resource → view/create/edit/delete),
@@ -19,13 +11,15 @@ const ACTION_TO_COLUMN = {
  * Registrado como APP_GUARD (global), rodando depois do JwtAuthGuard: rotas sem @CanAccess()
  * passam direto (nem toda rota precisa de RBAC granular — ex.: /health, /auth/*, rotas
  * @Public como /rodas). Usuários PLATFORM/isSuperAdmin têm bypass total (mesmo padrão do
- * PlatformOnlyGuard). Para MEMBER, consulta a matriz pelo papel (role) gravado no token.
+ * PlatformOnlyGuard). Para MEMBER, consulta a matriz pelo papel (role) gravado no token — a
+ * consulta em si vive em PermissionsService (SSOT, também usada por services que decidem
+ * "staff vs. vínculo próprio" em runtime).
  */
 @Injectable()
 export class CanAccessGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
-    private readonly prisma: PrismaService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -45,7 +39,7 @@ export class CanAccessGuard implements CanActivate {
       throw new ForbiddenException('Não autenticado.');
     }
 
-    if (user.userType === UserType.PLATFORM || user.isSuperAdmin) {
+    if (this.permissions.isPlatform(user)) {
       return true;
     }
 
@@ -53,11 +47,7 @@ export class CanAccessGuard implements CanActivate {
       throw new ForbiddenException('Usuário sem papel definido na organização.');
     }
 
-    const permission = await this.prisma.rolePermission.findUnique({
-      where: { role_resource: { role: user.role, resource: metadata.resource } },
-    });
-
-    const allowed = permission?.[ACTION_TO_COLUMN[metadata.action]] ?? false;
+    const allowed = await this.permissions.can(user, metadata.resource, metadata.action);
     if (!allowed) {
       throw new ForbiddenException(
         `Papel ${user.role} não tem permissão de "${metadata.action}" em "${metadata.resource}".`,

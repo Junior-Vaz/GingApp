@@ -300,15 +300,36 @@ async function main() {
   // ---------------------------------------------------------------------
   type Perms = { view: boolean; create: boolean; edit: boolean; delete: boolean };
   const RESOURCES = ['students', 'classes', 'lessons', 'attendance', 'graduations', 'finance', 'events', 'rodas', 'announcements', 'teachers', 'dashboard', 'certificates'];
+  // Menor privilégio (LGPD): ALUNO/RESPONSAVEL NÃO têm nenhum recurso administrativo por padrão.
+  // As rotas administrativas (GET /students, /classes, /lessons, /attendance, /graduations...)
+  // devolvem dados do grupo INTEIRO (inclusive de menores: documento, telefone, e-mail,
+  // nascimento) — o app do capoeirista usa as rotas escopadas por vínculo (/students/me,
+  // /classes/me, /lessons/me, /attendance/me, /finance/me, /certificates/me, /passport/me) e
+  // GET /graduations/students/:id, que checa vínculo no service. Só o que é legitimamente
+  // visível a qualquer membro do grupo fica liberado (MEMBER_VISIBLE abaixo). Bancos já
+  // existentes: migration de dados 20261009030000_restrict_member_roles_least_privilege.
+  const NO_ACCESS: Perms = { view: false, create: false, edit: false, delete: false };
+  const MEMBER_VIEW_ONLY: Perms = { view: true, create: false, edit: false, delete: false };
   const DEFAULT_MATRIX: Record<OrgRole, Perms> = {
     [OrgRole.MESTRE]: { view: true, create: true, edit: true, delete: true },
     [OrgRole.PROFESSOR]: { view: true, create: true, edit: true, delete: false },
-    [OrgRole.ALUNO]: { view: true, create: false, edit: false, delete: false },
-    [OrgRole.RESPONSAVEL]: { view: true, create: false, edit: false, delete: false },
+    [OrgRole.ALUNO]: NO_ACCESS,
+    [OrgRole.RESPONSAVEL]: NO_ACCESS,
+  };
+  const MEMBER_VISIBLE: Partial<Record<OrgRole, Perms>> = {
+    [OrgRole.ALUNO]: MEMBER_VIEW_ONLY,
+    [OrgRole.RESPONSAVEL]: MEMBER_VIEW_ONLY,
   };
   // "teachers" (equipe interna do grupo) é mais restrito que o padrão: só MESTRE gerencia,
   // PROFESSOR só enxerga a lista de colegas, aluno/responsável não precisam disso.
   const RESOURCE_OVERRIDES: Partial<Record<string, Partial<Record<OrgRole, Perms>>>> = {
+    // Visíveis a membros (só view): agenda de eventos do grupo (GET /events; a lista de
+    // participantes anonimiza terceiros para quem não é MESTRE/PROFESSOR), comunicados do grupo
+    // (GET /announcements) e rodas (GET /rodas é @Public de qualquer forma; "view" não guarda
+    // nenhuma rota hoje — mantido como estava).
+    events: MEMBER_VISIBLE,
+    announcements: MEMBER_VISIBLE,
+    rodas: MEMBER_VISIBLE,
     teachers: {
       [OrgRole.PROFESSOR]: { view: true, create: false, edit: false, delete: false },
       [OrgRole.ALUNO]: { view: false, create: false, edit: false, delete: false },
