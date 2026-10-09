@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query,
 import type { Response } from 'express';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { ListLessonsQueryDto } from './dto/list-lessons-query.dto';
+import { ListMyLessonsQueryDto } from './dto/list-my-lessons-query.dto';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
@@ -23,10 +24,16 @@ export class LessonsController {
     return sendPage(res, await this.lessonsService.findAll(organizationId, query));
   }
 
-  /** Sem @CanAccess: escopado por construção às turmas do próprio usuário. */
+  /** Sem @CanAccess: escopado por construção às turmas do próprio usuário. Paginado (total em
+   * X-Total-Count), com from/to/status/order — ver LessonsService.findMine. */
   @Get('me')
-  findMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
-    return this.lessonsService.findMine(organizationId, userId);
+  async findMine(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser('id') userId: number,
+    @Query() query: ListMyLessonsQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return sendPage(res, await this.lessonsService.findMine(organizationId, userId, query));
   }
 
   @Get(':id')

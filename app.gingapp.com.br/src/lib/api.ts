@@ -32,11 +32,14 @@ interface RequestOptions {
   skipAuthRedirect?: boolean;
 }
 
-async function request<T>(
+/** Nome do header com o total de registros que casam com o filtro (listagens paginadas). */
+const TOTAL_COUNT_HEADER = "X-Total-Count";
+
+async function requestRaw<T>(
   path: string,
   init: RequestInit = {},
   options: RequestOptions = {},
-): Promise<T> {
+): Promise<{ data: T; total: number | null }> {
   const token = getToken();
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
@@ -61,7 +64,19 @@ async function request<T>(
 
   // Corpo vazio pode vir com 204 OU 200/201 - .text() primeiro é seguro para os dois casos.
   const text = await response.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  const header = response.headers.get(TOTAL_COUNT_HEADER);
+  const total = header !== null && header.trim() !== "" && Number.isFinite(Number(header)) ? Number(header) : null;
+  return { data: (text ? JSON.parse(text) : undefined) as T, total };
+}
+
+async function request<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
+  return (await requestRaw<T>(path, init, options)).data;
+}
+
+/** Uma página de uma listagem: `total` = registros que casam com o filtro (null se o servidor não informou). */
+export interface Page<T> {
+  items: T[];
+  total: number | null;
 }
 
 const jsonBody = (body: unknown): { body?: string } =>
@@ -70,6 +85,14 @@ const jsonBody = (body: unknown): { body?: string } =>
 export const api = {
   get: <T>(path: string, options?: RequestOptions) =>
     request<T>(path, { method: "GET" }, options),
+  /** GET de uma listagem paginada (corpo = array) lendo o total do header X-Total-Count. */
+  getPage: async <T>(path: string, options?: RequestOptions): Promise<Page<T>> => {
+    const { data, total } = await requestRaw<T[]>(path, { method: "GET" }, options);
+    return { items: data ?? [], total };
+  },
+  /** GET de um corpo (objeto) que também traz o total no header X-Total-Count (ex.: /attendance/me). */
+  getWithTotal: <T>(path: string, options?: RequestOptions) =>
+    requestRaw<T>(path, { method: "GET" }, options),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>(path, { method: "POST", ...jsonBody(body) }, options),
   patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>

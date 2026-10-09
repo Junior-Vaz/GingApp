@@ -1,4 +1,6 @@
-import { Controller, Get, Param, ParseIntPipe, Patch } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Patch, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { LimitOffsetQueryDto, sendPage } from '../../../shared/pagination/pagination';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { NotificationsService } from './notifications.service';
 
@@ -7,8 +9,12 @@ export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
 
   @Get()
-  findAll(@CurrentUser('id') userId: number) {
-    return this.notificationsService.findAllForUser(userId);
+  async findAll(
+    @CurrentUser('id') userId: number,
+    @Query() query: LimitOffsetQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return sendPage(res, await this.notificationsService.findAllForUser(userId, query));
   }
 
   @Get('unread-count')

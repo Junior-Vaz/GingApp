@@ -24,7 +24,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { logout } from "@/lib/auth";
 import { initials } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
-import { useNotifications, usePassport } from "@/lib/queries";
+import { usePassport, useUnreadCount } from "@/lib/queries";
 
 const mainNav = [
   { to: "/", label: "Início", icon: House },
@@ -64,8 +64,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const passport = usePassport();
-  const notifications = useNotifications();
-  const unread = (notifications.data ?? []).filter((n) => n.readAt === null).length;
+  const unread = useUnreadCount().data ?? 0; // contado no banco, não pela lista de notificações
   const groupName = passport.data?.organization.name ?? user?.organizationSlug ?? "Seu grupo";
   const unitName = passport.data?.unit?.name ?? "";
   const current = [...mainNav, ...communityNav, ...personalNav].find((item) => item.to === pathname)?.label ?? "GingApp";

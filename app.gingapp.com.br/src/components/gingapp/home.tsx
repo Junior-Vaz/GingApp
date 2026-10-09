@@ -24,21 +24,23 @@ import {
   useCalendar,
   useClasses,
   useGraduations,
-  useLessons,
   useMyStudent,
+  useNextLessons,
   usePassport,
 } from "@/lib/queries";
-import { monthStats, nextLesson, weekdayLabel } from "@/lib/derive";
+import { monthRange, monthStats, nextLesson, weekdayLabel } from "@/lib/derive";
 
 export function HomePage() {
   const user = useSessionUser();
   const { student, isLoading: loadingStudent, error: studentError } = useMyStudent();
   const graduations = useGraduations(student?.id);
-  const attendance = useAttendance();
+  // Frequência do MÊS pedida ao servidor por período (até 200 registros) e só a próxima aula ativa:
+  // nenhuma estatística sai de uma lista truncada em 50.
+  const attendance = useAttendance({ ...monthRange(new Date()), limit: 200 });
   const passport = usePassport();
-  const lessons = useLessons();
+  const lessons = useNextLessons();
   const classes = useClasses();
-  const calendar = useCalendar();
+  const calendar = useCalendar({}, { pageSize: 2 });
   const announcements = useAnnouncements();
 
   const firstName = user?.name.split(" ")[0] ?? "capoeirista";
@@ -50,7 +52,7 @@ export function HomePage() {
   const upcomingDate = upcoming ? dayOnly(upcoming.date) : null;
   const isToday = upcomingDate !== null && upcomingDate.getTime() === startOfToday().getTime();
   const unitName = passport.data?.unit?.name;
-  const events = (calendar.data ?? []).slice(0, 2).map(fromCalendar);
+  const events = calendar.items.slice(0, 2).map(fromCalendar);
   const notices = (announcements.data ?? [])
     .filter((a) => a.isActive && (a.unitId === null || a.unitId === (student?.unitId ?? null)))
     .slice(0, 2);

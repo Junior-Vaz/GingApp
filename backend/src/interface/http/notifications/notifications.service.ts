@@ -1,4 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Notification } from '@prisma/client';
+import { LimitOffsetQueryDto, Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 
 /**
@@ -10,12 +12,19 @@ import { PrismaService } from '../../../shared/prisma/prisma.service';
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAllForUser(userId: number) {
-    return this.prisma.notification.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
-    });
+  /** Mais recentes primeiro (`id` desempata => paginação determinística). Paginado: limit/offset,
+   * total de notificações do usuário em X-Total-Count. */
+  async findAllForUser(userId: number, query: LimitOffsetQueryDto = {}): Promise<Page<Notification>> {
+    const where = { userId };
+    const [items, total] = await Promise.all([
+      this.prisma.notification.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        ...pageArgs(query),
+      }),
+      this.prisma.notification.count({ where }),
+    ]);
+    return { items, total };
   }
 
   /**

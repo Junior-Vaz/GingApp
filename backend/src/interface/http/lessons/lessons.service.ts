@@ -2,7 +2,9 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Lesson, OrgRole, Prisma } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { civilDateRange } from '../../../shared/dates/date-range';
 import { ListLessonsQueryDto } from './dto/list-lessons-query.dto';
+import { ListMyLessonsQueryDto } from './dto/list-my-lessons-query.dto';
 import { ClassesService } from '../classes/classes.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
@@ -21,13 +23,8 @@ export class LessonsService {
     const where: Prisma.LessonWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
     if (query.classId !== undefined) where.classId = query.classId;
     if (query.status) where.status = query.status;
-    if (query.from || query.to) {
-      where.date = {
-        ...(query.from ? { gte: new Date(query.from) } : {}),
-        // `to` so com data (YYYY-MM-DD) inclui o dia inteiro, nao so a meia-noite.
-        ...(query.to ? { lte: new Date(/^\d{4}-\d{2}-\d{2}$/.test(query.to) ? `${query.to}T23:59:59.999Z` : query.to) } : {}),
-      };
-    }
+    const date = civilDateRange(query.from, query.to);
+    if (date) where.date = date;
     const q = query.q?.trim();
     if (q) where.notes = { contains: q, mode: 'insensitive' };
 
@@ -39,17 +36,25 @@ export class LessonsService {
   }
 
   /** "Minhas aulas" — aulas das turmas em que os alunos ligados ao usuário autenticado estão
-   * matriculados (mesmo padrão de ClassesService.findMine/FinanceService.findMine). Ordenado
-   * por data crescente para "próxima aula" ficar sempre no topo. */
-  async findMine(organizationId: number, userId: number) {
+   * matriculados (mesmo padrão de ClassesService.findMine/FinanceService.findMine). Padrão: data
+   * crescente (a "próxima aula" fica no topo); `order=desc` inverte. Paginado (limit/offset, total
+   * em X-Total-Count) e filtrável por from/to (data da aula) e status — assim o app busca "a partir
+   * de hoje" e "anteriores" separadamente, sem depender de uma lista truncada. */
+  async findMine(organizationId: number, userId: number, query: ListMyLessonsQueryDto = {}): Promise<Page<Lesson>> {
     const myClasses = await this.classesService.findMine(organizationId, userId);
-    if (myClasses.length === 0) return [];
+    if (myClasses.length === 0) return { items: [], total: 0 };
 
-    return this.prisma.lesson.findMany({
-      where: { organizationId, classId: { in: myClasses.map((c) => c.id) } },
-      orderBy: { date: 'asc' },
-      take: 50,
-    });
+    const where: Prisma.LessonWhereInput = { organizationId, classId: { in: myClasses.map((c) => c.id) } };
+    if (query.status) where.status = query.status;
+    const date = civilDateRange(query.from, query.to);
+    if (date) where.date = date;
+
+    const dir = query.order ?? 'asc';
+    const [items, total] = await Promise.all([
+      this.prisma.lesson.findMany({ where, orderBy: [{ date: dir }, { id: dir }], ...pageArgs(query) }),
+      this.prisma.lesson.count({ where }),
+    ]);
+    return { items, total };
   }
 
   async findOne(organizationId: number, id: number) {

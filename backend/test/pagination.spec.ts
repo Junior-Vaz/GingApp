@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { plainToInstance } from 'class-transformer';
 import { validateSync } from 'class-validator';
+import { civilDateRange } from '../src/shared/dates/date-range';
 import {
   DEFAULT_PAGE_SIZE,
+  LimitOffsetQueryDto,
   MAX_PAGE_SIZE,
   PageQueryDto,
   TOTAL_COUNT_HEADER,
@@ -67,5 +69,29 @@ describe('sendPage', () => {
     const items = sendPage(res, { items: [{ id: 1 }, { id: 2 }], total: 137 });
     assert.deepEqual(items, [{ id: 1 }, { id: 2 }]);
     assert.equal(headers[TOTAL_COUNT_HEADER], '137');
+  });
+});
+
+describe('LimitOffsetQueryDto (rotas "/me" sem busca textual)', () => {
+  const parseLO = (raw: Record<string, string>) =>
+    validateSync(plainToInstance(LimitOffsetQueryDto, raw), { whitelist: true, forbidNonWhitelisted: true });
+
+  it('aceita limit/offset válidos e recusa q e qualquer parâmetro desconhecido', () => {
+    assert.equal(parseLO({ limit: '200', offset: '0' }).length, 0);
+    assert.ok(parseLO({ limit: '201' }).length > 0);
+    assert.ok(parseLO({ q: 'x' }).length > 0);
+    assert.ok(parseLO({ foo: '1' }).length > 0);
+  });
+});
+
+describe('civilDateRange (data civil da aula/vencimento)', () => {
+  it('sem from/to não filtra; from vale desde a meia-noite UTC; to só com data inclui o dia inteiro', () => {
+    assert.equal(civilDateRange(), undefined);
+    assert.deepEqual(civilDateRange('2026-10-01'), { gte: new Date('2026-10-01T00:00:00.000Z') });
+    assert.deepEqual(civilDateRange(undefined, '2026-10-31'), { lte: new Date('2026-10-31T23:59:59.999Z') });
+    assert.deepEqual(civilDateRange('2026-10-01', '2026-10-31T12:00:00.000Z'), {
+      gte: new Date('2026-10-01T00:00:00.000Z'),
+      lte: new Date('2026-10-31T12:00:00.000Z'),
+    });
   });
 });

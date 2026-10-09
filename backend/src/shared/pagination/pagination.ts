@@ -11,8 +11,8 @@ export const DEFAULT_PAGE_SIZE = 50;
 export const MAX_PAGE_SIZE = 200;
 export const TOTAL_COUNT_HEADER = 'X-Total-Count';
 
-/** DTO base das queries de listagem; cada módulo estende com os seus filtros (status, datas...). */
-export class PageQueryDto {
+/** Só `limit`/`offset` — para listagens sem busca textual (ex.: as rotas "/me" do aluno). */
+export class LimitOffsetQueryDto {
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -25,7 +25,10 @@ export class PageQueryDto {
   @IsInt()
   @Min(0)
   offset?: number;
+}
 
+/** DTO base das queries de listagem; cada módulo estende com os seus filtros (status, datas...). */
+export class PageQueryDto extends LimitOffsetQueryDto {
   /** Busca textual (cada módulo decide em quais campos). */
   @IsOptional()
   @IsString()

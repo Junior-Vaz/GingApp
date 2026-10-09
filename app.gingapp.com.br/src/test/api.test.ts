@@ -59,6 +59,31 @@ describe("api client", () => {
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
+  it("getPage devolve o array e lê o total do header X-Total-Count (null se ausente ou inválido)", async () => {
+    const fn = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 1 }, { id: 2 }]), { status: 200, headers: { "X-Total-Count": "58" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 1 }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200, headers: { "X-Total-Count": "abc" } }));
+    vi.stubGlobal("fetch", fn);
+    await expect(api.getPage("/finance/me?limit=2")).resolves.toEqual({ items: [{ id: 1 }, { id: 2 }], total: 58 });
+    await expect(api.getPage("/finance/me")).resolves.toEqual({ items: [{ id: 1 }], total: null });
+    await expect(api.getPage("/finance/me")).resolves.toEqual({ items: [], total: null });
+  });
+
+  it("getWithTotal devolve o corpo (objeto) e o total do header", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ records: [], currentStreak: 3 }), { status: 200, headers: { "X-Total-Count": "250" } }),
+      ),
+    );
+    await expect(api.getWithTotal("/attendance/me")).resolves.toEqual({
+      data: { records: [], currentStreak: 3 },
+      total: 250,
+    });
+  });
+
   it("401 no login (skipAuthRedirect) não dispara redirecionamento", async () => {
     const handler = vi.fn();
     setUnauthorizedHandler(handler);

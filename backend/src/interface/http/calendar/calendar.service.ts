@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 
 export interface CalendarFilters {
@@ -35,39 +36,36 @@ export interface CalendarItem {
 export class CalendarService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(filters: CalendarFilters): Promise<CalendarItem[]> {
+  /**
+   * Feed paginado (limit/offset, padrão 50, teto 200) em ordem cronológica (data, depois origem e
+   * id: determinística). `total` = rodas + eventos públicos que casam com os filtros (vai em
+   * X-Total-Count). Como o feed junta duas tabelas, cada uma devolve só as primeiras
+   * `offset + limit` linhas na MESMA ordem e a fusão corta a página — correto sem carregar tudo.
+   */
+  async findAll(
+    filters: CalendarFilters,
+    page: { limit?: number; offset?: number } = {},
+  ): Promise<Page<CalendarItem>> {
+    const { take, skip } = pageArgs(page);
+    const window = skip + take;
     const { from, to } = this.resolveDateRange(filters.scope);
     const includeRodas = !filters.type || filters.type === 'RODA';
     const includeEvents = !filters.type || filters.type !== 'RODA';
     const eventType = filters.type && filters.type !== 'RODA' ? filters.type : undefined;
+    const orderBy = [{ date: 'asc' as const }, { id: 'asc' as const }];
 
-    const [rodas, events] = await Promise.all([
+    const rodaWhere = { date: { gte: from, lte: to }, stateId: filters.stateId, cityId: filters.cityId };
+    const eventWhere = { isPublic: true, ...rodaWhere, type: eventType };
+
+    const [rodas, events, rodaTotal, eventTotal] = await Promise.all([
       includeRodas
-        ? this.prisma.roda.findMany({
-            where: {
-              date: { gte: from, lte: to },
-              stateId: filters.stateId,
-              cityId: filters.cityId,
-            },
-            include: { state: true, city: true },
-            orderBy: { date: 'asc' },
-            take: 100,
-          })
+        ? this.prisma.roda.findMany({ where: rodaWhere, include: { state: true, city: true }, orderBy, take: window })
         : Promise.resolve([]),
       includeEvents
-        ? this.prisma.event.findMany({
-            where: {
-              isPublic: true,
-              date: { gte: from, lte: to },
-              stateId: filters.stateId,
-              cityId: filters.cityId,
-              type: eventType,
-            },
-            include: { state: true, city: true },
-            orderBy: { date: 'asc' },
-            take: 100,
-          })
+        ? this.prisma.event.findMany({ where: eventWhere, include: { state: true, city: true }, orderBy, take: window })
         : Promise.resolve([]),
+      includeRodas ? this.prisma.roda.count({ where: rodaWhere }) : Promise.resolve(0),
+      includeEvents ? this.prisma.event.count({ where: eventWhere }) : Promise.resolve(0),
     ]);
 
     const items: CalendarItem[] = [
@@ -97,8 +95,10 @@ export class CalendarService {
       })),
     ];
 
-    items.sort((a, b) => a.date.getTime() - b.date.getTime());
-    return items;
+    items.sort(
+      (a, b) => a.date.getTime() - b.date.getTime() || a.source.localeCompare(b.source) || a.id - b.id,
+    );
+    return { items: items.slice(skip, skip + take), total: rodaTotal + eventTotal };
   }
 
   /** Sem `scope`, mostra tudo a partir de hoje (sem limite futuro) — mesmo espírito do feed

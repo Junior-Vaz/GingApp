@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { sendPage } from '../../../shared/pagination/pagination';
+import { LimitOffsetQueryDto, sendPage } from '../../../shared/pagination/pagination';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
@@ -32,10 +32,23 @@ export class FinanceController {
   }
 
   /** Sem @CanAccess: escopado por construção aos alunos do próprio usuário (nunca à
-   * organização inteira) — ver FinanceService.findMine. Precisa vir antes de `:id`. */
+   * organização inteira) — ver FinanceService.findMine. Paginado (limit<=200, padrão 50; total em
+   * X-Total-Count), vencimento mais recente primeiro. Precisa vir antes de ':id'. */
   @Get('me')
-  findMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
-    return this.financeService.findMine(organizationId, userId);
+  async findMine(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser('id') userId: number,
+    @Query() query: LimitOffsetQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return sendPage(res, await this.financeService.findMine(organizationId, userId, query));
+  }
+
+  /** Totais de /finance/me agregados no banco (não dependem da página carregada). Mesmo
+   * escopo de /finance/me, sem @CanAccess. */
+  @Get('me/summary')
+  summaryMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
+    return this.financeService.summaryMine(organizationId, userId);
   }
 
   @Get(':id')

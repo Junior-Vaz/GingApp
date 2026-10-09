@@ -3,6 +3,8 @@ import { PrismaClient } from '@prisma/client';
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
+import { MeFixture, createMeFixture } from './utils/me-fixtures';
+import { todaySaoPaulo } from './utils/list-helpers';
 import { createTestApp } from './utils/test-app';
 
 /**
@@ -312,5 +314,116 @@ describe('Lessons: paginacao, filtros e limpar campos (e2e)', () => {
     const b = await list(app, 'lessons', alunoToken, 'limit=5');
     assert.equal(a.status, b.status);
     await request(app.getHttpServer()).get('/api/lessons?limit=5').expect(401);
+  });
+});
+
+/**
+ * "Minhas aulas" com >50 aulas: /lessons/me ordenava por data CRESCENTE e cortava em 50, então com
+ * histórico longo as aulas FUTURAS (a "próxima aula") ficavam de fora. Agora: limit/offset,
+ * X-Total-Count e from/to/status/order para o app buscar "a partir de hoje" e "anteriores".
+ */
+describe('Lessons /me — paginação, período, status e ordem (e2e)', () => {
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let fx: MeFixture;
+  const get = (path: string, token: string) =>
+    request(app.getHttpServer()).get(`/api${path}`).set('Authorization', `Bearer ${token}`);
+  const day = (offset: number) => todaySaoPaulo(offset);
+  const civil = (offset: number) => new Date(`${day(offset)}T00:00:00.000Z`);
+  const dateOf = (l: { date: string }) => l.date.slice(0, 10);
+
+  before(async () => {
+    app = await createTestApp();
+    fx = await createMeFixture(app, prisma, 'lesme');
+    const org = fx.organizationId;
+    // Turma do aluno: 60 passadas (-60..-1), hoje e 9 futuras (+1..+9) = 70; duas INACTIVE (-3 e +2).
+    const offsets = [...Array.from({ length: 60 }, (_, i) => i - 60), 0, ...Array.from({ length: 9 }, (_, i) => i + 1)];
+    await prisma.lesson.createMany({
+      data: offsets.map((o) => ({
+        organizationId: org,
+        classId: fx.classMineId,
+        date: civil(o),
+        notes: `lesme ${o}`,
+        status: o === -3 || o === 2 ? ('INACTIVE' as const) : ('ACTIVE' as const),
+      })),
+    });
+    // Turma alheia: nunca pode aparecer.
+    await prisma.lesson.createMany({
+      data: [0, 1].map((o) => ({ organizationId: org, classId: fx.classOtherId, date: civil(o), notes: `lesme alheia ${o}` })),
+    });
+  });
+
+  after(async () => {
+    await fx.cleanup();
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  it('70 aulas: sem limit vêm as 50 MAIS ANTIGAS (ordem crescente histórica) e X-Total-Count = 70 — a próxima aula só aparece com from', async () => {
+    const res = await get('/lessons/me', fx.self.token).expect(200);
+    assert.ok(Array.isArray(res.body));
+    assert.equal(res.body.length, 50);
+    assert.equal(res.headers['x-total-count'], '70');
+    const dates = res.body.map(dateOf);
+    assert.deepEqual(dates, [...dates].sort()); // crescente
+    assert.equal(dates[0], day(-60));
+    assert.ok(!dates.includes(day(0)), 'sem from, a aula de hoje não cabe nas 50 mais antigas');
+
+    const rest = await get('/lessons/me?offset=50', fx.self.token).expect(200);
+    assert.equal(rest.body.length, 20);
+    const ids = [...res.body, ...rest.body].map((l: { id: number }) => l.id);
+    const db = await prisma.lesson.findMany({
+      where: { classId: fx.classMineId },
+      orderBy: [{ date: 'asc' }, { id: 'asc' }],
+    });
+    assert.deepEqual(ids, db.map((l) => l.id));
+  });
+
+  it('from=hoje traz exatamente hoje + futuras (10, total 10); status=ACTIVE&limit=1 acha a PRÓXIMA aula mesmo com >50 aulas', async () => {
+    const upcoming = await get(`/lessons/me?from=${day(0)}&limit=200`, fx.self.token).expect(200);
+    assert.equal(upcoming.headers['x-total-count'], '10');
+    assert.deepEqual(upcoming.body.map(dateOf), Array.from({ length: 10 }, (_, i) => day(i)));
+
+    const next = await get(`/lessons/me?from=${day(0)}&status=ACTIVE&limit=1`, fx.self.token).expect(200);
+    assert.equal(next.body.length, 1);
+    assert.equal(dateOf(next.body[0]), day(0));
+    assert.equal(next.headers['x-total-count'], '9'); // a INACTIVE de +2 fica de fora
+
+    const tomorrowOn = await get(`/lessons/me?from=${day(1)}&status=ACTIVE&limit=1`, fx.self.token).expect(200);
+    assert.equal(dateOf(tomorrowOn.body[0]), day(1));
+  });
+
+  it('order=desc + to=ontem: as 10 aulas anteriores mais recentes (total 60); `to` só com data inclui o dia', async () => {
+    const past = await get(`/lessons/me?to=${day(-1)}&order=desc&limit=10`, fx.self.token).expect(200);
+    assert.equal(past.headers['x-total-count'], '60');
+    assert.deepEqual(past.body.map(dateOf), Array.from({ length: 10 }, (_, i) => day(-1 - i)));
+    const one = await get(`/lessons/me?from=${day(-3)}&to=${day(-3)}`, fx.self.token).expect(200);
+    assert.equal(one.body.length, 1);
+    assert.equal(one.body[0].status, 'INACTIVE');
+    const inactive = await get(`/lessons/me?status=INACTIVE&limit=200`, fx.self.token).expect(200);
+    assert.deepEqual(inactive.body.map(dateOf), [day(-3), day(2)]);
+  });
+
+  it('isolamento: nunca vem aula da turma alheia; responsável vê as da turma do dependente; sem vínculo nada', async () => {
+    const self = await get('/lessons/me?limit=200', fx.self.token).expect(200);
+    assert.equal(self.body.length, 70);
+    assert.ok(self.body.every((l: { classId: number }) => l.classId === fx.classMineId));
+    assert.ok(self.body.every((l: { notes: string }) => !l.notes.includes('alheia')));
+
+    const guardian = await get('/lessons/me?limit=200', fx.guardian.token).expect(200);
+    assert.equal(guardian.headers['x-total-count'], '70');
+    assert.ok(guardian.body.every((l: { classId: number }) => l.classId === fx.classMineId));
+
+    const orphan = await get('/lessons/me', fx.orphan.token).expect(200);
+    assert.deepEqual(orphan.body, []);
+    assert.equal(orphan.headers['x-total-count'], '0');
+  });
+
+  it('parâmetros inválidos => 400 (limit=201/0, offset=-1, order, status, from/to, desconhecido); sem token 401', async () => {
+    for (const qs of ['limit=201', 'limit=0', 'offset=-1', 'order=sideways', 'status=XYZ', 'from=ontem', 'to=x', 'foo=1', 'q=x']) {
+      await get(`/lessons/me?${qs}`, fx.self.token).expect(400);
+    }
+    await get('/lessons/me?limit=200&order=desc', fx.self.token).expect(200);
+    await request(app.getHttpServer()).get('/api/lessons/me').expect(401);
   });
 });

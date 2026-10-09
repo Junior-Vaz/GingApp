@@ -188,3 +188,144 @@ describe('Calendário da capoeira (e2e)', () => {
     await request(app.getHttpServer()).get('/api/calendar?type=FEIJOADA').expect(400);
   });
 });
+
+/**
+ * Calendário público com >100 itens: antes cada fonte (rodas/eventos) tinha `take: 100` fixo, sem
+ * aviso nem página seguinte. Agora limit/offset (padrão 50, teto 200) + X-Total-Count, com a
+ * fusão cronológica das duas tabelas determinística (data, origem, id) — provado contra a ordem
+ * calculada via Prisma, inclusive com empates de data entre roda e evento.
+ */
+describe('Calendário — paginação com total real (e2e)', () => {
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let organizationId: number;
+  let stateId: number;
+  let cityId: number;
+  const suffix = `pg${Date.now()}`;
+  const get = (qs: string) => request(app.getHttpServer()).get(`/api/calendar?stateId=${stateId}${qs}`);
+  type Item = { id: number; source: 'RODA' | 'EVENTO'; type: string; date: string; title: string };
+
+  before(async () => {
+    app = await createTestApp();
+    const login = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: MESTRE_EMAIL, password: DEV_PASSWORD })
+      .expect(200);
+    organizationId = login.body.user.organizationId;
+
+    const state = await prisma.state.create({ data: { name: '[e2e] Estado Paginação', uf: `P${suffix}`.slice(0, 20) } });
+    stateId = state.id;
+    cityId = (await prisma.city.create({ data: { stateId, name: '[e2e] Cidade Paginação' } })).id;
+
+    // 60 rodas + 45 eventos públicos (+5 privados que NÃO contam). Duas rodas por dia (datas
+    // IGUAIS às dos eventos de mesmo índice => empates entre as fontes), a partir de amanhã.
+    const at = (k: number) => new Date(Date.now() + (1 + Math.floor(k / 2)) * 24 * 60 * 60 * 1000 + 3_600_000);
+    const stamp = (k: number) => {
+      const d = at(k);
+      d.setUTCMinutes(0, 0, 0);
+      return d;
+    };
+    await prisma.roda.createMany({
+      data: Array.from({ length: 60 }, (_, k) => ({
+        organizationId,
+        stateId,
+        cityId,
+        title: `${suffix} roda ${k}`,
+        date: stamp(k),
+      })),
+    });
+    await prisma.event.createMany({
+      data: [
+        ...Array.from({ length: 45 }, (_, k) => ({
+          organizationId,
+          stateId,
+          cityId,
+          title: `${suffix} evento ${k}`,
+          type: k % 2 === 0 ? 'WORKSHOP' : 'BATIZADO',
+          isPublic: true,
+          date: stamp(k),
+        })),
+        ...Array.from({ length: 5 }, (_, k) => ({
+          organizationId,
+          stateId,
+          cityId,
+          title: `${suffix} privado ${k}`,
+          type: 'WORKSHOP',
+          isPublic: false,
+          date: stamp(k),
+        })),
+      ],
+    });
+  });
+
+  after(async () => {
+    await prisma.roda.deleteMany({ where: { stateId } });
+    await prisma.event.deleteMany({ where: { stateId } });
+    await prisma.city.deleteMany({ where: { id: cityId } });
+    await prisma.state.deleteMany({ where: { id: stateId } });
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  /** Ordem esperada calculada à parte (Prisma + comparador): data, EVENTO antes de RODA, id. */
+  const expectedOrder = async (): Promise<string[]> => {
+    const [rodas, events] = await Promise.all([
+      prisma.roda.findMany({ where: { stateId } }),
+      prisma.event.findMany({ where: { stateId, isPublic: true } }),
+    ]);
+    return [
+      ...rodas.map((r) => ({ key: `RODA-${r.id}`, t: r.date.getTime(), rank: 1, id: r.id })),
+      ...events.map((e) => ({ key: `EVENTO-${e.id}`, t: e.date.getTime(), rank: 0, id: e.id })),
+    ]
+      .sort((a, b) => a.t - b.t || a.rank - b.rank || a.id - b.id)
+      .map((x) => x.key);
+  };
+  const keys = (items: Item[]) => items.map((i) => `${i.source}-${i.id}`);
+
+  it('105 itens públicos: sem limit vêm 50 (array) e X-Total-Count = 105 (privados não contam; antes o teto era 100 por fonte, sem aviso)', async () => {
+    const res = await get('').expect(200);
+    assert.ok(Array.isArray(res.body));
+    assert.equal(res.body.length, 50);
+    assert.equal(res.headers['x-total-count'], '105');
+  });
+
+  it('páginas consecutivas reconstroem exatamente a ordem cronológica esperada, sem repetir nem perder (inclui empates roda/evento)', async () => {
+    const expected = await expectedOrder();
+    assert.equal(expected.length, 105);
+    const p1 = await get('&limit=50&offset=0').expect(200);
+    const p2 = await get('&limit=50&offset=50').expect(200);
+    const p3 = await get('&limit=50&offset=100').expect(200);
+    assert.deepEqual([p1.body.length, p2.body.length, p3.body.length], [50, 50, 5]);
+    const all = [...keys(p1.body), ...keys(p2.body), ...keys(p3.body)];
+    assert.deepEqual(all, expected);
+    assert.equal(new Set(all).size, 105);
+
+    const mid = await get('&limit=40&offset=30').expect(200); // fatia que atravessa as duas fontes
+    assert.deepEqual(keys(mid.body), expected.slice(30, 70));
+    const big = await get('&limit=200').expect(200);
+    assert.deepEqual(keys(big.body), expected);
+    const beyond = await get('&offset=500').expect(200);
+    assert.deepEqual(beyond.body, []);
+    assert.equal(beyond.headers['x-total-count'], '105');
+  });
+
+  it('o total acompanha o filtro de tipo (RODA = 60; WORKSHOP = 23 públicos, sem os 5 privados)', async () => {
+    const rodas = await get('&type=RODA&limit=200').expect(200);
+    assert.equal(rodas.headers['x-total-count'], '60');
+    assert.equal(rodas.body.length, 60);
+    assert.ok(rodas.body.every((i: Item) => i.source === 'RODA'));
+    const workshop = await get('&type=WORKSHOP&limit=200').expect(200);
+    assert.equal(workshop.headers['x-total-count'], '23');
+    assert.ok(workshop.body.every((i: Item) => i.type === 'WORKSHOP' && i.source === 'EVENTO'));
+    const first = await get('&type=WORKSHOP&limit=10&offset=20').expect(200);
+    assert.equal(first.body.length, 3);
+  });
+
+  it('limit/offset inválidos => 400 (limit=0/201/abc/1.5, offset=-1/10001); limit=200 e offset=10000 passam; rota segue pública', async () => {
+    for (const qs of ['limit=0', 'limit=201', 'limit=abc', 'limit=1.5', 'offset=-1', 'offset=10001', 'offset=x']) {
+      await get(`&${qs}`).expect(400);
+    }
+    await get('&limit=200&offset=10000').expect(200);
+    await get('&scope=ano').expect(400); // validações antigas intactas
+  });
+});

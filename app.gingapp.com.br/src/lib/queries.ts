@@ -1,5 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { fmt, startOfToday } from "@/lib/format";
 import { getUser, useSessionUser } from "@/lib/session";
 import rodaImage from "@/assets/capoeira-roda.jpg";
 import communityImage from "@/assets/capoeira-community.jpg";
@@ -94,8 +96,26 @@ export interface AttendanceRecord {
 }
 
 export interface AttendanceResponse {
+  /** Página dos registros (mais recentes primeiro), no período pedido. */
   records: AttendanceRecord[];
+  /** Calculado pelo servidor sobre TODO o histórico (não sobre `records`). */
   last30dPercent: number | null;
+  /** Presenças seguidas, calculadas pelo servidor sobre todo o histórico (ausente em backend antigo). */
+  currentStreak?: number;
+  /** Registros que casam com o período (header X-Total-Count); null se o servidor não informou. */
+  total: number | null;
+}
+
+/** Totais do "meu financeiro" agregados NO BANCO (GET /finance/me/summary), em centavos. */
+export interface FinanceSummary {
+  openCents: number;
+  openCount: number;
+  overdueCents: number;
+  overdueCount: number;
+  paidCents: number;
+  paidCount: number;
+  /** Menor vencimento entre os lançamentos em aberto (ISO, dia civil em UTC) ou null. */
+  oldestOpenDueDate: string | null;
 }
 
 export type FinanceStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELLED";
@@ -119,15 +139,6 @@ export interface EventDto {
   location: string | null;
   imageUrl: string | null;
   isPublic: boolean;
-}
-
-export interface RodaDto {
-  id: number;
-  title: string;
-  description: string | null;
-  date: string;
-  location: string | null;
-  imageUrl: string | null;
 }
 
 export interface CalendarItem {
@@ -238,22 +249,6 @@ export function fromEvent(event: EventDto): Encounter {
   };
 }
 
-export function fromRoda(roda: RodaDto): Encounter {
-  return {
-    key: `RODA-${roda.id}`,
-    source: "RODA",
-    id: roda.id,
-    title: roda.title,
-    type: "RODA",
-    typeLabel: "Roda",
-    date: roda.date,
-    place: roda.location,
-    city: null,
-    image: roda.imageUrl ?? rodaImage,
-    description: roda.description,
-  };
-}
-
 /* ---------- Hooks de leitura ---------- */
 
 const noRetry = { retry: false } as const;
@@ -286,26 +281,118 @@ export const useCertificates = () =>
 export const usePassport = () =>
   useQuery({ queryKey: ["passport", "me"], queryFn: () => api.get<Passport | null>("/passport/me") });
 
-export const useLessons = () =>
-  useQuery({ queryKey: ["lessons", "me"], queryFn: () => api.get<Lesson[]>("/lessons/me") });
+/* ---------- Listagens paginadas (limit/offset + X-Total-Count) ----------
+ * Os endpoints "/me", /events, /calendar e /notifications devolvem 50 por padrão (teto 200) e o
+ * total real no header X-Total-Count. NUNCA calcule totais/contagens em cima da lista carregada:
+ * ela pode estar truncada — use um endpoint agregado (ex.: /finance/me/summary) ou carregue o
+ * período inteiro e confira `total`. */
+
+export const PAGE_SIZE = 50;
+
+type QueryParams = Record<string, string | number | undefined>;
+
+/** `path?a=1&b=2` ignorando valores vazios/indefinidos. */
+export function withQuery(path: string, params: QueryParams = {}): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") search.set(key, String(value));
+  }
+  const text = search.toString();
+  return text ? `${path}?${text}` : path;
+}
+
+/** Data local de hoje em yyyy-MM-dd (o servidor compara o dia civil da aula). */
+export const todayParam = (): string => fmt(startOfToday(), "yyyy-MM-dd");
+
+/** Lista paginada que acumula as páginas ("Carregar mais"); `total` é o do servidor (ou null). */
+export function usePagedList<T>(
+  key: readonly unknown[],
+  path: string,
+  params: QueryParams = {},
+  options: { pageSize?: number; enabled?: boolean } = {},
+) {
+  const pageSize = options.pageSize ?? PAGE_SIZE;
+  const query = useInfiniteQuery({
+    queryKey: [...key, params, pageSize],
+    enabled: options.enabled ?? true,
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => api.getPage<T>(withQuery(path, { ...params, limit: pageSize, offset: pageParam })),
+    getNextPageParam: (last, pages) => {
+      const loaded = pages.reduce((sum, page) => sum + page.items.length, 0);
+      if (last.items.length === 0) return undefined;
+      const hasMore = last.total !== null ? loaded < last.total : last.items.length >= pageSize;
+      return hasMore ? loaded : undefined;
+    },
+  });
+  const items = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data]);
+  const total = query.data?.pages[query.data.pages.length - 1]?.total ?? null;
+  return {
+    items,
+    total,
+    isLoading: query.isLoading,
+    error: query.error,
+    isError: query.isError,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
+  };
+}
+
+/** Aulas de hoje em diante (a mais próxima primeiro). */
+export const useUpcomingLessons = () =>
+  usePagedList<Lesson>(["lessons", "me", "upcoming"], "/lessons/me", { from: todayParam(), order: "asc" });
+
+/** Aulas anteriores a hoje (a mais recente primeiro), 10 por vez. */
+export const usePastLessons = () => {
+  const yesterday = fmt(new Date(startOfToday().getTime() - 1), "yyyy-MM-dd");
+  return usePagedList<Lesson>(["lessons", "me", "past"], "/lessons/me", { to: yesterday, order: "desc" }, { pageSize: 10 });
+};
+
+/** Só a próxima aula ATIVA (a partir de hoje) — independe de quantas aulas a turma já tem. */
+export const useNextLessons = () => {
+  const from = todayParam();
+  return useQuery({
+    queryKey: ["lessons", "me", "next", from],
+    queryFn: () => api.get<Lesson[]>(withQuery("/lessons/me", { from, status: "ACTIVE", order: "asc", limit: 1 })),
+  });
+};
 
 export const useClasses = () =>
   useQuery({ queryKey: ["classes", "me"], queryFn: () => api.get<ClassItem[]>("/classes/me") });
 
-export const useAttendance = () =>
+export interface AttendanceRange {
+  /** yyyy-MM-dd (data da aula, inclusivo). */
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+/**
+ * Frequência do período (`records`, até 200) + indicadores do servidor sobre todo o histórico
+ * (last30dPercent, currentStreak). Sem período: só a primeira página e os indicadores.
+ */
+export const useAttendance = (range: AttendanceRange = {}) =>
   useQuery({
-    queryKey: ["attendance", "me"],
-    queryFn: () => api.get<AttendanceResponse>("/attendance/me"),
+    queryKey: ["attendance", "me", range.from ?? null, range.to ?? null, range.limit ?? null],
+    queryFn: async (): Promise<AttendanceResponse> => {
+      const { data, total } = await api.getWithTotal<Omit<AttendanceResponse, "total">>(
+        withQuery("/attendance/me", { from: range.from, to: range.to, limit: range.limit }),
+      );
+      return { ...data, total };
+    },
   });
 
-export const useFinance = () =>
-  useQuery({ queryKey: ["finance", "me"], queryFn: () => api.get<FinancialRecord[]>("/finance/me") });
+/** Lançamentos do aluno, paginados (vencimento mais recente primeiro). */
+export const useFinance = () => usePagedList<FinancialRecord>(["finance", "me", "list"], "/finance/me");
 
-export const useEvents = () =>
-  useQuery({ queryKey: ["events"], queryFn: () => api.get<EventDto[]>("/events") });
+/** Totais "em aberto"/atrasado/pago agregados no banco — é DAQUI que sai o valor do banner. */
+export const useFinanceSummary = () =>
+  useQuery({
+    queryKey: ["finance", "me", "summary"],
+    queryFn: () => api.get<FinanceSummary>("/finance/me/summary"),
+  });
 
-export const useRodas = () =>
-  useQuery({ queryKey: ["rodas"], queryFn: () => api.get<RodaDto[]>("/rodas") });
+export const useEvents = (enabled = true) => usePagedList<EventDto>(["events"], "/events", {}, { enabled });
 
 export interface CalendarFilters {
   scope?: string;
@@ -314,14 +401,8 @@ export interface CalendarFilters {
   type?: string;
 }
 
-export function useCalendar(filters: CalendarFilters = {}) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) if (value) params.set(key, value);
-  const query = params.toString();
-  return useQuery({
-    queryKey: ["calendar", query],
-    queryFn: () => api.get<CalendarItem[]>(`/calendar${query ? `?${query}` : ""}`),
-  });
+export function useCalendar(filters: CalendarFilters = {}, options: { pageSize?: number; enabled?: boolean } = {}) {
+  return usePagedList<CalendarItem>(["calendar"], "/calendar", { ...filters }, options);
 }
 
 export const useStates = () =>
@@ -346,10 +427,14 @@ export const useAnnouncements = () =>
     ...noRetry,
   });
 
-export const useNotifications = () =>
+/** Notificações do usuário, paginadas (mais recentes primeiro). */
+export const useNotifications = () => usePagedList<NotificationDto>(["notifications", "list"], "/notifications");
+
+/** Não lidas contadas no banco — nunca pela lista carregada (que pode estar truncada). */
+export const useUnreadCount = () =>
   useQuery({
-    queryKey: ["notifications"],
-    queryFn: () => api.get<NotificationDto[]>("/notifications"),
+    queryKey: ["notifications", "unread"],
+    queryFn: async () => (await api.get<{ count: number }>("/notifications/unread-count")).count,
   });
 
 /* ---------- Participação (eventos e rodas) ---------- */

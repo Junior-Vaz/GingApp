@@ -5,35 +5,42 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { api, errorMessage } from "@/lib/api";
-import { capitalize, dayOnly, fmt, formatCurrency, relativeTime, startOfToday } from "@/lib/format";
-import { currentStreak, monthStats, recordsInMonth } from "@/lib/derive";
+import { capitalize, dayOnly, fmt, formatCurrency, relativeTime } from "@/lib/format";
+import { effectiveFinanceStatus, monthRange, monthStats, recentMonths, recordsInMonth, streakOf } from "@/lib/derive";
 import {
   useAnnouncements,
   useAttendance,
   useClasses,
   useFinance,
-  useLessons,
+  useFinanceSummary,
   useMyStudent,
   useNotifications,
   usePassport,
+  usePastLessons,
+  useUnreadCount,
+  useUpcomingLessons,
   type FinanceStatus,
   type FinancialRecord,
   type Lesson,
 } from "@/lib/queries";
-import { PageHeading, SectionHeading, StateMessage } from "./shared";
+import { LoadMore, PageHeading, SectionHeading, StateMessage } from "./shared";
 
 /* ------------------------------ Minhas aulas ------------------------------ */
 
 export function ClassesPage() {
-  const lessons = useLessons();
+  // Próximas (de hoje em diante, a mais próxima primeiro) e anteriores (as mais recentes primeiro)
+  // vêm de consultas separadas por período: o histórico longo não esconde a próxima aula.
+  const upcomingQuery = useUpcomingLessons();
+  const pastQuery = usePastLessons();
   const classes = useClasses();
   const passport = usePassport();
   const [detail, setDetail] = useState<Lesson | null>(null);
 
-  const today = startOfToday().getTime();
-  const all = lessons.data ?? [];
-  const upcoming = all.filter((l) => dayOnly(l.date).getTime() >= today);
-  const past = all.filter((l) => dayOnly(l.date).getTime() < today).reverse().slice(0, 10);
+  const upcoming = upcomingQuery.items;
+  const past = pastQuery.items;
+  const all = [...upcoming, ...past];
+  const loading = upcomingQuery.isLoading || pastQuery.isLoading;
+  const error = upcomingQuery.error ?? pastQuery.error;
   const className = (l: Lesson) => classes.data?.find((c) => c.id === l.classId)?.name ?? "Aula";
   const unitName = passport.data?.unit?.name;
   const timeOf = (l: Lesson) => {
@@ -82,10 +89,10 @@ export function ClassesPage() {
           {passport.data.unit ? ` · ${passport.data.unit.name}` : ""}
         </div>
       )}
-      {lessons.isLoading ? (
+      {loading ? (
         <StateMessage>Carregando…</StateMessage>
-      ) : lessons.error ? (
-        <StateMessage tone="error">{errorMessage(lessons.error, "Não foi possível carregar as aulas.")}</StateMessage>
+      ) : error ? (
+        <StateMessage tone="error">{errorMessage(error, "Não foi possível carregar as aulas.")}</StateMessage>
       ) : all.length === 0 ? (
         <StateMessage>Nenhuma aula agendada.</StateMessage>
       ) : (
@@ -94,12 +101,28 @@ export function ClassesPage() {
             <>
               <SectionHeading title="Próximas" />
               <div className="grid lg:grid-cols-2 gap-x-6">{upcoming.map((item, index) => card(item, index === 0 && item.status === "ACTIVE"))}</div>
+              <LoadMore
+                shown={upcoming.length}
+                total={upcomingQuery.total}
+                hasMore={upcomingQuery.hasNextPage}
+                loading={upcomingQuery.isFetchingNextPage}
+                onMore={() => void upcomingQuery.fetchNextPage()}
+                noun="aulas"
+              />
             </>
           )}
           {past.length > 0 && (
             <>
               <SectionHeading title="Anteriores" />
               <div className="grid lg:grid-cols-2 gap-x-6">{past.map((item) => card(item, false))}</div>
+              <LoadMore
+                shown={past.length}
+                total={pastQuery.total}
+                hasMore={pastQuery.hasNextPage}
+                loading={pastQuery.isFetchingNextPage}
+                onMore={() => void pastQuery.fetchNextPage()}
+                noun="aulas anteriores"
+              />
             </>
           )}
         </>
@@ -128,19 +151,19 @@ export function ClassesPage() {
 /* -------------------------------- Frequência ------------------------------ */
 
 export function AttendancePage() {
-  const attendance = useAttendance();
-  const records = useMemo(() => attendance.data?.records ?? [], [attendance.data]);
-  const months = useMemo(() => {
-    const keys = new Set<string>([fmt(new Date(), "yyyy-MM")]);
-    records.forEach((r) => keys.add(fmt(dayOnly(r.lesson.date), "yyyy-MM")));
-    return [...keys].sort().reverse();
-  }, [records]);
+  // Os últimos 12 meses; os registros vêm do SERVIDOR já filtrados pelo mês escolhido (até 200),
+  // e sequência/% dos 30 dias vêm agregados do banco — nada é calculado sobre uma lista truncada.
+  const months = useMemo(() => recentMonths(12), []);
   const [month, setMonth] = useState(months[0] ?? fmt(new Date(), "yyyy-MM"));
 
   const reference = useMemo(() => {
     const [year, mon] = month.split("-").map(Number);
     return new Date(year ?? new Date().getFullYear(), (mon ?? 1) - 1, 1);
   }, [month]);
+  const range = useMemo(() => monthRange(reference), [reference]);
+  const attendance = useAttendance({ ...range, limit: 200 });
+  const records = useMemo(() => attendance.data?.records ?? [], [attendance.data]);
+  const monthTotal = attendance.data?.total ?? records.length;
   const monthRecords = recordsInMonth(records, reference);
   const stats = monthStats(records, reference);
   const daysInMonth = new Date(reference.getFullYear(), reference.getMonth() + 1, 0).getDate();
@@ -180,7 +203,7 @@ export function AttendancePage() {
             <div className="stat">
               <div>
                 <p className="stat-label">Sequência atual</p>
-                <div className="stat-value">{currentStreak(records)}</div>
+                <div className="stat-value">{streakOf(attendance.data)}</div>
                 <p className="stat-sub">Aulas seguidas</p>
               </div>
             </div>
@@ -224,7 +247,12 @@ export function AttendancePage() {
               </div>
             )}
             {!attendance.isLoading && records.length === 0 && (
-              <p className="text-xs text-muted-foreground mt-4">Nenhum registro de presença ainda.</p>
+              <p className="text-xs text-muted-foreground mt-4">Nenhum registro de presença neste mês.</p>
+            )}
+            {monthTotal > records.length && (
+              <p className="text-xs text-muted-foreground mt-4" role="status">
+                Exibindo {records.length} de {monthTotal} registros deste mês.
+              </p>
             )}
             {monthRecords.some((r) => !r.present && r.justification) && (
               <ul className="text-xs text-muted-foreground mt-4 space-y-1">
@@ -256,39 +284,42 @@ const STATUS_LABEL: Record<FinanceStatus, string> = {
 
 export function FinancialPage() {
   const finance = useFinance();
+  const summary = useFinanceSummary();
   const [record, setRecord] = useState<FinancialRecord | null>(null);
-  const sorted = [...(finance.data ?? [])].sort(
-    (a, b) => dayOnly(b.dueDate).getTime() - dayOnly(a.dueDate).getTime(),
-  );
-  const open = sorted.filter((r) => r.status === "PENDING" || r.status === "OVERDUE");
-  const openCents = open.reduce((sum, r) => sum + r.amountCents, 0);
-  const nextDue = [...open].sort((a, b) => dayOnly(a.dueDate).getTime() - dayOnly(b.dueDate).getTime())[0];
-  const hasOverdue = open.some((r) => r.status === "OVERDUE");
+  // O banner usa SÓ os totais agregados no banco (summary); a lista é paginada e pode estar
+  // incompleta, então nunca se soma nada a partir dela.
+  const totals = summary.data;
+  const openCents = totals?.openCents ?? 0;
+  const overdueCount = totals?.overdueCount ?? 0;
 
   return (
     <>
       <PageHeading title="Meu financeiro" subtitle="Tudo em dia para continuar sua jornada." />
       {finance.error ? (
         <StateMessage tone="error">{errorMessage(finance.error, "Não foi possível carregar seus dados financeiros.")}</StateMessage>
-      ) : finance.isLoading ? (
+      ) : finance.isLoading || summary.isLoading ? (
         <StateMessage>Carregando…</StateMessage>
       ) : (
         <>
-          <div className="flex gap-3 items-center bg-secondary text-primary p-5 rounded-lg mb-7">
-            {openCents > 0 ? <AlertTriangle /> : <ShieldCheck />}
-            <div>
-              <strong className="text-sm">
-                {openCents > 0 ? `Você tem ${formatCurrency(openCents)} em aberto` : "Sua mensalidade está em dia"}
-              </strong>
-              <p className="text-xs mt-1">
-                {nextDue
-                  ? `${hasOverdue ? "Vencimento mais antigo" : "Próximo vencimento"}: ${fmt(dayOnly(nextDue.dueDate), "dd 'de' MMMM 'de' yyyy")}`
-                  : "Nenhuma cobrança pendente."}
-              </p>
+          {totals ? (
+            <div className="flex gap-3 items-center bg-secondary text-primary p-5 rounded-lg mb-7">
+              {openCents > 0 ? <AlertTriangle /> : <ShieldCheck />}
+              <div>
+                <strong className="text-sm">
+                  {openCents > 0 ? `Você tem ${formatCurrency(openCents)} em aberto` : "Sua mensalidade está em dia"}
+                </strong>
+                <p className="text-xs mt-1">
+                  {totals.oldestOpenDueDate
+                    ? `${overdueCount > 0 ? `${overdueCount} em atraso (${formatCurrency(totals.overdueCents)}) · Vencimento mais antigo` : "Próximo vencimento"}: ${fmt(dayOnly(totals.oldestOpenDueDate), "dd 'de' MMMM 'de' yyyy")}`
+                    : "Nenhuma cobrança pendente."}
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <StateMessage tone="error">{errorMessage(summary.error, "Não foi possível calcular o total em aberto.")}</StateMessage>
+          )}
           <SectionHeading title="Histórico de pagamentos" />
-          {sorted.length === 0 ? (
+          {finance.items.length === 0 ? (
             <StateMessage>Nenhum lançamento financeiro encontrado.</StateMessage>
           ) : (
             <div className="table-wrap">
@@ -303,25 +334,36 @@ export function FinancialPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sorted.map((item) => (
-                    <tr key={item.id}>
-                      <td>{item.description}</td>
-                      <td>{fmt(dayOnly(item.dueDate), "dd/MM/yyyy")}</td>
-                      <td>{formatCurrency(item.amountCents)}</td>
-                      <td>
-                        <span className={`badge ${item.status === "PAID" ? "" : "badge-warm"}`}>{STATUS_LABEL[item.status]}</span>
-                      </td>
-                      <td>
-                        <Button variant="ghost" size="icon" title="Ver cobrança" aria-label={`Ver ${item.description}`} onClick={() => setRecord(item)}>
-                          <Download />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {finance.items.map((item) => {
+                    const status = effectiveFinanceStatus(item);
+                    return (
+                      <tr key={item.id}>
+                        <td>{item.description}</td>
+                        <td>{fmt(dayOnly(item.dueDate), "dd/MM/yyyy")}</td>
+                        <td>{formatCurrency(item.amountCents)}</td>
+                        <td>
+                          <span className={`badge ${status === "PAID" ? "" : "badge-warm"}`}>{STATUS_LABEL[status]}</span>
+                        </td>
+                        <td>
+                          <Button variant="ghost" size="icon" title="Ver cobrança" aria-label={`Ver ${item.description}`} onClick={() => setRecord(item)}>
+                            <Download />
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
+          <LoadMore
+            shown={finance.items.length}
+            total={finance.total}
+            hasMore={finance.hasNextPage}
+            loading={finance.isFetchingNextPage}
+            onMore={() => void finance.fetchNextPage()}
+            noun="lançamentos"
+          />
           <p className="text-xs text-muted-foreground mt-5">Dados sempre buscados online — esta tela não fica disponível offline.</p>
         </>
       )}
@@ -333,7 +375,7 @@ export function FinancialPage() {
             <div className="space-y-1 text-sm">
               <p>Valor: {formatCurrency(record.amountCents)}</p>
               <p>Vencimento: {fmt(dayOnly(record.dueDate), "dd/MM/yyyy")}</p>
-              <p>Situação: {STATUS_LABEL[record.status]}</p>
+              <p>Situação: {STATUS_LABEL[effectiveFinanceStatus(record)]}</p>
               {record.paidAt && <p>Pago em: {fmt(dayOnly(record.paidAt), "dd/MM/yyyy")}</p>}
             </div>
           )}
@@ -365,8 +407,10 @@ export function NotificationsPage() {
     onSuccess: refresh,
   });
 
-  const list = notifications.data ?? [];
-  const unread = list.filter((n) => n.readAt === null).length;
+  const unreadCount = useUnreadCount();
+  const list = notifications.items;
+  // Não lidas contadas no banco (a lista carregada pode ser só uma parte das notificações).
+  const unread = unreadCount.data ?? 0;
   const notices = (announcements.data ?? []).filter(
     (a) => a.isActive && (a.unitId === null || a.unitId === (student?.unitId ?? null)),
   );
@@ -380,7 +424,7 @@ export function NotificationsPage() {
         <>
           <div className="flex justify-between items-center mb-5">
             <span className="text-sm text-muted-foreground">
-              {notifications.isLoading ? "Carregando…" : unread === 0 ? "Tudo lido. Axé!" : `${unread} ${unread === 1 ? "novo recado" : "novos recados"}`}
+              {notifications.isLoading || unreadCount.isLoading ? "Carregando…" : unread === 0 ? "Tudo lido. Axé!" : `${unread} ${unread === 1 ? "novo recado" : "novos recados"}`}
             </span>
             <Button variant="outline" size="sm" disabled={unread === 0 || markAll.isPending} onClick={() => markAll.mutate()}>
               <Check />
@@ -409,6 +453,14 @@ export function NotificationsPage() {
           ) : (
             !notifications.isLoading && <StateMessage>Nenhuma notificação por enquanto.</StateMessage>
           )}
+          <LoadMore
+            shown={list.length}
+            total={notifications.total}
+            hasMore={notifications.hasNextPage}
+            loading={notifications.isFetchingNextPage}
+            onMore={() => void notifications.fetchNextPage()}
+            noun="notificações"
+          />
         </>
       )}
       {notices.length > 0 && (

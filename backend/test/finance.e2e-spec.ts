@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
 import { createTestApp } from './utils/test-app';
+import { FinanceService } from '../src/interface/http/finance/finance.service';
+import { MeFixture, createMeFixture } from './utils/me-fixtures';
 import { ALUNO_EMAIL as ALUNO, MESTRE_EMAIL as MESTRE, SecondOrg, createSecondOrg, loginAs, todaySaoPaulo } from './utils/list-helpers';
 
 /**
@@ -432,5 +434,201 @@ describe('Finance — lista paginada, limpar campos e resumo (e2e)', () => {
     await get('/finance').expect(200);
     await get('/finance/summary').expect(200);
     await get(`/finance/${mine.id}`).expect(200);
+  });
+});
+
+/**
+ * "Meu financeiro" (GET /finance/me e GET /finance/me/summary): o achado do e2e real do app foi
+ * /finance/me devolver 50 de 58 registros SEM aviso e o app somar só os 50 (R$ 765 em vez de
+ * R$ 845). Aqui: paginação com X-Total-Count e totais por agregação no banco, provados contra a
+ * soma independente das linhas via Prisma, com a borda hoje/ontem e CANCELLED.
+ */
+describe('Finance /me — paginação e resumo agregado (e2e)', () => {
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let fx: MeFixture;
+  const get = (path: string, token: string) =>
+    request(app.getHttpServer()).get(`/api${path}`).set('Authorization', `Bearer ${token}`);
+  const civil = (offsetDays: number) => new Date(`${todaySaoPaulo(offsetDays)}T00:00:00.000Z`);
+
+  before(async () => {
+    app = await createTestApp();
+    fx = await createMeFixture(app, prisma, 'finme');
+    const org = fx.organizationId;
+    const rec = (
+      studentId: number,
+      i: number,
+      status: 'PENDING' | 'PAID' | 'OVERDUE' | 'CANCELLED',
+      dueOffset: number,
+      amountCents: number,
+    ) => ({
+      organizationId: org,
+      studentId,
+      description: `finme ${studentId} #${i}`,
+      amountCents,
+      dueDate: civil(dueOffset),
+      status,
+      paidAt: status === 'PAID' ? new Date() : null,
+    });
+    const rows = [];
+    let n = 0;
+    // 58 lançamentos do aluno. Os 8 OVERDUE gravados são os MAIS ANTIGOS (somem de uma lista de 50).
+    for (let i = 0; i < 8; i++) rows.push(rec(fx.self.studentId, n++, 'OVERDUE', -400 + i, 10_000 + i)); // 8
+    for (let i = 0; i < 20; i++) rows.push(rec(fx.self.studentId, n++, 'PAID', -300 + i, 15_000)); // 20
+    for (let i = 0; i < 10; i++) rows.push(rec(fx.self.studentId, n++, 'CANCELLED', -250 + i, 77_777)); // 10, fora de tudo
+    for (let i = 0; i < 5; i++) rows.push(rec(fx.self.studentId, n++, 'PENDING', -100 + i, 12_345)); // 5 PENDING vencidos => atrasado
+    rows.push(rec(fx.self.studentId, n++, 'PENDING', -1, 20_000)); // ontem => atrasado (1)
+    rows.push(rec(fx.self.studentId, n++, 'PENDING', 0, 30_000)); // vence HOJE => a receber
+    rows.push(rec(fx.self.studentId, n++, 'PENDING', 0, 30_001)); // vence HOJE => a receber
+    for (let i = 0; i < 12; i++) rows.push(rec(fx.self.studentId, n++, 'PENDING', 5 + i, 18_000 + i)); // 12 futuros
+    assert.equal(rows.length, 58);
+    // Dependente do responsável e aluno alheio: nunca podem aparecer para quem não é o vínculo.
+    for (let i = 0; i < 3; i++) rows.push(rec(fx.guardian.dependentId, 100 + i, 'PENDING', -3 + i, 5_000));
+    for (let i = 0; i < 2; i++) rows.push(rec(fx.strangerId, 200 + i, 'PENDING', -50, 99_999));
+    await prisma.financialRecord.createMany({ data: rows });
+  });
+
+  after(async () => {
+    await fx.cleanup();
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  const expectedFor = async (studentId: number) => {
+    const rows = await prisma.financialRecord.findMany({ where: { studentId } });
+    const today = todaySaoPaulo();
+    const out = { openCents: 0, openCount: 0, overdueCents: 0, overdueCount: 0, paidCents: 0, paidCount: 0 };
+    let oldest: Date | null = null;
+    for (const r of rows) {
+      if (r.status === 'CANCELLED') continue;
+      if (r.status === 'PAID') {
+        out.paidCents += r.amountCents;
+        out.paidCount++;
+        continue;
+      }
+      out.openCents += r.amountCents;
+      out.openCount++;
+      if (!oldest || r.dueDate < oldest) oldest = r.dueDate;
+      if (r.status === 'OVERDUE' || r.dueDate.toISOString().slice(0, 10) < today) {
+        out.overdueCents += r.amountCents;
+        out.overdueCount++;
+      }
+    }
+    return { ...out, oldestOpenDueDate: oldest ? oldest.toISOString() : null };
+  };
+
+  it('58 lançamentos: sem limit vêm 50 (array) e X-Total-Count = 58; limit/offset completam sem repetir nem perder', async () => {
+    const first = await get('/finance/me', fx.self.token).expect(200);
+    assert.ok(Array.isArray(first.body));
+    assert.equal(first.body.length, 50);
+    assert.equal(first.headers['x-total-count'], '58');
+
+    const rest = await get('/finance/me?limit=50&offset=50', fx.self.token).expect(200);
+    assert.equal(rest.body.length, 8);
+    assert.equal(rest.headers['x-total-count'], '58');
+
+    const ids = [...first.body, ...rest.body].map((r: { id: number }) => r.id);
+    const all = await prisma.financialRecord.findMany({
+      where: { studentId: fx.self.studentId },
+      orderBy: [{ dueDate: 'desc' }, { id: 'desc' }],
+    });
+    assert.deepEqual(ids, all.map((r) => r.id)); // ordem determinística: vencimento desc, id desc
+    assert.equal(new Set(ids).size, 58);
+    // as 8 linhas da página 2 são exatamente as OVERDUE mais antigas (as que sumiam do app)
+    assert.ok(rest.body.every((r: { status: string }) => r.status === 'OVERDUE'));
+
+    const big = await get('/finance/me?limit=200', fx.self.token).expect(200);
+    assert.equal(big.body.length, 58);
+    const beyond = await get('/finance/me?offset=500', fx.self.token).expect(200);
+    assert.equal(beyond.body.length, 0);
+    assert.equal(beyond.headers['x-total-count'], '58');
+  });
+
+  it('GET /finance/me/summary == soma independente via Prisma (58 linhas, borda hoje/ontem, CANCELLED fora)', async () => {
+    const res = await get('/finance/me/summary', fx.self.token).expect(200);
+    const exp = await expectedFor(fx.self.studentId);
+    assert.deepEqual(res.body, exp);
+
+    // números fixados à mão (guardam o próprio cálculo do teste): 8 OVERDUE + 5 PENDING vencidos
+    // + ontem = 14 atrasados; hoje (2) e futuros (12) a receber; 20 pagos; 10 cancelados fora.
+    const overdue = [0, 1, 2, 3, 4, 5, 6, 7].reduce((s, i) => s + 10_000 + i, 0) + 5 * 12_345 + 20_000;
+    const upcoming = 30_000 + 30_001 + Array.from({ length: 12 }, (_, i) => 18_000 + i).reduce((a, b) => a + b, 0);
+    assert.equal(res.body.overdueCount, 14);
+    assert.equal(res.body.overdueCents, overdue);
+    assert.equal(res.body.openCount, 14 + 2 + 12);
+    assert.equal(res.body.openCents, overdue + upcoming);
+    assert.equal(res.body.paidCount, 20);
+    assert.equal(res.body.paidCents, 20 * 15_000);
+    assert.equal(res.body.oldestOpenDueDate, civil(-400).toISOString());
+
+    // O bug original: somar só a página de 50 dá um valor DIFERENTE do real (as atrasadas somem).
+    const page = await get('/finance/me', fx.self.token).expect(200);
+    const naive = page.body
+      .filter((r: { status: string }) => r.status === 'PENDING' || r.status === 'OVERDUE')
+      .reduce((s: number, r: { amountCents: number }) => s + r.amountCents, 0);
+    assert.notEqual(naive, res.body.openCents);
+    assert.ok(naive < res.body.openCents);
+  });
+
+  it('summary usa a MESMA regra de atraso da gestão (dia civil de SP): vence hoje não é atrasado, ontem é', async () => {
+    const mine = await get('/finance/me/summary', fx.self.token).expect(200);
+    const mestre = await loginAs(app, MESTRE);
+    const mgmt = await get(`/finance/summary?studentId=${fx.self.studentId}`, mestre.token).expect(200);
+    assert.equal(mine.body.overdueCents, mgmt.body.overdue);
+    assert.equal(mine.body.overdueCount, mgmt.body.overdueCount);
+    assert.equal(mine.body.openCents, mgmt.body.pending + mgmt.body.overdue);
+    assert.equal(mine.body.paidCents, mgmt.body.paid);
+    // a lista de gestão por status efetivo concorda com a contagem
+    const od = await get(`/finance?studentId=${fx.self.studentId}&status=OVERDUE`, mestre.token).expect(200);
+    assert.equal(od.headers['x-total-count'], String(mine.body.overdueCount));
+
+    // injeção de relógio: "agora" 1 dia depois => o que vencia hoje passa a atrasado (+2 registros)
+    const service = app.get(FinanceService);
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const shifted = await service.summaryMine(fx.organizationId, fx.self.userId, tomorrow);
+    assert.equal(shifted.overdueCount, mine.body.overdueCount + 2);
+    assert.equal(shifted.overdueCents, mine.body.overdueCents + 30_000 + 30_001);
+    assert.equal(shifted.openCents, mine.body.openCents); // em aberto não muda, só migra de a receber p/ atrasado
+  });
+
+  it('responsável: vê só o dependente (3 lançamentos) e o resumo é só dele', async () => {
+    const list = await get('/finance/me', fx.guardian.token).expect(200);
+    assert.equal(list.headers['x-total-count'], '3');
+    assert.ok(list.body.every((r: { studentId: number }) => r.studentId === fx.guardian.dependentId));
+    const sum = await get('/finance/me/summary', fx.guardian.token).expect(200);
+    assert.deepEqual(sum.body, await expectedFor(fx.guardian.dependentId));
+    assert.equal(sum.body.openCents, 15_000);
+    assert.equal(sum.body.openCount, 3);
+    assert.equal(sum.body.overdueCount, 3); // -3, -2, -1 dias
+  });
+
+  it('isolamento: o aluno não vê o dependente nem o aluno alheio; sem vínculo => lista vazia, total 0 e resumo zerado', async () => {
+    const list = await get('/finance/me?limit=200', fx.self.token).expect(200);
+    assert.ok(list.body.every((r: { studentId: number }) => r.studentId === fx.self.studentId));
+    const sum = await get('/finance/me/summary', fx.self.token).expect(200);
+    assert.equal(sum.body.openCents, (await expectedFor(fx.self.studentId)).openCents);
+
+    const empty = await get('/finance/me', fx.orphan.token).expect(200);
+    assert.deepEqual(empty.body, []);
+    assert.equal(empty.headers['x-total-count'], '0');
+    const zero = await get('/finance/me/summary', fx.orphan.token).expect(200);
+    assert.deepEqual(zero.body, {
+      openCents: 0,
+      openCount: 0,
+      overdueCents: 0,
+      overdueCount: 0,
+      paidCents: 0,
+      paidCount: 0,
+      oldestOpenDueDate: null,
+    });
+  });
+
+  it('parâmetros inválidos em /finance/me => 400 (limit=201/0/abc, offset=-1, parâmetro desconhecido); sem token => 401', async () => {
+    for (const qs of ['limit=201', 'limit=0', 'limit=abc', 'offset=-1', 'offset=1.5', 'foo=1', 'q=x']) {
+      await get(`/finance/me?${qs}`, fx.self.token).expect(400);
+    }
+    await get('/finance/me?limit=200&offset=0', fx.self.token).expect(200);
+    await request(app.getHttpServer()).get('/api/finance/me').expect(401);
+    await request(app.getHttpServer()).get('/api/finance/me/summary').expect(401);
   });
 });

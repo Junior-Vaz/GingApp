@@ -1,5 +1,5 @@
-import { dayOnly, startOfToday } from "@/lib/format";
-import type { AttendanceRecord, Lesson, Passport } from "@/lib/queries";
+import { dayOnly, fmt, startOfToday } from "@/lib/format";
+import type { AttendanceRecord, FinanceStatus, FinancialRecord, Lesson, Passport } from "@/lib/queries";
 
 /**
  * Que ações de compartilhamento do passaporte a tela deve oferecer. Espelha as regras do
@@ -84,4 +84,34 @@ export function currentStreak(records: AttendanceRecord[]): number {
     streak++;
   }
   return streak;
+}
+
+/** Presenças seguidas: o valor do SERVIDOR (todo o histórico) quando existe; senão, o da lista local. */
+export function streakOf(data: { currentStreak?: number; records: AttendanceRecord[] } | undefined): number {
+  if (!data) return 0;
+  return data.currentStreak ?? currentStreak(data.records);
+}
+
+/** Intervalo yyyy-MM-dd (primeiro e último dia) do mês da data de referência. */
+export function monthRange(reference: Date): { from: string; to: string } {
+  const first = new Date(reference.getFullYear(), reference.getMonth(), 1);
+  const last = new Date(reference.getFullYear(), reference.getMonth() + 1, 0);
+  return { from: fmt(first, "yyyy-MM-dd"), to: fmt(last, "yyyy-MM-dd") };
+}
+
+/** Chaves yyyy-MM dos últimos `count` meses (o atual primeiro). */
+export function recentMonths(count: number, now: Date = new Date()): string[] {
+  return Array.from({ length: count }, (_, i) => fmt(new Date(now.getFullYear(), now.getMonth() - i, 1), "yyyy-MM"));
+}
+
+/**
+ * Situação exibida de um lançamento: PENDING com vencimento em dia anterior a hoje é ATRASADO
+ * (mesma regra do servidor, que decide os totais; vence hoje NÃO é atrasado).
+ */
+export function effectiveFinanceStatus(
+  record: Pick<FinancialRecord, "status" | "dueDate">,
+  today: Date = startOfToday(),
+): FinanceStatus {
+  if (record.status === "PENDING" && dayOnly(record.dueDate).getTime() < today.getTime()) return "OVERDUE";
+  return record.status;
 }

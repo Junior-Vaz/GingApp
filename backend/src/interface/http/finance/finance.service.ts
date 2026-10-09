@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { FinancialStatus, Prisma } from '@prisma/client';
-import { Page, pageArgs } from '../../../shared/pagination/pagination';
+import { FinancialRecord, FinancialStatus, Prisma } from '@prisma/client';
+import { LimitOffsetQueryDto, Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { StudentsService } from '../students/students.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
@@ -18,6 +18,18 @@ export interface FinanceSummary {
   paidCount: number;
   pendingCount: number;
   overdueCount: number;
+}
+
+/** Resumo do "meu financeiro" (GET /finance/me/summary), em centavos. `oldestOpenDueDate`: menor
+ * vencimento entre os lançamentos em aberto (ISO, meia-noite UTC do dia civil) ou null. */
+export interface MyFinanceSummary {
+  openCents: number;
+  openCount: number;
+  overdueCents: number;
+  overdueCount: number;
+  paidCents: number;
+  paidCount: number;
+  oldestOpenDueDate: string | null;
 }
 
 /**
@@ -116,8 +128,11 @@ export class FinanceService {
    */
   async summary(organizationId: number, query: ListFinanceQueryDto, now: Date = new Date()): Promise<FinanceSummary> {
     const today = civilTodayStart(now);
-    const where = this.buildWhere(organizationId, query, today);
+    return this.aggregate(this.buildWhere(organizationId, query, today), today);
+  }
 
+  /** Agregação única (gestão e "meu financeiro") sobre um `where` já escopado. */
+  private async aggregate(where: Prisma.FinancialRecordWhereInput, today: Date): Promise<FinanceSummary> {
     const [byStatus, pendingLate] = await Promise.all([
       this.prisma.financialRecord.groupBy({
         by: ['status'],
@@ -161,15 +176,72 @@ export class FinanceService {
    * registrada em §10.7: GET /finance é restrito ao MESTRE porque não é filtrado;
    * esta rota é o jeito seguro de um ALUNO/RESPONSAVEL ver os próprios lançamentos.
    */
-  async findMine(organizationId: number, userId: number) {
-    const students = await this.studentsService.findMine(organizationId, userId);
-    if (students.length === 0) return [];
+  async findMine(
+    organizationId: number,
+    userId: number,
+    query: LimitOffsetQueryDto = {},
+  ): Promise<Page<FinancialRecord>> {
+    const where = await this.mineWhere(organizationId, userId);
+    if (!where) return { items: [], total: 0 };
 
-    return this.prisma.financialRecord.findMany({
-      where: { organizationId, studentId: { in: students.map((s) => s.id) } },
-      orderBy: { dueDate: 'desc' },
-      take: 50,
-    });
+    const [items, total] = await Promise.all([
+      this.prisma.financialRecord.findMany({
+        where,
+        // Vencimento mais recente primeiro (histórico); `id` desempata => paginação determinística.
+        orderBy: [{ dueDate: 'desc' }, { id: 'desc' }],
+        ...pageArgs(query),
+      }),
+      this.prisma.financialRecord.count({ where }),
+    ]);
+    return { items, total };
+  }
+
+  /**
+   * Totais do "meu financeiro" por AGREGAÇÃO no banco (nunca soma a lista paginada de /me), no
+   * mesmo escopo de `findMine` e com a MESMA regra de atraso do resumo da gestão (`aggregate`):
+   * dia civil de São Paulo, vence hoje NÃO é atrasado, PENDING vencido conta como atrasado,
+   * CANCELLED fora. "Em aberto" = a receber + atrasado.
+   */
+  async summaryMine(organizationId: number, userId: number, now: Date = new Date()): Promise<MyFinanceSummary> {
+    const empty: MyFinanceSummary = {
+      openCents: 0,
+      openCount: 0,
+      overdueCents: 0,
+      overdueCount: 0,
+      paidCents: 0,
+      paidCount: 0,
+      oldestOpenDueDate: null,
+    };
+    const scope = await this.mineWhere(organizationId, userId);
+    if (!scope) return empty;
+
+    const today = civilTodayStart(now);
+    const [s, oldest] = await Promise.all([
+      this.aggregate(scope, today),
+      this.prisma.financialRecord.aggregate({
+        where: { ...scope, status: { in: [FinancialStatus.PENDING, FinancialStatus.OVERDUE] } },
+        _min: { dueDate: true },
+      }),
+    ]);
+    return {
+      openCents: s.pending + s.overdue,
+      openCount: s.pendingCount + s.overdueCount,
+      overdueCents: s.overdue,
+      overdueCount: s.overdueCount,
+      paidCents: s.paid,
+      paidCount: s.paidCount,
+      oldestOpenDueDate: oldest._min.dueDate?.toISOString() ?? null,
+    };
+  }
+
+  /** Escopo de "meu financeiro": organização + alunos do usuário (ele e dependentes); `null` = sem vínculo. */
+  private async mineWhere(
+    organizationId: number,
+    userId: number,
+  ): Promise<Prisma.FinancialRecordWhereInput | null> {
+    const students = await this.studentsService.findMine(organizationId, userId);
+    if (students.length === 0) return null;
+    return { organizationId, studentId: { in: students.map((s) => s.id) } };
   }
 
   async findOne(organizationId: number, id: number) {

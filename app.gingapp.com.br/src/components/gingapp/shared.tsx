@@ -60,6 +60,40 @@ export function StateMessage({ children, tone = "muted" }: { children: ReactNode
   );
 }
 
+/**
+ * Rodapé de listas paginadas: diz quantos itens estão na tela de quantos existem (total do servidor)
+ * e oferece "Carregar mais" enquanto houver mais — a lista nunca é truncada em silêncio.
+ */
+export function LoadMore({
+  shown,
+  total,
+  hasMore,
+  loading,
+  onMore,
+  noun,
+}: {
+  shown: number;
+  total: number | null;
+  hasMore: boolean;
+  loading: boolean;
+  onMore: () => void;
+  noun: string;
+}) {
+  if (!hasMore && (total === null || total <= shown)) return null;
+  return (
+    <div className="flex flex-col items-center gap-2 py-4" data-testid="load-more">
+      <p className="text-xs text-muted-foreground" role="status">
+        {total !== null ? `Mostrando ${shown} de ${total} ${noun}` : `Mostrando ${shown} ${noun}`}
+      </p>
+      {hasMore && (
+        <Button variant="outline" size="sm" disabled={loading} onClick={onMore}>
+          {loading ? "Carregando…" : "Carregar mais"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function timeLabel(iso: string): string | null {
   const date = toDate(iso);
   return date.getUTCHours() === 0 && date.getUTCMinutes() === 0 ? null : fmt(date, "HH:mm");

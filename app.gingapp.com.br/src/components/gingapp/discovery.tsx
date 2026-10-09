@@ -2,19 +2,17 @@ import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/api";
-import { startOfToday, toDate } from "@/lib/format";
+import { toDate } from "@/lib/format";
 import {
   fromCalendar,
   fromEvent,
-  fromRoda,
   useCalendar,
   useCities,
   useEvents,
-  useRodas,
   useStates,
   type Encounter,
 } from "@/lib/queries";
-import { EventCard, PageHeading, SectionHeading, StateMessage } from "./shared";
+import { EventCard, LoadMore, PageHeading, SectionHeading, StateMessage } from "./shared";
 
 type Mode = "community" | "events" | "rodas";
 
@@ -25,38 +23,40 @@ const FILTERS = [
   { value: "WORKSHOP", label: "Workshops" },
 ];
 
+/**
+ * Fonte de cada aba, sempre paginada no servidor (50 por vez + total real em X-Total-Count):
+ * comunidade = /calendar (filtros de estado/cidade/tipo); eventos = /events do grupo;
+ * rodas = /calendar?type=RODA (só a partir de hoje — o /rodas traz também as passadas, que
+ * encheriam a primeira página). Só a aba ativa busca.
+ */
 function useEncounters(mode: Mode, filters: { type: string; stateId: string; cityId: string }) {
-  const calendar = useCalendar(mode === "community" ? filters : {});
-  const events = useEvents();
-  const rodas = useRodas();
+  const calendar = useCalendar(mode === "community" ? filters : { type: "RODA" }, { enabled: mode !== "events" });
+  const events = useEvents(mode === "events");
 
   return useMemo(() => {
-    const today = startOfToday().getTime();
-    if (mode === "community") {
-      return {
-        items: (calendar.data ?? []).map(fromCalendar),
-        isLoading: calendar.isLoading,
-        error: calendar.error,
-      };
-    }
     if (mode === "events") {
       return {
-        items: [...(events.data ?? [])]
+        items: [...events.items]
           .sort((a, b) => toDate(a.date).getTime() - toDate(b.date).getTime())
           .map(fromEvent),
+        total: events.total,
+        hasMore: events.hasNextPage,
+        loadingMore: events.isFetchingNextPage,
+        loadMore: () => void events.fetchNextPage(),
         isLoading: events.isLoading,
         error: events.error,
       };
     }
     return {
-      items: (rodas.data ?? [])
-        .filter((r) => toDate(r.date).getTime() >= today)
-        .sort((a, b) => toDate(a.date).getTime() - toDate(b.date).getTime())
-        .map(fromRoda),
-      isLoading: rodas.isLoading,
-      error: rodas.error,
+      items: calendar.items.map(fromCalendar),
+      total: calendar.total,
+      hasMore: calendar.hasNextPage,
+      loadingMore: calendar.isFetchingNextPage,
+      loadMore: () => void calendar.fetchNextPage(),
+      isLoading: calendar.isLoading,
+      error: calendar.error,
     };
-  }, [mode, calendar.data, calendar.isLoading, calendar.error, events.data, events.isLoading, events.error, rodas.data, rodas.isLoading, rodas.error]);
+  }, [mode, calendar, events]);
 }
 
 export function DiscoveryPage({ mode = "community" }: { mode?: Mode }) {
@@ -70,7 +70,7 @@ export function DiscoveryPage({ mode = "community" }: { mode?: Mode }) {
   const title =
     mode === "community" ? "Na roda, juntos." : mode === "events" ? "Eventos da capoeira" : "Rodas de capoeira";
   const filters = useMemo(() => ({ type: filter, stateId, cityId }), [filter, stateId, cityId]);
-  const { items, isLoading, error } = useEncounters(mode, filters);
+  const { items, total, hasMore, loadingMore, loadMore, isLoading, error } = useEncounters(mode, filters);
 
   const needle = search.trim().toLocaleLowerCase();
   const filtered: Encounter[] = items.filter((event) => {
@@ -136,8 +136,19 @@ export function DiscoveryPage({ mode = "community" }: { mode?: Mode }) {
           ))}
         </div>
       ) : (
-        <StateMessage>Nenhum encontro encontrado. Experimente outra busca ou localização.</StateMessage>
+        <StateMessage>
+          Nenhum encontro encontrado. Experimente outra busca ou localização.
+          {hasMore && " Há mais encontros ainda não carregados — use “Carregar mais” para ampliar a busca."}
+        </StateMessage>
       )}
+      <LoadMore
+        shown={items.length}
+        total={total}
+        hasMore={hasMore}
+        loading={loadingMore}
+        onMore={loadMore}
+        noun={mode === "rodas" ? "rodas" : "encontros"}
+      />
     </>
   );
 }

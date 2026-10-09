@@ -1,10 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { currentStreak, monthStats, passportActions } from "@/lib/derive";
+import {
+  currentStreak,
+  effectiveFinanceStatus,
+  monthRange,
+  monthStats,
+  passportActions,
+  recentMonths,
+  streakOf,
+} from "@/lib/derive";
 import { dayOnly, formatCurrency, initials, readableIconColor, softenColor } from "@/lib/format";
 import { logout } from "@/lib/auth";
 import { getToken, saveSession } from "@/lib/session";
-import type { AttendanceRecord } from "@/lib/queries";
+import { withQuery, type AttendanceRecord } from "@/lib/queries";
 
 const rec = (id: number, date: string, present: boolean): AttendanceRecord => ({
   id,
@@ -47,6 +55,47 @@ describe("frequência", () => {
   });
   it("sequência para na primeira falta", () => {
     expect(currentStreak(records)).toBe(2);
+  });
+});
+
+describe("frequência: estatística do servidor não depende da lista carregada", () => {
+  it("sequência: usa a do servidor (todo o histórico) e só cai na da lista em backend antigo", () => {
+    const one = [rec(1, "2026-10-01T00:00:00.000Z", true)];
+    expect(streakOf({ currentStreak: 63, records: one })).toBe(63); // 63 > registros da página
+    expect(streakOf({ currentStreak: 0, records: one })).toBe(0); // 0 do servidor é um valor válido
+    expect(streakOf({ records: one })).toBe(1); // backend sem o campo
+    expect(streakOf(undefined)).toBe(0);
+  });
+
+  it("monthRange: primeiro e último dia do mês (inclui fevereiro bissexto e virada de ano)", () => {
+    expect(monthRange(new Date(2026, 9, 17))).toEqual({ from: "2026-10-01", to: "2026-10-31" });
+    expect(monthRange(new Date(2028, 1, 10))).toEqual({ from: "2028-02-01", to: "2028-02-29" });
+    expect(monthRange(new Date(2026, 11, 31))).toEqual({ from: "2026-12-01", to: "2026-12-31" });
+  });
+
+  it("recentMonths: o atual primeiro, cruzando o ano", () => {
+    expect(recentMonths(4, new Date(2026, 0, 15))).toEqual(["2026-01", "2025-12", "2025-11", "2025-10"]);
+    expect(recentMonths(12, new Date(2026, 9, 1))).toHaveLength(12);
+  });
+});
+
+describe("financeiro: situação exibida (mesma regra do servidor)", () => {
+  const today = new Date(2026, 9, 9); // 09/10/2026
+  const base = { dueDate: "2026-10-09T00:00:00.000Z" };
+  it("vence hoje NÃO é atrasado; ontem é; futuro não; CANCELLED/PAID/OVERDUE ficam como estão", () => {
+    expect(effectiveFinanceStatus({ ...base, status: "PENDING" }, today)).toBe("PENDING");
+    expect(effectiveFinanceStatus({ dueDate: "2026-10-08T00:00:00.000Z", status: "PENDING" }, today)).toBe("OVERDUE");
+    expect(effectiveFinanceStatus({ dueDate: "2026-10-10T00:00:00.000Z", status: "PENDING" }, today)).toBe("PENDING");
+    expect(effectiveFinanceStatus({ dueDate: "2020-01-01T00:00:00.000Z", status: "PAID" }, today)).toBe("PAID");
+    expect(effectiveFinanceStatus({ dueDate: "2020-01-01T00:00:00.000Z", status: "CANCELLED" }, today)).toBe("CANCELLED");
+    expect(effectiveFinanceStatus({ dueDate: "2026-12-01T00:00:00.000Z", status: "OVERDUE" }, today)).toBe("OVERDUE");
+  });
+});
+
+describe("withQuery", () => {
+  it("monta a query ignorando vazios/indefinidos", () => {
+    expect(withQuery("/x", { a: 1, b: "", c: undefined, d: "z" })).toBe("/x?a=1&d=z");
+    expect(withQuery("/x")).toBe("/x");
   });
 });
 

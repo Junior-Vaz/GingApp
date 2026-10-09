@@ -82,7 +82,7 @@ export function JourneyPage() {
   const graduations = useGraduations(student?.id);
   const certificates = useCertificates();
   const passport = usePassport();
-  const attendance = useAttendance();
+  const attendance = useAttendance({ limit: 1 }); // só precisa do % dos 30 dias (agregado no servidor)
 
   const list = graduations.data ?? [];
   const current = list[0] ?? null;

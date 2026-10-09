@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
 import { createTestApp } from './utils/test-app';
+import { MeFixture, createMeFixture } from './utils/me-fixtures';
 import { ALUNO_EMAIL as ALUNO, MESTRE_EMAIL as MESTRE, SecondOrg, createSecondOrg, loginAs } from './utils/list-helpers';
 
 /**
@@ -309,5 +310,95 @@ describe('Comunicados — lista paginada e limpar campos (e2e)', () => {
     await get('/announcements', aluno.token).expect(200);
     const a = await prisma.announcement.findFirstOrThrow({ where: { title: { startsWith: TAG }, organizationId: mestre.organizationId } });
     await request(app.getHttpServer()).patch(`/api/announcements/${a.id}`).set('Authorization', `Bearer ${aluno.token}`).send({ unitId: null }).expect(403);
+  });
+});
+
+/**
+ * Notificações com >50: GET /notifications cortava em 50 sem aviso (e o app contava "não lidas"
+ * sobre essa lista). Agora limit/offset + X-Total-Count; o contador de não lidas vem de
+ * /notifications/unread-count (agregado no banco).
+ */
+describe('Notificações — paginação com total real (e2e)', () => {
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let fx: MeFixture;
+  const get = (path: string, token: string) =>
+    request(app.getHttpServer()).get(`/api${path}`).set('Authorization', `Bearer ${token}`);
+  const base = Date.now() - 60 * 60 * 1000;
+
+  before(async () => {
+    app = await createTestApp();
+    fx = await createMeFixture(app, prisma, 'notme');
+    // 58 do aluno (createdAt distintos, mais novas primeiro = índice menor; 3 já lidas) e 4 do
+    // responsável (não podem vazar).
+    await prisma.notification.createMany({
+      data: [
+        ...Array.from({ length: 58 }, (_, i) => ({
+          userId: fx.self.userId,
+          title: `notme self ${i}`,
+          body: 'corpo',
+          createdAt: new Date(base - i * 1000),
+          readAt: i % 20 === 5 ? new Date() : null, // i = 5, 25, 45
+        })),
+        ...Array.from({ length: 4 }, (_, i) => ({
+          userId: fx.guardian.userId,
+          title: `notme guardian ${i}`,
+          body: 'corpo',
+          createdAt: new Date(base - i * 1000),
+        })),
+      ],
+    });
+  });
+
+  after(async () => {
+    await fx.cleanup();
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  it('58 notificações: sem limit vêm 50 (array, mais recentes primeiro) e X-Total-Count = 58; offset completa sem repetir', async () => {
+    const first = await get('/notifications', fx.self.token).expect(200);
+    assert.ok(Array.isArray(first.body));
+    assert.equal(first.body.length, 50);
+    assert.equal(first.headers['x-total-count'], '58');
+    assert.equal(first.body[0].title, 'notme self 0');
+
+    const rest = await get('/notifications?limit=50&offset=50', fx.self.token).expect(200);
+    assert.equal(rest.body.length, 8);
+    assert.equal(rest.headers['x-total-count'], '58');
+    const titles = [...first.body, ...rest.body].map((n: { title: string }) => n.title);
+    assert.deepEqual(titles, Array.from({ length: 58 }, (_, i) => `notme self ${i}`));
+
+    const big = await get('/notifications?limit=200', fx.self.token).expect(200);
+    assert.equal(big.body.length, 58);
+  });
+
+  it('o contador de não lidas vem do banco (58 - 3 lidas = 55), independente do tamanho da página', async () => {
+    const res = await get('/notifications/unread-count', fx.self.token).expect(200);
+    assert.deepEqual(res.body, { count: 55 });
+    // contar sobre a página de 50 daria outro número (lidas i=5,25,45 estão nela => 47)
+    const page = await get('/notifications', fx.self.token).expect(200);
+    const naive = page.body.filter((n: { readAt: string | null }) => n.readAt === null).length;
+    assert.equal(naive, 47);
+    assert.notEqual(naive, res.body.count);
+  });
+
+  it('isolamento: cada um só vê as suas; sem notificações => [] com total 0', async () => {
+    const guardian = await get('/notifications', fx.guardian.token).expect(200);
+    assert.equal(guardian.headers['x-total-count'], '4');
+    assert.ok(guardian.body.every((n: { userId: number }) => n.userId === fx.guardian.userId));
+    const self = await get('/notifications?limit=200', fx.self.token).expect(200);
+    assert.ok(self.body.every((n: { userId: number }) => n.userId === fx.self.userId));
+    const orphan = await get('/notifications', fx.orphan.token).expect(200);
+    assert.deepEqual(orphan.body, []);
+    assert.equal(orphan.headers['x-total-count'], '0');
+  });
+
+  it('parâmetros inválidos => 400 (limit=201/0/abc, offset=-1, desconhecido); sem token 401', async () => {
+    for (const qs of ['limit=201', 'limit=0', 'limit=abc', 'offset=-1', 'foo=1', 'q=x']) {
+      await get(`/notifications?${qs}`, fx.self.token).expect(400);
+    }
+    await get('/notifications?limit=200&offset=0', fx.self.token).expect(200);
+    await request(app.getHttpServer()).get('/api/notifications').expect(401);
   });
 });

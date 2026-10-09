@@ -1,7 +1,22 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { civilDateRange } from '../../../shared/dates/date-range';
+import { pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { civilTodayStart } from '../finance/finance.service';
 import { StudentsService } from '../students/students.service';
+import { ListMyAttendanceQueryDto } from './dto/list-my-attendance-query.dto';
 import { AttendanceEntryDto } from './dto/mark-attendance.dto';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Resultado de findMine: `total` vai no header X-Total-Count; o resto compõe o corpo. */
+export interface MyAttendance {
+  records: unknown[];
+  total: number;
+  last30dPercent: number | null;
+  currentStreak: number;
+}
 
 export interface RosterEntry {
   studentId: number;
@@ -30,27 +45,70 @@ export class AttendanceService {
     });
   }
 
-  /** "Minha frequência" — escopado aos alunos ligados ao usuário autenticado (mesmo padrão
-   * de FinanceService.findMine), com o percentual dos últimos 30 dias já calculado. */
-  async findMine(organizationId: number, userId: number) {
+  /**
+   * "Minha frequência" — escopado aos alunos ligados ao usuário autenticado (mesmo padrão de
+   * FinanceService.findMine). `records` é paginado (limit/offset) e filtrável pela data da AULA
+   * (from/to), mais recente primeiro; `total` é o nº de registros que casam com o filtro. Os
+   * indicadores (last30dPercent, currentStreak) são calculados por AGREGAÇÃO no banco sobre TODO o
+   * histórico do escopo — nunca sobre a página devolvida.
+   *
+   * last30dPercent = presenças / registros das aulas dos últimos 30 dias civis (hoje em
+   * America/Sao_Paulo e os 29 anteriores); null sem registros. currentStreak = presenças seguidas,
+   * da aula mais recente para trás, até a primeira falta (desempate de mesma data: maior id).
+   */
+  async findMine(
+    organizationId: number,
+    userId: number,
+    query: ListMyAttendanceQueryDto = {},
+    now: Date = new Date(),
+  ): Promise<MyAttendance> {
     const students = await this.studentsService.findMine(organizationId, userId);
-    if (students.length === 0) return { records: [], last30dPercent: null };
+    if (students.length === 0) return { records: [], total: 0, last30dPercent: null, currentStreak: 0 };
 
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const studentIds = students.map((s) => s.id);
+    const scope: Prisma.AttendanceWhereInput = { organizationId, studentId: { in: students.map((s) => s.id) } };
+    const lessonDate = civilDateRange(query.from, query.to);
+    const where: Prisma.AttendanceWhereInput = { ...scope, ...(lessonDate ? { lesson: { date: lessonDate } } : {}) };
+    const order: Prisma.AttendanceOrderByWithRelationInput[] = [{ lesson: { date: 'desc' } }, { id: 'desc' }];
 
-    const records = await this.prisma.attendance.findMany({
-      where: { organizationId, studentId: { in: studentIds } },
-      include: { lesson: { select: { date: true, classId: true } } },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
+    const since = new Date(civilTodayStart(now).getTime() - 29 * DAY_MS);
+    const last30d: Prisma.AttendanceWhereInput = { ...scope, lesson: { date: { gte: since } } };
+
+    const [records, total, last30dTotal, last30dPresent, firstAbsent] = await Promise.all([
+      this.prisma.attendance.findMany({
+        where,
+        include: { lesson: { select: { date: true, classId: true } } },
+        orderBy: order,
+        ...pageArgs(query),
+      }),
+      this.prisma.attendance.count({ where }),
+      this.prisma.attendance.count({ where: last30d }),
+      this.prisma.attendance.count({ where: { ...last30d, present: true } }),
+      this.prisma.attendance.findFirst({
+        where: { ...scope, present: false },
+        select: { id: true, lesson: { select: { date: true } } },
+        orderBy: order,
+      }),
+    ]);
+
+    // Tudo que vem ANTES da falta mais recente (data maior, ou mesma data e id maior) é presença.
+    const currentStreak = await this.prisma.attendance.count({
+      where: firstAbsent
+        ? {
+            ...scope,
+            OR: [
+              { lesson: { date: { gt: firstAbsent.lesson.date } } },
+              { lesson: { date: firstAbsent.lesson.date }, id: { gt: firstAbsent.id } },
+            ],
+          }
+        : scope,
     });
 
-    const recent = records.filter((r) => r.createdAt >= thirtyDaysAgo);
-    const presentCount = recent.filter((r) => r.present).length;
-    const last30dPercent = recent.length > 0 ? Math.round((presentCount / recent.length) * 100) : null;
-
-    return { records, last30dPercent };
+    return {
+      records,
+      total,
+      last30dPercent: last30dTotal > 0 ? Math.round((last30dPresent / last30dTotal) * 100) : null,
+      currentStreak,
+    };
   }
 
   /**
