@@ -126,6 +126,11 @@ export function StudentPicker({
         value={text}
         disabled={disabled}
         onChange={(e) => setText(e.target.value)}
+        // Dentro de um <form> o Enter dispararia o submit do formulário inteiro (gravava o registro
+        // SEM aluno). A busca é por digitação (debounce), então o Enter não deve fazer nada aqui.
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.preventDefault();
+        }}
       />
     </div>
   );
