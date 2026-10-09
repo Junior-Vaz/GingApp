@@ -5,20 +5,22 @@ import { toast } from "sonner";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-type Call = { method: string; path: string; body: unknown };
-const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+type Call = { method: string; path: string; query: URLSearchParams; body: unknown };
+const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers });
 
-/** fetch falso: roteia por "METHOD /caminho" (sem o prefixo da API) e registra as chamadas. */
-function mockApi(routes: Record<string, () => Response>) {
+/** fetch falso: roteia por "METHOD /caminho" (sem prefixo da API NEM query) e registra as chamadas (`query` = params). */
+function mockApi(routes: Record<string, (call: Call) => Response>) {
   const calls: Call[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init: RequestInit = {}) => {
-      const path = url.replace(/^https?:\/\/[^/]+\/api/, "");
+      const [path = "", search = ""] = url.replace(/^https?:\/\/[^/]+\/api/, "").split("?");
       const method = init.method ?? "GET";
-      calls.push({ method, path, body: init.body ? JSON.parse(init.body as string) : undefined });
+      const call: Call = { method, path, query: new URLSearchParams(search), body: init.body ? JSON.parse(init.body as string) : undefined };
+      calls.push(call);
       const handler = routes[`${method} ${path}`];
-      return Promise.resolve(handler ? handler() : json(404, { message: `sem rota ${method} ${path}` }));
+      return Promise.resolve(handler ? handler(call) : json(404, { message: `sem rota ${method} ${path}` }));
     }),
   );
   return calls;
@@ -34,7 +36,7 @@ const teachers = [
   { id: 10, role: "MESTRE", status: "ACTIVE", user: { id: 1, name: "Mestre Bimba", email: "bimba@x.com", phone: "7133" } },
   { id: 11, role: "PROFESSOR", status: "INACTIVE", user: { id: 2, name: "Pastinha", email: "pastinha@x.com", phone: null } },
 ];
-const base = () => ({ "GET /teachers": () => json(200, teachers) });
+const base = () => ({ "GET /teachers": () => json(200, teachers, { "X-Total-Count": String(teachers.length) }) });
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -48,22 +50,77 @@ describe("schema de professores", () => {
     expect(createTeacherSchema.safeParse({ ...v, password: "12345" }).success).toBe(false);
     expect(createTeacherSchema.safeParse({ ...v, email: "x" }).success).toBe(false);
     expect(createPayload(v)).toEqual({ name: "Ab", email: "a@b.com", password: "123456", phone: undefined, role: "PROFESSOR" });
-    expect(editPayload(v)).toEqual({ name: "Ab", phone: undefined, role: "PROFESSOR", status: "ACTIVE" });
+    // edição: telefone esvaziado => null (limpa); criação omite
+    expect(editPayload(v)).toEqual({ name: "Ab", phone: null, role: "PROFESSOR", status: "ACTIVE" });
+    expect(editPayload({ ...v, phone: " 71 " })).toMatchObject({ phone: "71" });
   });
 });
 
 describe("ProfessoresPage", () => {
-  it("lista com papel/status e filtra por papel e busca", async () => {
-    mockApi(base());
+  it("lista com papel/status e envia papel, status e busca ao SERVIDOR", async () => {
+    const calls = mockApi({
+      "GET /teachers": (c) => {
+        const role = c.query.get("role");
+        const status = c.query.get("status");
+        const q = c.query.get("q")?.toLowerCase();
+        const rows = teachers.filter(
+          (t) => (!role || t.role === role) && (!status || t.status === status) && (!q || t.user.email.includes(q)),
+        );
+        return json(200, rows, { "X-Total-Count": String(rows.length) });
+      },
+    });
     renderPage(<ProfessoresPage />);
     expect(await screen.findByText("Mestre Bimba")).toBeInTheDocument();
     expect(screen.getByTestId("table-count")).toHaveTextContent("2 registros");
+    expect(screen.queryByTestId("table-limit-warning")).not.toBeInTheDocument();
+    const first = calls.find((c) => c.path === "/teachers")!;
+    expect(first.query.get("limit")).toBe("10");
+    expect(first.query.get("offset")).toBe("0");
+    expect(first.query.has("role")).toBe(false);
+    expect(first.query.has("status")).toBe(false);
+    expect(first.query.has("q")).toBe(false);
+
     fireEvent.change(screen.getByLabelText("Filtrar por papel"), { target: { value: "PROFESSOR" } });
-    expect(screen.queryByText("Mestre Bimba")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Mestre Bimba")).not.toBeInTheDocument());
     expect(screen.getByText("Pastinha")).toBeInTheDocument();
+    expect(calls.at(-1)!.query.get("role")).toBe("PROFESSOR");
     fireEvent.change(screen.getByLabelText("Filtrar por papel"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "BIMBA@" } });
-    expect(screen.queryByText("Pastinha")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "ACTIVE" } });
+    await waitFor(() => expect(calls.at(-1)!.query.get("status")).toBe("ACTIVE"));
+    expect(calls.at(-1)!.query.has("role")).toBe(false);
+    expect(await screen.findByText("Mestre Bimba")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "" } });
+
+    // busca com debounce: um só GET com q
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "bimba" } });
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "bimba@" } });
+    await waitFor(() => expect(calls.at(-1)!.query.get("q")).toBe("bimba@"));
+    expect(calls.filter((c) => c.path === "/teachers" && c.query.has("q"))).toHaveLength(1);
+    await waitFor(() => expect(screen.queryByText("Pastinha")).not.toBeInTheDocument());
+  });
+
+  it("pagina no servidor: total do header, offset da página 2 e volta à pág. 1 ao filtrar", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      ...teachers[0]!, id: 100 + i, user: { ...teachers[0]!.user, id: 100 + i, name: `Prof ${String(i + 1).padStart(2, "0")}` },
+    }));
+    const calls = mockApi({
+      "GET /teachers": (c) => {
+        const offset = Number(c.query.get("offset") ?? 0);
+        const limit = Number(c.query.get("limit") ?? 50);
+        return json(200, many.slice(offset, offset + limit), { "X-Total-Count": "25" });
+      },
+    });
+    renderPage(<ProfessoresPage />);
+    expect(await screen.findByText("Prof 01")).toBeInTheDocument();
+    expect(screen.getByTestId("table-count")).toHaveTextContent("25 registros");
+    expect(screen.getByText("Página 1 de 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Próxima página"));
+    expect(await screen.findByText("Prof 11")).toBeInTheDocument();
+    expect(calls.at(-1)!.query.get("offset")).toBe("10");
+    fireEvent.change(screen.getByLabelText("Filtrar por papel"), { target: { value: "MESTRE" } });
+    await waitFor(() => expect(calls.at(-1)!.query.get("role")).toBe("MESTRE"));
+    expect(calls.at(-1)!.query.get("offset")).toBe("0");
+    expect(await screen.findByText("Página 1 de 3")).toBeInTheDocument();
   });
 
   it("erro e vazio", async () => {
@@ -116,6 +173,32 @@ describe("ProfessoresPage", () => {
       path: "/teachers/10",
       body: { name: "Mestre Bimba", phone: "7133", role: "MESTRE", status: "INACTIVE" },
     });
+  });
+
+  it("edita: esvaziar o telefone envia null (limpa no servidor); nome/papel/status nunca null", async () => {
+    const calls = mockApi({ ...base(), "PATCH /teachers/10": () => json(200, {}) });
+    renderPage(<ProfessoresPage />);
+    await screen.findByText("Mestre Bimba");
+    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Telefone")).toHaveValue("7133"));
+    fireEvent.change(within(dialog).getByLabelText("Telefone"), { target: { value: "" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    const body = calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>;
+    expect(body).toEqual({ name: "Mestre Bimba", phone: null, role: "MESTRE", status: "ACTIVE" });
+  });
+
+  it("erro 400 do PATCH aparece em toast e mantém o formulário aberto", async () => {
+    mockApi({ ...base(), "PATCH /teachers/10": () => json(400, { message: ["phone must be a string"] }) });
+    renderPage(<ProfessoresPage />);
+    await screen.findByText("Mestre Bimba");
+    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Nome")).toHaveValue("Mestre Bimba"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("phone must be a string"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("inativa com confirmação (DELETE) só para ativos", async () => {

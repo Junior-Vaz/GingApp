@@ -7,7 +7,10 @@ import { saveSession, clearSession, type AuthUser } from "@/lib/session";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers });
+const urlPath = (url: string) => url.replace(/^https?:\/\/[^/]+\/api/, "").split("?")[0]!;
+const urlQuery = (url: string) => new URLSearchParams(url.split("?")[1] ?? "");
 const user = (role: AuthUser["role"]): AuthUser => ({
   id: 1, name: "M", email: "m@x.com", userType: "MEMBER", isSuperAdmin: false,
   organizationId: 1, organizationSlug: "g", role,
@@ -22,8 +25,9 @@ const UNITS = [{ id: 7, organizationId: 1, name: "Matriz", address: null, city: 
 function mountFetch() {
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
     const method = init?.method ?? "GET";
-    if (method === "GET" && url.endsWith("/announcements")) return Promise.resolve(json(200, ANNOUNCEMENTS));
-    if (method === "GET" && url.endsWith("/units")) return Promise.resolve(json(200, UNITS));
+    if (method === "GET" && urlPath(url) === "/announcements")
+      return Promise.resolve(json(200, ANNOUNCEMENTS, { "X-Total-Count": String(ANNOUNCEMENTS.length) }));
+    if (method === "GET" && urlPath(url) === "/units") return Promise.resolve(json(200, UNITS, { "X-Total-Count": "1" }));
     return Promise.resolve(json(200, { id: 9 }));
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -61,8 +65,9 @@ describe("ComunicadosPage", () => {
     mountFetch();
     renderPage();
     await screen.findByText("Feriado");
-    expect(screen.getByText("Todo o grupo")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getAllByText("Matriz").length).toBeGreaterThan(0));
+    const table = within(screen.getByRole("table"));
+    expect(table.getByText("Todo o grupo")).toBeInTheDocument();
+    await waitFor(() => expect(table.getAllByText("Matriz").length).toBeGreaterThan(0));
     expect(screen.getByText("Ativo")).toBeInTheDocument();
     expect(screen.getByText("Inativo")).toBeInTheDocument();
   });
@@ -118,12 +123,96 @@ describe("ComunicadosPage", () => {
     expect(screen.getAllByRole("button", { name: "Editar" })).toHaveLength(2);
   });
 
+  it("envia limit/offset ao servidor e mostra o total; filtros e busca (debounce) vão como query", async () => {
+    const fetchMock = mountFetch();
+    renderPage();
+    await screen.findByText("Feriado");
+    const gets = () =>
+      calls(fetchMock, "GET").map(([url]) => ({ path: urlPath(url), query: urlQuery(url) })).filter((c) => c.path === "/announcements");
+    const first = gets()[0]!;
+    expect(first.query.get("limit")).toBe("10");
+    expect(first.query.get("offset")).toBe("0");
+    for (const key of ["q", "isActive", "unitId"]) expect(first.query.has(key)).toBe(false);
+    expect(screen.getByTestId("table-count")).toHaveTextContent("2 registros");
+    expect(screen.queryByTestId("table-limit-warning")).not.toBeInTheDocument();
+    // lista auxiliar de unidades pede o teto de 200
+    expect(calls(fetchMock, "GET").some(([url]) => urlPath(url) === "/units" && urlQuery(url).get("limit") === "200")).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Filtrar por situação"), { target: { value: "false" } });
+    await waitFor(() => expect(gets().at(-1)!.query.get("isActive")).toBe("false"));
+    await waitFor(() => expect(screen.getAllByRole("option", { name: "Matriz" }).length).toBeGreaterThan(0));
+    fireEvent.change(screen.getByLabelText("Filtrar por unidade"), { target: { value: "7" } });
+    await waitFor(() => expect(gets().at(-1)!.query.get("unitId")).toBe("7"));
+    expect(gets().at(-1)!.query.get("isActive")).toBe("false");
+
+    const before = gets().length;
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Fe" } });
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Feriado" } });
+    expect(gets().length).toBe(before);
+    await waitFor(() => expect(gets().at(-1)!.query.get("q")).toBe("Feriado"));
+    expect(gets().filter((c) => c.query.has("q"))).toHaveLength(1);
+  });
+
+  it("avisa quando há mais de 200 unidades", async () => {
+    const fetchMock = mountFetch();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) =>
+      urlPath(url) === "/units" ? Promise.resolve(json(200, UNITS, { "X-Total-Count": "260" })) : original(url, init),
+    );
+    renderPage();
+    await screen.findByText("Feriado");
+    fireEvent.click(screen.getByRole("button", { name: /novo comunicado/i }));
+    expect(await screen.findByTestId("aux-limit-notice")).toHaveTextContent("260 unidades");
+  });
+
+  it("editar um comunicado de unidade e voltar ao grupo inteiro envia unitId null", async () => {
+    // jsdom não implementa estes métodos usados pelo Select do Radix.
+    Element.prototype.scrollIntoView = vi.fn();
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.releasePointerCapture = vi.fn();
+    const fetchMock = mountFetch();
+    renderPage();
+    await screen.findByText("Roda extra");
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[1]!); // id 2, unitId 7
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Título")).toHaveValue("Roda extra"));
+    const trigger = within(dialog).getByRole("combobox", { name: "Público" });
+    await waitFor(() => expect(trigger).toHaveTextContent("Somente Matriz"));
+    fireEvent.keyDown(trigger, { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("option", { name: "Todo o grupo" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls(fetchMock, "PATCH")).toHaveLength(1));
+    const [url, init] = calls(fetchMock, "PATCH")[0]!;
+    expect(url).toMatch(/\/announcements\/2$/);
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body).toHaveProperty("unitId", null);
+    // title/body/isActive obrigatórios: nunca null
+    expect(body).toMatchObject({ title: "Roda extra", body: "Sábado na matriz", isActive: false });
+  });
+
+  it("erro 400 do PATCH aparece em toast e mantém o diálogo aberto", async () => {
+    const fetchMock = mountFetch();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) =>
+      (init?.method ?? "GET") === "PATCH"
+        ? Promise.resolve(json(400, { message: ["unitId must be an integer number"] }))
+        : original(url, init),
+    );
+    renderPage();
+    await screen.findByText("Feriado");
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("unitId must be an integer number"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
   it("erro 403 do backend vira toast e mantém o diálogo aberto", async () => {
     const fetchMock = mountFetch();
     fetchMock.mockImplementation((url: string, init?: RequestInit) => {
       const method = init?.method ?? "GET";
       if (method === "POST") return Promise.resolve(json(403, { message: "Sem permissão." }));
-      return Promise.resolve(json(200, url.endsWith("/units") ? UNITS : ANNOUNCEMENTS));
+      return Promise.resolve(json(200, urlPath(url) === "/units" ? UNITS : ANNOUNCEMENTS));
     });
     renderPage();
     await screen.findByText("Feriado");

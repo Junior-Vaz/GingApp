@@ -31,14 +31,15 @@ export interface EventItem {
 export interface EventPayload {
   title?: string | undefined;
   date?: string | undefined;
-  description?: string | undefined;
-  location?: string | undefined;
-  unitId?: number | undefined;
-  isPublic?: boolean | undefined;
   type?: string | undefined;
-  stateId?: number | undefined;
-  cityId?: number | undefined;
-  imageUrl?: string | undefined;
+  isPublic?: boolean | undefined;
+  /** Opcionais: `null` LIMPA a coluna no PATCH (e `""` em imageUrl daria 400); omitido = não mexe. */
+  description?: string | null | undefined;
+  location?: string | null | undefined;
+  unitId?: number | null | undefined;
+  stateId?: number | null | undefined;
+  cityId?: number | null | undefined;
+  imageUrl?: string | null | undefined;
 }
 
 export interface Unit {

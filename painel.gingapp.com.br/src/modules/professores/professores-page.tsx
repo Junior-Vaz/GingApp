@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Plus } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { createCrud } from "@/lib/crud";
+import { useListParams } from "@/lib/list-params";
 import { NativeSelect } from "@/modules/alunos/native-select";
 import {
   TEACHER_ROLE_LABEL,
@@ -22,7 +23,6 @@ import {
   type Teacher,
   type TeacherFormValues,
   type TeacherInput,
-  type TeacherRole,
 } from "./schema";
 
 const teachers = createCrud<Teacher, TeacherInput>("/teachers", {
@@ -32,18 +32,14 @@ const teachers = createCrud<Teacher, TeacherInput>("/teachers", {
 });
 
 export function ProfessoresPage() {
-  const list = teachers.useList();
+  // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
+  const lp = useListParams({ pageSize: 10, filters: { role: "", status: "" } });
+  const list = teachers.usePage(lp.params);
   const create = teachers.useCreate();
   const update = teachers.useUpdate();
   const remove = teachers.useRemove();
   const [editing, setEditing] = useState<Teacher | "new" | null>(null);
   const [deleting, setDeleting] = useState<Teacher | null>(null);
-  const [roleFilter, setRoleFilter] = useState<TeacherRole | "">("");
-
-  const rows = useMemo(
-    () => (list.data ? list.data.filter((t) => !roleFilter || t.role === roleFilter) : undefined),
-    [list.data, roleFilter],
-  );
 
   const columns: Column<Teacher>[] = [
     { id: "name", header: "Nome", sortValue: (t) => t.user.name, cell: (t) => <span className="font-medium">{t.user.name}</span> },
@@ -82,25 +78,39 @@ export function ProfessoresPage() {
       />
       <DataTable
         columns={columns}
-        data={rows}
+        data={list.items}
+        server={{ ...lp.server, total: list.total, isFetching: list.isFetching }}
         isLoading={list.isLoading}
         error={list.error}
         onRetry={() => void list.refetch()}
         getRowId={(t) => t.id}
-        searchText={(t) => `${t.user.name} ${t.user.email} ${t.user.phone ?? ""}`}
-        searchPlaceholder="Buscar por nome, e-mail, telefone…"
-        emptyMessage="Nenhum professor cadastrado ainda."
+        searchPlaceholder="Buscar por nome ou e-mail…"
+        emptyMessage={
+          lp.filters.role || lp.filters.status ? "Nenhum professor com esses filtros." : "Nenhum professor cadastrado ainda."
+        }
         toolbar={
-          <NativeSelect
-            aria-label="Filtrar por papel"
-            className="w-44"
-            value={roleFilter}
-            onChange={(e) => setRoleFilter(e.target.value as TeacherRole | "")}
-          >
-            <option value="">Todos os papéis</option>
-            <option value="PROFESSOR">Professor</option>
-            <option value="MESTRE">Mestre</option>
-          </NativeSelect>
+          <div className="flex flex-wrap gap-2">
+            <NativeSelect
+              aria-label="Filtrar por papel"
+              className="w-44"
+              value={lp.filters.role}
+              onChange={(e) => lp.setFilter("role", e.target.value)}
+            >
+              <option value="">Todos os papéis</option>
+              <option value="PROFESSOR">Professor</option>
+              <option value="MESTRE">Mestre</option>
+            </NativeSelect>
+            <NativeSelect
+              aria-label="Filtrar por status"
+              className="w-44"
+              value={lp.filters.status}
+              onChange={(e) => lp.setFilter("status", e.target.value)}
+            >
+              <option value="">Todos os status</option>
+              <option value="ACTIVE">Ativo</option>
+              <option value="INACTIVE">Inativo</option>
+            </NativeSelect>
+          </div>
         }
         rowActions={(t) => (
           <>

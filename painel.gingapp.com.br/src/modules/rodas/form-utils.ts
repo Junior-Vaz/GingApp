@@ -27,3 +27,7 @@ export const optionalText = (value: string): string | undefined => value.trim() 
 export const optionalId = (value: string): number | undefined => (value ? Number(value) : undefined);
 
 export const idToField = (id: number | null | undefined): string => (id ? String(id) : "");
+/** Edição (PATCH): texto vazio vira `null` (o backend limpa a coluna); `undefined` não mexeria. */
+export const nullableText = (value: string): string | null => value.trim() || null;
+
+export const nullableId = (value: string): number | null => (value ? Number(value) : null);

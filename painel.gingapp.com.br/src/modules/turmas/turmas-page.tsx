@@ -10,6 +10,7 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createCrud } from "@/lib/crud";
+import { useListParams } from "@/lib/list-params";
 import { NativeSelect } from "@/modules/alunos/native-select";
 import {
   CLASS_STATUS_LABEL,
@@ -17,15 +18,17 @@ import {
   classSchema,
   classToForm,
   classToCreatePayload,
-  classToPayload,
+  classToUpdatePayload,
   emptyClassForm,
   scheduleLabel,
   type ClassFormValues,
   type ClassInput,
   type ClassItem,
-  type ClassStatus,
   type Unit,
 } from "./schema";
+
+/** Selects auxiliares vêm de lista paginada: pedimos o máximo do servidor (200) e avisamos se passar. */
+const OPTIONS_LIMIT = 200;
 
 const classes = createCrud<ClassItem, ClassInput>("/classes", {
   created: "Turma criada.",
@@ -35,24 +38,22 @@ const classes = createCrud<ClassItem, ClassInput>("/classes", {
 const units = createCrud<Unit>("/units");
 
 export function TurmasPage() {
-  const list = classes.useList();
-  const unitList = units.useList();
+  // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
+  const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "" } });
+  const list = classes.usePage(lp.params);
+  const unitList = units.usePage({ limit: OPTIONS_LIMIT });
+  const unitOptions = unitList.items ?? [];
+  const unitsTruncated = unitList.total > OPTIONS_LIMIT;
   const create = classes.useCreate();
   const update = classes.useUpdate();
   const remove = classes.useRemove();
   const [editing, setEditing] = useState<ClassItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<ClassItem | null>(null);
-  const [statusFilter, setStatusFilter] = useState<ClassStatus | "">("");
 
   const unitName = useMemo(() => {
-    const map = new Map((unitList.data ?? []).map((u) => [u.id, u.name]));
+    const map = new Map((unitList.items ?? []).map((u) => [u.id, u.name]));
     return (id: number | null) => (id ? (map.get(id) ?? "—") : "—");
-  }, [unitList.data]);
-
-  const rows = useMemo(
-    () => (list.data ? list.data.filter((c) => !statusFilter || c.status === statusFilter) : undefined),
-    [list.data, statusFilter],
-  );
+  }, [unitList.items]);
 
   const columns: Column<ClassItem>[] = [
     { id: "name", header: "Nome", sortValue: (c) => c.name, cell: (c) => <span className="font-medium">{c.name}</span> },
@@ -89,25 +90,47 @@ export function TurmasPage() {
       />
       <DataTable
         columns={columns}
-        data={rows}
+        data={list.items}
+        server={{ ...lp.server, total: list.total, isFetching: list.isFetching }}
         isLoading={list.isLoading}
         error={list.error}
         onRetry={() => void list.refetch()}
         getRowId={(c) => c.id}
-        searchText={(c) => `${c.name} ${c.description ?? ""} ${unitName(c.unitId)}`}
-        searchPlaceholder="Buscar por nome, unidade…"
-        emptyMessage="Nenhuma turma cadastrada ainda."
+        searchPlaceholder="Buscar por nome ou descrição…"
+        emptyMessage={
+          lp.filters.status || lp.filters.unitId ? "Nenhuma turma com esses filtros." : "Nenhuma turma cadastrada ainda."
+        }
         toolbar={
-          <NativeSelect
-            aria-label="Filtrar por status"
-            className="w-44"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as ClassStatus | "")}
-          >
-            <option value="">Todos os status</option>
-            <option value="ACTIVE">Ativa</option>
-            <option value="INACTIVE">Inativa</option>
-          </NativeSelect>
+          <div className="flex flex-wrap gap-2">
+            <NativeSelect
+              aria-label="Filtrar por unidade"
+              className="w-44"
+              value={lp.filters.unitId}
+              onChange={(e) => lp.setFilter("unitId", e.target.value)}
+            >
+              <option value="">Todas as unidades</option>
+              {unitOptions.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </NativeSelect>
+            <NativeSelect
+              aria-label="Filtrar por status"
+              className="w-44"
+              value={lp.filters.status}
+              onChange={(e) => lp.setFilter("status", e.target.value)}
+            >
+              <option value="">Todos os status</option>
+              <option value="ACTIVE">Ativa</option>
+              <option value="INACTIVE">Inativa</option>
+            </NativeSelect>
+            {unitsTruncated && (
+              <p data-testid="units-limit-warning" className="self-center text-xs text-muted-foreground">
+                Mostrando as primeiras {OPTIONS_LIMIT} de {unitList.total} unidades.
+              </p>
+            )}
+          </div>
         }
         rowActions={(c) => (
           <>
@@ -131,7 +154,7 @@ export function TurmasPage() {
         defaultValues={editing && editing !== "new" ? classToForm(editing) : emptyClassForm}
         onSubmit={(values) =>
           editing && editing !== "new"
-            ? update.mutateAsync({ id: editing.id, data: classToPayload(values) })
+            ? update.mutateAsync({ id: editing.id, data: classToUpdatePayload(values) })
             : create.mutateAsync(classToCreatePayload(values))
         }
       >
@@ -160,13 +183,18 @@ export function TurmasPage() {
                     <FormControl>
                       <NativeSelect {...field}>
                         <option value="">—</option>
-                        {(unitList.data ?? []).map((u) => (
+                        {unitOptions.map((u) => (
                           <option key={u.id} value={u.id}>
                             {u.name}
                           </option>
                         ))}
                       </NativeSelect>
                     </FormControl>
+                    {unitsTruncated && (
+                      <p className="text-xs text-muted-foreground">
+                        Lista parcial: {OPTIONS_LIMIT} de {unitList.total} unidades.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

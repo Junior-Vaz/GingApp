@@ -18,14 +18,17 @@ export interface Unit {
   name: string;
 }
 
-/** Corpo aceito por POST /classes e PATCH /classes/:id (CreateClassDto / UpdateClassDto). */
+/**
+ * Corpo aceito por POST /classes e PATCH /classes/:id (CreateClassDto / UpdateClassDto).
+ * No PATCH, `null` LIMPA unitId/description/weekday/startTime/endTime; `name` e `status` nunca vão `null` (400).
+ */
 export interface ClassInput {
   name: string;
-  unitId?: number | undefined;
-  description?: string | undefined;
-  weekday?: number | undefined;
-  startTime?: string | undefined;
-  endTime?: string | undefined;
+  unitId?: number | null | undefined;
+  description?: string | null | undefined;
+  weekday?: number | null | undefined;
+  startTime?: string | null | undefined;
+  endTime?: string | null | undefined;
   status?: ClassStatus | undefined;
 }
 
@@ -74,6 +77,7 @@ export function classToForm(c: ClassItem): ClassFormValues {
   };
 }
 
+/** CRIAR (base do POST): campos vazios são omitidos. Para editar use `classToUpdatePayload`. */
 export function classToPayload(values: ClassFormValues): ClassInput {
   return {
     name: values.name.trim(),
@@ -82,6 +86,22 @@ export function classToPayload(values: ClassFormValues): ClassInput {
     startTime: values.startTime || undefined,
     endTime: values.endTime || undefined,
     description: values.description.trim() || undefined,
+    status: values.status,
+  };
+}
+
+/**
+ * EDITAR (PATCH): opcionais que o usuário esvaziou vão como `null` (o backend limpa a coluna).
+ * `name` e `status` são obrigatórios e nunca vão `null`. weekday "0" (domingo) é válido.
+ */
+export function classToUpdatePayload(values: ClassFormValues): ClassInput {
+  return {
+    name: values.name.trim(),
+    unitId: values.unitId ? Number(values.unitId) : null,
+    weekday: values.weekday !== "" ? Number(values.weekday) : null,
+    startTime: values.startTime || null,
+    endTime: values.endTime || null,
+    description: values.description.trim() || null,
     status: values.status,
   };
 }

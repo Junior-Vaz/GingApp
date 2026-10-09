@@ -1,10 +1,10 @@
-﻿import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { api } from "@/lib/api";
+import { AuxLimitNotice } from "@/modules/rodas/aux-limit-notice";
 import { NativeSelect } from "@/modules/rodas/native-select";
+import { useAuxList } from "@/modules/rodas/reference";
 import { PARTICIPANT_STATUS_LABEL, type ParticipantStatus } from "@/modules/rodas/types";
 import type { ParticipantPayload, StudentOption } from "./types";
 
@@ -24,11 +24,8 @@ export function AddParticipantForm({ onAdd }: Props) {
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
 
-  // GET /students (students:view). Falha não bloqueia: ainda dá para inscrever convidado.
-  const students = useQuery({
-    queryKey: ["eventos", "students"],
-    queryFn: () => api.get<StudentOption[]>("/students"),
-  });
+  // GET /students?limit=200 (students:view). Falha não bloqueia: ainda dá para inscrever convidado.
+  const students = useAuxList<StudentOption>("/students");
 
   async function submit() {
     setError("");
@@ -70,12 +67,13 @@ export function AddParticipantForm({ onAdd }: Props) {
             <Label htmlFor="participant-student">Aluno</Label>
             <NativeSelect id="participant-student" value={studentId} onChange={(e) => setStudentId(e.target.value)}>
               <option value="">Selecione…</option>
-              {students.data?.map((student) => (
+              {students.items?.map((student) => (
                 <option key={student.id} value={String(student.id)}>
                   {student.name}
                 </option>
               ))}
             </NativeSelect>
+            <AuxLimitNotice truncated={students.truncated} total={students.total} label="alunos" />
           </div>
         ) : (
           <div className="grid gap-1.5">

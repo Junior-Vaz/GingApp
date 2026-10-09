@@ -4,7 +4,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ImageUrlField } from "./image-field";
 import { LocationFields } from "./location-fields";
-import { buildRodaPayload, emptyRoda, rodaSchema, rodaToForm, type RodaFormValues } from "./roda-schema";
+import {
+  buildRodaPayload,
+  buildRodaUpdatePayload,
+  emptyRoda,
+  rodaSchema,
+  rodaToForm,
+  type RodaFormValues,
+} from "./roda-schema";
 import type { Roda, RodaPayload } from "./types";
 
 interface RodaFormProps {
@@ -24,7 +31,7 @@ export function RodaForm({ editing, onClose, onSubmit }: RodaFormProps) {
       title={roda ? "Editar roda" : "Nova roda"}
       schema={rodaSchema}
       defaultValues={roda ? rodaToForm(roda) : emptyRoda}
-      onSubmit={(values) => onSubmit(buildRodaPayload(values, roda !== null), roda?.id ?? null)}
+      onSubmit={(values) => roda ? onSubmit(buildRodaUpdatePayload(values), roda.id) : onSubmit(buildRodaPayload(values), null)}
     >
       {(form) => (
         <>

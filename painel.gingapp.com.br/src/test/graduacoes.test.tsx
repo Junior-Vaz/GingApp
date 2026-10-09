@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { GraduacoesPage } from "@/modules/graduacoes/graduacoes-page";
@@ -43,6 +43,7 @@ interface Opts {
   systems?: () => Response;
   history?: () => Response;
   write?: (call: Call) => Response;
+  studentsTotal?: number;
 }
 
 function setup(opts: Opts = {}) {
@@ -55,7 +56,13 @@ function setup(opts: Opts = {}) {
       const call = { url, method, body: init.body ? JSON.parse(init.body as string) : undefined };
       calls.push(call);
       if (method === "GET" && url === "/graduations/systems") return Promise.resolve(opts.systems?.() ?? json(200, systemsData));
-      if (method === "GET" && url === "/students") return Promise.resolve(json(200, studentsData));
+      if (method === "GET" && url.split("?")[0] === "/students") {
+        // o servidor busca por nome (q)
+        const q = (new URLSearchParams(url.split("?")[1] ?? "").get("q") ?? "").toLowerCase();
+        const body = studentsData.filter((s) => s.name.toLowerCase().includes(q));
+        const headers = opts.studentsTotal === undefined ? {} : { "X-Total-Count": String(opts.studentsTotal) };
+        return Promise.resolve(new Response(JSON.stringify(body), { status: 200, headers }));
+      }
       if (method === "GET" && url.startsWith("/graduations/students/")) return Promise.resolve(opts.history?.() ?? json(200, historyData));
       return Promise.resolve(opts.write?.(call) ?? json(201, { id: 77 }));
     }),
@@ -248,6 +255,59 @@ describe("Graduações - alunos", () => {
     fireEvent.change(within(dialog).getByLabelText("Data"), { target: { value: "2026-06-15" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Nível de graduação inválido para esta organização."));
+  });
+});
+
+describe("Graduações - busca de aluno no servidor", () => {
+  const studentCalls = (calls: Call[]) => calls.filter((c) => c.url.startsWith("/students")).map((c) => c.url);
+  const optionNames = () => within(screen.getByLabelText("Aluno")).getAllByRole("option").map((o) => o.textContent);
+
+  it("carrega os 20 primeiros (limit=20, sem q) e busca com debounce de 300ms em /students?q=", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { calls } = setup();
+      await goStudents();
+      await waitFor(() => expect(optionNames()).toEqual(["Selecione…", "Ana", "Beto (inativo)"]));
+      expect(studentCalls(calls)).toEqual(["/students?limit=20"]);
+
+      fireEvent.change(screen.getByLabelText("Buscar aluno"), { target: { value: "be" } });
+      fireEvent.change(screen.getByLabelText("Buscar aluno"), { target: { value: "bet" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+      expect(studentCalls(calls)).toEqual(["/students?limit=20"]); // ainda dentro do debounce
+      await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+      await waitFor(() => expect(optionNames()).toEqual(["Selecione…", "Beto (inativo)"]));
+      expect(studentCalls(calls)).toEqual(["/students?limit=20", "/students?q=bet&limit=20"]); // 1 só chamada p/ 2 digitações
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("o aluno selecionado é preservado quando a busca muda e ele deixa de casar", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { calls } = setup();
+      await goStudents();
+      await waitFor(() => expect(optionNames()).toHaveLength(3));
+      fireEvent.change(screen.getByLabelText("Aluno"), { target: { value: "5" } });
+      await screen.findByRole("cell", { name: "Amarela" });
+
+      fireEvent.change(screen.getByLabelText("Buscar aluno"), { target: { value: "zz" } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+      await waitFor(() => expect(optionNames()).toEqual(["Selecione…", "Ana"]));
+      // a busca "zz" não casa ninguém; a Ana (selecionada) segue na lista
+      expect(screen.getByLabelText("Aluno")).toHaveValue("5");
+      expect(screen.getByRole("cell", { name: "Amarela" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Registrar graduação" })).toBeEnabled();
+      expect(studentCalls(calls)).toContain("/students?q=zz&limit=20");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("avisa quando há mais alunos que o limite da busca (total > 20)", async () => {
+    setup({ studentsTotal: 57 });
+    await goStudents();
+    expect(await screen.findByTestId("students-truncated")).toHaveTextContent("Mostrando 20 de 57 alunos");
   });
 });
 

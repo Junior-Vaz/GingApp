@@ -1,5 +1,14 @@
 import { z } from "zod";
-import { fromLocalInput, idToField, isHttpUrl, optionalId, optionalText, toLocalInput } from "./form-utils";
+import {
+  fromLocalInput,
+  idToField,
+  isHttpUrl,
+  nullableId,
+  nullableText,
+  optionalId,
+  optionalText,
+  toLocalInput,
+} from "./form-utils";
 import type { Roda, RodaPayload } from "./types";
 
 export const rodaSchema = z.object({
@@ -39,15 +48,31 @@ export function rodaToForm(roda: Roda): RodaFormValues {
   };
 }
 
-/** Valores do formulário -> corpo do POST/PATCH. No PATCH, texto vazio é enviado para limpar o campo. */
-export function buildRodaPayload(values: RodaFormValues, isEdit: boolean): RodaPayload {
+/** CRIAR (POST): campos opcionais vazios são omitidos. Para editar use `buildRodaUpdatePayload`. */
+export function buildRodaPayload(values: RodaFormValues): RodaPayload {
   return {
     title: values.title.trim(),
     date: fromLocalInput(values.date),
-    description: isEdit ? values.description : optionalText(values.description),
-    location: isEdit ? values.location.trim() : optionalText(values.location),
+    description: optionalText(values.description),
+    location: optionalText(values.location),
     stateId: optionalId(values.stateId),
     cityId: optionalId(values.cityId),
     imageUrl: optionalText(values.imageUrl),
+  };
+}
+
+/**
+ * EDITAR (PATCH): opcionais esvaziados vão como `null` (limpa a coluna; imageUrl `""` daria 400).
+ * title/date são obrigatórios e nunca vão `null`. communityId não tem campo no painel (não é enviado).
+ */
+export function buildRodaUpdatePayload(values: RodaFormValues): RodaPayload {
+  return {
+    title: values.title.trim(),
+    date: fromLocalInput(values.date),
+    description: nullableText(values.description),
+    location: nullableText(values.location),
+    stateId: nullableId(values.stateId),
+    cityId: nullableId(values.cityId),
+    imageUrl: nullableText(values.imageUrl),
   };
 }

@@ -1,14 +1,20 @@
-import { useQuery } from "@tanstack/react-query";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
+import { AuxLimitNotice } from "@/modules/rodas/aux-limit-notice";
 import { ImageUrlField } from "@/modules/rodas/image-field";
 import { LocationFields } from "@/modules/rodas/location-fields";
 import { NativeSelect } from "@/modules/rodas/native-select";
-import { buildEventPayload, emptyEvent, eventSchema, eventToForm, type EventFormValues } from "./event-schema";
+import { useAuxList } from "@/modules/rodas/reference";
+import {
+  buildEventPayload,
+  buildEventUpdatePayload,
+  emptyEvent,   eventSchema,
+  eventToForm,
+  type EventFormValues,
+} from "./event-schema";
 import { EVENT_TYPE_LABEL, EVENT_TYPES, type EventItem, type EventPayload, type Unit } from "./types";
 
 interface EventFormProps {
@@ -20,12 +26,8 @@ interface EventFormProps {
 
 export function EventForm({ editing, onClose, onSubmit }: EventFormProps) {
   const event = editing && editing !== "new" ? editing : null;
-  // GET /units: sem @CanAccess, escopo da organização. Falha não bloqueia o formulário.
-  const units = useQuery({
-    queryKey: ["eventos", "units"],
-    queryFn: () => api.get<Unit[]>("/units"),
-    enabled: editing !== null,
-  });
+  // GET /units?limit=200 (escopo da organização). Falha não bloqueia o formulário.
+  const units = useAuxList<Unit>("/units", editing !== null);
 
   return (
     <FormDialog<EventFormValues>
@@ -35,7 +37,7 @@ export function EventForm({ editing, onClose, onSubmit }: EventFormProps) {
       title={event ? "Editar evento" : "Novo evento"}
       schema={eventSchema}
       defaultValues={event ? eventToForm(event) : emptyEvent}
-      onSubmit={(values) => onSubmit(buildEventPayload(values, event !== null), event?.id ?? null)}
+      onSubmit={(values) => event ? onSubmit(buildEventUpdatePayload(values), event.id) : onSubmit(buildEventPayload(values), null)}
     >
       {(form) => (
         <>
@@ -108,13 +110,14 @@ export function EventForm({ editing, onClose, onSubmit }: EventFormProps) {
                 <FormControl>
                   <NativeSelect {...field}>
                     <option value="">Nenhuma</option>
-                    {units.data?.map((unit) => (
+                    {units.items?.map((unit) => (
                       <option key={unit.id} value={String(unit.id)}>
                         {unit.name}
                       </option>
                     ))}
                   </NativeSelect>
                 </FormControl>
+                <AuxLimitNotice truncated={units.truncated} total={units.total} label="unidades" />
                 <FormMessage />
               </FormItem>
             )}

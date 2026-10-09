@@ -1,23 +1,24 @@
 import { useMemo, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Clock, AlertTriangle } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
-import { SERVER_LIST_LIMIT } from "@/components/painel/data-table";
 import { StatCard } from "@/components/painel/stat-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { api, buildQuery, type QueryParams } from "@/lib/api";
 import { createCrud } from "@/lib/crud";
+import { useListParams } from "@/lib/list-params";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
   STATUS_BADGE_CLASS,
   STATUS_LABEL,
-  applyFilters,
-  computeTotals,
   effectiveStatus,
+  emptyFinanceFilters,
   emptyFinanceForm,
   financeSchema,
   formatDueDate,
@@ -28,6 +29,7 @@ import {
   type FinanceFormValues,
   type FinanceRecord,
   type FinanceStatus,
+  type FinanceSummary,
   type StudentRef,
 } from "./finance-utils";
 
@@ -51,28 +53,45 @@ function StatusBadge({ status }: { status: FinanceStatus }) {
   );
 }
 
+/** Maximo aceito pelo backend em um GET paginado; usado na lista de alunos do formulario/filtro. */
+const STUDENT_PICKER_LIMIT = 200;
+const STUDENT_PICKER_PARAMS: QueryParams = { limit: STUDENT_PICKER_LIMIT };
+
+/**
+ * Totais (Recebido / A receber / Atrasado) vindos do servidor: GET /finance/summary com os MESMOS
+ * filtros da lista (status, studentId, from, to, q) e sem limit/offset. A chave fica sob o rootKey
+ * do CRUD, entao criar/editar/excluir um lancamento tambem refaz os totais.
+ */
+function useFinanceSummary(filters: QueryParams) {
+  return useQuery({
+    queryKey: [...finance.rootKey, "summary", filters],
+    queryFn: () => api.get<FinanceSummary>(`/finance/summary${buildQuery(filters)}`),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function FinanceiroPage() {
-  const list = finance.useList();
-  const studentList = students.useList();
+  // Lista no servidor (padrao Alunos): useListParams -> usePage -> DataTable server.
+  const lp = useListParams<FinanceFilters>({ pageSize: 10, filters: emptyFinanceFilters() });
+  const list = finance.usePage(lp.params);
+  // Mesmos filtros + busca da lista; limit/offset ficam de fora (o summary agrega tudo).
+  const summary = useFinanceSummary({ ...lp.filters, q: lp.params["q"] });
+  const studentList = students.usePage(STUDENT_PICKER_PARAMS);
   const create = finance.useCreate();
   const update = finance.useUpdate();
   const remove = finance.useRemove();
 
   const [editing, setEditing] = useState<FinanceRecord | "new" | null>(null);
   const [deleting, setDeleting] = useState<FinanceRecord | null>(null);
-  const [filters, setFilters] = useState<FinanceFilters>({ status: "ALL", from: "", to: "" });
 
   const studentName = useMemo(() => {
     const map = new Map<number, string>();
-    for (const student of studentList.data ?? []) map.set(student.id, student.name);
+    for (const student of studentList.items ?? []) map.set(student.id, student.name);
     return (id: number | null) => (id ? (map.get(id) ?? "—") : "—");
-  }, [studentList.data]);
+  }, [studentList.items]);
+  const studentsTruncated = studentList.total > STUDENT_PICKER_LIMIT;
 
-  const filtered = useMemo(
-    () => (list.data ? applyFilters(list.data, filters) : undefined),
-    [list.data, filters],
-  );
-  const totals = useMemo(() => computeTotals(filtered ?? []), [filtered]);
+  const money = (cents: number | undefined) => (cents === undefined ? "—" : formatCurrency(cents));
 
   const columns: Column<FinanceRecord>[] = [
     {
@@ -113,7 +132,9 @@ export function FinanceiroPage() {
     },
   ];
 
-  const hasFilter = filters.status !== "ALL" || !!filters.from || !!filters.to;
+  const { filters } = lp;
+  const hasFilter = !!(filters.status || filters.studentId || filters.from || filters.to);
+  const totals = summary.data;
 
   return (
     <>
@@ -126,29 +147,39 @@ export function FinanceiroPage() {
       <div className="mb-6 grid gap-3 sm:grid-cols-3">
         <StatCard
           label="Recebido"
-          value={formatCurrency(totals.paid)}
+          value={money(totals?.paid)}
           icon={CheckCircle2}
-          hint={
-            (list.data?.length ?? 0) >= SERVER_LIST_LIMIT
-              ? `Parcial: só os ${SERVER_LIST_LIMIT} lançamentos devolvidos pelo servidor`
-              : hasFilter
-                ? "Dentro dos filtros"
-                : "Todos os lançamentos carregados"
-          }
+          hint={totals ? `${totals.paidCount} lançamento(s)` : undefined}
         />
-        <StatCard label="A receber" value={formatCurrency(totals.pending)} icon={Clock} />
-        <StatCard label="Atrasado" value={formatCurrency(totals.overdue)} icon={AlertTriangle} tone="danger" />
+        <StatCard
+          label="A receber"
+          value={money(totals?.pending)}
+          icon={Clock}
+          hint={totals ? `${totals.pendingCount} lançamento(s)` : undefined}
+        />
+        <StatCard
+          label="Atrasado"
+          value={money(totals?.overdue)}
+          icon={AlertTriangle}
+          tone="danger"
+          hint={totals ? `${totals.overdueCount} lançamento(s)` : undefined}
+        />
       </div>
+      {summary.error && (
+        <p role="alert" data-testid="summary-error" className="-mt-4 mb-4 text-xs text-destructive">
+          Não foi possível carregar os totais.
+        </p>
+      )}
 
       <DataTable
         columns={columns}
-        data={filtered}
+        data={list.items}
+        server={{ ...lp.server, total: list.total, isFetching: list.isFetching }}
         isLoading={list.isLoading}
         error={list.error}
         onRetry={() => void list.refetch()}
         getRowId={(r) => r.id}
-        searchText={(r) => `${r.description} ${r.type ?? ""} ${studentName(r.studentId)}`}
-        searchPlaceholder="Buscar descrição, tipo ou aluno…"
+        searchPlaceholder="Buscar descrição ou tipo…"
         emptyMessage={
           hasFilter ? "Nenhum lançamento para os filtros." : "Nenhum lançamento financeiro ainda."
         }
@@ -158,12 +189,25 @@ export function FinanceiroPage() {
               aria-label="Filtrar por status"
               className={cn(nativeSelect, "w-36")}
               value={filters.status}
-              onChange={(e) => setFilters({ ...filters, status: e.target.value as FinanceFilters["status"] })}
+              onChange={(e) => lp.setFilter("status", e.target.value as FinanceFilters["status"])}
             >
-              <option value="ALL">Todos os status</option>
+              <option value="">Todos os status</option>
               {(Object.keys(STATUS_LABEL) as FinanceStatus[]).map((s) => (
                 <option key={s} value={s}>
                   {STATUS_LABEL[s]}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filtrar por aluno"
+              className={cn(nativeSelect, "w-44")}
+              value={filters.studentId}
+              onChange={(e) => lp.setFilter("studentId", e.target.value)}
+            >
+              <option value="">Todos os alunos</option>
+              {(studentList.items ?? []).map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name}
                 </option>
               ))}
             </select>
@@ -172,17 +216,24 @@ export function FinanceiroPage() {
               aria-label="Vencimento de"
               className="w-40"
               value={filters.from}
-              onChange={(e) => setFilters({ ...filters, from: e.target.value })}
+              onChange={(e) => lp.setFilter("from", e.target.value)}
             />
             <Input
               type="date"
               aria-label="Vencimento até"
               className="w-40"
               value={filters.to}
-              onChange={(e) => setFilters({ ...filters, to: e.target.value })}
+              onChange={(e) => lp.setFilter("to", e.target.value)}
             />
             {hasFilter && (
-              <Button variant="ghost" size="sm" onClick={() => setFilters({ status: "ALL", from: "", to: "" })}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const empty = emptyFinanceFilters();
+                  for (const key of Object.keys(empty) as (keyof FinanceFilters)[]) lp.setFilter(key, empty[key]);
+                }}
+              >
                 Limpar
               </Button>
             )}
@@ -240,13 +291,18 @@ export function FinanceiroPage() {
                       <FormControl>
                         <select {...field} className={nativeSelect}>
                           <option value="">—</option>
-                          {(studentList.data ?? []).map((s) => (
+                          {(studentList.items ?? []).map((s) => (
                             <option key={s.id} value={String(s.id)}>
                               {s.name}
                             </option>
                           ))}
                         </select>
                       </FormControl>
+                      {studentsTruncated && (
+                        <p data-testid="students-truncated" className="text-xs text-muted-foreground">
+                          Mostrando os primeiros {STUDENT_PICKER_LIMIT} de {studentList.total} alunos.
+                        </p>
+                      )}
                       <FormMessage />
                     </FormItem>
                   )}

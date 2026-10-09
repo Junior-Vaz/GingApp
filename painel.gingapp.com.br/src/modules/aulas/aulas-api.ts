@@ -28,8 +28,9 @@ export interface TeacherMembership {
 }
 
 /**
- * Corpo de POST/PATCH /lessons. Na edição, campos limpos vão como `null` (o DTO usa
- * @IsOptional, que aceita null) para realmente apagar o valor no banco.
+ * Corpo de POST/PATCH /lessons. Na edição, campos limpos vão como `null` (o backend limpa a coluna):
+ * unitId, teacherUserId, startTime, endTime e notes. classId, date e status NUNCA vão `null` (400).
+ * O painel ainda não tem campo de unidade na aula (unitId não é enviado).
  */
 export interface LessonInput {
   classId: number;
@@ -53,12 +54,23 @@ export const lessons = createCrud<Lesson, LessonInput>("/lessons", {
   removed: "Aula cancelada.",
 });
 
+/** Selects auxiliares vêm de listas paginadas: pedimos o máximo do servidor (200) e avisamos se passar. */
+export const OPTIONS_LIMIT = 200;
+
+/** Turmas para os selects (primeiras 200; `data.total` > 200 => lista parcial). */
 export function useClassOptions() {
-  return useQuery({ queryKey: ["aulas", "classes"], queryFn: () => api.get<ClassOption[]>("/classes") });
+  return useQuery({
+    queryKey: ["aulas", "classes"],
+    queryFn: () => api.getPage<ClassOption>("/classes", { limit: OPTIONS_LIMIT }),
+  });
 }
 
+/** Professores para os selects (primeiros 200; `data.total` > 200 => lista parcial). */
 export function useTeacherOptions() {
-  return useQuery({ queryKey: ["aulas", "teachers"], queryFn: () => api.get<TeacherMembership[]>("/teachers") });
+  return useQuery({
+    queryKey: ["aulas", "teachers"],
+    queryFn: () => api.getPage<TeacherMembership>("/teachers", { limit: OPTIONS_LIMIT }),
+  });
 }
 
 /** "2026-03-05T00:00:00.000Z" -> "2026-03-05" (valor de <input type="date">). */

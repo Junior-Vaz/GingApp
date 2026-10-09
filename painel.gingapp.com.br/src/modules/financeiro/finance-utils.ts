@@ -42,53 +42,43 @@ export function toInputDate(date: Date): string {
 }
 
 /**
- * O backend nunca promove PENDING para OVERDUE sozinho; a UI trata um lancamento pendente com
- * vencimento anterior a hoje como atrasado (ver lacunas no relatorio).
+ * Status EFETIVO por linha. Mesma regra do servidor (FinanceService.buildWhere/summary): o backend
+ * nao promove PENDING para OVERDUE no banco, mas filtros e totais tratam PENDING com vencimento em
+ * dia civil ANTERIOR a hoje como OVERDUE (vence hoje = ainda PENDING); PAID/CANCELLED nao mudam.
+ * Unica diferenca: o servidor define "hoje" em America/Sao_Paulo; aqui e o dia local do navegador
+ * (iguais para usuarios no fuso do produto; so divergem por horas perto da meia-noite em outro fuso).
  */
 export function effectiveStatus(record: FinanceRecord, today: Date = startOfToday()): FinanceStatus {
   if (record.status === "PENDING" && record.dueDate.slice(0, 10) < toInputDate(today)) return "OVERDUE";
   return record.status;
 }
 
-export interface FinanceTotals {
+/**
+ * Resposta de GET /finance/summary (backend FinanceService.summary): totais em CENTAVOS agregados
+ * no banco sob os mesmos filtros da lista (status/studentId/from/to/q; limit/offset ignorados).
+ * CANCELLED fica fora de todos os totais e de `count`.
+ */
+export interface FinanceSummary {
   paid: number;
   pending: number;
   overdue: number;
+  count: number;
+  paidCount: number;
+  pendingCount: number;
+  overdueCount: number;
 }
 
-/** Totais em centavos (cancelados ficam de fora). */
-export function computeTotals(records: FinanceRecord[], today: Date = startOfToday()): FinanceTotals {
-  const totals: FinanceTotals = { paid: 0, pending: 0, overdue: 0 };
-  for (const record of records) {
-    const status = effectiveStatus(record, today);
-    if (status === "PAID") totals.paid += record.amountCents;
-    else if (status === "PENDING") totals.pending += record.amountCents;
-    else if (status === "OVERDUE") totals.overdue += record.amountCents;
-  }
-  return totals;
-}
-
-export interface FinanceFilters {
-  status: FinanceStatus | "ALL";
+/** Filtros da lista (e do summary). Valor vazio = sem filtro (nao vai para a query string). */
+export type FinanceFilters = {
+  status: FinanceStatus | "";
+  /** id do aluno ("" = todos). */
+  studentId: string;
   /** yyyy-MM-dd (vencimento), inclusivo. */
   from: string;
   to: string;
-}
+};
 
-export function applyFilters(
-  records: FinanceRecord[],
-  filters: FinanceFilters,
-  today: Date = startOfToday(),
-): FinanceRecord[] {
-  return records.filter((record) => {
-    const due = record.dueDate.slice(0, 10);
-    if (filters.from && due < filters.from) return false;
-    if (filters.to && due > filters.to) return false;
-    if (filters.status !== "ALL" && effectiveStatus(record, today) !== filters.status) return false;
-    return true;
-  });
-}
-
+export const emptyFinanceFilters = (): FinanceFilters => ({ status: "", studentId: "", from: "", to: "" });
 /** "12,50" / "12.50" / "1.234,56" -> centavos; NaN se invalido. */
 export function parseReaisToCents(text: string): number {
   const raw = text.trim().replace(/^R\$\s*/, "");
@@ -160,10 +150,22 @@ export function toCreatePayload(values: FinanceFormValues) {
   };
 }
 
-/** Corpo do PATCH /finance/:id (UpdateFinanceRecordDto: com status e paidAt quando PAID). */
+/**
+ * Corpo do PATCH /finance/:id (UpdateFinanceRecordDto). Campos LIMPAVEIS esvaziados vao como `null`
+ * (backend grava NULL): type e studentId. `unitId` nao tem campo no formulario e nunca e enviado
+ * (ausente = nao mexe). NAO limpaveis (nunca null): description, amountCents, dueDate, status.
+ *
+ * paidAt: so vai quando status = PAID e a data foi informada. Em branco com PAID o backend usa
+ * agora; ao SAIR de PAID para PENDING/OVERDUE o backend LIMPA paidAt sozinho - por isso paidAt
+ * NAO e enviado nesse caso (nem null). Para CANCELLED o backend nao mexe em paidAt.
+ */
 export function toUpdatePayload(values: FinanceFormValues) {
   return {
-    ...toCreatePayload(values),
+    description: values.description.trim(),
+    amountCents: parseReaisToCents(values.amountReais),
+    dueDate: values.dueDate,
+    studentId: values.studentId ? Number(values.studentId) : null,
+    type: values.type.trim() || null,
     status: values.status,
     ...(values.status === "PAID" && values.paidAt ? { paidAt: values.paidAt } : {}),
   };

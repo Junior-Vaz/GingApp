@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Ban, Pencil } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
@@ -10,8 +10,10 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { dayOnly, fmt } from "@/lib/format";
+import { useListParams } from "@/lib/list-params";
 import { NativeSelect } from "./native-select";
 import {
+  OPTIONS_LIMIT,
   STATUS_LABEL,
   isoDay,
   lessons,
@@ -23,7 +25,10 @@ import {
 import { emptyValues, lessonSchema, toFormValues, toPayload, type LessonFormValues } from "./aulas-form";
 
 export function AulasPage() {
-  const list = lessons.useList();
+  // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
+  // `from`/`to` são datas (YYYY-MM-DD); o backend inclui o dia inteiro de `to`.
+  const lp = useListParams({ pageSize: 10, filters: { classId: "", status: "", from: "", to: "" } });
+  const list = lessons.usePage(lp.params);
   const create = lessons.useCreate();
   const update = lessons.useUpdate();
   const remove = lessons.useRemove();
@@ -32,27 +37,15 @@ export function AulasPage() {
 
   const [editing, setEditing] = useState<Lesson | "new" | null>(null);
   const [cancelling, setCancelling] = useState<Lesson | null>(null);
-  const [classFilter, setClassFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"" | Lesson["status"]>("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const classItems = classes.data?.items ?? [];
+  const teacherItems = teachers.data?.items ?? [];
+  const classesTruncated = (classes.data?.total ?? 0) > OPTIONS_LIMIT;
+  const teachersTruncated = (teachers.data?.total ?? 0) > OPTIONS_LIMIT;
 
-  const className = (id: number) => classes.data?.find((c) => c.id === id)?.name ?? "—";
+  const className = (id: number) => classItems.find((c) => c.id === id)?.name ?? "—";
   const teacherName = (id: number | null) =>
-    id ? (teachers.data?.find((t) => t.user.id === id)?.user.name ?? "—") : "—";
-
-  const filtered = useMemo(
-    () =>
-      list.data?.filter((l) => {
-        if (classFilter && String(l.classId) !== classFilter) return false;
-        if (statusFilter && l.status !== statusFilter) return false;
-        const day = isoDay(l.date);
-        if (from && day < from) return false;
-        if (to && day > to) return false;
-        return true;
-      }),
-    [list.data, classFilter, statusFilter, from, to],
-  );
+    id ? (teacherItems.find((t) => t.user.id === id)?.user.name ?? "—") : "—";
+  const hasFilters = Object.values(lp.filters).some(Boolean);
 
   const columns: Column<Lesson>[] = [
     { id: "class", header: "Turma", sortValue: (l) => className(l.classId), cell: (l) => <span className="font-medium">{className(l.classId)}</span> },
@@ -78,36 +71,39 @@ export function AulasPage() {
       />
       <DataTable
         columns={columns}
-        data={filtered}
+        data={list.items}
+        server={{ ...lp.server, total: list.total, isFetching: list.isFetching }}
         isLoading={list.isLoading}
         error={list.error}
         onRetry={() => void list.refetch()}
         getRowId={(l) => l.id}
-        searchText={(l) =>
-          [className(l.classId), teacherName(l.teacherUserId), l.notes ?? "", isoDay(l.date), fmt(dayOnly(l.date), "dd/MM/yyyy")].join(" ")
-        }
-        searchPlaceholder="Buscar por turma, professor, data…"
-        emptyMessage="Nenhuma aula cadastrada ainda."
+        searchPlaceholder="Buscar nas observações…"
+        emptyMessage={hasFilters ? "Nenhuma aula com esses filtros." : "Nenhuma aula cadastrada ainda."}
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
-            <NativeSelect aria-label="Filtrar por turma" className="w-40" value={classFilter} onChange={(e) => setClassFilter(e.target.value)}>
+            <NativeSelect aria-label="Filtrar por turma" className="w-40" value={lp.filters.classId} onChange={(e) => lp.setFilter("classId", e.target.value)}>
               <option value="">Todas as turmas</option>
-              {classes.data?.map((c) => (
+              {classItems.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </NativeSelect>
             <NativeSelect
               aria-label="Filtrar por status"
               className="w-36"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as "" | Lesson["status"])}
+              value={lp.filters.status}
+              onChange={(e) => lp.setFilter("status", e.target.value)}
             >
               <option value="">Todos os status</option>
               <option value="ACTIVE">Ativas</option>
               <option value="INACTIVE">Canceladas</option>
             </NativeSelect>
-            <Input aria-label="Data inicial" type="date" className="w-36" value={from} onChange={(e) => setFrom(e.target.value)} />
-            <Input aria-label="Data final" type="date" className="w-36" value={to} onChange={(e) => setTo(e.target.value)} />
+            <Input aria-label="Data inicial" type="date" className="w-36" value={lp.filters.from} onChange={(e) => lp.setFilter("from", e.target.value)} />
+            <Input aria-label="Data final" type="date" className="w-36" value={lp.filters.to} onChange={(e) => lp.setFilter("to", e.target.value)} />
+            {classesTruncated && (
+              <p data-testid="classes-limit-warning" className="text-xs text-muted-foreground">
+                Mostrando as primeiras {OPTIONS_LIMIT} de {classes.data?.total} turmas.
+              </p>
+            )}
           </div>
         }
         rowActions={(l) => (
@@ -144,11 +140,14 @@ export function AulasPage() {
                 <FormControl>
                   <NativeSelect {...field}>
                     <option value="">Selecione…</option>
-                    {classes.data?.map((c) => (
+                    {classItems.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </NativeSelect>
                 </FormControl>
+                {classesTruncated && (
+                  <p className="text-xs text-muted-foreground">Lista parcial: {OPTIONS_LIMIT} de {classes.data?.total} turmas.</p>
+                )}
                 <FormMessage />
               </FormItem>
             )} />
@@ -169,11 +168,14 @@ export function AulasPage() {
                 <FormControl>
                   <NativeSelect {...field}>
                     <option value="">—</option>
-                    {teachers.data?.map((t) => (
+                    {teacherItems.map((t) => (
                       <option key={t.id} value={t.user.id}>{t.user.name}</option>
                     ))}
                   </NativeSelect>
                 </FormControl>
+                {teachersTruncated && (
+                  <p className="text-xs text-muted-foreground">Lista parcial: {OPTIONS_LIMIT} de {teachers.data?.total} professores.</p>
+                )}
                 <FormMessage />
               </FormItem>
             )} />

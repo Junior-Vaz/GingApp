@@ -23,21 +23,16 @@ export const formatIssuedAt = (iso: string | null): string =>
 
 export const certificateLink = (code: string): string => verificationUrl(code);
 
-export interface CertificateFilters {
+/** Filtros da lista no servidor. Valor vazio = sem filtro (nao vai para a query string). */
+export type CertificateFilters = {
+  /** id do aluno ("" = todos). */
+  studentId: string;
   /** yyyy-MM-dd (emissao), inclusivo. */
   from: string;
   to: string;
-}
+};
 
-export function applyCertificateFilters(list: Certificate[], filters: CertificateFilters): Certificate[] {
-  return list.filter((c) => {
-    const issued = c.issuedAt?.slice(0, 10) ?? "";
-    if (filters.from && (!issued || issued < filters.from)) return false;
-    if (filters.to && (!issued || issued > filters.to)) return false;
-    return true;
-  });
-}
-
+export const emptyCertificateFilters = (): CertificateFilters => ({ studentId: "", from: "", to: "" });
 const optionalUrl = z
   .string()
   .trim()
@@ -77,11 +72,14 @@ export function toIssuePayload(v: IssueValues) {
   };
 }
 
-/** Corpo do PATCH /certificates/:id. */
+/**
+ * Corpo do PATCH /certificates/:id. `fileUrl` esvaziado vai como `null` (limpa a coluna; '' daria
+ * 400 em @IsUrl). `title` e `issuedAt` NAO sao limpaveis (null = 400): issuedAt vazio e omitido.
+ */
 export function toEditPayload(v: EditValues) {
   return {
     title: v.title.trim(),
     ...(v.issuedAt ? { issuedAt: v.issuedAt } : {}),
-    ...(v.fileUrl.trim() ? { fileUrl: v.fileUrl.trim() } : {}),
+    fileUrl: v.fileUrl.trim() || null,
   };
 }

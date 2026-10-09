@@ -6,17 +6,22 @@ import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fmt, toDate } from "@/lib/format";
+import { useListParams } from "@/lib/list-params";
 import { useSessionUser } from "@/lib/session";
 import { rodas } from "./api";
-import { useStates } from "./reference";
+import { NativeSelect } from "./native-select";
+import { useCities, useStates } from "./reference";
 import { RodaForm } from "./roda-form";
 import { RodaParticipantsDialog } from "./rodas-participants-dialog";
 import type { Roda } from "./types";
 
 export function RodasPage() {
   const user = useSessionUser();
-  const list = rodas.useList();
+  // Lista PÚBLICA (todas as organizações): busca (q em título/local), estado e cidade vão ao servidor.
+  const lp = useListParams({ pageSize: 10, filters: { stateId: "", cityId: "" } });
+  const list = rodas.usePage(lp.params);
   const states = useStates();
+  const filterCities = useCities(lp.filters.stateId ? Number(lp.filters.stateId) : undefined);
   const create = rodas.useCreate();
   const update = rodas.useUpdate();
   const remove = rodas.useRemove();
@@ -69,14 +74,50 @@ export function RodasPage() {
       />
       <DataTable
         columns={columns}
-        data={list.data}
+        data={list.items}
+        server={{ ...lp.server, total: list.total, isFetching: list.isFetching }}
         isLoading={list.isLoading}
         error={list.error}
         onRetry={() => void list.refetch()}
         getRowId={(r) => r.id}
-        searchText={(r) => `${r.title} ${r.location ?? ""}`}
-        searchPlaceholder="Buscar roda…"
-        emptyMessage="Nenhuma roda cadastrada ainda."
+        searchPlaceholder="Buscar por título ou local…"
+        emptyMessage={
+          lp.filters.stateId || lp.filters.cityId ? "Nenhuma roda com esses filtros." : "Nenhuma roda cadastrada ainda."
+        }
+        toolbar={
+          <div className="flex flex-wrap gap-2">
+            <NativeSelect
+              aria-label="Filtrar por estado"
+              className="w-48"
+              value={lp.filters.stateId}
+              onChange={(e) => {
+                lp.setFilter("stateId", e.target.value);
+                lp.setFilter("cityId", "");
+              }}
+            >
+              <option value="">Todos os estados</option>
+              {states.data?.map((state) => (
+                <option key={state.id} value={String(state.id)}>
+                  {state.name} ({state.uf})
+                </option>
+              ))}
+            </NativeSelect>
+            <NativeSelect
+              aria-label="Filtrar por cidade"
+              className="w-48"
+              value={lp.filters.cityId}
+              disabled={!lp.filters.stateId}
+              onChange={(e) => lp.setFilter("cityId", e.target.value)}
+            >
+              <option value="">Todas as cidades</option>
+              {filterCities.data?.map((city) => (
+                <option key={city.id} value={String(city.id)}>
+                  {city.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+        }
         rowActions={(r) => (
           <>
             <Button variant="ghost" size="sm" onClick={() => setViewing(r)} aria-label={`Participantes de ${r.title}`}>

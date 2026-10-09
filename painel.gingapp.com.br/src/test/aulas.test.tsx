@@ -7,7 +7,8 @@ import { toPayload } from "@/modules/aulas/aulas-form";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers });
 
 const classes = [
   { id: 1, name: "Infantil" },
@@ -21,19 +22,31 @@ const baseLessons = [
 
 interface Call { url: string; method: string; body: unknown }
 
-function setup(overrides: { lessons?: Response | (() => Response); onMutation?: (call: Call) => Response } = {}) {
+const page = <T,>(rows: T[], total = rows.length) => json(200, rows, { "X-Total-Count": String(total) });
+
+function setup(
+  overrides: {
+    lessons?: Response | ((query: URLSearchParams) => Response);
+    classesTotal?: number;
+    teachersTotal?: number;
+    onMutation?: (call: Call) => Response;
+  } = {},
+) {
   const calls: Call[] = [];
+  /** query string de cada GET (por caminho), para conferir o que foi enviado ao servidor */
+  const queries: Record<string, URLSearchParams[]> = {};
   const fetchMock = vi.fn((input: string, init: RequestInit = {}) => {
     const method = init.method ?? "GET";
-    const url = input.replace(/^.*\/api/, "");
+    const [url = "", search = ""] = input.replace(/^.*\/api/, "").split("?");
     const body = init.body ? JSON.parse(init.body as string) : undefined;
     calls.push({ url, method, body });
+    if (method === "GET") (queries[url] ??= []).push(new URLSearchParams(search));
     if (method === "GET" && url === "/lessons") {
       const o = overrides.lessons;
-      return Promise.resolve(typeof o === "function" ? o() : (o ?? json(200, baseLessons)));
+      return Promise.resolve(typeof o === "function" ? o(new URLSearchParams(search)) : (o ?? page(baseLessons)));
     }
-    if (method === "GET" && url === "/classes") return Promise.resolve(json(200, classes));
-    if (method === "GET" && url === "/teachers") return Promise.resolve(json(200, teachers));
+    if (method === "GET" && url === "/classes") return Promise.resolve(page(classes, overrides.classesTotal));
+    if (method === "GET" && url === "/teachers") return Promise.resolve(page(teachers, overrides.teachersTotal));
     return Promise.resolve(overrides.onMutation?.({ url, method, body }) ?? json(200, { id: 99 }));
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -43,7 +56,7 @@ function setup(overrides: { lessons?: Response | (() => Response); onMutation?: 
       <AulasPage />
     </QueryClientProvider>,
   );
-  return { calls };
+  return { calls, queries };
 }
 
 const mutations = (calls: Call[]) => calls.filter((c) => c.method !== "GET");
@@ -69,27 +82,97 @@ describe("AulasPage", () => {
     expect(within(cancelled).queryByRole("button", { name: /Cancelar aula/ })).toBeNull();
   });
 
-  it("filtra por turma, por status e pela busca", async () => {
-    setup();
+  it("turma, status, período e busca vão ao SERVIDOR (classId/status/from/to/q)", async () => {
+    const { queries } = setup({
+      lessons: (q) => {
+        const classId = q.get("classId");
+        const status = q.get("status");
+        const from = q.get("from");
+        const to = q.get("to");
+        const text = q.get("q")?.toLowerCase();
+        const rows = baseLessons.filter(
+          (l) =>
+            (!classId || String(l.classId) === classId) &&
+            (!status || l.status === status) &&
+            (!from || l.date.slice(0, 10) >= from) &&
+            (!to || l.date.slice(0, 10) <= to) &&
+            (!text || (l.notes ?? "").toLowerCase().includes(text)),
+        );
+        return page(rows);
+      },
+    });
     await screen.findByRole("cell", { name: "Infantil" });
+    const lastQuery = () => queries["/lessons"]!.at(-1)!;
+    const first = queries["/lessons"]![0]!;
+    expect(first.get("limit")).toBe("10");
+    expect(first.get("offset")).toBe("0");
+    for (const k of ["classId", "status", "from", "to", "q"]) expect(first.has(k)).toBe(false);
+    // selects auxiliares pedem o máximo do servidor
+    expect(queries["/classes"]![0]!.get("limit")).toBe("200");
+    expect(queries["/teachers"]![0]!.get("limit")).toBe("200");
+    expect(screen.queryByTestId("table-limit-warning")).toBeNull();
+
     fireEvent.change(screen.getByLabelText("Filtrar por turma"), { target: { value: "2" } });
-    expect(screen.queryByRole("cell", { name: "Infantil" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("cell", { name: "Infantil" })).toBeNull());
     expect(screen.getByRole("cell", { name: "Adulto" })).toBeInTheDocument();
+    expect(lastQuery().get("classId")).toBe("2");
     fireEvent.change(screen.getByLabelText("Filtrar por turma"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "ACTIVE" } });
-    expect(screen.queryByRole("cell", { name: "Adulto" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("cell", { name: "Adulto" })).toBeNull());
+    expect(lastQuery().get("status")).toBe("ACTIVE");
+    expect(lastQuery().has("classId")).toBe(false);
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Data inicial"), { target: { value: "2026-03-06" } });
-    expect(screen.queryByRole("cell", { name: "Infantil" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("cell", { name: "Infantil" })).toBeNull());
+    expect(lastQuery().get("from")).toBe("2026-03-06");
+    fireEvent.change(screen.getByLabelText("Data final"), { target: { value: "2026-03-31" } });
+    await waitFor(() => expect(lastQuery().get("to")).toBe("2026-03-31"));
+    expect(lastQuery().get("from")).toBe("2026-03-06");
     fireEvent.change(screen.getByLabelText("Data inicial"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "bimba" } });
-    expect(screen.getByRole("cell", { name: "Infantil" })).toBeInTheDocument();
-    expect(screen.queryByRole("cell", { name: "Adulto" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Data final"), { target: { value: "" } });
+    await waitFor(() => expect(lastQuery().has("from") || lastQuery().has("to")).toBe(false));
+    // busca com debounce: um só GET com q
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "ro" } });
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "roda" } });
+    await waitFor(() => expect(lastQuery().get("q")).toBe("roda"));
+    expect(queries["/lessons"]!.filter((q) => q.has("q"))).toHaveLength(1);
+    expect(await screen.findByRole("cell", { name: "Infantil" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("cell", { name: "Adulto" })).toBeNull());
+  });
+
+  it("pagina no servidor: total do header, offset da página 2 e volta à pág. 1 ao filtrar", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ ...baseLessons[0]!, id: 100 + i, notes: `Aula ${String(i + 1).padStart(2, "0")}` }));
+    const { queries } = setup({
+      lessons: (q) => {
+        const offset = Number(q.get("offset") ?? 0);
+        const limit = Number(q.get("limit") ?? 50);
+        return page(many.slice(offset, offset + limit), 25);
+      },
+    });
+    await screen.findAllByRole("cell", { name: "Infantil" });
+    expect(screen.getByTestId("table-count")).toHaveTextContent("25 registros");
+    expect(screen.getByText("Página 1 de 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Próxima página"));
+    expect(await screen.findByText("Página 2 de 3")).toBeInTheDocument();
+    expect(queries["/lessons"]!.at(-1)!.get("offset")).toBe("10");
+    fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "ACTIVE" } });
+    await waitFor(() => expect(queries["/lessons"]!.at(-1)!.get("status")).toBe("ACTIVE"));
+    expect(queries["/lessons"]!.at(-1)!.get("offset")).toBe("0");
+    expect(await screen.findByText("Página 1 de 3")).toBeInTheDocument();
+  });
+
+  it("avisa (sem quebrar) quando há mais de 200 turmas/professores nos selects", async () => {
+    setup({ classesTotal: 350, teachersTotal: 260 });
+    await screen.findByRole("cell", { name: "Infantil" });
+    expect(await screen.findByTestId("classes-limit-warning")).toHaveTextContent("200 de 350 turmas");
+    fireEvent.click(screen.getByRole("button", { name: "Nova aula" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/200 de 350 turmas/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/200 de 260 professores/)).toBeInTheDocument();
   });
 
   it("mostra erro com retry quando a lista falha e vazio quando não há aulas", async () => {
-    setup({ lessons: json(500, { message: "Falhou feio." }) });
-    expect(await screen.findByTestId("table-error")).toHaveTextContent("Falhou feio.");
+    setup({ lessons: json(500, { message: "Falhou feio." }) });    expect(await screen.findByTestId("table-error")).toHaveTextContent("Falhou feio.");
   });
 
   it("estado vazio", async () => {
@@ -158,6 +241,31 @@ describe("AulasPage", () => {
       body: { classId: 1, date: "2026-03-05", startTime: null, endTime: null, teacherUserId: null, notes: "Roda", status: "INACTIVE" },
     });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Aula atualizada."));
+  });
+
+  it("edita aula: esvaziar observações envia null; classId/date/status nunca null", async () => {
+    const { calls } = setup();
+    await screen.findByRole("cell", { name: "Infantil" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar aula de Infantil" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Observações")).toHaveValue("Roda"));
+    fireEvent.change(within(dialog).getByLabelText("Observações"), { target: { value: "" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(mutations(calls)).toHaveLength(1));
+    expect(mutations(calls)[0]!.body).toEqual({
+      classId: 1, date: "2026-03-05", startTime: "18:00", endTime: "19:00", teacherUserId: 7, notes: null, status: "ACTIVE",
+    });
+  });
+
+  it("erro 400 do PATCH aparece em toast e mantém o formulário aberto", async () => {
+    setup({ onMutation: () => json(400, { message: ["teacherUserId must be an integer number"] }) });
+    await screen.findByRole("cell", { name: "Infantil" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar aula de Infantil" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Observações")).toHaveValue("Roda"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("teacherUserId must be an integer number"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("erro do backend na criação vira toast e mantém o diálogo aberto", async () => {

@@ -5,20 +5,22 @@ import { toast } from "sonner";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-type Call = { method: string; path: string; body: unknown };
-const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+type Call = { method: string; path: string; query: URLSearchParams; body: unknown };
+const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers });
 
-/** fetch falso: roteia por "METHOD /caminho" (sem o prefixo da API) e registra as chamadas. */
-function mockApi(routes: Record<string, () => Response>) {
+/** fetch falso: roteia por "METHOD /caminho" (sem prefixo da API NEM query) e registra as chamadas (`query` = params). */
+function mockApi(routes: Record<string, (call: Call) => Response>) {
   const calls: Call[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init: RequestInit = {}) => {
-      const path = url.replace(/^https?:\/\/[^/]+\/api/, "");
+      const [path = "", search = ""] = url.replace(/^https?:\/\/[^/]+\/api/, "").split("?");
       const method = init.method ?? "GET";
-      calls.push({ method, path, body: init.body ? JSON.parse(init.body as string) : undefined });
+      const call: Call = { method, path, query: new URLSearchParams(search), body: init.body ? JSON.parse(init.body as string) : undefined };
+      calls.push(call);
       const handler = routes[`${method} ${path}`];
-      return Promise.resolve(handler ? handler() : json(404, { message: `sem rota ${method} ${path}` }));
+      return Promise.resolve(handler ? handler(call) : json(404, { message: `sem rota ${method} ${path}` }));
     }),
   );
   return calls;
@@ -28,15 +30,15 @@ function renderPage(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }import { TurmasPage } from "@/modules/turmas/turmas-page";
-import { classSchema, classToPayload, scheduleLabel } from "@/modules/turmas/schema";
+import { classSchema, classToPayload, classToUpdatePayload, classToCreatePayload, scheduleLabel } from "@/modules/turmas/schema";
 
 const classes = [
   { id: 1, unitId: 7, name: "Infantil", description: "Crianças", weekday: 2, startTime: "18:00", endTime: "19:00", status: "ACTIVE" },
   { id: 2, unitId: null, name: "Adulto noite", description: null, weekday: null, startTime: null, endTime: null, status: "INACTIVE" },
 ];
 const base = () => ({
-  "GET /classes": () => json(200, classes),
-  "GET /units": () => json(200, [{ id: 7, name: "Sede Centro" }]),
+  "GET /classes": () => json(200, classes, { "X-Total-Count": String(classes.length) }),
+  "GET /units": () => json(200, [{ id: 7, name: "Sede Centro" }], { "X-Total-Count": "1" }),
 });
 
 afterEach(() => {
@@ -53,22 +55,93 @@ describe("schema de turmas", () => {
     expect(scheduleLabel({ startTime: null, endTime: null })).toBe("—");
     expect(scheduleLabel({ startTime: "18:00", endTime: null })).toBe("18:00 - —");
   });
+  it("classToUpdatePayload manda null nos opcionais esvaziados (nome/status nunca); weekday 0 permanece 0", () => {
+    const empty = { name: " Ab ", unitId: "", weekday: "", startTime: "", endTime: "", description: " ", status: "ACTIVE" as const };
+    expect(classToUpdatePayload(empty)).toEqual({
+      name: "Ab", unitId: null, weekday: null, startTime: null, endTime: null, description: null, status: "ACTIVE",
+    });
+    expect(classToUpdatePayload({ ...empty, weekday: "0", unitId: "7" })).toMatchObject({ weekday: 0, unitId: 7 });
+    // criação continua omitindo vazios e sem status
+    const created = classToCreatePayload(empty);
+    expect(created).toEqual({ name: "Ab", unitId: undefined, weekday: undefined, startTime: undefined, endTime: undefined, description: undefined });
+    expect(created).not.toHaveProperty("status");
+  });
 });
 
 describe("TurmasPage", () => {
-  it("lista com unidade, dia e horário; filtra por status e busca", async () => {
-    mockApi(base());
+  it("lista com unidade, dia e horário; status, unidade e busca vão ao SERVIDOR", async () => {
+    const calls = mockApi({
+      ...base(),
+      "GET /classes": (c) => {
+        const status = c.query.get("status");
+        const unitId = c.query.get("unitId");
+        const q = c.query.get("q")?.toLowerCase();
+        const rows = classes.filter(
+          (k) => (!status || k.status === status) && (!unitId || String(k.unitId) === unitId) && (!q || k.name.toLowerCase().includes(q)),
+        );
+        return json(200, rows, { "X-Total-Count": String(rows.length) });
+      },
+    });
     renderPage(<TurmasPage />);
     expect(await screen.findByText("Infantil")).toBeInTheDocument();
     expect(screen.getByText("Sede Centro", { selector: "td" })).toBeInTheDocument();
     expect(screen.getByText("Terça")).toBeInTheDocument();
     expect(screen.getByText("18:00 - 19:00")).toBeInTheDocument();
+    expect(screen.queryByTestId("table-limit-warning")).not.toBeInTheDocument();
+    const first = calls.find((c) => c.path === "/classes")!;
+    expect(first.query.get("limit")).toBe("10");
+    expect(first.query.get("offset")).toBe("0");
+    expect(first.query.has("status")).toBe(false);
+    expect(first.query.has("unitId")).toBe(false);
+    expect(first.query.has("q")).toBe(false);
+    // selects auxiliares pedem o máximo do servidor
+    expect(calls.find((c) => c.path === "/units")!.query.get("limit")).toBe("200");
+
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "INACTIVE" } });
-    expect(screen.queryByText("Infantil")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Infantil")).not.toBeInTheDocument());
+    expect(calls.at(-1)!.query.get("status")).toBe("INACTIVE");
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Filtrar por unidade"), { target: { value: "7" } });
+    await waitFor(() => expect(calls.at(-1)!.query.get("unitId")).toBe("7"));
+    expect(calls.at(-1)!.query.has("status")).toBe(false);
+    expect(await screen.findByText("Infantil")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Filtrar por unidade"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "adulto" } });
-    expect(screen.queryByText("Infantil")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "adulto n" } });
+    await waitFor(() => expect(calls.at(-1)!.query.get("q")).toBe("adulto n"));
+    expect(calls.filter((c) => c.path === "/classes" && c.query.has("q"))).toHaveLength(1);
+    await waitFor(() => expect(screen.queryByText("Infantil")).not.toBeInTheDocument());
     expect(screen.getByText("Adulto noite")).toBeInTheDocument();
+  });
+
+  it("pagina no servidor: total do header, offset da página 2 e volta à pág. 1 ao filtrar", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ ...classes[0]!, id: 100 + i, name: `Turma ${String(i + 1).padStart(2, "0")}` }));
+    const calls = mockApi({
+      ...base(),
+      "GET /classes": (c) => {
+        const offset = Number(c.query.get("offset") ?? 0);
+        const limit = Number(c.query.get("limit") ?? 50);
+        return json(200, many.slice(offset, offset + limit), { "X-Total-Count": "25" });
+      },
+    });
+    renderPage(<TurmasPage />);
+    expect(await screen.findByText("Turma 01")).toBeInTheDocument();
+    expect(screen.getByTestId("table-count")).toHaveTextContent("25 registros");
+    expect(screen.getByText("Página 1 de 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Próxima página"));
+    expect(await screen.findByText("Turma 11")).toBeInTheDocument();
+    expect(calls.at(-1)!.query.get("offset")).toBe("10");
+    fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "ACTIVE" } });
+    await waitFor(() => expect(calls.at(-1)!.query.get("status")).toBe("ACTIVE"));
+    expect(calls.at(-1)!.query.get("offset")).toBe("0");
+    expect(await screen.findByText("Página 1 de 3")).toBeInTheDocument();
+  });
+
+  it("avisa (sem quebrar) quando há mais de 200 unidades nos selects", async () => {
+    mockApi({ ...base(), "GET /units": () => json(200, [{ id: 7, name: "Sede Centro" }], { "X-Total-Count": "350" }) });
+    renderPage(<TurmasPage />);
+    expect(await screen.findByText("Infantil")).toBeInTheDocument();
+    expect(await screen.findByTestId("units-limit-warning")).toHaveTextContent("200 de 350 unidades");
   });
 
   it("erro e vazio", async () => {
@@ -122,6 +195,38 @@ describe("TurmasPage", () => {
       path: "/classes/1",
       body: { name: "Infantil A", unitId: 7, weekday: 2, startTime: "18:00", endTime: "19:00", status: "ACTIVE" },
     });
+  });
+
+  it("edita: esvaziar unidade, dia, horários e descrição envia null (limpa no servidor)", async () => {
+    const calls = mockApi({ ...base(), "PATCH /classes/1": () => json(200, {}) });
+    renderPage(<TurmasPage />);
+    await screen.findByText("Infantil");
+    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Início")).toHaveValue("18:00"));
+    fireEvent.change(within(dialog).getByLabelText("Unidade"), { target: { value: "" } });
+    fireEvent.change(within(dialog).getByLabelText("Dia da semana"), { target: { value: "" } });
+    fireEvent.change(within(dialog).getByLabelText("Início"), { target: { value: "" } });
+    fireEvent.change(within(dialog).getByLabelText("Fim"), { target: { value: "" } });
+    fireEvent.change(within(dialog).getByLabelText("Descrição"), { target: { value: "" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    const body = calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>;
+    expect(body).toEqual({
+      name: "Infantil", unitId: null, weekday: null, startTime: null, endTime: null, description: null, status: "ACTIVE",
+    });
+  });
+
+  it("erro 400 do PATCH aparece em toast e mantém o formulário aberto", async () => {
+    mockApi({ ...base(), "PATCH /classes/1": () => json(400, { message: ["name should not be empty"] }) });
+    renderPage(<TurmasPage />);
+    await screen.findByText("Infantil");
+    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Nome")).toHaveValue("Infantil"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("name should not be empty"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("inativa com confirmação (DELETE) só para turmas ativas", async () => {

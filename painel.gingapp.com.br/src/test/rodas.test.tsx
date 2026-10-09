@@ -10,10 +10,12 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 interface Call {
   method: string;
   path: string;
+  query: URLSearchParams;
   body: unknown;
 }
 
-const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers });
 
 const USER: AuthUser = {
   id: 1,
@@ -45,16 +47,16 @@ let overrides: Record<string, () => Response>;
 function installFetch() {
   calls = [];
   const handler = (input: string, init?: RequestInit): Response => {
-    const path = input.replace(/^https?:\/\/[^/]+\/api/, "");
+    const [path = "", search = ""] = input.replace(/^https?:\/\/[^/]+\/api/, "").split("?");
     const method = init?.method ?? "GET";
     const body = init?.body ? (JSON.parse(String(init.body)) as unknown) : undefined;
-    calls.push({ method, path, body });
+    calls.push({ method, path, query: new URLSearchParams(search), body });
     const key = `${method} ${path}`;
     const override = overrides[key];
     if (override) return override();
-    if (key === "GET /rodas") return json(200, rodas);
+    if (key === "GET /rodas") return json(200, rodas, { "X-Total-Count": String(rodas.length) });
     if (key === "GET /rodas/reference/states") return json(200, [{ id: 1, name: "São Paulo", uf: "SP" }]);
-    if (key.startsWith("GET /rodas/reference/cities")) return json(200, [{ id: 5, name: "Santos", stateId: 1 }]);
+    if (key === "GET /rodas/reference/cities") return json(200, [{ id: 5, name: "Santos", stateId: 1 }]);
     if (key === "GET /rodas/1/participants" || key === "GET /rodas/2/participants") return json(200, participants);
     if (method === "POST" && path === "/rodas") return json(201, { ...OWN, id: 3 });
     if (method === "PATCH" && path === "/rodas/1") return json(200, OWN);
@@ -142,7 +144,7 @@ describe("RodasPage - criar / editar / excluir", () => {
     await screen.findByRole("option", { name: "São Paulo (SP)" });
     fireEvent.change(screen.getByLabelText("Estado"), { target: { value: "1" } });
     await screen.findByRole("option", { name: "Santos" });
-    expect(calls.some((c) => c.path === "/rodas/reference/cities?stateId=1")).toBe(true);
+    expect(calls.some((c) => c.path === "/rodas/reference/cities" && c.query.get("stateId") === "1")).toBe(true);
     fireEvent.change(screen.getByLabelText("Cidade"), { target: { value: "5" } });
     fireEvent.change(screen.getByLabelText(/Imagem de capa/), { target: { value: "https://exemplo.com/n.jpg" } });
     expect(screen.getByAltText("Pré-visualização da capa")).toBeInTheDocument();
@@ -201,6 +203,98 @@ describe("RodasPage - criar / editar / excluir", () => {
     fireEvent.click(screen.getByRole("button", { name: "Excluir Roda de Sábado" }));
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Excluir" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Roda não organizada por esta organização."));
+  });
+});
+
+describe("RodasPage - lista no servidor", () => {
+  it("envia limit/offset, mostra o total global e mantém o selo da outra organização sem ações de edição", async () => {
+    renderPage();
+    await screen.findByText("Roda de Sábado");
+    const first = calls.find((c) => c.path === "/rodas")!;
+    expect(first.query.get("limit")).toBe("10");
+    expect(first.query.get("offset")).toBe("0");
+    for (const key of ["q", "stateId", "cityId"]) expect(first.query.has(key)).toBe(false);
+    expect(screen.getByTestId("table-count")).toHaveTextContent("2 registros");
+    expect(screen.queryByTestId("table-limit-warning")).not.toBeInTheDocument();
+    // roda de outra organização: selo, participantes (leitura), mas NUNCA Editar/Excluir
+    expect(screen.getByText("Outra organização")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Participantes de Roda Alheia" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Editar Roda Alheia" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Excluir Roda Alheia" })).toBeNull();
+  });
+
+  it("estado, cidade e busca (debounce) vão ao servidor; trocar o estado limpa a cidade", async () => {
+    renderPage();
+    await screen.findByText("Roda de Sábado");
+    const getRodas = () => calls.filter((c) => c.method === "GET" && c.path === "/rodas");
+    expect(screen.getByLabelText("Filtrar por cidade")).toBeDisabled();
+    await screen.findByRole("option", { name: "São Paulo (SP)" });
+    fireEvent.change(screen.getByLabelText("Filtrar por estado"), { target: { value: "1" } });
+    await waitFor(() => expect(getRodas().at(-1)!.query.get("stateId")).toBe("1"));
+    await screen.findByRole("option", { name: "Santos" });
+    fireEvent.change(screen.getByLabelText("Filtrar por cidade"), { target: { value: "5" } });
+    await waitFor(() => expect(getRodas().at(-1)!.query.get("cityId")).toBe("5"));
+    expect(getRodas().at(-1)!.query.get("stateId")).toBe("1");
+    fireEvent.change(screen.getByLabelText("Filtrar por estado"), { target: { value: "" } });
+    await waitFor(() => expect(getRodas().at(-1)!.query.has("stateId")).toBe(false));
+    expect(getRodas().at(-1)!.query.has("cityId")).toBe(false);
+
+    const before = getRodas().length;
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Pr" } });
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Praça" } });
+    expect(getRodas().length).toBe(before);
+    await waitFor(() => expect(getRodas().at(-1)!.query.get("q")).toBe("Praça"));
+    expect(getRodas().filter((c) => c.query.has("q"))).toHaveLength(1);
+  });
+
+  it("pagina no servidor com o total do header (offset da página 2)", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({ ...OTHER, id: 200 + i, title: `Roda ${String(i + 1).padStart(2, "0")}` }));
+    overrides["GET /rodas"] = () => json(200, many.slice(0, 10), { "X-Total-Count": "25" });
+    renderPage();
+    await screen.findByText("Roda 01");
+    expect(screen.getByTestId("table-count")).toHaveTextContent("25 registros");
+    expect(screen.getByText("Página 1 de 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Próxima página"));
+    await waitFor(() => expect(calls.at(-1)!.query.get("offset")).toBe("10"));
+  });
+});
+
+describe("RodasPage - limpar campos opcionais (null no PATCH)", () => {
+  const FULL = { ...OWN, description: "Roda aberta", cityId: 5 };
+
+  async function openEdit() {
+    rodas = [FULL, OTHER];
+    renderPage();
+    await screen.findByText("Roda de Sábado");
+    fireEvent.click(screen.getByRole("button", { name: "Editar Roda de Sábado" }));
+    await screen.findByLabelText("Título");
+    await waitFor(() => expect(screen.getByLabelText("Cidade")).toHaveValue("5"));
+  }
+
+  it("esvaziar descrição, local, estado, cidade e imagem envia null em cada um", async () => {
+    await openEdit();
+    fireEvent.change(screen.getByLabelText("Descrição"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Local"), { target: { value: " " } });
+    fireEvent.change(screen.getByLabelText("Estado"), { target: { value: "" } }); // zera a cidade junto
+    fireEvent.change(screen.getByLabelText(/Imagem de capa/), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("PATCH", "/rodas/1")).toHaveLength(1));
+    const body = sent("PATCH", "/rodas/1")[0]!.body as Record<string, unknown>;
+    for (const key of ["description", "location", "stateId", "cityId", "imageUrl"]) {
+      expect(body, key).toHaveProperty(key, null);
+    }
+    expect(body["imageUrl"]).not.toBe("");
+    expect(body).toMatchObject({ title: "Roda de Sábado" });
+    expect(body["date"]).toEqual(expect.any(String));
+    expect(body).not.toHaveProperty("communityId"); // sem campo no painel: não mexe
+  });
+
+  it("erro 400 do PATCH aparece em toast e mantém o formulário aberto", async () => {
+    overrides["PATCH /rodas/1"] = () => json(400, { message: "imageUrl must be a URL address" });
+    await openEdit();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("imageUrl must be a URL address"));
+    expect(screen.getByLabelText("Título")).toBeInTheDocument();
   });
 });
 

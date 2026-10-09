@@ -3,6 +3,8 @@ import {
   fromLocalInput,
   idToField,
   isHttpUrl,
+  nullableId,
+  nullableText,
   optionalId,
   optionalText,
   toLocalInput,
@@ -55,18 +57,37 @@ export function eventToForm(event: EventItem): EventFormValues {
   };
 }
 
-/** Valores do formulário -> corpo do POST/PATCH. No PATCH, texto vazio é enviado para limpar o campo. */
-export function buildEventPayload(values: EventFormValues, isEdit: boolean): EventPayload {
+/** CRIAR (POST): campos opcionais vazios são omitidos. Para editar use `buildEventUpdatePayload`. */
+export function buildEventPayload(values: EventFormValues): EventPayload {
   return {
     title: values.title.trim(),
     date: fromLocalInput(values.date),
     type: values.type,
-    description: isEdit ? values.description : optionalText(values.description),
-    location: isEdit ? values.location.trim() : optionalText(values.location),
+    description: optionalText(values.description),
+    location: optionalText(values.location),
     unitId: optionalId(values.unitId),
     isPublic: values.isPublic,
     stateId: optionalId(values.stateId),
     cityId: optionalId(values.cityId),
     imageUrl: optionalText(values.imageUrl),
+  };
+}
+
+/**
+ * EDITAR (PATCH): opcionais esvaziados vão como `null` (o backend limpa a coluna; imageUrl `""`
+ * daria 400). title/date/type/isPublic são obrigatórios e nunca vão `null`.
+ */
+export function buildEventUpdatePayload(values: EventFormValues): EventPayload {
+  return {
+    title: values.title.trim(),
+    date: fromLocalInput(values.date),
+    type: values.type,
+    description: nullableText(values.description),
+    location: nullableText(values.location),
+    unitId: nullableId(values.unitId),
+    isPublic: values.isPublic,
+    stateId: nullableId(values.stateId),
+    cityId: nullableId(values.cityId),
+    imageUrl: nullableText(values.imageUrl),
   };
 }

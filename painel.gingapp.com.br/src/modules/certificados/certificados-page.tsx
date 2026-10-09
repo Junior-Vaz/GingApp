@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
 import { Copy, ExternalLink } from "lucide-react";
@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import {
   Dialog,
   DialogContent,
@@ -16,12 +17,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import type { QueryParams } from "@/lib/api";
 import { createCrud } from "@/lib/crud";
+import { useListParams } from "@/lib/list-params";
 import {
-  applyCertificateFilters,
   certificateLink,
   certificateToEdit,
   editSchema,
+  emptyCertificateFilters,
   emptyIssue,
   formatIssuedAt,
   issueSchema,
@@ -58,12 +61,18 @@ const certificates = createCrud<Certificate, CertificateInput>("/certificates", 
 });
 const students = createCrud<StudentRef>("/students");
 
+/** Maximo aceito pelo backend em um GET paginado; usado na lista de alunos do formulario/filtro. */
+const STUDENT_PICKER_LIMIT = 200;
+const STUDENT_PICKER_PARAMS: QueryParams = { limit: STUDENT_PICKER_LIMIT };
+
 const nativeSelect =
   "border-input h-9 w-full rounded-md border bg-transparent px-3 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 export function CertificadosPage() {
-  const list = certificates.useList();
-  const studentList = students.useList();
+  // Lista no servidor (padrao Alunos): useListParams -> usePage -> DataTable server.
+  const lp = useListParams<CertificateFilters>({ pageSize: 10, filters: emptyCertificateFilters() });
+  const list = certificates.usePage(lp.params);
+  const studentList = students.usePage(STUDENT_PICKER_PARAMS);
   const create = certificates.useCreate();
   const update = certificates.useUpdate();
   const remove = certificates.useRemove();
@@ -72,13 +81,10 @@ export function CertificadosPage() {
   const [editing, setEditing] = useState<Certificate | null>(null);
   const [deleting, setDeleting] = useState<Certificate | null>(null);
   const [viewing, setViewing] = useState<Certificate | null>(null);
-  const [filters, setFilters] = useState<CertificateFilters>({ from: "", to: "" });
 
-  const filtered = useMemo(
-    () => (list.data ? applyCertificateFilters(list.data, filters) : undefined),
-    [list.data, filters],
-  );
-  const hasFilter = !!filters.from || !!filters.to;
+  const { filters } = lp;
+  const hasFilter = !!(filters.studentId || filters.from || filters.to);
+  const studentsTruncated = studentList.total > STUDENT_PICKER_LIMIT;
 
   async function copyLink(code: string) {
     try {
@@ -111,32 +117,52 @@ export function CertificadosPage() {
 
       <DataTable
         columns={columns}
-        data={filtered}
+        data={list.items}
+        server={{ ...lp.server, total: list.total, isFetching: list.isFetching }}
         isLoading={list.isLoading}
         error={list.error}
         onRetry={() => void list.refetch()}
         getRowId={(c) => c.id}
-        searchText={(c) => `${c.student.name} ${c.title} ${c.verificationCode}`}
         searchPlaceholder="Buscar aluno, título ou código…"
-        emptyMessage={hasFilter ? "Nenhum certificado no período." : "Nenhum certificado emitido ainda."}
+        emptyMessage={hasFilter ? "Nenhum certificado para os filtros." : "Nenhum certificado emitido ainda."}
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="Filtrar por aluno"
+              className={cn(nativeSelect, "w-44")}
+              value={filters.studentId}
+              onChange={(e) => lp.setFilter("studentId", e.target.value)}
+            >
+              <option value="">Todos os alunos</option>
+              {(studentList.items ?? []).map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
             <Input
               type="date"
               aria-label="Emitido de"
               className="w-40"
               value={filters.from}
-              onChange={(e) => setFilters({ ...filters, from: e.target.value })}
+              onChange={(e) => lp.setFilter("from", e.target.value)}
             />
             <Input
               type="date"
               aria-label="Emitido até"
               className="w-40"
               value={filters.to}
-              onChange={(e) => setFilters({ ...filters, to: e.target.value })}
+              onChange={(e) => lp.setFilter("to", e.target.value)}
             />
             {hasFilter && (
-              <Button variant="ghost" size="sm" onClick={() => setFilters({ from: "", to: "" })}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  const empty = emptyCertificateFilters();
+                  for (const key of Object.keys(empty) as (keyof CertificateFilters)[]) lp.setFilter(key, empty[key]);
+                }}
+              >
                 Limpar
               </Button>
             )}
@@ -177,13 +203,18 @@ export function CertificadosPage() {
                   <FormControl>
                     <select {...field} className={nativeSelect}>
                       <option value="">Selecione…</option>
-                      {(studentList.data ?? []).map((s) => (
+                      {(studentList.items ?? []).map((s) => (
                         <option key={s.id} value={String(s.id)}>
                           {s.name}
                         </option>
                       ))}
                     </select>
                   </FormControl>
+                  {studentsTruncated && (
+                    <p data-testid="students-truncated" className="text-xs text-muted-foreground">
+                      Mostrando os primeiros {STUDENT_PICKER_LIMIT} de {studentList.total} alunos.
+                    </p>
+                  )}
                   <FormMessage />
                 </FormItem>
               )}

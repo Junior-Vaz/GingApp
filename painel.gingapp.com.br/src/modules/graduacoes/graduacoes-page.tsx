@@ -20,10 +20,11 @@ import {
   useCreateLevel,
   useRegisterGraduation,
   useStudentHistory,
-  useStudentOptions,
   type GraduationSystem,
   type StudentGraduation,
+  type StudentOption,
 } from "./graduacoes-api";
+import { StudentPicker } from "./student-picker";
 import {
   levelSchema,
   registrationSchema,
@@ -213,10 +214,9 @@ function SistemasTab() {
 }
 
 function AlunosTab() {
-  const students = useStudentOptions();
   const systemList = systems.useList();
-  const [studentId, setStudentId] = useState("");
-  const selectedId = studentId ? Number(studentId) : undefined;
+  const [student, setStudent] = useState<StudentOption | undefined>();
+  const selectedId = student?.id;
   const history = useStudentHistory(selectedId);
   const register = useRegisterGraduation(selectedId);
   const [registering, setRegistering] = useState(false);
@@ -249,22 +249,8 @@ function AlunosTab() {
   return (
     <>
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3 rounded-lg border bg-card p-4">
-        <div className="w-full max-w-sm space-y-1.5">
-          <label htmlFor="grad-aluno" className="text-sm font-medium">Aluno</label>
-          <NativeSelect id="grad-aluno" value={studentId} onChange={(e) => setStudentId(e.target.value)}>
-            <option value="">{students.isLoading ? "Carregando alunos…" : "Selecione…"}</option>
-            {students.data?.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-                {s.status === "INACTIVE" ? " (inativo)" : ""}
-              </option>
-            ))}
-          </NativeSelect>
-          {students.error && (
-            <p className="text-xs text-destructive" role="alert">
-              {errorMessage(students.error, "Não foi possível carregar os alunos.")}
-            </p>
-          )}
+        <div className="w-full max-w-sm">
+          <StudentPicker selected={student} onSelect={setStudent} />
         </div>
         <Button disabled={!selectedId} onClick={() => setRegistering(true)}>
           Registrar graduação
@@ -293,7 +279,7 @@ function AlunosTab() {
         open={registering}
         onOpenChange={setRegistering}
         title="Registrar graduação"
-        description={students.data?.find((s) => s.id === selectedId)?.name ?? "Preencha os dados abaixo."}
+        description={student?.name ?? "Preencha os dados abaixo."}
         schema={registrationSchema}
         defaultValues={{ graduationLevelId: "", graduatedAt: "", notes: "" }}
         onSubmit={(values) => register.mutateAsync(toRegistrationInput(values))}

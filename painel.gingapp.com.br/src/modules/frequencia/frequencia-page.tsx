@@ -13,7 +13,8 @@ import { api, errorMessage } from "@/lib/api";
 import { notifyError } from "@/lib/crud";
 import { dayOnly, fmt } from "@/lib/format";
 import { NativeSelect } from "@/modules/aulas/native-select";
-import { lessons, useClassOptions, timeRange, type Lesson } from "@/modules/aulas/aulas-api";
+import { timeRange, type Lesson } from "@/modules/aulas/aulas-api";
+import { SELECTOR_LIMIT, useClassSelector, useLessonSelector } from "./frequencia-api";
 import {
   buildPayload,
   markAll,
@@ -30,24 +31,29 @@ const rosterKey = (lessonId: string) => ["frequencia", "roster", lessonId];
 
 export function FrequenciaPage() {
   const queryClient = useQueryClient();
-  const lessonsQuery = lessons.useList();
-  const classes = useClassOptions();
-
   const [classFilter, setClassFilter] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const lessonsQuery = useLessonSelector({ classId: classFilter, from, to });
+  const classes = useClassSelector();
+
   const [lessonId, setLessonId] = useState("");
   const [rows, setRows] = useState<RosterRow[]>([]);
 
-  const className = (id: number) => classes.data?.find((c) => c.id === id)?.name ?? "Turma";
+  const className = (id: number) => classes.data?.items.find((c) => c.id === id)?.name ?? "Turma";
 
-  // Só aulas ativas recebem chamada; mais recentes primeiro.
+  // Filtros (turma, status ativo, período) são aplicados no servidor; aqui só ordena, mais recentes primeiro.
+  const lessonItems = lessonsQuery.data?.items;
   const options = useMemo(
     () =>
-      (lessonsQuery.data ?? [])
-        .filter((l) => l.status === "ACTIVE" && (!classFilter || String(l.classId) === classFilter))
+      [...(lessonItems ?? [])]
+        .filter((l) => l.status === "ACTIVE")
         .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id),
-    [lessonsQuery.data, classFilter],
+    [lessonItems],
   );
-  const selected: Lesson | undefined = lessonsQuery.data?.find((l) => String(l.id) === lessonId);
+  const lessonsTotal = lessonsQuery.data?.total ?? 0;
+  const classesTotal = classes.data?.total ?? 0;
+  const selected: Lesson | undefined = lessonItems?.find((l) => String(l.id) === lessonId);
 
   const roster = useQuery({
     queryKey: rosterKey(lessonId),
@@ -174,7 +180,7 @@ export function FrequenciaPage() {
     <>
       <PageHeader title="Frequência" description="Registre a chamada de uma aula." />
 
-      <div className="mb-4 grid gap-3 rounded-lg border bg-card p-4 sm:grid-cols-2">
+      <div className="mb-4 grid gap-3 rounded-lg border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1.5">
           <label htmlFor="freq-turma" className="text-sm font-medium">Turma</label>
           <NativeSelect
@@ -186,10 +192,41 @@ export function FrequenciaPage() {
             }}
           >
             <option value="">Todas as turmas</option>
-            {classes.data?.map((c) => (
+            {classes.data?.items.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </NativeSelect>
+          {classesTotal > SELECTOR_LIMIT && (
+            <p className="text-xs text-muted-foreground" data-testid="classes-truncated">
+              Mostrando {SELECTOR_LIMIT} de {classesTotal} turmas.
+            </p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="freq-de" className="text-sm font-medium">De</label>
+          <Input
+            id="freq-de"
+            type="date"
+            value={from}
+            max={to || undefined}
+            onChange={(e) => {
+              setFrom(e.target.value);
+              setLessonId("");
+            }}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="freq-ate" className="text-sm font-medium">Até</label>
+          <Input
+            id="freq-ate"
+            type="date"
+            value={to}
+            min={from || undefined}
+            onChange={(e) => {
+              setTo(e.target.value);
+              setLessonId("");
+            }}
+          />
         </div>
         <div className="space-y-1.5">
           <label htmlFor="freq-aula" className="text-sm font-medium">Aula</label>
@@ -201,6 +238,11 @@ export function FrequenciaPage() {
               </option>
             ))}
           </NativeSelect>
+          {lessonsTotal > SELECTOR_LIMIT && (
+            <p className="text-xs text-muted-foreground" data-testid="lessons-truncated">
+              Mostrando as {SELECTOR_LIMIT} aulas mais recentes de {lessonsTotal}. Refine por turma ou período.
+            </p>
+          )}
           {lessonsQuery.error && (
             <p className="text-xs text-destructive" role="alert">
               {errorMessage(lessonsQuery.error, "Não foi possível carregar as aulas.")}

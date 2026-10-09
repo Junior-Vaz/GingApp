@@ -16,7 +16,8 @@ export interface TeacherInput {
   name?: string | undefined;
   email?: string | undefined;
   password?: string | undefined;
-  phone?: string | undefined;
+  /** No PATCH, `null` LIMPA o telefone. name/role/status nunca vão `null` (400). */
+  phone?: string | null | undefined;
   role?: TeacherRole | undefined;
   status?: "ACTIVE" | "INACTIVE" | undefined;
 }
@@ -81,10 +82,11 @@ export function createPayload(values: TeacherFormValues): TeacherInput {
   };
 }
 
+/** EDITAR (PATCH): telefone esvaziado vai como `null` (o backend limpa a coluna). */
 export function editPayload(values: TeacherFormValues): TeacherInput {
   return {
     name: values.name.trim(),
-    phone: values.phone.trim() || undefined,
+    phone: values.phone.trim() || null,
     role: values.role,
     status: values.status,
   };

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { createCrud, notifyError } from "@/lib/crud";
@@ -72,8 +72,17 @@ export function useCreateLevel() {
   });
 }
 
-export function useStudentOptions() {
-  return useQuery({ queryKey: ["graduacoes", "students"], queryFn: () => api.get<StudentOption[]>("/students") });
+/** Resultados por busca de aluno (backend aceita 1..200). */
+export const STUDENT_SEARCH_LIMIT = 20;
+
+/** Busca de alunos NO SERVIDOR: GET /students?q=&limit=20 (q vazio = os 20 mais recentes). */
+export function useStudentSearch(q: string) {
+  const params = { q, limit: STUDENT_SEARCH_LIMIT };
+  return useQuery({
+    queryKey: ["graduacoes", "students", params],
+    queryFn: () => api.getPage<StudentOption>("/students", params),
+    placeholderData: keepPreviousData,
+  });
 }
 
 const historyKey = (studentId: number | undefined) => ["graduacoes", "history", studentId];

@@ -19,9 +19,12 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { createCrud } from "@/lib/crud";
+import { useListParams } from "@/lib/list-params";
 import { fmt, toDate } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
-import { useUnits } from "@/modules/unidades/units";
+import { AuxLimitNotice } from "@/modules/rodas/aux-limit-notice";
+import { NativeSelect } from "@/modules/rodas/native-select";
+import { useAuxList } from "@/modules/rodas/reference";
 
 /** Contrato de GET /announcements (backend: AnnouncementsService). */
 export interface Announcement {
@@ -50,6 +53,12 @@ const announcements = createCrud<Announcement, AnnouncementInput>("/announcement
 
 const GROUP = "group";
 
+/** Unidade para escolha de escopo/filtro (GET /units?limit=200). */
+interface UnitOption {
+  id: number;
+  name: string;
+}
+
 // Regras do backend: título e texto com no mínimo 2 caracteres.
 const schema = z.object({
   title: z.string().trim().min(2, "Informe o título (mínimo 2 caracteres)."),
@@ -60,8 +69,10 @@ const schema = z.object({
 type Values = z.infer<typeof schema>;
 
 export function ComunicadosPage() {
-  const list = announcements.useList();
-  const units = useUnits();
+  // Lista no servidor: busca (q em título/corpo), situação (isActive) e unidade (unitId).
+  const lp = useListParams({ pageSize: 10, filters: { isActive: "", unitId: "" } });
+  const list = announcements.usePage(lp.params);
+  const units = useAuxList<UnitOption>("/units");
   const create = announcements.useCreate();
   const update = announcements.useUpdate();
   const remove = announcements.useRemove();
@@ -75,7 +86,7 @@ export function ComunicadosPage() {
   const unitName = (unitId: number | null) =>
     unitId === null
       ? "Todo o grupo"
-      : (units.data?.find((u) => u.id === unitId)?.name ?? `Unidade #${unitId}`);
+      : (units.items?.find((u) => u.id === unitId)?.name ?? `Unidade #${unitId}`);
 
   const columns: Column<Announcement>[] = [
     {
@@ -133,14 +144,43 @@ export function ComunicadosPage() {
       />
       <DataTable
         columns={columns}
-        data={list.data}
+        data={list.items}
+        server={{ ...lp.server, total: list.total, isFetching: list.isFetching }}
         isLoading={list.isLoading}
         error={list.error}
         onRetry={() => void list.refetch()}
         getRowId={(a) => a.id}
-        searchText={(a) => `${a.title} ${a.body}`}
-        searchPlaceholder="Buscar comunicado..."
-        emptyMessage="Nenhum comunicado publicado."
+        searchPlaceholder="Buscar por título ou texto…"
+        emptyMessage={
+          lp.filters.isActive || lp.filters.unitId ? "Nenhum comunicado com esses filtros." : "Nenhum comunicado publicado."
+        }
+        toolbar={
+          <div className="flex flex-wrap gap-2">
+            <NativeSelect
+              aria-label="Filtrar por situação"
+              className="w-44"
+              value={lp.filters.isActive}
+              onChange={(e) => lp.setFilter("isActive", e.target.value)}
+            >
+              <option value="">Todas as situações</option>
+              <option value="true">Ativos</option>
+              <option value="false">Inativos</option>
+            </NativeSelect>
+            <NativeSelect
+              aria-label="Filtrar por unidade"
+              className="w-44"
+              value={lp.filters.unitId}
+              onChange={(e) => lp.setFilter("unitId", e.target.value)}
+            >
+              <option value="">Todas as unidades</option>
+              {(units.items ?? []).map((u) => (
+                <option key={u.id} value={String(u.id)}>
+                  {u.name}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
+        }
         rowActions={(a) => (
           <>
             <Button variant="ghost" size="sm" onClick={() => setEditing(a)}>
@@ -210,13 +250,14 @@ export function ComunicadosPage() {
                     </FormControl>
                     <SelectContent>
                       <SelectItem value={GROUP}>Todo o grupo</SelectItem>
-                      {(units.data ?? []).map((u) => (
+                      {(units.items ?? []).map((u) => (
                         <SelectItem key={u.id} value={String(u.id)}>
                           Somente {u.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  <AuxLimitNotice truncated={units.truncated} total={units.total} label="unidades" />
                   <FormMessage />
                 </FormItem>
               )}

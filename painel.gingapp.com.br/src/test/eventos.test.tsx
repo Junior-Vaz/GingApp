@@ -17,10 +17,12 @@ class ResizeObserverStub {
 interface Call {
   method: string;
   path: string;
+  query: URLSearchParams;
   body: unknown;
 }
 
-const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers });
 
 const EVENT = {
   id: 7,
@@ -44,14 +46,14 @@ let overrides: Record<string, () => Response>;
 function installFetch() {
   calls = [];
   const handler = (input: string, init?: RequestInit): Response => {
-    const path = input.replace(/^https?:\/\/[^/]+\/api/, "");
+    const [path = "", search = ""] = input.replace(/^https?:\/\/[^/]+\/api/, "").split("?");
     const method = init?.method ?? "GET";
     const body = init?.body ? (JSON.parse(String(init.body)) as unknown) : undefined;
-    calls.push({ method, path, body });
+    calls.push({ method, path, query: new URLSearchParams(search), body });
     const key = `${method} ${path}`;
     const override = overrides[key];
     if (override) return override();
-    if (key === "GET /events") return json(200, events);
+    if (key === "GET /events") return json(200, events, { "X-Total-Count": String(events.length) });
     if (key === "GET /units") return json(200, [{ id: 3, name: "Sede" }]);
     if (key === "GET /students") return json(200, [{ id: 11, name: "Ana Souza" }]);
     if (key === "GET /rodas/reference/states") return json(200, [{ id: 1, name: "São Paulo", uf: "SP" }]);
@@ -99,8 +101,9 @@ describe("EventosPage - listagem", () => {
     renderPage();
     expect(screen.getAllByTestId("table-loading").length).toBeGreaterThan(0);
     expect(await screen.findByText("Batizado 2026")).toBeInTheDocument();
-    expect(screen.getByText("Batizado")).toBeInTheDocument();
-    expect(screen.getAllByText("Público")).toHaveLength(2); // cabeçalho + badge
+    const table = within(screen.getByRole("table"));
+    expect(table.getByText("Batizado")).toBeInTheDocument();
+    expect(table.getAllByText("Público")).toHaveLength(2); // cabeçalho + badge
     expect(screen.getByText("Quadra central")).toBeInTheDocument();
   });
 
@@ -214,6 +217,106 @@ describe("EventosPage - criar / editar / excluir", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Excluir" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Evento não encontrado."));
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+  });
+});
+
+describe("EventosPage - lista no servidor", () => {
+  it("envia limit/offset sem filtros vazios e mostra o total do header", async () => {
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    const first = calls.find((c) => c.path === "/events")!;
+    expect(first.query.get("limit")).toBe("10");
+    expect(first.query.get("offset")).toBe("0");
+    for (const key of ["q", "type", "from", "to"]) expect(first.query.has(key)).toBe(false);
+    expect(screen.getByTestId("table-count")).toHaveTextContent("1 registro");
+    expect(screen.queryByTestId("table-limit-warning")).not.toBeInTheDocument();
+  });
+
+  it("tipo, from, to e busca (debounce) vão ao servidor; filtro volta à página 1", async () => {
+    events = Array.from({ length: 25 }, (_, i) => ({ ...EVENT, id: 100 + i, title: `Evento ${String(i + 1).padStart(2, "0")}` }));
+    overrides["GET /events"] = () => json(200, events.slice(0, 10), { "X-Total-Count": "25" });
+    renderPage();
+    await screen.findByText("Evento 01");
+    expect(screen.getByText("Página 1 de 3")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Próxima página"));
+    await waitFor(() => expect(calls.at(-1)!.query.get("offset")).toBe("10"));
+
+    const getEvents = () => calls.filter((c) => c.method === "GET" && c.path === "/events");
+    fireEvent.change(screen.getByLabelText("Filtrar por tipo"), { target: { value: "CAMPEONATO" } });
+    await waitFor(() => expect(getEvents().at(-1)!.query.get("type")).toBe("CAMPEONATO"));
+    expect(getEvents().at(-1)!.query.get("offset")).toBe("0");
+    fireEvent.change(screen.getByLabelText("Data inicial"), { target: { value: "2026-11-01" } });
+    await waitFor(() => expect(getEvents().at(-1)!.query.get("from")).toBe("2026-11-01"));
+    fireEvent.change(screen.getByLabelText("Data final"), { target: { value: "2026-11-30" } });
+    await waitFor(() => expect(getEvents().at(-1)!.query.get("to")).toBe("2026-11-30"));
+
+    const before = getEvents().length;
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Qu" } });
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Quadra" } });
+    expect(getEvents().length).toBe(before);
+    await waitFor(() => expect(getEvents().at(-1)!.query.get("q")).toBe("Quadra"));
+    expect(getEvents().filter((c) => c.query.has("q"))).toHaveLength(1);
+    expect(getEvents().at(-1)!.query.get("type")).toBe("CAMPEONATO");
+  });
+
+  it("listas auxiliares pedem limit=200 e avisam quando o total passa de 200", async () => {
+    overrides["GET /units"] = () => json(200, [{ id: 3, name: "Sede" }], { "X-Total-Count": "250" });
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    fireEvent.click(screen.getByRole("button", { name: /Novo evento/ }));
+    await screen.findByRole("option", { name: "Sede" });
+    expect(calls.find((c) => c.path === "/units")!.query.get("limit")).toBe("200");
+    expect(await screen.findByTestId("aux-limit-notice")).toHaveTextContent("250 unidades");
+  });
+});
+
+describe("EventosPage - limpar campos opcionais (null no PATCH)", () => {
+  const FULL = { ...EVENT, unitId: 3, stateId: 1, cityId: 5 };
+
+  async function openEdit() {
+    events = [FULL];
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    fireEvent.click(screen.getByRole("button", { name: "Editar Batizado 2026" }));
+    await screen.findByLabelText("Título");
+    await waitFor(() => expect(screen.getByLabelText("Unidade")).toHaveValue("3"));
+    await waitFor(() => expect(screen.getByLabelText("Cidade")).toHaveValue("5"));
+  }
+
+  it("esvaziar descrição, local, unidade, estado, cidade e imagem envia null em cada um", async () => {
+    await openEdit();
+    fireEvent.change(screen.getByLabelText("Descrição"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Local"), { target: { value: "  " } });
+    fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Estado"), { target: { value: "" } }); // zera a cidade junto
+    fireEvent.change(screen.getByLabelText(/Imagem de capa/), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("PATCH", "/events/7")).toHaveLength(1));
+    const body = sent("PATCH", "/events/7")[0]!.body as Record<string, unknown>;
+    for (const key of ["description", "location", "unitId", "stateId", "cityId", "imageUrl"]) {
+      expect(body, key).toHaveProperty(key, null);
+    }
+    expect(body["imageUrl"]).not.toBe("");
+    // obrigatórios nunca vão null
+    expect(body).toMatchObject({ title: "Batizado 2026", type: "BATIZADO", isPublic: true });
+    expect(body["date"]).toEqual(expect.any(String));
+  });
+
+  it("sem esvaziar, mantém os valores (não manda null)", async () => {
+    await openEdit();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("PATCH", "/events/7")).toHaveLength(1));
+    expect(sent("PATCH", "/events/7")[0]!.body).toMatchObject({
+      description: "Grande roda", location: "Quadra central", unitId: 3, stateId: 1, cityId: 5, imageUrl: "https://exemplo.com/capa.png",
+    });
+  });
+
+  it("erro 400 do PATCH aparece em toast e mantém o formulário aberto", async () => {
+    overrides["PATCH /events/7"] = () => json(400, { message: ["imageUrl must be a URL address"] });
+    await openEdit();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("imageUrl must be a URL address"));
+    expect(screen.getByLabelText("Título")).toBeInTheDocument();
   });
 });
 

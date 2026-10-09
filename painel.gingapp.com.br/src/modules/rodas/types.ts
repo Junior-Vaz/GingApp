@@ -13,12 +13,14 @@ export interface Roda {
 
 export interface RodaPayload {
   title?: string | undefined;
-  description?: string | undefined;
   date?: string | undefined;
-  location?: string | undefined;
-  stateId?: number | undefined;
-  cityId?: number | undefined;
-  imageUrl?: string | undefined;
+  /** Opcionais: `null` LIMPA a coluna no PATCH (e `""` em imageUrl daria 400); omitido = não mexe. */
+  description?: string | null | undefined;
+  location?: string | null | undefined;
+  stateId?: number | null | undefined;
+  cityId?: number | null | undefined;
+  communityId?: number | null | undefined;
+  imageUrl?: string | null | undefined;
 }
 
 export interface State {

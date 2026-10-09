@@ -31,7 +31,7 @@ const roster = [
 
 interface Call { url: string; method: string; body: unknown }
 
-function setup(opts: { roster?: () => Response; save?: () => Response } = {}) {
+function setup(opts: { roster?: () => Response; save?: () => Response; lessonsTotal?: number; classesTotal?: number } = {}) {
   const calls: Call[] = [];
   vi.stubGlobal(
     "fetch",
@@ -39,8 +39,16 @@ function setup(opts: { roster?: () => Response; save?: () => Response } = {}) {
       const method = init.method ?? "GET";
       const url = input.replace(/^.*\/api/, "");
       calls.push({ url, method, body: init.body ? JSON.parse(init.body as string) : undefined });
-      if (url === "/lessons") return Promise.resolve(json(200, lessonsData));
-      if (url === "/classes") return Promise.resolve(json(200, classes));
+      const path = url.split("?")[0];
+      const withTotal = (body: unknown[], total?: number) =>
+        new Response(JSON.stringify(body), { status: 200, headers: total === undefined ? {} : { "X-Total-Count": String(total) } });
+      if (path === "/lessons") {
+        // o servidor filtra por turma
+        const classId = new URLSearchParams(url.split("?")[1] ?? "").get("classId");
+        const body = classId ? lessonsData.filter((l) => String(l.classId) === classId) : lessonsData;
+        return Promise.resolve(withTotal(body, opts.lessonsTotal));
+      }
+      if (path === "/classes") return Promise.resolve(withTotal(classes, opts.classesTotal));
       if (method === "GET" && url.startsWith("/attendance/lessons/")) return Promise.resolve(opts.roster?.() ?? json(200, roster));
       if (method === "POST" && url.startsWith("/attendance/lessons/")) return Promise.resolve(opts.save?.() ?? json(201, { count: 2 }));
       return Promise.resolve(json(404, { message: "?" }));
@@ -81,8 +89,38 @@ describe("FrequenciaPage", () => {
     await openLesson("1");
     fireEvent.change(screen.getByLabelText("Turma"), { target: { value: "2" } });
     const select = screen.getByLabelText("Aula");
+    await waitFor(() => expect(within(select).getAllByRole("option")).toHaveLength(2));
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Selecione uma aula", "Adulto — 09/03/2026"]);
     expect(select).toHaveValue("");
+  });
+
+  it("seletores usam listas paginadas no servidor: limit=200, status=ACTIVE e filtros turma/período", async () => {
+    const { calls } = setup();
+    await openLesson("1");
+    const lessonCalls = () => calls.filter((c) => c.url.startsWith("/lessons")).map((c) => c.url);
+    expect(lessonCalls()[0]).toBe("/lessons?status=ACTIVE&limit=200");
+    expect(calls.some((c) => c.url === "/classes?limit=200")).toBe(true);
+
+    fireEvent.change(screen.getByLabelText("Turma"), { target: { value: "2" } });
+    await waitFor(() => expect(lessonCalls()).toContain("/lessons?status=ACTIVE&classId=2&limit=200"));
+    fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-01-01" } });
+    fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2026-01-31" } });
+    await waitFor(() =>
+      expect(lessonCalls()).toContain("/lessons?status=ACTIVE&classId=2&from=2026-01-01&to=2026-01-31&limit=200"),
+    );
+    // mudar o filtro limpa a aula escolhida
+    expect(screen.getByLabelText("Aula")).toHaveValue("");
+  });
+
+  it("sem aviso quando o total cabe em 200; com total > 200 avisa que a lista foi truncada", async () => {
+    setup({ lessonsTotal: 200 });
+    await openLesson("1");
+    expect(screen.queryByTestId("lessons-truncated")).toBeNull();
+    cleanup();
+    vi.unstubAllGlobals();
+    setup({ lessonsTotal: 350, classesTotal: 250 });
+    expect(await screen.findByTestId("lessons-truncated")).toHaveTextContent("Mostrando as 200 aulas mais recentes de 350");
+    expect(await screen.findByTestId("classes-truncated")).toHaveTextContent("Mostrando 200 de 250 turmas");
   });
 
   it("carrega a chamada da aula com o estado existente (sem chamada, presente, falta+justificativa)", async () => {
