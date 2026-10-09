@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { parseCorsOrigins, parseTrustProxy } from './shared/config/runtime-config';
+import { TOTAL_COUNT_HEADER } from './shared/pagination/pagination';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -16,7 +17,11 @@ async function bootstrap(): Promise<void> {
 
   app.setGlobalPrefix('api');
   // Em produção CORS_ORIGINS é obrigatório (falha o boot); em dev vazio = qualquer origem.
-  app.enableCors({ origin: parseCorsOrigins(process.env.CORS_ORIGINS) });
+  // exposedHeaders: o navegador só deixa o JS ler X-Total-Count (paginação) se for exposto aqui.
+  app.enableCors({
+    origin: parseCorsOrigins(process.env.CORS_ORIGINS),
+    exposedHeaders: [TOTAL_COUNT_HEADER],
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
