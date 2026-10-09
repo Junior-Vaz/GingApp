@@ -19,14 +19,19 @@ export interface Unit {
   name: string;
 }
 
-/** Corpo aceito por POST /students e PATCH /students/:id (CreateStudentDto / UpdateStudentDto). */
+/**
+ * Corpo aceito por POST /students e PATCH /students/:id (CreateStudentDto / UpdateStudentDto).
+ * No PATCH, ausente (`undefined`) = não mexe e `null` = LIMPA a coluna; só `name` e `status`
+ * (obrigatórias) não aceitam `null`. `photo` existe no backend mas o painel ainda não tem campo.
+ */
 export interface StudentInput {
   name: string;
-  unitId?: number | undefined;
-  birthDate?: string | undefined;
-  document?: string | undefined;
-  phone?: string | undefined;
-  email?: string | undefined;
+  unitId?: number | null | undefined;
+  birthDate?: string | null | undefined;
+  document?: string | null | undefined;
+  phone?: string | null | undefined;
+  email?: string | null | undefined;
+  photo?: string | null | undefined;
   status?: StudentStatus | undefined;
 }
 
@@ -73,7 +78,7 @@ export function studentToForm(student: Student): StudentFormValues {
   };
 }
 
-/** Campos vazios são omitidos (o backend ignora `undefined`; não há como limpar um campo via PATCH). */
+/** CRIAR (POST): campos vazios são omitidos. Para editar use `studentToUpdatePayload`. */
 export function studentToPayload(values: StudentFormValues): StudentInput {
   return {
     name: values.name.trim(),
@@ -82,6 +87,22 @@ export function studentToPayload(values: StudentFormValues): StudentInput {
     document: values.document.trim() || undefined,
     phone: values.phone.trim() || undefined,
     email: values.email.trim() || undefined,
+    status: values.status,
+  };
+}
+
+/**
+ * EDITAR (PATCH): campos opcionais que o usuário esvaziou vão como `null` (o backend limpa a
+ * coluna). `name` e `status` são obrigatórios e nunca vão `null`.
+ */
+export function studentToUpdatePayload(values: StudentFormValues): StudentInput {
+  return {
+    name: values.name.trim(),
+    unitId: values.unitId ? Number(values.unitId) : null,
+    birthDate: values.birthDate || null,
+    document: values.document.trim() || null,
+    phone: values.phone.trim() || null,
+    email: values.email.trim() || null,
     status: values.status,
   };
 }

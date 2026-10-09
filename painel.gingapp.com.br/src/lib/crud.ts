@@ -1,4 +1,5 @@
 import {
+  keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
@@ -6,7 +7,7 @@ import {
   type UseMutationOptions,
 } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api, errorMessage } from "@/lib/api";
+import { api, buildQuery, errorMessage, type QueryParams } from "@/lib/api";
 
 /** Mostra o erro da API (ou o fallback) em toast. Use em qualquer mutação/consulta. */
 export function notifyError(error: unknown, fallback = "Algo deu errado. Tente novamente."): void {
@@ -23,7 +24,8 @@ export interface CrudMessages {
  * Hooks CRUD genéricos sobre um recurso REST do backend (`/students`, `/classes`...).
  *
  *   const students = createCrud<Student, StudentInput>("/students");
- *   const list = students.useList();                // GET    /students
+ *   const list = students.useList();                // GET    /students (array, teto 50 do servidor)
+ *   const page = students.usePage(params);          // GET    /students?limit&offset&q... → { items, total }
  *   const create = students.useCreate();            // POST   /students
  *   const update = students.useUpdate();            // PATCH  /students/:id   ({ id, data })
  *   const remove = students.useRemove();            // DELETE /students/:id
@@ -36,26 +38,41 @@ export function createCrud<TItem, TInput = Partial<TItem>, TId extends string | 
   messages: CrudMessages = {},
 ) {
   const rootKey: QueryKey = ["crud", basePath];
-  const listKey = (params?: Record<string, string | number | undefined>): QueryKey =>
+  const listKey = (params?: QueryParams): QueryKey =>
     params ? [...rootKey, "list", params] : [...rootKey, "list"];
   const detailKey = (id: TId): QueryKey => [...rootKey, "detail", id];
 
-  const withQuery = (params?: Record<string, string | number | undefined>) => {
-    if (!params) return basePath;
-    const search = new URLSearchParams();
-    for (const [key, value] of Object.entries(params)) {
-      if (value !== undefined && value !== "") search.set(key, String(value));
-    }
-    const text = search.toString();
-    return text ? `${basePath}?${text}` : basePath;
-  };
+  const withQuery = (params?: QueryParams) => `${basePath}${buildQuery(params)}`;
 
-  function useList(params?: Record<string, string | number | undefined>, enabled = true) {
+  function useList(params?: QueryParams, enabled = true) {
     return useQuery({
       queryKey: listKey(params),
       queryFn: () => api.get<TItem[]>(withQuery(params)),
       enabled,
     });
+  }
+
+  /**
+   * Lista paginada/filtrada NO SERVIDOR (`limit`/`offset`/`q`/filtros → `{ items, total }`).
+   * A queryKey inclui os params; `keepPreviousData` mantém a página anterior na tela enquanto a
+   * nova carrega (a tabela não pisca). Mutações invalidam todas as páginas (rootKey).
+   * Use com `useListParams` e a prop `server` do DataTable.
+   */
+  function usePage(params?: QueryParams, enabled = true) {
+    const query = useQuery({
+      queryKey: [...rootKey, "page", params ?? {}] as QueryKey,
+      queryFn: () => api.getPage<TItem>(basePath, params),
+      placeholderData: keepPreviousData,
+      enabled,
+    });
+    return {
+      items: query.data?.items,
+      total: query.data?.total ?? 0,
+      isLoading: query.isLoading,
+      isFetching: query.isFetching,
+      error: query.error,
+      refetch: query.refetch,
+    };
   }
 
   function useOne(id: TId | undefined) {
@@ -108,5 +125,5 @@ export function createCrud<TItem, TInput = Partial<TItem>, TId extends string | 
     );
   }
 
-  return { rootKey, listKey, detailKey, useList, useOne, useCreate, useUpdate, useRemove };
+  return { rootKey, listKey, detailKey, useList, usePage, useOne, useCreate, useUpdate, useRemove };
 }

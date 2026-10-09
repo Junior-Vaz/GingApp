@@ -29,7 +29,7 @@ Menu: edite **uma linha** em `src/lib/nav.ts` (`NAV_ITEMS`; `roles` opcional res
 ## Componentes (`src/components/painel`)
 
 `PageHeader`, `StatCard`, `DataTable` (busca sem acento, ordenação por cabeçalho, paginação no
-cliente, estados loading/vazio/erro), `FormDialog` (Dialog ou Sheet + react-hook-form + zod),
+cliente ou no servidor via prop `server`, estados loading/vazio/erro), `FormDialog` (Dialog ou Sheet + react-hook-form + zod),
 `ConfirmDialog` (substitui `confirm()`), `EmConstrucao`. Dados: `createCrud` em `lib/crud.ts`
 (list/useOne/create/update/remove; invalida cache, toast de sucesso e de erro via sonner).
 
@@ -103,6 +103,28 @@ Depois, na rota: `component: TurmasPage` em `src/routes/_app.turmas.tsx` (troque
 Chamadas que não são CRUD: `api.get/post/patch/delete` de `@/lib/api` + `useQuery`; erros por
 `notifyError(error)` (toast). `createCrud` usa PATCH para update e IDs numéricos (ajuste o 3º
 genérico se o recurso usar string).
+
+## Lista paginada no servidor (padrão; referência: `src/modules/alunos`)
+
+O backend limita as listas a 50 e aceita `limit` (1..200), `offset`, `q` e filtros próprios (veja
+`backend/src/interface/http/<modulo>/dto/list-*-query.dto.ts`); o total vem no header
+`X-Total-Count`. Para converter um módulo (`useList` -> servidor):
+
+```tsx
+const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "" } }); // 1. estado -> params
+const list = students.usePage(lp.params);                  // 2. GET ?limit&offset&q&status&unitId -> { items, total, isFetching }
+<DataTable data={list.items} isLoading={list.isLoading} error={list.error} getRowId={(s) => s.id}
+  server={{ ...lp.server, total: list.total, isFetching: list.isFetching }}  // 3. busca (debounce 300ms) e paginação no servidor
+  toolbar={<NativeSelect value={lp.filters.status} onChange={(e) => lp.setFilter("status", e.target.value)} />} /> // filtro volta à pág. 1
+```
+
+- Não passe `searchText`/`pageSize` com `server` (ignorados); a ordenação por cabeçalho é local, só na página corrente.
+- `createCrud(...).useList()` e o `DataTable` sem `server` seguem existindo (cliente, aviso de teto de 50).
+- 4. **Limpar campo no PATCH**: o backend aceita `null` nos campos opcionais (ausente = não mexe). Na edição envie
+  `null` para o que o usuário esvaziou (`studentToUpdatePayload` em `modules/alunos/schema.ts`); na criação omita os vazios.
+  Colunas obrigatórias (ex.: `name`, `status`) com `null` dão 400.
+- Testes: ver `src/test/pagination.test.tsx` (getPage, usePage, tabela servidor) e `alunos.test.tsx` (mock de fetch que lê `query`).
+- Atenção: o backend tem throttle global de 60 req/min por IP (E2E que cria muitos registros deve espaçar as chamadas).
 
 ## Docker
 

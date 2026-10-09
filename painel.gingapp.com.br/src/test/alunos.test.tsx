@@ -5,20 +5,30 @@ import { toast } from "sonner";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-type Call = { method: string; path: string; body: unknown };
-const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
+type Call = { method: string; path: string; query: URLSearchParams; body: unknown };
+const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), { status, headers });
 
-/** fetch falso: roteia por "METHOD /caminho" (sem o prefixo da API) e registra as chamadas. */
-function mockApi(routes: Record<string, () => Response>) {
+/**
+ * fetch falso: roteia por "METHOD /caminho" (sem prefixo da API NEM query string) e registra as
+ * chamadas (`query` traz os parâmetros). O handler recebe a chamada para responder conforme a query.
+ */
+function mockApi(routes: Record<string, (call: Call) => Response>) {
   const calls: Call[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn((url: string, init: RequestInit = {}) => {
-      const path = url.replace(/^https?:\/\/[^/]+\/api/, "");
+      const [path = "", search = ""] = url.replace(/^https?:\/\/[^/]+\/api/, "").split("?");
       const method = init.method ?? "GET";
-      calls.push({ method, path, body: init.body ? JSON.parse(init.body as string) : undefined });
+      const call: Call = {
+        method,
+        path,
+        query: new URLSearchParams(search),
+        body: init.body ? JSON.parse(init.body as string) : undefined,
+      };
+      calls.push(call);
       const handler = routes[`${method} ${path}`];
-      return Promise.resolve(handler ? handler() : json(404, { message: `sem rota ${method} ${path}` }));
+      return Promise.resolve(handler ? handler(call) : json(404, { message: `sem rota ${method} ${path}` }));
     }),
   );
   return calls;
@@ -28,7 +38,7 @@ function renderPage(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }import { AlunosPage } from "@/modules/alunos/alunos-page";
-import { isMinor, studentToPayload, studentSchema } from "@/modules/alunos/schema";
+import { isMinor, studentToPayload, studentToUpdatePayload, studentSchema } from "@/modules/alunos/schema";
 
 const YEAR = new Date().getFullYear();
 const students = [
@@ -37,7 +47,7 @@ const students = [
 ];
 const units = [{ id: 7, name: "Sede Centro" }];
 const base = () => ({
-  "GET /students": () => json(200, students),
+  "GET /students": () => json(200, students, { "X-Total-Count": String(students.length) }),
   "GET /units": () => json(200, units),
 });
 
@@ -56,6 +66,13 @@ describe("schema de alunos", () => {
       name: "Ab", unitId: 7, birthDate: undefined, document: undefined, phone: "1", email: undefined, status: "ACTIVE",
     });
   });
+  it("studentToUpdatePayload manda null nos opcionais esvaziados (nome/status nunca)", () => {
+    const empty = { name: " Ab ", unitId: "", birthDate: "", document: " ", phone: "", email: "", status: "ACTIVE" as const };
+    expect(studentToUpdatePayload(empty)).toEqual({
+      name: "Ab", unitId: null, birthDate: null, document: null, phone: null, email: null, status: "ACTIVE",
+    });
+    expect(studentToUpdatePayload({ ...empty, unitId: "7", phone: "11" })).toMatchObject({ unitId: 7, phone: "11" });
+  });
   it("isMinor calcula pela data", () => {
     const today = new Date(2026, 5, 15);
     expect(isMinor("2008-06-16", today)).toBe(true);
@@ -65,19 +82,73 @@ describe("schema de alunos", () => {
 });
 
 describe("AlunosPage", () => {
-  it("lista alunos com unidade, badge de menor e filtro de status/busca", async () => {
-    mockApi(base());
+  it("lista alunos com unidade, badge de menor e filtros/busca enviados ao SERVIDOR", async () => {
+    const calls = mockApi({
+      ...base(),
+      "GET /students": (c) => {
+        const status = c.query.get("status");
+        const q = c.query.get("q");
+        const rows = students.filter((s) => (!status || s.status === status) && (!q || s.name.includes(q)));
+        return json(200, rows, { "X-Total-Count": String(rows.length) });
+      },
+    });
     renderPage(<AlunosPage />);
     expect(await screen.findByText("Ana Souza")).toBeInTheDocument();
-    expect(screen.getByText("Sede Centro")).toBeInTheDocument();
+    expect(within(screen.getByRole("table")).getByText("Sede Centro")).toBeInTheDocument();
     expect(screen.getByText("Menor")).toBeInTheDocument();
     expect(screen.getByTestId("table-count")).toHaveTextContent("2 registros");
+    const first = calls.find((c) => c.path === "/students")!;
+    expect(first.query.get("limit")).toBe("10");
+    expect(first.query.get("offset")).toBe("0");
+    expect(first.query.has("status")).toBe(false);
+    expect(first.query.has("q")).toBe(false);
+
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "INACTIVE" } });
-    expect(screen.queryByText("Ana Souza")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Ana Souza")).not.toBeInTheDocument());
     expect(screen.getByText("José Álvaro")).toBeInTheDocument();
+    expect(calls.at(-1)!.query.get("status")).toBe("INACTIVE");
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "jose alvaro" } });
-    expect(screen.queryByText("Ana Souza")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Filtrar por unidade"), { target: { value: "7" } });
+    await waitFor(() => expect(calls.at(-1)!.query.get("unitId")).toBe("7"));
+    expect(calls.at(-1)!.query.has("status")).toBe(false);
+    fireEvent.change(screen.getByLabelText("Filtrar por unidade"), { target: { value: "" } });
+
+    // busca com debounce: só depois de ~300ms vai um GET com q (e um só, não um por tecla)
+    const before = calls.filter((c) => c.path === "/students").length;
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Jos" } });
+    fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "José" } });
+    expect(calls.filter((c) => c.path === "/students").length).toBe(before);
+    await waitFor(() => expect(calls.at(-1)!.query.get("q")).toBe("José"));
+    expect(calls.filter((c) => c.path === "/students" && c.query.has("q"))).toHaveLength(1);
+    await waitFor(() => expect(screen.queryByText("Ana Souza")).not.toBeInTheDocument());
+  });
+
+  it("pagina no servidor: total do header, offset da página 2 e volta à pág. 1 ao filtrar", async () => {
+    const many = Array.from({ length: 25 }, (_, i) => ({
+      ...students[0]!, id: 100 + i, name: `Aluno ${String(i + 1).padStart(2, "0")}`,
+    }));
+    const calls = mockApi({
+      ...base(),
+      "GET /students": (c) => {
+        const offset = Number(c.query.get("offset") ?? 0);
+        const limit = Number(c.query.get("limit") ?? 50);
+        return json(200, many.slice(offset, offset + limit), { "X-Total-Count": "25" });
+      },
+    });
+    renderPage(<AlunosPage />);
+    expect(await screen.findByText("Aluno 01")).toBeInTheDocument();
+    expect(screen.getByTestId("table-count")).toHaveTextContent("25 registros");
+    expect(screen.getByText("Página 1 de 3")).toBeInTheDocument();
+    expect(screen.queryByTestId("table-limit-warning")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Próxima página"));
+    expect(await screen.findByText("Aluno 11")).toBeInTheDocument();
+    expect(screen.queryByText("Aluno 01")).not.toBeInTheDocument();
+    expect(calls.at(-1)!.query.get("offset")).toBe("10");
+    expect(screen.getByText("Página 2 de 3")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "ACTIVE" } });
+    await waitFor(() => expect(calls.at(-1)!.query.get("status")).toBe("ACTIVE"));
+    expect(calls.at(-1)!.query.get("offset")).toBe("0");
+    expect(await screen.findByText("Página 1 de 3")).toBeInTheDocument();
   });
 
   it("mostra erro com 'Tentar novamente'", async () => {
@@ -143,8 +214,36 @@ describe("AlunosPage", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(calls.find((c) => c.method === "PATCH")).toMatchObject({
       path: "/students/1",
-      body: { name: "Ana Souza", unitId: 7, birthDate: "1990-05-10", status: "SUSPENDED" },
+      body: { name: "Ana Souza", unitId: 7, birthDate: "1990-05-10", phone: "11999", document: null, email: null, status: "SUSPENDED" },
     });
+  });
+
+  it("edita: esvaziar telefone e unidade envia null (limpa no servidor)", async () => {
+    const calls = mockApi({ ...base(), "PATCH /students/1": () => json(200, {}) });
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Telefone")).toHaveValue("11999"));
+    fireEvent.change(within(dialog).getByLabelText("Telefone"), { target: { value: "" } });
+    fireEvent.change(within(dialog).getByLabelText("Unidade"), { target: { value: "" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    const body = calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>;
+    expect(body).toMatchObject({ name: "Ana Souza", phone: null, unitId: null, status: "ACTIVE" });
+    expect(body["phone"]).toBeNull();
+  });
+
+  it("erro 400 do PATCH aparece em toast e mantém o formulário aberto", async () => {
+    mockApi({ ...base(), "PATCH /students/1": () => json(400, { message: ["email must be an email"] }) });
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Nome")).toHaveValue("Ana Souza"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("email must be an email"));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
   it("inativa com confirmação (DELETE) e não oferece ação para aluno já inativo", async () => {

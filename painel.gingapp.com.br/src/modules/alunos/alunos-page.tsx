@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { createCrud } from "@/lib/crud";
+import { useListParams } from "@/lib/list-params";
 import { dayOnly, fmt } from "@/lib/format";
 import { NativeSelect } from "./native-select";
 import {
@@ -18,10 +19,10 @@ import {
   studentSchema,
   studentToForm,
   studentToPayload,
+  studentToUpdatePayload,
   type Student,
   type StudentFormValues,
   type StudentInput,
-  type StudentStatus,
   type Unit,
 } from "./schema";
 
@@ -33,24 +34,20 @@ const students = createCrud<Student, StudentInput>("/students", {
 const units = createCrud<Unit>("/units");
 
 export function AlunosPage() {
-  const list = students.useList();
+  // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
+  const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "" } });
+  const list = students.usePage(lp.params);
   const unitList = units.useList();
   const create = students.useCreate();
   const update = students.useUpdate();
   const remove = students.useRemove();
   const [editing, setEditing] = useState<Student | "new" | null>(null);
   const [deleting, setDeleting] = useState<Student | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StudentStatus | "">("");
 
   const unitName = useMemo(() => {
     const map = new Map((unitList.data ?? []).map((u) => [u.id, u.name]));
     return (id: number | null) => (id ? (map.get(id) ?? "—") : "—");
   }, [unitList.data]);
-
-  const rows = useMemo(
-    () => (list.data ? list.data.filter((s) => !statusFilter || s.status === statusFilter) : undefined),
-    [list.data, statusFilter],
-  );
 
   const columns: Column<Student>[] = [
     {
@@ -101,28 +98,43 @@ export function AlunosPage() {
       />
       <DataTable
         columns={columns}
-        data={rows}
+        data={list.items}
+        server={{ ...lp.server, total: list.total, isFetching: list.isFetching }}
         isLoading={list.isLoading}
         error={list.error}
         onRetry={() => void list.refetch()}
         getRowId={(s) => s.id}
-        searchText={(s) => [s.name, s.document, s.phone, s.email].filter(Boolean).join(" ")}
         searchPlaceholder="Buscar por nome, documento, telefone…"
-        emptyMessage="Nenhum aluno cadastrado ainda."
+        emptyMessage={lp.filters.status || lp.filters.unitId ? "Nenhum aluno com esses filtros." : "Nenhum aluno cadastrado ainda."}
         toolbar={
-          <NativeSelect
-            aria-label="Filtrar por status"
-            className="w-44"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as StudentStatus | "")}
-          >
-            <option value="">Todos os status</option>
-            {Object.entries(STUDENT_STATUS_LABEL).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </NativeSelect>
+          <div className="flex flex-wrap gap-2">
+            <NativeSelect
+              aria-label="Filtrar por unidade"
+              className="w-44"
+              value={lp.filters.unitId}
+              onChange={(e) => lp.setFilter("unitId", e.target.value)}
+            >
+              <option value="">Todas as unidades</option>
+              {(unitList.data ?? []).map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </NativeSelect>
+            <NativeSelect
+              aria-label="Filtrar por status"
+              className="w-44"
+              value={lp.filters.status}
+              onChange={(e) => lp.setFilter("status", e.target.value)}
+            >
+              <option value="">Todos os status</option>
+              {Object.entries(STUDENT_STATUS_LABEL).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </NativeSelect>
+          </div>
         }
         rowActions={(s) => (
           <>
@@ -147,7 +159,7 @@ export function AlunosPage() {
         defaultValues={editing && editing !== "new" ? studentToForm(editing) : emptyStudentForm}
         onSubmit={(values) =>
           editing && editing !== "new"
-            ? update.mutateAsync({ id: editing.id, data: studentToPayload(values) })
+            ? update.mutateAsync({ id: editing.id, data: studentToUpdatePayload(values) })
             : create.mutateAsync(studentToPayload(values))
         }
       >

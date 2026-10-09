@@ -32,11 +32,11 @@ interface RequestOptions {
   skipAuthRedirect?: boolean;
 }
 
-async function request<T>(
+async function requestRaw<T>(
   path: string,
   init: RequestInit = {},
   options: RequestOptions = {},
-): Promise<T> {
+): Promise<{ data: T; headers: Headers }> {
   const token = getToken();
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
@@ -61,13 +61,53 @@ async function request<T>(
 
   // Corpo vazio pode vir com 204 OU 200/201 - .text() primeiro é seguro para os dois casos.
   const text = await response.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+  return { data: (text ? JSON.parse(text) : undefined) as T, headers: response.headers };
+}
+
+async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  options: RequestOptions = {},
+): Promise<T> {
+  return (await requestRaw<T>(path, init, options)).data;
+}
+
+/** Valor aceito em query string; `undefined`, `null` e `""` são ignorados por `buildQuery`. */
+export type QueryParam = string | number | boolean | null | undefined;
+export type QueryParams = Record<string, QueryParam>;
+
+/** Monta `?a=1&b=x` (ou `""`) ignorando `undefined`/`null`/`""`. */
+export function buildQuery(params?: QueryParams): string {
+  if (!params) return "";
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== "") search.set(key, String(value));
+  }
+  const text = search.toString();
+  return text ? `?${text}` : "";
+}
+
+/** Resultado de uma listagem paginada no servidor: itens da página + total que casa com o filtro. */
+export interface Page<T> {
+  items: T[];
+  total: number;
 }
 
 const jsonBody = (body: unknown): { body?: string } =>
   body === undefined ? {} : { body: JSON.stringify(body) };
 
 export const api = {
+  /**
+   * Listagem paginada: o corpo é um array e o total vem no header `X-Total-Count`.
+   * Sem o header (ou inválido) o total é `items.length`.
+   */
+  getPage: async <T>(path: string, params?: QueryParams, options?: RequestOptions): Promise<Page<T>> => {
+    const { data, headers } = await requestRaw<T[]>(`${path}${buildQuery(params)}`, { method: "GET" }, options);
+    const items = Array.isArray(data) ? data : [];
+    const raw = headers.get("X-Total-Count");
+    const total = raw !== null && raw.trim() !== "" ? Number(raw) : NaN;
+    return { items, total: Number.isFinite(total) && total >= 0 ? total : items.length };
+  },
   get: <T>(path: string, options?: RequestOptions) =>
     request<T>(path, { method: "GET" }, options),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
@@ -81,3 +121,4 @@ export const api = {
 export function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError ? error.message : fallback;
 }
+
