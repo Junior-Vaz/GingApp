@@ -1,0 +1,15 @@
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+@source "../src";
+@custom-variant dark (&:is(.dark *));
+@theme inline {
+ --font-sans: 'DM Sans', sans-serif; --font-display: 'Manrope', sans-serif;
+ --radius-sm: 4px; --radius-md: 6px; --radius-lg: 8px; --radius-xl: 8px;
+ --color-background: var(--background); --color-foreground: var(--foreground); --color-card: var(--card); --color-card-foreground: var(--foreground); --color-popover: var(--card); --color-popover-foreground: var(--foreground); --color-primary: var(--primary); --color-primary-foreground: var(--primary-foreground); --color-secondary: var(--secondary); --color-secondary-foreground: var(--primary); --color-muted: var(--muted); --color-muted-foreground: var(--muted-foreground); --color-accent: var(--secondary); --color-accent-foreground: var(--primary); --color-destructive: var(--destructive); --color-destructive-foreground: var(--card); --color-border: var(--border); --color-input: var(--border); --color-ring: var(--primary); --color-highlight: var(--highlight); --color-warning: var(--warning);
+ --color-sidebar: var(--card); --color-sidebar-foreground: var(--foreground); --color-sidebar-primary: var(--primary); --color-sidebar-primary-foreground: var(--primary-foreground); --color-sidebar-accent: var(--secondary); --color-sidebar-accent-foreground: var(--primary); --color-sidebar-border: var(--border); --color-sidebar-ring: var(--primary);
+}
+:root { --background: oklch(.976 .003 150); --foreground: oklch(.25 .022 155); --card: oklch(1 0 0); --primary: oklch(.365 .067 158); --primary-foreground: oklch(.99 .005 150); --secondary: oklch(.938 .025 147); --muted: oklch(.949 .006 155); --muted-foreground: oklch(.55 .015 155); --border: oklch(.907 .009 150); --highlight: oklch(.89 .12 120); --warning: oklch(.65 .135 70); --destructive: oklch(.57 .18 25); --shadow: 0 4px 20px oklch(.2 .03 155 / .035); --radius: 8px; }
+@layer base { * { border-color: var(--border); } body { margin:0; background:var(--background); color:var(--foreground); font-family:var(--font-sans); letter-spacing:0; } h1,h2,h3,h4 { font-family:var(--font-display); letter-spacing:0; } button,a,input,select { -webkit-tap-highlight-color:transparent; } button,a { touch-action:manipulation; } }
+.brand { display:flex; align-items:center; gap:8px; color:var(--primary); font-family:var(--font-display); font-size:24px; font-weight:850; }
+.brand img { width:30px; height:30px; border-radius:50%; }
+.brand-dot { color:var(--warning); }
