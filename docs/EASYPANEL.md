@@ -19,14 +19,14 @@ Internet --HTTPS--> Easypanel (proxy + Let's Encrypt)
     app.seudominio.com.br    -> app     :80     (nginx estático)
     admin.seudominio.com.br  -> admin   :80     (nginx estático)
 
-Rede interna:  backend --> Postgres (serviço do próprio Easypanel, NÃO está no compose)
+Rede interna "gingapp" (do compose):  backend --> postgres (nome DNS "postgres", mesmo compose)
 ```
 
 Peças:
 
 | Peça | De onde vem | Observação |
 | --- | --- | --- |
-| Postgres 16 | Serviço do Easypanel | Decisão do dono; fora do compose |
+| `postgres` | `postgres:16-alpine` (Docker Hub), **dentro do compose** | Decisão do dono: banco junto da stack. Dados no volume `gingapp_pgdata`; porta não publicada |
 | `migrate` | `ghcr.io/junior-vaz/gingapp-migrate` | One-shot: `prisma migrate deploy` + bootstrap do super admin; depois sai |
 | `backend` | `ghcr.io/junior-vaz/gingapp-backend` | Healthcheck em `GET /api/health` |
 | `painel` / `app` / `admin` | `gingapp-painel` / `gingapp-app` / `gingapp-admin` | Estáticos; sem variáveis de runtime |
@@ -38,28 +38,21 @@ Todas as imagens saem com as tags `latest` e `<SHA completo do commit>`.
 ## 1. Criar o projeto no Easypanel
 
 1. No painel do Easypanel, clique em **Create Project** (ou "Novo projeto") e dê um nome curto, sem espaços, por exemplo `gingapp`.
-2. O nome do projeto entra no **host interno** dos serviços (`<projeto>_<serviço>`), por isso anote-o.
+2. O compose fica com o nome do serviço que você criar (ex.: `gingapp`); o Easypanel o executa como o projeto `<projeto>_<serviço>` do Docker.
 
 ---
 
-## 2. Criar o Postgres 16 no Easypanel
+## 2. O Postgres 16 já vem dentro do compose (não crie um serviço separado)
 
-1. Dentro do projeto: **+ Service → Postgres**.
-2. Preencha: nome do serviço (ex.: `postgres`), **senha** forte e a **versão/imagem 16** (ex.: `postgres:16`). Gere a senha com `openssl rand -hex 24` (só letras e números evita problemas de URL).
-3. O Easypanel cria o **volume de dados** do serviço automaticamente. **[NÃO VERIFICADO]** confirme na aba de volumes/mounts que existe um volume em `/var/lib/postgresql/data` – sem ele, os dados somem ao recriar o container.
-4. **Não publique a porta 5432 para a internet.** Só o acesso interno é necessário.
-5. Descubra o **host interno**: na tela do serviço Postgres o Easypanel mostra a "connection string interna". Normalmente o host é `<projeto>_<serviço>` (ex.: `gingapp_postgres`), porta `5432`. **Use exatamente o que o Easypanel mostrar** (usuário, banco e host).
-6. Monte a `DATABASE_URL` (formato aceito pelo Prisma):
+Decisão do dono: o banco sobe **junto da stack**, como o serviço `postgres` do `docker-compose.easypanel.yml` (imagem oficial `postgres:16-alpine`). **Não** crie um serviço Postgres separado no Easypanel.
 
-   ```
-   postgresql://USUARIO:SENHA@HOST_INTERNO:5432/BANCO?schema=public
-   ```
-
-   Exemplo: `postgresql://postgres:abc123@gingapp_postgres:5432/gingapp?schema=public`
-
-   - O sufixo **`?schema=public`** é obrigatório para este projeto (é o padrão usado em todos os compose e no CI).
-   - Se a senha tiver `@ : / ? # [ ] %`, ela precisa estar *url-encoded*. Usar senha só com letras/números evita isso.
-7. **Backup.** O banco guarda tudo (alunos, financeiro, certificados). **[NÃO VERIFICADO]** O Easypanel tem recurso de backup para serviços de banco (verifique a aba do serviço Postgres e configure destino/agenda). Enquanto isso não estiver configurado, faça manualmente: no console do serviço Postgres, `pg_dump -U <usuario> -d <banco> -Fc > backup.dump` e copie o arquivo para fora do servidor. **Backup automatizado não está coberto por este repositório** (seção 11).
+1. Você só precisa definir **`POSTGRES_PASSWORD`** (Environment do serviço Compose). Use senha **só com letras e números** (`openssl rand -hex 24`): ela entra dentro de uma URL e caracteres como `@ : / ? # ! %` quebrariam a conexão.
+2. O compose monta sozinho a `DATABASE_URL` do `migrate` e do `backend`: `postgresql://gingapp:<POSTGRES_PASSWORD>@postgres:5432/gingapp?schema=public` (usuário e banco fixos `gingapp`; host = nome do serviço, resolvido pelo DNS da rede `gingapp`, que é a mesma do backend). Por isso **não existe mais o problema de rede entre compose e Postgres** que a versão anterior deste guia descrevia.
+3. Os dados ficam no **volume nomeado `gingapp_pgdata`** (com o prefixo do projeto, algo como `gingapp_gingapp_pgdata`): sobrevive a redeploy e a recriação dos containers. **Apagar o volume apaga o banco.** Não use "recriar/limpar volumes" no Easypanel sem backup.
+4. **A porta 5432 não é publicada**: só os serviços do compose alcançam o banco.
+5. **A senha só vale na primeira criação do volume.** Se você trocar `POSTGRES_PASSWORD` depois, o Postgres continua com a senha antiga e o backend passa a falhar com erro de autenticação. Para trocar de verdade: no servidor, `docker exec -it <container-postgres> psql -U gingapp -d gingapp -c "ALTER USER gingapp PASSWORD 'NOVA'"` e só então atualize a variável. Se o primeiro deploy falhou **antes** de o banco ter dado dados e você quer recomeçar com outra senha, apague o volume `gingapp_gingapp_pgdata` (só nesse caso, sem dados a perder).
+6. **Banco externo (opcional):** se um dia quiser usar outro Postgres, defina `DATABASE_URL` completa no Environment; ela sobrescreve a URL montada (o serviço `postgres` do compose continuaria subindo sem uso).
+7. **Backup.** O banco guarda tudo (alunos, financeiro, certificados). **Backup automatizado não está coberto por este repositório** (seção 11) e agora o banco é um volume do próprio servidor: se o disco/servidor se perder, os dados se perdem junto. Manualmente: `docker exec <container-postgres> pg_dump -U gingapp -d gingapp -Fc > backup.dump` (confira o nome do container com `docker ps`) e copie o arquivo para fora do servidor. **[NÃO VERIFICADO]** o Easypanel pode ter backup de volumes; verifique na interface.
 
 ---
 
@@ -135,28 +128,16 @@ Passos:
 
 1. No projeto: **+ Service → Compose**.
 2. Fonte: o repositório Git (`junior-vaz/GingApp`, branch `master`) apontando para o arquivo `docker-compose.easypanel.yml`, **ou** cole o conteúdo do arquivo no editor do serviço. **[NÃO VERIFICADO]** rótulos exatos. (Se usar Git, como o repositório pode ser privado, será preciso uma deploy key/token no Easypanel; colar o conteúdo evita isso, mas então você precisa atualizá-lo à mão quando o arquivo mudar.)
-3. Em **Environment**, cole as variáveis de `.env.easypanel.example` já preenchidas (`DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGINS`, `TRUST_PROXY=1`, `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`, opcionalmente `SUPER_ADMIN_NAME`, `JWT_EXPIRES_IN`, `PLATFORM_ALLOWED_IPS`, `IMAGE_TAG`). Variáveis obrigatórias ausentes fazem o deploy **falhar na hora** com a mensagem de `${VAR:?...}` (comportamento verificado com `docker compose config`).
+3. Em **Environment**, cole as variáveis de `.env.easypanel.example` já preenchidas (`POSTGRES_PASSWORD`, `JWT_SECRET`, `CORS_ORIGINS`, `TRUST_PROXY=1`, `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`, opcionalmente `SUPER_ADMIN_NAME`, `JWT_EXPIRES_IN`, `PLATFORM_ALLOWED_IPS`, `IMAGE_TAG`). Variáveis obrigatórias ausentes fazem o deploy **falhar na hora** com a mensagem de `${VAR:?...}` (comportamento verificado com `docker compose config`).
 4. Faça login no GHCR se os pacotes forem privados (seção 3).
 5. Configure os domínios (seção 5) – no serviço Compose, associe cada domínio ao nome do serviço (`backend`, `painel`, `app`, `admin`) e à porta. **[NÃO VERIFICADO]** como a interface do Easypanel pede o nome do serviço no modo Compose.
 6. **Deploy.**
 
-**Ponto de atenção da Opção B – rede até o Postgres [NÃO VERIFICADO]:** o compose coloca os serviços numa rede própria (`gingapp`). Não foi possível confirmar que, nessa rede, o nome `gingapp_postgres` (serviço do Easypanel) é resolvido. **Teste logo no primeiro deploy:** se o log do `migrate` mostrar `P1001: Can't reach database server` ou erro de DNS, o Postgres está em outra rede. Correção: anexar os serviços `migrate` e `backend` também à rede do projeto no Easypanel (descubra o nome com `docker network ls` no servidor; costuma ser algo como `easypanel-<projeto>`), adicionando ao compose:
+**Ordem de subida (já no compose):** `postgres` fica saudável (`pg_isready`) → `migrate` roda e termina → `backend` sobe e fica saudável. O banco está na **mesma rede** do compose, então não há o risco de DNS entre compose e Postgres de versões anteriores deste guia.
 
-```yaml
-services:
-  migrate:
-    networks: [gingapp, easypanel_projeto]
-  backend:
-    networks: [gingapp, easypanel_projeto]
-networks:
-  easypanel_projeto:
-    external: true
-    name: NOME_REAL_DA_REDE   # confirme com `docker network ls`
-```
+### Opção A – 4 serviços "App" por imagem + 1 para o migrate (exige um Postgres SEPARADO)
 
-Se isso não resolver, use a Opção A.
-
-### Opção A – 4 serviços "App" por imagem + 1 para o migrate
+> Esta opção **não usa o Postgres do compose**: você teria de criar um serviço **Postgres** à parte no Easypanel (**+ Service → Postgres**) e montar a `DATABASE_URL` com o host interno dele (`<projeto>_<serviço>`, ex.: `postgresql://USUARIO:SENHA@gingapp_postgres:5432/BANCO?schema=public`). Como a decisão do dono é o banco dentro do compose, **use a Opção B**; a A fica só como alternativa.
 
 Para cada um crie **+ Service → App**, origem **Docker Image**, e configure:
 
@@ -181,7 +162,7 @@ Para cada um crie **+ Service → App**, origem **Docker Image**, e configure:
 
 **Primeira vez**
 
-1. Criar o projeto e o Postgres (seções 1–2); anotar `DATABASE_URL`.
+1. Criar o projeto (seção 1) e gerar a `POSTGRES_PASSWORD` (o Postgres vem no compose, seção 2).
 2. Definir os secrets `VITE_API_URL` e `VITE_APP_URL` no GitHub (seção 4).
 3. Garantir que o workflow rodou **verde** na `master` e que as 5 imagens existem em *Packages*.
 4. Configurar acesso ao GHCR (seção 3).
@@ -233,7 +214,8 @@ Se for usar, teste primeiro com o seu IP **incluído** e valide o login antes de
 
 | Variável | Obrigatória | Onde é lida |
 | --- | --- | --- |
-| `DATABASE_URL` | sim | backend e migrate (Prisma) |
+| `POSTGRES_PASSWORD` | sim (só letras e números) | serviço `postgres` do compose; também monta a `DATABASE_URL` |
+| `DATABASE_URL` | não (opcional: banco externo) | backend e migrate (Prisma); vazio = usa o Postgres do compose |
 | `JWT_SECRET` | sim, ≥ 32 chars e ≠ `dev-secret-change-me` | `runtime-config.ts` (`resolveJwtSecret`) |
 | `JWT_EXPIRES_IN` | não (padrão `1d` no compose) | compose / backend |
 | `PORT` | fixo `3000` | `main.ts` |
@@ -263,7 +245,7 @@ Se for usar, teste primeiro com o seu IP **incluído** e valide o login antes de
 1. Build real de qualquer imagem Docker do GingApp (Docker Hub deu timeout; `node:22-alpine` não foi baixado). O healthcheck do backend usa `node -e fetch(...)` (fetch global do Node 22) e não `wget`, para não depender de binário que nunca foi conferido na `node:22-alpine`; ele **também não foi executado** dentro da imagem real.
 2. Execução do `migrate` e do `bootstrap.ts` (só li o código; nenhum dos dois foi executado por mim). O `backend/Dockerfile` e `bootstrap.ts` estavam com alterações **não commitadas** de outro trabalho na hora em que escrevi este guia; a imagem `gingapp-migrate` só terá esse comportamento depois que essas alterações forem commitadas e o CI publicar de novo.
 3. Qualquer deploy real no Easypanel; todos os nomes de telas/campos do Easypanel.
-4. Resolução de DNS do Postgres do Easypanel a partir da rede do Compose (seção 6).
+4. Subida real do `postgres:16-alpine` + `migrate` + `backend` juntos no servidor (o compose só foi validado com `docker compose config`; a imagem do Postgres vem do Docker Hub, que pode dar timeout em alguns servidores).
 5. Se `docker compose up` reexecuta o `migrate` já finalizado no Easypanel.
 6. Credenciais do GHCR no modo Compose do Easypanel.
 7. Backup nativo do Easypanel para o Postgres.

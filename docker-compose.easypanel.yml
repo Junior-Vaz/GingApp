@@ -1,9 +1,10 @@
 # GingApp - stack EASYPANEL (imagens PRONTAS do GHCR, sem build local)
 #
-# Servicos: migrate (one-shot) + backend (NestJS) + painel + app + admin (nginx estatico).
-# O POSTGRES NAO ENTRA AQUI: e um servico do proprio Easypanel (decisao do dono). A
-# DATABASE_URL aponta para o host interno desse servico (ver docs/EASYPANEL.md e
-# .env.easypanel.example).
+# Servicos: postgres + migrate (one-shot) + backend (NestJS) + painel + app + admin (nginx estatico).
+# O POSTGRES FAZ PARTE DESTE COMPOSE (decisao do dono: banco junto da stack, nao um servico
+# separado do Easypanel). Dados no volume nomeado "gingapp_pgdata"; sem porta publicada (so a rede
+# interna "gingapp" alcanca o banco, pelo nome "postgres"). A DATABASE_URL e montada aqui a partir de
+# POSTGRES_PASSWORD (ver .env.easypanel.example).
 #
 # As imagens sao publicadas pelo CI (.github/workflows/build.yml) a cada push na master:
 #   ghcr.io/junior-vaz/gingapp-backend   (stage "runner" do backend/Dockerfile)
@@ -28,18 +29,44 @@
 # servico (DNS do Docker).
 
 services:
+  # Banco do GingApp. Imagem oficial; os dados ficam no volume "gingapp_pgdata" (sobrevive a
+  # redeploy/recreate do container). ATENCAO: POSTGRES_PASSWORD so vale na PRIMEIRA criacao do
+  # volume; trocar a variavel depois NAO muda a senha ja gravada no banco (ver docs/EASYPANEL.md).
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      - gingapp
+    environment:
+      POSTGRES_USER: gingapp
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD (senha so com letras e numeros, ex.: openssl rand -hex 24)}"
+      POSTGRES_DB: gingapp
+    volumes:
+      - gingapp_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gingapp -d gingapp"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
   # One-shot: aplica `prisma migrate deploy` e o bootstrap idempotente de producao (cria o super
   # admin se ainda nao existir), e SAI. restart "no" => nao fica reiniciando. O backend so sobe
-  # depois que este servico termina com sucesso (service_completed_successfully).
+  # depois que este servico termina com sucesso (service_completed_successfully); este so roda
+  # depois que o Postgres esta saudavel.
   migrate:
     image: ghcr.io/junior-vaz/gingapp-migrate:${IMAGE_TAG:-latest}
     pull_policy: always
     restart: "no"
     networks:
       - gingapp
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
-      # URL completa do Postgres do Easypanel, com ?schema=public (ver .env.easypanel.example).
-      DATABASE_URL: "${DATABASE_URL:?defina DATABASE_URL com a URL interna do Postgres do Easypanel e o sufixo ?schema=public}"
+      # Montada a partir de POSTGRES_PASSWORD (host "postgres" = DNS do servico acima). Para usar
+      # um banco externo, defina DATABASE_URL no ambiente (sobrescreve este padrao).
+      DATABASE_URL: "${DATABASE_URL:-postgresql://gingapp:${POSTGRES_PASSWORD}@postgres:5432/gingapp?schema=public}"
       # Lidas por backend/prisma/bootstrap.ts (stage "migrate"): cria o super admin PLATFORM se o
       # e-mail ainda nao existir; se existir, NAO altera nada. Devem ser definidas JUNTAS (EMAIL e
       # PASSWORD) ou nenhuma: so uma = o migrate FALHA (exit 1); senha fraca/invalida = FALHA;
@@ -56,13 +83,15 @@ services:
     networks:
       - gingapp
     depends_on:
+      postgres:
+        condition: service_healthy
       migrate:
         condition: service_completed_successfully
     environment:
       # O backend so aplica as regras de seguranca abaixo com NODE_ENV=production (a imagem
       # runner ja define NODE_ENV=production; mantido aqui de forma explicita).
       NODE_ENV: "production"
-      DATABASE_URL: "${DATABASE_URL:?defina DATABASE_URL com a URL interna do Postgres do Easypanel e o sufixo ?schema=public}"
+      DATABASE_URL: "${DATABASE_URL:-postgresql://gingapp:${POSTGRES_PASSWORD}@postgres:5432/gingapp?schema=public}"
       # Obrigatoria: minimo 32 caracteres e diferente de "dev-secret-change-me", senao o boot falha.
       JWT_SECRET: "${JWT_SECRET:?defina JWT_SECRET com pelo menos 32 caracteres aleatorios - use openssl rand -hex 32}"
       JWT_EXPIRES_IN: "${JWT_EXPIRES_IN:-1d}"
@@ -109,6 +138,9 @@ services:
     restart: unless-stopped
     networks:
       - gingapp
+
+volumes:
+  gingapp_pgdata:
 
 networks:
   gingapp:
