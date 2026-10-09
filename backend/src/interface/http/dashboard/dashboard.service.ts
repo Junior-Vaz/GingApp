@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { FinancialStatus, StudentStatus, UserType } from '@prisma/client';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { civilTodayStart } from '../finance/finance.service';
 
 /**
  * Dashboard administrativo (projeto.txt §30 — "Como está meu grupo?"), sempre isolado por
@@ -20,6 +21,10 @@ export class DashboardService {
   async getSummary(organizationId: number, user: AuthenticatedUser) {
     const canViewFinance = await this.canViewFinance(user);
     const now = new Date();
+    // dueDate é data civil: "hoje" é o dia de São Paulo (mesma regra do módulo Financeiro). Antes
+    // comparava com o instante `now`, e um lançamento que vence hoje virava "atrasado" aqui mas
+    // "a receber" no Financeiro (R$ 169,08 de diferença achada no e2e real).
+    const civilToday = civilTodayStart(now);
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfTomorrow = new Date(startOfToday);
     startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
@@ -52,7 +57,7 @@ export class DashboardService {
       !canViewFinance
         ? emptyAggregate
         : this.prisma.financialRecord.aggregate({
-            where: { organizationId, status: FinancialStatus.PENDING, dueDate: { gte: now } },
+            where: { organizationId, status: FinancialStatus.PENDING, dueDate: { gte: civilToday } },
             _count: true,
             _sum: { amountCents: true },
           }),
@@ -66,7 +71,7 @@ export class DashboardService {
       !canViewFinance
         ? emptyAggregate
         : this.prisma.financialRecord.aggregate({
-            where: { organizationId, status: FinancialStatus.PENDING, dueDate: { lt: now } },
+            where: { organizationId, status: FinancialStatus.PENDING, dueDate: { lt: civilToday } },
             _count: true,
             _sum: { amountCents: true },
           }),

@@ -4,6 +4,7 @@ import * as bcrypt from 'bcrypt';
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
+import { civilTodayStart } from '../src/interface/http/finance/finance.service';
 import { createTestApp } from './utils/test-app';
 
 /**
@@ -181,5 +182,33 @@ describe('Dashboard (e2e)', () => {
     for (const leak of ['finance', 'Cents', 'overdue', 'pending']) {
       assert.ok(!raw.includes(leak), `resposta do PROFESSOR vazou "${leak}": ${raw}`);
     }
+  });
+
+  it('borda do vencimento: vence HOJE (dia de SP) é "a receber", ontem é "atrasado" — igual ao Financeiro', async () => {
+    const read = async () =>
+      (await request(app.getHttpServer()).get('/api/dashboard').set('Authorization', `Bearer ${mestreToken}`).expect(200))
+        .body.finance as { pendingCount: number; overdueCount: number; pendingCents: number; overdueCents: number };
+
+    const before = await read();
+    const today = civilTodayStart(new Date());
+    const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+
+    const dueToday = await prisma.financialRecord.create({
+      data: { organizationId: orgId, description: 'Vence hoje E2E', amountCents: 333, status: FinancialStatus.PENDING, dueDate: today },
+    });
+    const afterToday = await read();
+    assert.equal(afterToday.pendingCount - before.pendingCount, 1, 'vence hoje deve contar como a receber');
+    assert.equal(afterToday.pendingCents - before.pendingCents, 333);
+    assert.equal(afterToday.overdueCount - before.overdueCount, 0, 'vence hoje NÃO é atrasado');
+
+    const dueYesterday = await prisma.financialRecord.create({
+      data: { organizationId: orgId, description: 'Venceu ontem E2E', amountCents: 777, status: FinancialStatus.PENDING, dueDate: yesterday },
+    });
+    const afterYesterday = await read();
+    assert.equal(afterYesterday.overdueCount - afterToday.overdueCount, 1, 'venceu ontem é atrasado');
+    assert.equal(afterYesterday.overdueCents - afterToday.overdueCents, 777);
+    assert.equal(afterYesterday.pendingCount - afterToday.pendingCount, 0);
+
+    await prisma.financialRecord.deleteMany({ where: { id: { in: [dueToday.id, dueYesterday.id] } } });
   });
 });
