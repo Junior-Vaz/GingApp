@@ -10,7 +10,10 @@ import { isActiveSuperAdmin } from '../../../shared/access/super-admin';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
-import { BCRYPT_ROUNDS, CreatePlatformUserDto } from './dto/create-platform-user.dto';
+import { BCRYPT_ROUNDS, normalizeEmail } from '../../../shared/security/password-policy';
+import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
+import { revocationCutoff } from '../../../shared/security/token-revocation';
+import { CreatePlatformUserDto } from './dto/create-platform-user.dto';
 import { ListPlatformTeamQueryDto } from './dto/list-platform-team-query.dto';
 import { ResetPlatformUserPasswordDto } from './dto/reset-platform-user-password.dto';
 import { UpdatePlatformUserDto } from './dto/update-platform-user.dto';
@@ -70,16 +73,13 @@ export class PlatformTeamService {
     return { items, total };
   }
 
-  /** E-mail é gravado em minúsculas (login compara o e-mail exatamente como digitado). */
+  /** E-mail é gravado em minúsculas (o login normaliza o digitado e busca sem diferenciar a caixa). */
   async create(actor: AuthenticatedUser, dto: CreatePlatformUserDto): Promise<PlatformTeamMember> {
     this.assertSuperAdmin(actor);
-    const email = dto.email.trim().toLowerCase();
+    const email = normalizeEmail(dto.email);
 
-    const existing = await this.prisma.user.findFirst({
-      where: { email: { equals: email, mode: 'insensitive' } },
-      select: { id: true },
-    });
-    if (existing) throw new ConflictException('Já existe um usuário com este e-mail.');
+    const [existing] = await findUserIdsByEmail(this.prisma, email, 1);
+    if (existing !== undefined) throw new ConflictException('Já existe um usuário com este e-mail.');
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     try {
@@ -142,7 +142,7 @@ export class PlatformTeamService {
           phone: dto.phone === undefined ? undefined : dto.phone?.trim() || null,
           status: dto.status,
           isSuperAdmin: dto.isSuperAdmin,
-          ...(deactivating ? { tokenValidAfter: new Date() } : {}),
+          ...(deactivating ? { tokenValidAfter: revocationCutoff() } : {}),
         },
         select: PUBLIC_SELECT,
       });
@@ -156,7 +156,7 @@ export class PlatformTeamService {
     await this.findTargetOrFail(id);
     return this.prisma.user.update({
       where: { id },
-      data: { tokenValidAfter: new Date() },
+      data: { tokenValidAfter: revocationCutoff() },
       select: PUBLIC_SELECT,
     });
   }
@@ -173,7 +173,7 @@ export class PlatformTeamService {
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     return this.prisma.user.update({
       where: { id },
-      data: { passwordHash, tokenValidAfter: new Date() },
+      data: { passwordHash, tokenValidAfter: revocationCutoff() },
       select: PUBLIC_SELECT,
     });
   }

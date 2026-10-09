@@ -4,6 +4,8 @@ import * as bcrypt from 'bcrypt';
 import { pageArgs } from '../../../shared/pagination/pagination';
 import { ListTeachersQueryDto } from './dto/list-teachers-query.dto';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
+import { BCRYPT_ROUNDS, normalizeEmail } from '../../../shared/security/password-policy';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
 
@@ -67,16 +69,19 @@ export class TeachersService {
 
   /** Cria o User (userType MEMBER) e a membership (OrganizationUser) juntos. */
   async create(organizationId: number, dto: CreateTeacherDto) {
-    const existing = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existing) {
+    // E-mail gravado em minúsculas (como em platform-team/organizations/bootstrap): o login normaliza o que
+    // é digitado, e a unicidade não pode depender da caixa.
+    const email = normalizeEmail(dto.email);
+    const [existing] = await findUserIdsByEmail(this.prisma, email, 1);
+    if (existing !== undefined) {
       throw new BadRequestException('E-mail já cadastrado.');
     }
 
-    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
 
     const membership = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
-        data: { email: dto.email, passwordHash, name: dto.name, phone: dto.phone, status: 'ACTIVE' },
+        data: { email, passwordHash, name: dto.name, phone: dto.phone, status: 'ACTIVE' },
       });
       return tx.organizationUser.create({
         data: { organizationId, userId: user.id, role: dto.role, status: 'ACTIVE' },

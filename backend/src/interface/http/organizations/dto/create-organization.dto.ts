@@ -10,10 +10,12 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { NEW_PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES } from '../../../../shared/security/password-policy';
 
-/** Política de senha inicial do MESTRE: 12..72 (72 = limite do bcrypt, que ignora o excedente). */
-export const MESTRE_PASSWORD_MIN_LENGTH = 12;
-export const MESTRE_PASSWORD_MAX_BYTES = 72;
+/** Política de senha inicial do MESTRE: 12..72 (72 = limite do bcrypt, que ignora o excedente).
+ * SSOT em shared/security/password-policy.ts (a mesma do reset e da troca da própria senha). */
+export const MESTRE_PASSWORD_MIN_LENGTH = NEW_PASSWORD_MIN_LENGTH;
+export const MESTRE_PASSWORD_MAX_BYTES = PASSWORD_MAX_BYTES;
 
 /** Slug explícito: minúsculas/dígitos separados por hífen simples (sem acento, espaço nem "_"). */
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;

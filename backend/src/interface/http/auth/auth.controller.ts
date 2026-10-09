@@ -1,10 +1,14 @@
-import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { Public } from '../../../shared/decorators/public.decorator';
+import { UserThrottlerGuard } from '../../../shared/guards/user-throttler.guard';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { AuthResponse } from './auth-response.interface';
 import { AuthService } from './auth.service';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 
@@ -12,6 +16,11 @@ import { PlatformLoginDto } from './dto/platform-login.dto';
 // logins reais em sequência) sem afetar o padrão de produção (5/min).
 const LOGIN_THROTTLE_LIMIT = Number(process.env.LOGIN_THROTTLE_LIMIT ?? 5);
 const LOGIN_THROTTLE = { default: { limit: LOGIN_THROTTLE_LIMIT, ttl: 60_000 } };
+
+// Trocar a própria senha é raro e é o ponto de um adivinhador com token roubado: 5/min (por IP e por
+// usuário). Configurável por env só para os e2e (mesmo padrão de LOGIN_THROTTLE_LIMIT).
+export const CHANGE_PASSWORD_THROTTLE_LIMIT = Number(process.env.CHANGE_PASSWORD_THROTTLE_LIMIT ?? 5);
+const CHANGE_PASSWORD_THROTTLE = { default: { limit: CHANGE_PASSWORD_THROTTLE_LIMIT, ttl: 60_000 } };
 
 @Controller('auth')
 export class AuthController {
@@ -35,6 +44,23 @@ export class AuthController {
   platformLogin(@Body() dto: PlatformLoginDto, @Req() req: Request): Promise<AuthResponse> {
     this.assertIpAllowed(req);
     return this.authService.platformLogin(dto);
+  }
+
+  /**
+   * Troca da PRÓPRIA senha (qualquer usuário autenticado, MEMBER ou PLATFORM). Senha atual errada = 400
+   * (nunca 401: os frontends tratam 401 como sessão expirada). Revoga todas as outras sessões e devolve
+   * um accessToken novo. Limite estrito por IP (ThrottlerGuard global) E por usuário (UserThrottlerGuard,
+   * depois da autenticação): ambos usam o @Throttle abaixo.
+   */
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(CHANGE_PASSWORD_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @Post('change-password')
+  changePassword(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ChangePasswordDto,
+  ): Promise<{ accessToken: string }> {
+    return this.authService.changePassword(user, dto);
   }
 
   /**

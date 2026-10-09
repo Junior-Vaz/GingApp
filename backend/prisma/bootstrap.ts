@@ -45,12 +45,17 @@ import * as bcrypt from 'bcrypt';
 import { isEmail } from 'class-validator';
 import {
   BCRYPT_ROUNDS,
-  PASSWORD_MAX_LENGTH,
-} from '../src/interface/http/platform-team/dto/create-platform-user.dto';
+  FORBIDDEN_PASSWORD_FRAGMENTS,
+  NEW_PASSWORD_MIN_LENGTH,
+  PASSWORD_MAX_BYTES,
+  passwordByteLength,
+} from '../src/shared/security/password-policy';
+import { findUserIdsByEmail } from '../src/shared/security/email-lookup';
 import { buildPermissionMatrix, PermissionRow } from './permission-matrix';
 
-/** Mínimo para a conta mais poderosa do sistema (a API de equipe aceita 10; aqui é mais estrito). */
-export const SUPER_ADMIN_PASSWORD_MIN_LENGTH = 12;
+/** Mínimo para a conta mais poderosa do sistema (a API de equipe aceita 10; aqui é mais estrito).
+ * SSOT da política: src/shared/security/password-policy.ts. */
+export const SUPER_ADMIN_PASSWORD_MIN_LENGTH = NEW_PASSWORD_MIN_LENGTH;
 const EMAIL_MAX_LENGTH = 254;
 const NAME_MIN_LENGTH = 2;
 const NAME_MAX_LENGTH = 120;
@@ -60,7 +65,7 @@ const BOOTSTRAP_LOCK_KEY = 4_270_001;
 
 /** Termos que tornam a senha trivial (comparação sem diferenciar maiúsculas, por substring). */
 const FORBIDDEN_PASSWORD_TERMS = [
-  'dev@12345', // senha fixa do seed de desenvolvimento (pública no repositório)
+  ...FORBIDDEN_PASSWORD_FRAGMENTS, // senha fixa do seed de desenvolvimento (pública no repositório)
   'password',
   'senha',
   'qwerty',
@@ -116,9 +121,9 @@ export function passwordProblems(password: string, email: string): string[] {
       `deve ter pelo menos ${SUPER_ADMIN_PASSWORD_MIN_LENGTH} caracteres`,
     );
   }
-  if (Buffer.byteLength(password, 'utf8') > PASSWORD_MAX_LENGTH) {
+  if (passwordByteLength(password) > PASSWORD_MAX_BYTES) {
     problems.push(
-      `deve ter no máximo ${PASSWORD_MAX_LENGTH} bytes (limite do bcrypt)`,
+      `deve ter no máximo ${PASSWORD_MAX_BYTES} bytes (limite do bcrypt)`,
     );
   }
   const lower = password.toLowerCase();
@@ -232,15 +237,20 @@ export async function runBootstrap(
         // 2. Super admin.
         let superAdmin: BootstrapResult['superAdmin'] = 'skipped';
         if (admin && passwordHash) {
-          const current = await tx.user.findFirst({
-            where: { email: { equals: admin.email, mode: 'insensitive' } },
-            select: {
-              id: true,
-              userType: true,
-              isSuperAdmin: true,
-              status: true,
-            },
-          });
+          // Igualdade exata de lower(email) — o `mode: 'insensitive'` do Prisma é ILIKE (curingas "_" e "%").
+          const [currentId] = await findUserIdsByEmail(tx, admin.email, 1);
+          const current =
+            currentId === undefined
+              ? null
+              : await tx.user.findUnique({
+                  where: { id: currentId },
+                  select: {
+                    id: true,
+                    userType: true,
+                    isSuperAdmin: true,
+                    status: true,
+                  },
+                });
           if (current) {
             superAdmin = 'exists';
             log.info(

@@ -6,3 +6,8 @@ process.env.LOGIN_THROTTLE_LIMIT = '100';
 // Idem para POST /organizations (padrão de produção: 10/min): organizations-create.e2e-spec.ts cria
 // dezenas de grupos em sequência. O spec testa o rate limit por conta própria (limite rebaixado).
 process.env.ORG_CREATE_THROTTLE_LIMIT = '100';
+// Idem para POST /auth/change-password (padrão de produção: 5/min por IP e por usuário) e para o reset de
+// senha de MESTRE (10/min): auth-password.e2e-spec.ts troca/reseta dezenas de senhas em sequência e prova o
+// rate limit por conta própria (limite rebaixado).
+process.env.CHANGE_PASSWORD_THROTTLE_LIMIT = '100';
+process.env.MESTRE_RESET_THROTTLE_LIMIT = '100';

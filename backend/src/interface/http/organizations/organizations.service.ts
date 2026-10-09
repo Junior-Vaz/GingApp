@@ -2,16 +2,19 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { OrganizationType, OrgRole, Prisma, RecordStatus, UserType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
-import { buildSlugCandidate, isForbiddenPassword, slugify } from './organizations.rules';
+import { ResetMestrePasswordDto } from './dto/reset-mestre-password.dto';
+import { BCRYPT_ROUNDS, isForbiddenPassword, normalizeEmail } from '../../../shared/security/password-policy';
+import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
+import { revocationCutoff } from '../../../shared/security/token-revocation';
+import { buildSlugCandidate, slugify } from './organizations.rules';
 
-/** Mesmo custo do restante do código (TeachersService, PlatformTeamService, seed). */
-const BCRYPT_ROUNDS = 10;
 /** Tentativas de gerar um slug livre quando duas criações concorrentes disputam o mesmo (P2002). */
 const MAX_SLUG_ATTEMPTS = 5;
 
@@ -22,6 +25,19 @@ const EMAIL_TAKEN = 'Já existe um usuário com este e-mail. Use outro e-mail pa
 export type CreatedGroup = Prisma.OrganizationGetPayload<object> & {
   mestre: { id: number; name: string; email: string };
 };
+
+/** Resposta do GET /organizations/:id: a organização (mesmas colunas de uma linha de GET /organizations)
+ * + os seus MESTREs sem NENHUM segredo. `id` = id do USUÁRIO (o mesmo de .../members/:userId/reset-password);
+ * `status` = status do vínculo (OrganizationUser) — ACTIVE é o que o reset exige. */
+export type OrganizationDetail = Prisma.OrganizationGetPayload<object> & {
+  mestres: Array<{ id: number; name: string; email: string; status: string }>;
+};
+
+/** 404 único do reset: alvo inexistente, de outra organização, de outro papel ou inativo são indistinguíveis. */
+const MESTRE_NOT_FOUND = 'Mestre não encontrado neste grupo.';
+const ORGANIZATION_NOT_FOUND = 'Organização não encontrada.';
+/** Maior Int do Postgres (colunas id): acima disso o Prisma lançaria erro (500) em vez de não achar nada. */
+const MAX_DB_ID = 2_147_483_647;
 
 @Injectable()
 export class OrganizationsService {
@@ -40,6 +56,62 @@ export class OrganizationsService {
     return this.prisma.organization.findUnique({ where: { id: organizationId } });
   }
 
+  /** Detalhe de UM grupo para a equipe PLATFORM: a organização + os MESTREs (qualquer status do vínculo). */
+  async findOneForPlatform(id: number): Promise<OrganizationDetail> {
+    if (id > MAX_DB_ID) throw new NotFoundException(ORGANIZATION_NOT_FOUND);
+    const organization = await this.prisma.organization.findUnique({ where: { id } });
+    if (!organization) throw new NotFoundException(ORGANIZATION_NOT_FOUND);
+
+    const memberships = await this.prisma.organizationUser.findMany({
+      where: { organizationId: id, role: OrgRole.MESTRE },
+      orderBy: { id: 'asc' },
+      select: { status: true, user: { select: { id: true, name: true, email: true } } },
+    });
+    return {
+      ...organization,
+      mestres: memberships.map((m) => ({ id: m.user.id, name: m.user.name, email: m.user.email, status: m.status })),
+    };
+  }
+
+  /**
+   * Reset da senha de um MESTRE pelo super admin: o alvo precisa ser um OrganizationUser ACTIVE, de papel
+   * MESTRE, da organização :orgId (e um usuário MEMBER); qualquer outro caso é o MESMO 404 de um id
+   * inexistente. Grava o novo hash e REVOGA todas as sessões do usuário (tokenValidAfter). A senha só
+   * existe em memória para gerar o hash; nada sensível é devolvido (o controller responde 204).
+   * Atenção: a senha é do USUÁRIO — se ele for MESTRE/membro de outros grupos, vale para todos eles.
+   */
+  async resetMestrePassword(organizationId: number, userId: number, dto: ResetMestrePasswordDto): Promise<void> {
+    if (organizationId > MAX_DB_ID || userId > MAX_DB_ID) throw new NotFoundException(MESTRE_NOT_FOUND);
+    const target = await this.findActiveMestre(organizationId, userId);
+    const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS);
+
+    // Revalida o alvo junto da escrita: se o vínculo foi desativado/trocado enquanto o bcrypt rodava, 404.
+    const { count } = await this.prisma.user.updateMany({
+      where: {
+        id: target.userId,
+        userType: UserType.MEMBER,
+        memberships: { some: { organizationId, role: OrgRole.MESTRE, status: 'ACTIVE' } },
+      },
+      data: { passwordHash, tokenValidAfter: revocationCutoff() },
+    });
+    if (count !== 1) throw new NotFoundException(MESTRE_NOT_FOUND);
+  }
+
+  private async findActiveMestre(organizationId: number, userId: number): Promise<{ userId: number }> {
+    const membership = await this.prisma.organizationUser.findFirst({
+      where: {
+        organizationId,
+        userId,
+        role: OrgRole.MESTRE,
+        status: 'ACTIVE',
+        user: { userType: UserType.MEMBER },
+      },
+      select: { userId: true },
+    });
+    if (!membership) throw new NotFoundException(MESTRE_NOT_FOUND);
+    return membership;
+  }
+
   /**
    * Cria um GRUPO (Organization type GROUP, status ACTIVE) com o seu MESTRE, numa ÚNICA transação:
    * Organization + User (MEMBER, e-mail em minúsculas) + OrganizationUser (role MESTRE, ACTIVE).
@@ -54,7 +126,7 @@ export class OrganizationsService {
    * A senha só existe em memória para gerar o hash; não é logada nem devolvida.
    */
   async createGroup(dto: CreateOrganizationDto): Promise<CreatedGroup> {
-    const email = dto.mestre.email.trim().toLowerCase();
+    const email = normalizeEmail(dto.mestre.email);
 
     if (isForbiddenPassword(dto.mestre.password)) {
       throw new BadRequestException('mestre.password não pode ser a senha padrão de desenvolvimento.');
@@ -119,11 +191,8 @@ export class OrganizationsService {
   }
 
   private async assertEmailFree(email: string): Promise<void> {
-    const existing = await this.prisma.user.findFirst({
-      where: { email: { equals: email, mode: 'insensitive' } },
-      select: { id: true },
-    });
-    if (existing) throw new ConflictException(EMAIL_TAKEN);
+    const [existing] = await findUserIdsByEmail(this.prisma, email, 1);
+    if (existing !== undefined) throw new ConflictException(EMAIL_TAKEN);
   }
 
   /** Primeiro slug livre entre `base`, `base-2`, `base-3`... (base = nome em kebab-case sem acento). */

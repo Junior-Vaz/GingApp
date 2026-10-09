@@ -1,4 +1,6 @@
+import { Transform } from 'class-transformer';
 import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { normalizeEmail } from '../../../../shared/security/password-policy';
 
 /**
  * Login de usuários userType = 'MEMBER' (mestre/professor/aluno/responsável).
@@ -8,6 +10,8 @@ import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
  * contexto de organização no login quando pertence a vários grupos).
  */
 export class LoginDto {
+  /** Normalizado antes de validar: " Mestre@X.com " loga como "mestre@x.com" (e-mails são gravados em minúsculas). */
+  @Transform(({ value }) => (typeof value === 'string' ? normalizeEmail(value) : value))
   @IsEmail()
   email!: string;
 
