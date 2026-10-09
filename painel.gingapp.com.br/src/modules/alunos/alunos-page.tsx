@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Plus } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { PageHeader } from "@/components/painel/page-header";
+import { UnitPicker } from "@/components/painel/unit-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -11,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
 import { dayOnly, fmt } from "@/lib/format";
+import { useUnitNames } from "@/lib/unit-lookup";
 import { NativeSelect } from "./native-select";
 import {
   STUDENT_STATUS_LABEL,
@@ -23,7 +25,6 @@ import {
   type Student,
   type StudentFormValues,
   type StudentInput,
-  type Unit,
 } from "./schema";
 
 const students = createCrud<Student, StudentInput>("/students", {
@@ -31,23 +32,20 @@ const students = createCrud<Student, StudentInput>("/students", {
   updated: "Aluno atualizado.",
   removed: "Aluno inativado.",
 });
-const units = createCrud<Unit>("/units");
 
 export function AlunosPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
   const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "" } });
   const list = students.usePage(lp.params);
-  const unitList = units.useList();
   const create = students.useCreate();
   const update = students.useUpdate();
   const remove = students.useRemove();
   const [editing, setEditing] = useState<Student | "new" | null>(null);
   const [deleting, setDeleting] = useState<Student | null>(null);
 
-  const unitName = useMemo(() => {
-    const map = new Map((unitList.data ?? []).map((u) => [u.id, u.name]));
-    return (id: number | null) => (id ? (map.get(id) ?? "—") : "—");
-  }, [unitList.data]);
+  // Nomes só das unidades desta página (GET /units/:id por id distinto): não depende de lista com teto.
+  const nameOfUnit = useUnitNames((list.items ?? []).map((s) => s.unitId));
+  const unitName = (id: number | null) => (id === null ? "—" : nameOfUnit(id, `Unidade #${id}`));
 
   const columns: Column<Student>[] = [
     {
@@ -108,19 +106,11 @@ export function AlunosPage() {
         emptyMessage={lp.filters.status || lp.filters.unitId ? "Nenhum aluno com esses filtros." : "Nenhum aluno cadastrado ainda."}
         toolbar={
           <div className="flex flex-wrap gap-2">
-            <NativeSelect
-              aria-label="Filtrar por unidade"
-              className="w-44"
-              value={lp.filters.unitId}
-              onChange={(e) => lp.setFilter("unitId", e.target.value)}
-            >
-              <option value="">Todas as unidades</option>
-              {(unitList.data ?? []).map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </NativeSelect>
+            <UnitPicker
+              mode="filter"
+              value={lp.filters.unitId ? Number(lp.filters.unitId) : null}
+              onChange={(u) => lp.setFilter("unitId", u ? String(u.id) : "")}
+            />
             <NativeSelect
               aria-label="Filtrar por status"
               className="w-44"
@@ -183,17 +173,11 @@ export function AlunosPage() {
               name="unitId"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Unidade</FormLabel>
-                  <FormControl>
-                    <NativeSelect {...field}>
-                      <option value="">—</option>
-                      {(unitList.data ?? []).map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </FormControl>
+                  <UnitPicker
+                    optional
+                    value={field.value ? Number(field.value) : null}
+                    onChange={(u) => field.onChange(u ? String(u.id) : "")}
+                  />
                   <FormMessage />
                 </FormItem>
               )}

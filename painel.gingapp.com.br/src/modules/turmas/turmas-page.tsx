@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Plus } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { PageHeader } from "@/components/painel/page-header";
+import { UnitPicker } from "@/components/painel/unit-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -11,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
+import { useUnitNames } from "@/lib/unit-lookup";
 import { NativeSelect } from "@/modules/alunos/native-select";
 import {
   CLASS_STATUS_LABEL,
@@ -24,36 +26,27 @@ import {
   type ClassFormValues,
   type ClassInput,
   type ClassItem,
-  type Unit,
 } from "./schema";
-
-/** Selects auxiliares vêm de lista paginada: pedimos o máximo do servidor (200) e avisamos se passar. */
-const OPTIONS_LIMIT = 200;
 
 const classes = createCrud<ClassItem, ClassInput>("/classes", {
   created: "Turma criada.",
   updated: "Turma atualizada.",
   removed: "Turma inativada.",
 });
-const units = createCrud<Unit>("/units");
 
 export function TurmasPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
   const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "" } });
   const list = classes.usePage(lp.params);
-  const unitList = units.usePage({ limit: OPTIONS_LIMIT });
-  const unitOptions = unitList.items ?? [];
-  const unitsTruncated = unitList.total > OPTIONS_LIMIT;
   const create = classes.useCreate();
   const update = classes.useUpdate();
   const remove = classes.useRemove();
   const [editing, setEditing] = useState<ClassItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<ClassItem | null>(null);
 
-  const unitName = useMemo(() => {
-    const map = new Map((unitList.items ?? []).map((u) => [u.id, u.name]));
-    return (id: number | null) => (id ? (map.get(id) ?? "—") : "—");
-  }, [unitList.items]);
+  // Nomes só das unidades desta página (GET /units/:id por id distinto): não depende de lista com teto.
+  const nameOfUnit = useUnitNames((list.items ?? []).map((c) => c.unitId));
+  const unitName = (id: number | null) => (id === null ? "—" : nameOfUnit(id, `Unidade #${id}`));
 
   const columns: Column<ClassItem>[] = [
     { id: "name", header: "Nome", sortValue: (c) => c.name, cell: (c) => <span className="font-medium">{c.name}</span> },
@@ -102,19 +95,11 @@ export function TurmasPage() {
         }
         toolbar={
           <div className="flex flex-wrap gap-2">
-            <NativeSelect
-              aria-label="Filtrar por unidade"
-              className="w-44"
-              value={lp.filters.unitId}
-              onChange={(e) => lp.setFilter("unitId", e.target.value)}
-            >
-              <option value="">Todas as unidades</option>
-              {unitOptions.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </NativeSelect>
+            <UnitPicker
+              mode="filter"
+              value={lp.filters.unitId ? Number(lp.filters.unitId) : null}
+              onChange={(u) => lp.setFilter("unitId", u ? String(u.id) : "")}
+            />
             <NativeSelect
               aria-label="Filtrar por status"
               className="w-44"
@@ -125,11 +110,6 @@ export function TurmasPage() {
               <option value="ACTIVE">Ativa</option>
               <option value="INACTIVE">Inativa</option>
             </NativeSelect>
-            {unitsTruncated && (
-              <p data-testid="units-limit-warning" className="self-center text-xs text-muted-foreground">
-                Mostrando as primeiras {OPTIONS_LIMIT} de {unitList.total} unidades.
-              </p>
-            )}
           </div>
         }
         rowActions={(c) => (
@@ -178,23 +158,12 @@ export function TurmasPage() {
                 control={form.control}
                 name="unitId"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Unidade</FormLabel>
-                    <FormControl>
-                      <NativeSelect {...field}>
-                        <option value="">—</option>
-                        {unitOptions.map((u) => (
-                          <option key={u.id} value={u.id}>
-                            {u.name}
-                          </option>
-                        ))}
-                      </NativeSelect>
-                    </FormControl>
-                    {unitsTruncated && (
-                      <p className="text-xs text-muted-foreground">
-                        Lista parcial: {OPTIONS_LIMIT} de {unitList.total} unidades.
-                      </p>
-                    )}
+                  <FormItem className="col-span-2">
+                    <UnitPicker
+                      optional
+                      value={field.value ? Number(field.value) : null}
+                      onChange={(u) => field.onChange(u ? String(u.id) : "")}
+                    />
                     <FormMessage />
                   </FormItem>
                 )}
@@ -203,7 +172,7 @@ export function TurmasPage() {
                 control={form.control}
                 name="weekday"
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem className="col-span-2">
                     <FormLabel>Dia da semana</FormLabel>
                     <FormControl>
                       <NativeSelect {...field}>

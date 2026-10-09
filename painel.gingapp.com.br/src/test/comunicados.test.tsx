@@ -209,7 +209,6 @@ describe("ComunicadosPage", () => {
     await waitFor(() =>
       expect(within(dialog).getByTestId("unit-picker-status")).toHaveTextContent("Mostrando 20 de 260 unidades"),
     );
-    expect(screen.queryByTestId("aux-limit-notice")).not.toBeInTheDocument();
   });
 
   it("publicar para uma unidade escolhida no seletor envia unitId numérico", async () => {

@@ -14,11 +14,6 @@ export interface Student {
   joinedAt: string | null;
 }
 
-export interface Unit {
-  id: number;
-  name: string;
-}
-
 /**
  * Corpo aceito por POST /students e PATCH /students/:id (CreateStudentDto / UpdateStudentDto).
  * No PATCH, ausente (`undefined`) = não mexe e `null` = LIMPA a coluna; só `name` e `status`

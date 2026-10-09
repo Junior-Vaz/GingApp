@@ -36,9 +36,18 @@ const classes = [
   { id: 1, unitId: 7, name: "Infantil", description: "Crianças", weekday: 2, startTime: "18:00", endTime: "19:00", status: "ACTIVE" },
   { id: 2, unitId: null, name: "Adulto noite", description: null, weekday: null, startTime: null, endTime: null, status: "INACTIVE" },
 ];
+const units = [{ id: 7, name: "Sede Centro" }];
+/** GET /units?q&limit (busca do UnitPicker): filtra por q; `total` simula mais unidades do que as devolvidas. */
+const unitSearch = (rows = units, total?: number) => (c: Call) => {
+  const q = (c.query.get("q") ?? "").toLowerCase();
+  const found = rows.filter((u) => u.name.toLowerCase().includes(q));
+  return json(200, found, { "X-Total-Count": String(total ?? found.length) });
+};
+const unitCalls = (calls: Call[]) => calls.filter((c) => c.method === "GET" && c.path === "/units");
 const base = () => ({
   "GET /classes": () => json(200, classes, { "X-Total-Count": String(classes.length) }),
-  "GET /units": () => json(200, [{ id: 7, name: "Sede Centro" }], { "X-Total-Count": "1" }),
+  "GET /units": unitSearch(),
+  "GET /units/7": () => json(200, units[0]),
 });
 
 afterEach(() => {
@@ -84,7 +93,7 @@ describe("TurmasPage", () => {
     });
     renderPage(<TurmasPage />);
     expect(await screen.findByText("Infantil")).toBeInTheDocument();
-    expect(screen.getByText("Sede Centro", { selector: "td" })).toBeInTheDocument();
+    expect(await screen.findByText("Sede Centro", { selector: "td" })).toBeInTheDocument(); // GET /units/7
     expect(screen.getByText("Terça")).toBeInTheDocument();
     expect(screen.getByText("18:00 - 19:00")).toBeInTheDocument();
     expect(screen.queryByTestId("table-limit-warning")).not.toBeInTheDocument();
@@ -94,8 +103,11 @@ describe("TurmasPage", () => {
     expect(first.query.has("status")).toBe(false);
     expect(first.query.has("unitId")).toBe(false);
     expect(first.query.has("q")).toBe(false);
-    // selects auxiliares pedem o máximo do servidor
-    expect(calls.find((c) => c.path === "/units")!.query.get("limit")).toBe("200");
+    // o seletor de unidade busca no servidor (limit=20, sem q), não a lista de 200
+    await waitFor(() => expect(unitCalls(calls)).toHaveLength(1));
+    expect(unitCalls(calls)[0]!.query.get("limit")).toBe("20");
+    expect(unitCalls(calls)[0]!.query.has("q")).toBe(false);
+    await screen.findByRole("option", { name: "Sede Centro" });
 
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "INACTIVE" } });
     await waitFor(() => expect(screen.queryByText("Infantil")).not.toBeInTheDocument());
@@ -137,11 +149,82 @@ describe("TurmasPage", () => {
     expect(await screen.findByText("Página 1 de 3")).toBeInTheDocument();
   });
 
-  it("avisa (sem quebrar) quando há mais de 200 unidades nos selects", async () => {
-    mockApi({ ...base(), "GET /units": () => json(200, [{ id: 7, name: "Sede Centro" }], { "X-Total-Count": "350" }) });
+  it("mais de 20 unidades: o seletor avisa para refinar a busca (o aviso dos 200 primeiros não existe mais)", async () => {
+    mockApi({ ...base(), "GET /units": unitSearch(units, 350) });
     renderPage(<TurmasPage />);
     expect(await screen.findByText("Infantil")).toBeInTheDocument();
-    expect(await screen.findByTestId("units-limit-warning")).toHaveTextContent("200 de 350 unidades");
+    expect(await screen.findByTestId("unit-picker-status")).toHaveTextContent("Mostrando 20 de 350 unidades");
+    expect(screen.queryByTestId("units-limit-warning")).not.toBeInTheDocument();
+  });
+
+  it("filtro: busca com debounce (q) alcança unidade além do teto e filtra por unitId", async () => {
+    const calls = mockApi({
+      ...base(),
+      "GET /units": (c) => {
+        const q = (c.query.get("q") ?? "").toLowerCase();
+        const rows = q.includes("zeta") ? [{ id: 250, name: "Zeta Distante" }] : units;
+        return json(200, rows, { "X-Total-Count": q ? "1" : "251" });
+      },
+    });
+    renderPage(<TurmasPage />);
+    await screen.findByText("Infantil");
+    await screen.findByRole("option", { name: "Sede Centro" });
+    fireEvent.change(screen.getByLabelText("Buscar unidade"), { target: { value: "ze" } });
+    fireEvent.change(screen.getByLabelText("Buscar unidade"), { target: { value: "zeta" } });
+    expect(unitCalls(calls).filter((c) => c.query.has("q"))).toHaveLength(0); // dentro do debounce
+    await waitFor(() => expect(unitCalls(calls).at(-1)!.query.get("q")).toBe("zeta"));
+    expect(unitCalls(calls).filter((c) => c.query.has("q"))).toHaveLength(1);
+    expect(unitCalls(calls).at(-1)!.query.get("limit")).toBe("20");
+    fireEvent.change(await screen.findByRole("combobox", { name: "Filtrar por unidade" }), { target: { value: "250" } });
+    await waitFor(() => expect(calls.filter((c) => c.path === "/classes").at(-1)!.query.get("unitId")).toBe("250"));
+  });
+
+  it("cria: unidade escolhida no seletor vai como unitId numérico; sem escolher, é omitida", async () => {
+    const calls = mockApi({ ...base(), "POST /classes": () => json(201, { id: 3 }) });
+    renderPage(<TurmasPage />);
+    await screen.findByText("Infantil");
+    fireEvent.click(screen.getByRole("button", { name: /Nova turma/ }));
+    let dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Sem unidade" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(1));
+    expect(calls.find((c) => c.method === "POST")!.body).not.toHaveProperty("unitId");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: /Nova turma/ }));
+    dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Com unidade" } });
+    await within(dialog).findByRole("option", { name: "Sede Centro" });
+    fireEvent.change(within(dialog).getByLabelText("Unidade"), { target: { value: "7" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls.filter((c) => c.method === "POST")).toHaveLength(2));
+    expect(calls.filter((c) => c.method === "POST")[1]!.body).toMatchObject({ name: "Com unidade", unitId: 7 });
+  });
+
+  it("edição: unidade atual FORA dos 20 resultados é resolvida por id (1 GET, cache da coluna) e o PATCH mantém o unitId", async () => {
+    const calls = mockApi({
+      ...base(),
+      "GET /units": unitSearch([{ id: 8, name: "Outra Filial" }], 300), // a 7 não vem na busca
+      "PATCH /classes/1": () => json(200, {}),
+    });
+    renderPage(<TurmasPage />);
+    await screen.findByText("Infantil");
+    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    const dialog = await screen.findByRole("dialog");
+    const select = within(dialog).getByLabelText("Unidade") as HTMLSelectElement;
+    await waitFor(() => expect(select.selectedOptions[0]).toHaveTextContent("Sede Centro"));
+    expect(select).toHaveValue("7");
+    expect(calls.filter((c) => c.path === "/units/7")).toHaveLength(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect((calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>)["unitId"]).toBe(7);
+  });
+
+  it("coluna Unidade: falha ao resolver mostra 'Unidade #id' e turma sem unidade mostra '—'", async () => {
+    mockApi({ ...base(), "GET /classes": () => json(200, [{ ...classes[0]!, unitId: 99 }, classes[1]], { "X-Total-Count": "2" }), "GET /units/99": () => json(404, { message: "x" }) });
+    renderPage(<TurmasPage />);
+    expect(await screen.findByText("Unidade #99", { selector: "td" })).toBeInTheDocument();
+    expect(screen.getAllByText("—", { selector: "td" }).length).toBeGreaterThan(0);
   });
 
   it("erro e vazio", async () => {
@@ -204,6 +287,7 @@ describe("TurmasPage", () => {
     fireEvent.click(screen.getAllByText("Editar")[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Início")).toHaveValue("18:00"));
+    await waitFor(() => expect(within(dialog).getByLabelText("Unidade")).toHaveValue("7"));
     fireEvent.change(within(dialog).getByLabelText("Unidade"), { target: { value: "" } });
     fireEvent.change(within(dialog).getByLabelText("Dia da semana"), { target: { value: "" } });
     fireEvent.change(within(dialog).getByLabelText("Início"), { target: { value: "" } });

@@ -148,7 +148,7 @@ Para mostrar o nome do aluno numa coluna NÃO faça 1 GET por linha: o backend d
 
 Mesmo padrão do `StudentPicker`, para unidades: `src/components/painel/unit-picker.tsx` + hooks em `src/lib/unit-lookup.ts`
 (`GET /units?q=&limit=20`, debounce 300ms; a unidade atual é resolvida por `GET /units/:id`). `GET /units` aceita `limit`
-(1..200, padrão 50), `offset` e `q` (nome), com o total em `X-Total-Count`. Em módulos novos NÃO use `useAuxList("/units")`.
+(1..200, padrão 50), `offset` e `q` (nome), com o total em `X-Total-Count`. Nunca carregue `/units` inteiro (nem `units.useList()`/`limit=200`) num select: unidades além do teto ficariam inalcançáveis.
 
 ```tsx
 // formulário (react-hook-form guarda string; "" = todo o grupo / sem unidade)
@@ -160,8 +160,10 @@ Mesmo padrão do `StudentPicker`, para unidades: `src/components/painel/unit-pic
 ```
 
 Props: `value` (id|null), `onChange(unit|null)`, `mode` (`form`|`filter`), `optional`, `label`, `emptyLabel`, `initial`, `disabled`.
-Nome da unidade numa coluna: `useUnitNames(ids)` (1 GET por id distinto, cache de 5 min). Módulos que ainda usam
-`useAuxList('/units')` (limite de 200): Turmas, Aulas, Eventos, Alunos.
+Nome da unidade numa coluna: `useUnitNames(ids)` (1 GET por id distinto, cache de 5 min). Já usam o `UnitPicker`
+(+ `useUnitNames`): Comunicados, Alunos, Turmas e Eventos; `useAuxList`/`AuxLimitNotice` foram removidos (nenhum módulo
+carrega mais `/units` por lista com limite fixo). A página Unidades (somente leitura) é paginada no servidor
+(`useListParams` -> `units.usePage` -> `DataTable server`, busca `q` no nome).
 
 ## Docker
 

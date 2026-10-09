@@ -43,6 +43,10 @@ const STUDENTS = [
   { id: 12, name: "Bruno Lima" },
 ];
 
+/** O que a busca padrão (GET /units?limit=20) devolve; ALL_UNITS inclui unidades que só aparecem por q ou por id. */
+const UNITS = [{ id: 3, name: "Sede" }];
+const ALL_UNITS = [...UNITS, { id: 99, name: "Filial Distante" }, { id: 250, name: "Zeta Distante" }];
+
 let calls: Call[];
 let events: unknown[];
 let participants: unknown[];
@@ -59,7 +63,16 @@ function installFetch() {
     const override = overrides[key];
     if (override) return override();
     if (key === "GET /events") return json(200, events, { "X-Total-Count": String(events.length) });
-    if (key === "GET /units") return json(200, [{ id: 3, name: "Sede" }]);
+    if (key === "GET /units") {
+      const q = (new URLSearchParams(search).get("q") ?? "").toLowerCase();
+      const rows = UNITS.filter((u) => u.name.toLowerCase().includes(q));
+      return json(200, rows, { "X-Total-Count": String(rows.length) });
+    }
+    const unitById = method === "GET" ? /^\/units\/(\d+)$/.exec(path) : null;
+    if (unitById) {
+      const found = ALL_UNITS.find((u) => u.id === Number(unitById[1]));
+      return found ? json(200, found) : json(404, { message: "Unidade não encontrada." });
+    }
     if (key === "GET /students") {
       const q = (new URLSearchParams(search).get("q") ?? "").toLowerCase();
       const rows = STUDENTS.filter((s) => s.name.toLowerCase().includes(q));
@@ -268,14 +281,91 @@ describe("EventosPage - lista no servidor", () => {
     expect(getEvents().at(-1)!.query.get("type")).toBe("CAMPEONATO");
   });
 
-  it("listas auxiliares pedem limit=200 e avisam quando o total passa de 200", async () => {
-    overrides["GET /units"] = () => json(200, [{ id: 3, name: "Sede" }], { "X-Total-Count": "250" });
+  const unitSearches = () => calls.filter((c) => c.method === "GET" && c.path === "/units");
+
+  it("unidades do formulário: busca no servidor com limit=20 (nunca 200) e aviso de refinar quando passa de 20", async () => {
+    overrides["GET /units"] = () => json(200, UNITS, { "X-Total-Count": "250" });
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    expect(unitSearches()).toHaveLength(0); // só carrega ao abrir o formulário
+    fireEvent.click(screen.getByRole("button", { name: /Novo evento/ }));
+    await screen.findByRole("option", { name: "Sede" });
+    expect(unitSearches()).toHaveLength(1);
+    expect(unitSearches()[0]!.query.get("limit")).toBe("20");
+    expect(unitSearches()[0]!.query.has("q")).toBe(false);
+    expect(await screen.findByTestId("unit-picker-status")).toHaveTextContent("Mostrando 20 de 250 unidades");
+    expect(screen.queryByTestId("aux-limit-notice")).not.toBeInTheDocument();
+  });
+
+  it("cria evento com unidade além do teto: busca com debounce (q) e o POST leva unitId numérico", async () => {
+    overrides["GET /units"] = (() => {
+      let first = true;
+      return () => {
+        // 1ª chamada (sem q): só a Sede; as seguintes casam por q
+        if (first) {
+          first = false;
+          return json(200, UNITS, { "X-Total-Count": "251" });
+        }
+        return json(200, [ALL_UNITS[2]], { "X-Total-Count": "1" });
+      };
+    })();
     renderPage();
     await screen.findByText("Batizado 2026");
     fireEvent.click(screen.getByRole("button", { name: /Novo evento/ }));
+    fireEvent.change(await screen.findByLabelText("Título"), { target: { value: "Festival" } });
+    fireEvent.change(screen.getByLabelText("Data e hora"), { target: { value: "2026-12-01T19:30" } });
     await screen.findByRole("option", { name: "Sede" });
-    expect(calls.find((c) => c.path === "/units")!.query.get("limit")).toBe("200");
-    expect(await screen.findByTestId("aux-limit-notice")).toHaveTextContent("250 unidades");
+    fireEvent.change(screen.getByLabelText("Buscar unidade"), { target: { value: "ze" } });
+    fireEvent.change(screen.getByLabelText("Buscar unidade"), { target: { value: "zeta" } });
+    expect(unitSearches().filter((c) => c.query.has("q"))).toHaveLength(0); // dentro do debounce
+    await screen.findByRole("option", { name: "Zeta Distante" });
+    expect(unitSearches().filter((c) => c.query.has("q"))).toHaveLength(1);
+    expect(unitSearches().at(-1)!.query.get("q")).toBe("zeta");
+    expect(unitSearches().at(-1)!.query.get("limit")).toBe("20");
+    fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "250" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("POST", "/events")).toHaveLength(1));
+    expect(sent("POST", "/events")[0]!.body).toMatchObject({ title: "Festival", unitId: 250 });
+  });
+
+  it("cria evento sem escolher unidade: opção vazia 'Nenhuma' e unitId omitido", async () => {
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    fireEvent.click(screen.getByRole("button", { name: /Novo evento/ }));
+    fireEvent.change(await screen.findByLabelText("Título"), { target: { value: "Sem unidade" } });
+    fireEvent.change(screen.getByLabelText("Data e hora"), { target: { value: "2026-12-01T19:30" } });
+    await screen.findByRole("option", { name: "Sede" });
+    expect(screen.getByRole("option", { name: "Nenhuma" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("POST", "/events")).toHaveLength(1));
+    expect(sent("POST", "/events")[0]!.body).not.toHaveProperty("unitId");
+  });
+
+  it("edita evento cuja unidade está FORA dos 20 resultados: resolve por GET /units/:id e o PATCH mantém o unitId", async () => {
+    events = [{ ...EVENT, unitId: 99 }];
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    fireEvent.click(screen.getByRole("button", { name: "Editar Batizado 2026" }));
+    await screen.findByLabelText("Título");
+    const select = screen.getByLabelText("Unidade") as HTMLSelectElement;
+    await waitFor(() => expect(select.selectedOptions[0]).toHaveTextContent("Filial Distante"));
+    expect(select).toHaveValue("99");
+    expect(calls.filter((c) => c.path === "/units/99")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("PATCH", "/events/7")).toHaveLength(1));
+    expect(sent("PATCH", "/events/7")[0]!.body).toMatchObject({ unitId: 99 });
+  });
+
+  it("erro ao buscar unidades aparece no seletor e não bloqueia o formulário", async () => {
+    overrides["GET /units"] = () => json(500, { message: "Banco fora." });
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    fireEvent.click(screen.getByRole("button", { name: /Novo evento/ }));
+    expect(await screen.findByText("Banco fora.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Título"), { target: { value: "Mesmo assim" } });
+    fireEvent.change(screen.getByLabelText("Data e hora"), { target: { value: "2026-12-01T19:30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("POST", "/events")).toHaveLength(1));
   });
 });
 

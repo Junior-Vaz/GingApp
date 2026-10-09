@@ -1,21 +1,21 @@
 import { FormDialog } from "@/components/painel/form-dialog";
+import { UnitPicker } from "@/components/painel/unit-picker";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { AuxLimitNotice } from "@/modules/rodas/aux-limit-notice";
 import { ImageUrlField } from "@/modules/rodas/image-field";
 import { LocationFields } from "@/modules/rodas/location-fields";
 import { NativeSelect } from "@/modules/rodas/native-select";
-import { useAuxList } from "@/modules/rodas/reference";
 import {
   buildEventPayload,
   buildEventUpdatePayload,
-  emptyEvent,   eventSchema,
+  emptyEvent,
+  eventSchema,
   eventToForm,
   type EventFormValues,
 } from "./event-schema";
-import { EVENT_TYPE_LABEL, EVENT_TYPES, type EventItem, type EventPayload, type Unit } from "./types";
+import { EVENT_TYPE_LABEL, EVENT_TYPES, type EventItem, type EventPayload } from "./types";
 
 interface EventFormProps {
   /** `null` = fechado, "new" = criação, EventItem = edição. */
@@ -26,8 +26,6 @@ interface EventFormProps {
 
 export function EventForm({ editing, onClose, onSubmit }: EventFormProps) {
   const event = editing && editing !== "new" ? editing : null;
-  // GET /units?limit=200 (escopo da organização). Falha não bloqueia o formulário.
-  const units = useAuxList<Unit>("/units", editing !== null);
 
   return (
     <FormDialog<EventFormValues>
@@ -106,18 +104,12 @@ export function EventForm({ editing, onClose, onSubmit }: EventFormProps) {
             name="unitId"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Unidade</FormLabel>
-                <FormControl>
-                  <NativeSelect {...field}>
-                    <option value="">Nenhuma</option>
-                    {units.items?.map((unit) => (
-                      <option key={unit.id} value={String(unit.id)}>
-                        {unit.name}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                </FormControl>
-                <AuxLimitNotice truncated={units.truncated} total={units.total} label="unidades" />
+                <UnitPicker
+                  optional
+                  emptyLabel="Nenhuma"
+                  value={field.value ? Number(field.value) : null}
+                  onChange={(u) => field.onChange(u ? String(u.id) : "")}
+                />
                 <FormMessage />
               </FormItem>
             )}

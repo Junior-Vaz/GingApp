@@ -13,11 +13,6 @@ export interface ClassItem {
   status: ClassStatus;
 }
 
-export interface Unit {
-  id: number;
-  name: string;
-}
-
 /**
  * Corpo aceito por POST /classes e PATCH /classes/:id (CreateClassDto / UpdateClassDto).
  * No PATCH, `null` LIMPA unitId/description/weekday/startTime/endTime; `name` e `status` nunca vão `null` (400).

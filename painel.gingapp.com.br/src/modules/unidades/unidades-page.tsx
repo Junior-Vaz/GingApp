@@ -1,8 +1,8 @@
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
-
-import { locationOf, useUnits, type Unit } from "./units";
+import { useListParams } from "@/lib/list-params";
+import { locationOf, units, type Unit } from "./units";
 
 const columns: Column<Unit>[] = [
   {
@@ -28,7 +28,9 @@ const columns: Column<Unit>[] = [
 ];
 
 export function UnidadesPage() {
-  const list = useUnits();
+  // Padrão de lista no servidor: params (busca/página) -> usePage -> DataTable server. Só leitura.
+  const lp = useListParams({ pageSize: 10 });
+  const list = units.usePage(lp.params);
   return (
     <div>
       <PageHeader
@@ -37,13 +39,13 @@ export function UnidadesPage() {
       />
       <DataTable
         columns={columns}
-        data={list.data}
+        data={list.items}
+        server={{ ...lp.server, total: list.total, isFetching: list.isFetching }}
         isLoading={list.isLoading}
         error={list.error}
         onRetry={() => void list.refetch()}
         getRowId={(u) => u.id}
-        searchText={(u) => `${u.name} ${u.address ?? ""} ${locationOf(u)}`}
-        searchPlaceholder="Buscar unidade..."
+        searchPlaceholder="Buscar unidade pelo nome..."
         emptyMessage="Nenhuma unidade cadastrada."
       />
     </div>

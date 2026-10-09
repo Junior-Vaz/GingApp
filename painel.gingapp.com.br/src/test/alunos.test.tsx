@@ -46,9 +46,16 @@ const students = [
   { id: 2, unitId: null, name: "José Álvaro", birthDate: `${YEAR - 8}-01-01T00:00:00.000Z`, document: null, phone: null, email: "j@x.com", status: "INACTIVE", joinedAt: null },
 ];
 const units = [{ id: 7, name: "Sede Centro" }];
+/** GET /units?q&limit (busca do UnitPicker): filtra por q; `total` simula mais unidades do que as devolvidas. */
+const unitSearch = (rows = units, total?: number) => (c: Call) => {
+  const q = (c.query.get("q") ?? "").toLowerCase();
+  const found = rows.filter((u) => u.name.toLowerCase().includes(q));
+  return json(200, found, { "X-Total-Count": String(total ?? found.length) });
+};
 const base = () => ({
   "GET /students": () => json(200, students, { "X-Total-Count": String(students.length) }),
-  "GET /units": () => json(200, units),
+  "GET /units": unitSearch(),
+  "GET /units/7": () => json(200, units[0]),
 });
 
 afterEach(() => {
@@ -94,7 +101,8 @@ describe("AlunosPage", () => {
     });
     renderPage(<AlunosPage />);
     expect(await screen.findByText("Ana Souza")).toBeInTheDocument();
-    expect(within(screen.getByRole("table")).getByText("Sede Centro")).toBeInTheDocument();
+    // nome da unidade na coluna vem de GET /units/:id (não de uma lista com teto)
+    expect(await within(screen.getByRole("table")).findByText("Sede Centro")).toBeInTheDocument();
     expect(screen.getByText("Menor")).toBeInTheDocument();
     expect(screen.getByTestId("table-count")).toHaveTextContent("2 registros");
     const first = calls.find((c) => c.path === "/students")!;
@@ -108,6 +116,7 @@ describe("AlunosPage", () => {
     expect(screen.getByText("José Álvaro")).toBeInTheDocument();
     expect(calls.at(-1)!.query.get("status")).toBe("INACTIVE");
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "" } });
+    await screen.findByRole("option", { name: "Sede Centro" });
     fireEvent.change(screen.getByLabelText("Filtrar por unidade"), { target: { value: "7" } });
     await waitFor(() => expect(calls.at(-1)!.query.get("unitId")).toBe("7"));
     expect(calls.at(-1)!.query.has("status")).toBe(false);
@@ -177,6 +186,7 @@ describe("AlunosPage", () => {
     expect(calls.some((c) => c.method === "POST")).toBe(false);
 
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Carlos Lima" } });
+    await within(dialog).findByRole("option", { name: "Sede Centro" });
     fireEvent.change(within(dialog).getByLabelText("Unidade"), { target: { value: "7" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
@@ -225,6 +235,7 @@ describe("AlunosPage", () => {
     fireEvent.click(screen.getAllByText("Editar")[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Telefone")).toHaveValue("11999"));
+    await waitFor(() => expect(within(dialog).getByLabelText("Unidade")).toHaveValue("7")); // opção carregada
     fireEvent.change(within(dialog).getByLabelText("Telefone"), { target: { value: "" } });
     fireEvent.change(within(dialog).getByLabelText("Unidade"), { target: { value: "" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
@@ -232,6 +243,107 @@ describe("AlunosPage", () => {
     const body = calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>;
     expect(body).toMatchObject({ name: "Ana Souza", phone: null, unitId: null, status: "ACTIVE" });
     expect(body["phone"]).toBeNull();
+  });
+
+  const unitCalls = (calls: Call[]) => calls.filter((c) => c.method === "GET" && c.path === "/units");
+
+  it("unidades são buscadas no servidor (limit=20, nunca lista inteira) e o aviso do teto de 50 sumiu", async () => {
+    const calls = mockApi({ ...base(), "GET /units": unitSearch(units, 300) });
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    await waitFor(() => expect(unitCalls(calls).length).toBeGreaterThan(0));
+    for (const c of unitCalls(calls)) expect(c.query.get("limit")).toBe("20");
+    expect(unitCalls(calls)[0]!.query.has("q")).toBe(false);
+    // filtro e formulário compartilham a mesma busca (1 GET, não 2)
+    expect(unitCalls(calls)).toHaveLength(1);
+    expect(screen.getByTestId("unit-picker-status")).toHaveTextContent("Mostrando 20 de 300 unidades");
+    expect(screen.queryByTestId("table-limit-warning")).not.toBeInTheDocument();
+  });
+
+  it("filtro: busca com debounce (q) alcança unidade acima do teto e filtra por unitId numérico", async () => {
+    const many = [...units, { id: 250, name: "Zeta Distante" }];
+    const calls = mockApi({
+      ...base(),
+      "GET /units": (c) => {
+        const q = (c.query.get("q") ?? "").toLowerCase();
+        // sem q só as primeiras (a 250 está além do teto); com q a busca do servidor a encontra
+        const rows = q ? many.filter((u) => u.name.toLowerCase().includes(q)) : units;
+        return json(200, rows, { "X-Total-Count": String(q ? rows.length : 251) });
+      },
+    });
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    await screen.findByRole("option", { name: "Sede Centro" });
+    expect(screen.queryByRole("option", { name: "Zeta Distante" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Buscar unidade"), { target: { value: "ze" } });
+    fireEvent.change(screen.getByLabelText("Buscar unidade"), { target: { value: "zeta" } });
+    expect(unitCalls(calls).filter((c) => c.query.has("q"))).toHaveLength(0); // dentro do debounce
+    await waitFor(() => expect(unitCalls(calls).at(-1)!.query.get("q")).toBe("zeta"));
+    expect(unitCalls(calls).filter((c) => c.query.has("q"))).toHaveLength(1);
+    expect(unitCalls(calls).at(-1)!.query.get("limit")).toBe("20");
+    fireEvent.change(await screen.findByLabelText("Filtrar por unidade"), { target: { value: "250" } });
+    await waitFor(() => expect(calls.filter((c) => c.path === "/students").at(-1)!.query.get("unitId")).toBe("250"));
+    // voltar a "Todas as unidades" remove o filtro
+    fireEvent.change(screen.getByLabelText("Filtrar por unidade"), { target: { value: "" } });
+    await waitFor(() => expect(calls.filter((c) => c.path === "/students").at(-1)!.query.has("unitId")).toBe(false));
+  });
+
+  it("coluna Unidade: 1 GET /units/:id por unidade distinta (cache), nenhum para aluno sem unidade", async () => {
+    const outros = [
+      { ...students[0]!, id: 3, name: "Carla Dias", unitId: 7 },
+      { ...students[0]!, id: 4, name: "Davi Reis", unitId: 99 },
+    ];
+    const all = [...students, ...outros];
+    const calls = mockApi({
+      ...base(),
+      "GET /students": () => json(200, all, { "X-Total-Count": String(all.length) }),
+      "GET /units/99": () => json(404, { message: "Unidade não encontrada." }),
+    });
+    renderPage(<AlunosPage />);
+    const table = within(await screen.findByRole("table"));
+    await table.findByText("Carla Dias");
+    await waitFor(() => expect(table.getAllByText("Sede Centro")).toHaveLength(2)); // Ana e Carla
+    expect(table.getByText("Unidade #99")).toBeInTheDocument(); // falha ao resolver não derruba a tabela
+    const byId = calls.filter((c) => /^\/units\/\d+$/.test(c.path)).map((c) => c.path);
+    expect([...byId].sort()).toEqual(["/units/7", "/units/99"]);
+  });
+
+  it("edição: unidade atual FORA dos 20 resultados é resolvida por id, fica selecionada e o PATCH mantém o unitId", async () => {
+    const calls = mockApi({
+      ...base(),
+      "GET /units": unitSearch([{ id: 8, name: "Outra Filial" }], 300), // a unidade 7 não vem na busca
+      "PATCH /students/1": () => json(200, {}),
+    });
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    const dialog = await screen.findByRole("dialog");
+    const select = within(dialog).getByLabelText("Unidade") as HTMLSelectElement;
+    await waitFor(() => expect(select.selectedOptions[0]).toHaveTextContent("Sede Centro"));
+    expect(select).toHaveValue("7");
+    // coluna e formulário dividem o mesmo GET /units/7
+    expect(calls.filter((c) => c.path === "/units/7")).toHaveLength(1);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect((calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>)["unitId"]).toBe(7);
+  });
+
+  it("edição: trocar para outra unidade envia o novo unitId como número", async () => {
+    const calls = mockApi({
+      ...base(),
+      "GET /units": unitSearch([...units, { id: 8, name: "Filial Norte" }]),
+      "PATCH /students/2": () => json(200, {}),
+    });
+    renderPage(<AlunosPage />);
+    await screen.findByText("José Álvaro");
+    fireEvent.click(screen.getAllByText("Editar")[1]!);
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByRole("option", { name: "Filial Norte" });
+    expect(within(dialog).getByLabelText("Unidade")).toHaveValue(""); // aluno sem unidade
+    fireEvent.change(within(dialog).getByLabelText("Unidade"), { target: { value: "8" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect((calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>)["unitId"]).toBe(8);
   });
 
   it("erro 400 do PATCH aparece em toast e mantém o formulário aberto", async () => {

@@ -1,7 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { createCrud } from "@/lib/crud";
 
-/** Contrato de GET /units (backend: UnitsService.findAll - somente leitura, até 50 itens). */
+/** Contrato de GET /units (backend: UnitsService.findAll - somente leitura, paginado: limit/offset/q no nome). */
 export interface Unit {
   id: number;
   organizationId: number;
@@ -13,15 +12,8 @@ export interface Unit {
   status: "ACTIVE" | "INACTIVE";
 }
 
-export const UNITS_QUERY_KEY = ["units"] as const;
-
-/** Lista de unidades (compartilhada com Comunicados, que usa para escolher o escopo). */
-export function useUnits() {
-  return useQuery({
-    queryKey: UNITS_QUERY_KEY,
-    queryFn: () => api.get<Unit[]>("/units"),
-  });
-}
+/** Só leitura: o backend não tem POST/PATCH/DELETE de unidades (use apenas `usePage`). */
+export const units = createCrud<Unit>("/units");
 
 export const locationOf = (unit: Unit): string =>
   [unit.city, unit.state].filter(Boolean).join(" / ") || "-";

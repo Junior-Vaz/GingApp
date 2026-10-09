@@ -19,24 +19,3 @@ export function useCities(stateId: number | undefined) {
     staleTime: 60 * 60 * 1000,
   });
 }
-/** Teto de `limit` do backend; listas auxiliares (selects) pedem a página máxima. */
-export const AUX_LIMIT = 200;
-
-/**
- * Lista auxiliar para <select> (unidades, alunos...): `GET path?limit=200` + total do header.
- * `truncated` = há mais itens do que os 200 carregados (mostre `AuxLimitNotice`).
- */
-export function useAuxList<T>(path: string, enabled = true) {
-  const query = useQuery({
-    queryKey: ["aux", path, AUX_LIMIT],
-    queryFn: () => api.getPage<T>(path, { limit: AUX_LIMIT }),
-    enabled,
-  });
-  return {
-    items: query.data?.items,
-    total: query.data?.total ?? 0,
-    truncated: (query.data?.total ?? 0) > (query.data?.items.length ?? 0),
-    isLoading: query.isLoading,
-    error: query.error,
-  };
-}

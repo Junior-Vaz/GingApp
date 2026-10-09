@@ -42,11 +42,6 @@ export interface EventPayload {
   imageUrl?: string | null | undefined;
 }
 
-export interface Unit {
-  id: number;
-  name: string;
-}
-
 export interface EventParticipant {
   id: number;
   eventId: number;
