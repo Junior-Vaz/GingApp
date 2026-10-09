@@ -3,6 +3,8 @@ import { IsBoolean, IsEmail, IsOptional, IsString, MaxLength, MinLength } from '
 /** Tamanho máximo da senha: o bcrypt só considera os primeiros 72 bytes. */
 export const PASSWORD_MIN_LENGTH = 10;
 export const PASSWORD_MAX_LENGTH = 72;
+/** Custo bcrypt dos usuários PLATFORM (SSOT: PlatformTeamService e prisma/bootstrap.ts). */
+export const BCRYPT_ROUNDS = 10;
 
 export class CreatePlatformUserDto {
   @IsString()

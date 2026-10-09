@@ -43,6 +43,9 @@ services:
   # Serviço auxiliar de migration — não fica no ar (sem restart), só roda uma vez via
   # `docker compose -f docker-compose.prod.yml run --rm migrate` e sai. Usa o stage "migrate"
   # do Dockerfile (baseado em "build", que tem a CLI do prisma — o "runner" do backend não tem).
+  # O stage roda `prisma migrate deploy` E DEPOIS prisma/bootstrap.ts (matriz base de permissões +
+  # primeiro super admin PLATFORM a partir de SUPER_ADMIN_*; ver backend/README.md). Sem as
+  # variáveis SUPER_ADMIN_* o bootstrap só aplica a matriz e avisa; valores inválidos = exit 1.
   migrate:
     build:
       context: ./backend
@@ -50,6 +53,9 @@ services:
       target: migrate
     environment:
       DATABASE_URL: "postgresql://gingapp:${POSTGRES_PASSWORD}@postgres:5432/gingapp?schema=public"
+      SUPER_ADMIN_EMAIL: ${SUPER_ADMIN_EMAIL:-}
+      SUPER_ADMIN_PASSWORD: ${SUPER_ADMIN_PASSWORD:-}
+      SUPER_ADMIN_NAME: ${SUPER_ADMIN_NAME:-}
     depends_on:
       postgres:
         condition: service_healthy

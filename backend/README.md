@@ -63,6 +63,43 @@ $ npm run test:cov
 - `/platform-settings` — CRUD de `PlatformSetting` (chave `[a-z0-9_.-]{1,100}`, valor JSON até ~10KB, `isSecret` mascara o valor em todas as respostas). **Nada no sistema lê essas configurações ainda**: é só o cadastro para a tela do admin.
 - `/platform-team` — gestão dos usuários `PLATFORM` (listar: qualquer PLATFORM; criar/alterar/revogar sessões/resetar senha: só super admin; ninguém altera o próprio status/isSuperAdmin; a plataforma nunca fica sem super admin ativo). 2FA e trilha de auditoria ficam fora do escopo atual.
 
+## Produção: migrations + bootstrap (sem dados de exemplo)
+
+O seed (`prisma/seed.ts`, `npm run prisma:seed`) é **só de desenvolvimento/e2e**: cria organização e
+usuários de exemplo com a senha fixa `Dev@12345`. **Nunca rode o seed em produção.**
+
+Em produção, o stage `migrate` do `Dockerfile` roda, nessa ordem e parando no primeiro erro:
+
+1. `npx prisma migrate deploy`
+2. `npx ts-node prisma/bootstrap.ts` (= `npm run bootstrap:prod`)
+
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env.production run --rm migrate
+```
+
+O bootstrap é idempotente (rodar de novo não muda nada nem duplica) e faz só o indispensável:
+
+- **Matriz base `RolePermission`** (SSOT em `prisma/permission-matrix.ts`, a mesma do seed): cria só
+  as linhas ausentes; linhas existentes **não são sobrescritas** (avisa se divergirem da base). Sem ela,
+  todo usuário MEMBER levaria 403. Correções em bancos existentes continuam vindo por migrations de dados.
+- **Primeiro super admin PLATFORM**, a partir das variáveis:
+
+| Variável | Obrigatória | Regra |
+| --- | --- | --- |
+| `SUPER_ADMIN_EMAIL` | junto com a senha | e-mail válido; gravado em minúsculas |
+| `SUPER_ADMIN_PASSWORD` | junto com o e-mail | 12..72 bytes; 3 de 4 classes (minúscula/maiúscula/dígito/símbolo); ≥ 6 caracteres distintos; sem espaços nas pontas; sem conter o e-mail nem termos triviais (`Dev@12345`, `senha`, `123456`, `admin`...) |
+| `SUPER_ADMIN_NAME` | não | 2..120 caracteres (padrão `Super Admin`) |
+
+- Sem e-mail **e** sem senha: só aplica a matriz e avisa (exit 0).
+- Só um dos dois, ou valor inválido: **falha (exit 1) antes de gravar qualquer coisa**.
+- E-mail já cadastrado (sem diferenciar maiúsculas): **nada é alterado** (senha, tipo, flags) — só log.
+- A senha nunca aparece em log/erro; hash bcrypt com o mesmo custo do `PlatformTeamService`.
+- Depois do primeiro deploy, apague `SUPER_ADMIN_EMAIL` e `SUPER_ADMIN_PASSWORD` do ambiente.
+- O login do admin é `POST /api/auth/platform-login` (não `/api/auth/login`, que é só de MEMBER).
+
+Não cria organização "SYSTEM", planos nem nenhum outro dado: nenhuma rota depende deles (planos são
+cadastrados pelo super admin em `/api/plans`). Testes: `test/bootstrap.e2e-spec.ts` (bancos isolados).
+
 ## Deployment
 
 When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.

@@ -56,10 +56,21 @@ USER nestjs
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
 
-# ---------- migrate: imagem auxiliar SÓ para `prisma migrate deploy` em produção ----------
+# ---------- migrate: imagem auxiliar de produção = migrations + bootstrap ----------
 # O stage "runner" acima deliberadamente NÃO tem a CLI do prisma (ver comentário em
 # "prod-deps"), então não dá para migrar a partir dele. Reaproveita o stage "build" (que já
-# tem devDependencies completas + prisma/ com as migrations) em vez de instalar tudo de novo.
+# tem devDependencies completas — CLI do prisma, ts-node, typescript, bcrypt compilado — mais
+# prisma/ (migrations, permission-matrix.ts, bootstrap.ts), src/ e tsconfig.json) em vez de
+# instalar tudo de novo.
+# Roda, NESTA ORDEM e parando no primeiro erro (exit != 0):
+#   1. prisma migrate deploy  — aplica migrations pendentes (idempotente);
+#   2. prisma/bootstrap.ts    — matriz base RolePermission (só linhas ausentes) + primeiro super
+#      admin PLATFORM a partir de SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD / SUPER_ADMIN_NAME
+#      (opcionais; sem elas só aplica a matriz e avisa; inválidas = falha). Idempotente. NUNCA
+#      cria dados de exemplo — o seed de dev (prisma/seed.ts, senha Dev@12345) não roda aqui.
+# ts-node SEM --transpile-only de propósito: com TypeScript 6 e este tsconfig, o modo
+# transpile-only falha com TS5011 ("rootDir must be explicitly set") porque bootstrap.ts importa
+# de ../src (achado real); o modo normal compila e ainda faz a checagem de tipos.
 # Uso: docker compose -f docker-compose.prod.yml run --rm migrate
 FROM build AS migrate
-CMD ["npx", "prisma", "migrate", "deploy"]
+CMD ["sh", "-c", "npx prisma migrate deploy && npx ts-node prisma/bootstrap.ts"]

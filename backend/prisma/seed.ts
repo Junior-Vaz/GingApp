@@ -20,6 +20,7 @@ import {
   UserType,
 } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { buildPermissionMatrix, PERMISSION_RESOURCES } from './permission-matrix';
 
 const prisma = new PrismaClient();
 
@@ -294,98 +295,20 @@ async function main() {
   console.log(`✔ Class: ${turma.name} (Ana matriculada)`);
 
   // ---------------------------------------------------------------------
-  // 9. RolePermission — matriz inicial (perfis de projeto.txt §18). Guard @CanAccess ainda
-  //    nao esta implementado (pendencia registrada em PLANO_PROJETO.md §10.1.3), mas os dados
-  //    ja ficam prontos para quando ele for construido.
+  // 9. RolePermission — matriz base (perfis de projeto.txt §18). Os valores vivem em
+  //    prisma/permission-matrix.ts (SSOT compartilhada com prisma/bootstrap.ts, o bootstrap de
+  //    produção). Aqui (dev/e2e) o seed SOBRESCREVE (upsert total) — comportamento de sempre.
   // ---------------------------------------------------------------------
-  type Perms = { view: boolean; create: boolean; edit: boolean; delete: boolean };
-  const RESOURCES = ['students', 'classes', 'lessons', 'attendance', 'graduations', 'finance', 'events', 'rodas', 'announcements', 'teachers', 'dashboard', 'certificates'];
-  // Menor privilégio (LGPD): ALUNO/RESPONSAVEL NÃO têm nenhum recurso administrativo por padrão.
-  // As rotas administrativas (GET /students, /classes, /lessons, /attendance, /graduations...)
-  // devolvem dados do grupo INTEIRO (inclusive de menores: documento, telefone, e-mail,
-  // nascimento) — o app do capoeirista usa as rotas escopadas por vínculo (/students/me,
-  // /classes/me, /lessons/me, /attendance/me, /finance/me, /certificates/me, /passport/me) e
-  // GET /graduations/students/:id, que checa vínculo no service. Só o que é legitimamente
-  // visível a qualquer membro do grupo fica liberado (MEMBER_VISIBLE abaixo). Bancos já
-  // existentes: migration de dados 20261009030000_restrict_member_roles_least_privilege.
-  const NO_ACCESS: Perms = { view: false, create: false, edit: false, delete: false };
-  const MEMBER_VIEW_ONLY: Perms = { view: true, create: false, edit: false, delete: false };
-  const DEFAULT_MATRIX: Record<OrgRole, Perms> = {
-    [OrgRole.MESTRE]: { view: true, create: true, edit: true, delete: true },
-    [OrgRole.PROFESSOR]: { view: true, create: true, edit: true, delete: false },
-    [OrgRole.ALUNO]: NO_ACCESS,
-    [OrgRole.RESPONSAVEL]: NO_ACCESS,
-  };
-  const MEMBER_VISIBLE: Partial<Record<OrgRole, Perms>> = {
-    [OrgRole.ALUNO]: MEMBER_VIEW_ONLY,
-    [OrgRole.RESPONSAVEL]: MEMBER_VIEW_ONLY,
-  };
-  // "teachers" (equipe interna do grupo) é mais restrito que o padrão: só MESTRE gerencia,
-  // PROFESSOR só enxerga a lista de colegas, aluno/responsável não precisam disso.
-  const RESOURCE_OVERRIDES: Partial<Record<string, Partial<Record<OrgRole, Perms>>>> = {
-    // Visíveis a membros (só view): agenda de eventos do grupo (GET /events; a lista de
-    // participantes anonimiza terceiros para quem não é MESTRE/PROFESSOR), comunicados do grupo
-    // (GET /announcements) e rodas (GET /rodas é @Public de qualquer forma; "view" não guarda
-    // nenhuma rota hoje — mantido como estava).
-    events: MEMBER_VISIBLE,
-    announcements: MEMBER_VISIBLE,
-    rodas: MEMBER_VISIBLE,
-    teachers: {
-      [OrgRole.PROFESSOR]: { view: true, create: false, edit: false, delete: false },
-      [OrgRole.ALUNO]: { view: false, create: false, edit: false, delete: false },
-      [OrgRole.RESPONSAVEL]: { view: false, create: false, edit: false, delete: false },
-    },
-    // GET /finance retorna TODOS os registros financeiros da organização (não filtrado por
-    // aluno) — dar view=true (padrão da matriz default) para ALUNO/RESPONSAVEL exporia a
-    // situação financeira de outros alunos. Restrito até existir uma view "meu financeiro"
-    // com filtro por studentId (Fase 2, PWA).
-    // Decisão do dono: o financeiro do grupo (lista, totais, lançamentos) é SÓ do MESTRE —
-    // PROFESSOR não vê nem cria/edita/apaga. Bancos já existentes são atualizados pela migration
-    // de dados 20261009020000_restrict_professor_finance (o seed só roda em dev/e2e).
-    finance: {
-      [OrgRole.PROFESSOR]: { view: false, create: false, edit: false, delete: false },
-      [OrgRole.ALUNO]: { view: false, create: false, edit: false, delete: false },
-      [OrgRole.RESPONSAVEL]: { view: false, create: false, edit: false, delete: false },
-    },
-    // Dashboard administrativo (projeto.txt §30) é a visão do Mestre/Professor sobre o
-    // grupo inteiro — não é a Home do capoeirista (essa é o app.gingapp.com.br, sem RBAC
-    // desta matriz). create/edit/delete não existem para este recurso (só view).
-    dashboard: {
-      [OrgRole.ALUNO]: { view: false, create: false, edit: false, delete: false },
-      [OrgRole.RESPONSAVEL]: { view: false, create: false, edit: false, delete: false },
-    },
-    // GET /certificates lista TODOS os certificados da organização (não filtrado por aluno) —
-    // mesmo motivo de "finance": view=true do padrão exporia certificados de outros alunos.
-    // ALUNO/RESPONSAVEL usam /certificates/me (Fase 2, Jornada do Capoeirista).
-    certificates: {
-      [OrgRole.ALUNO]: { view: false, create: false, edit: false, delete: false },
-      [OrgRole.RESPONSAVEL]: { view: false, create: false, edit: false, delete: false },
-    },
-  };
-  for (const role of Object.values(OrgRole)) {
-    for (const resource of RESOURCES) {
-      const perms = RESOURCE_OVERRIDES[resource]?.[role] ?? DEFAULT_MATRIX[role];
-      await prisma.rolePermission.upsert({
-        where: { role_resource: { role, resource } },
-        update: {
-          canView: perms.view,
-          canCreate: perms.create,
-          canEdit: perms.edit,
-          canDelete: perms.delete,
-        },
-        create: {
-          role,
-          resource,
-          canView: perms.view,
-          canCreate: perms.create,
-          canEdit: perms.edit,
-          canDelete: perms.delete,
-        },
-      });
-    }
+  const matrix = buildPermissionMatrix();
+  for (const row of matrix) {
+    const { role, resource, ...flags } = row;
+    await prisma.rolePermission.upsert({
+      where: { role_resource: { role, resource } },
+      update: flags,
+      create: row,
+    });
   }
-  console.log(`✔ RolePermission: matriz ${Object.values(OrgRole).length} papéis × ${RESOURCES.length} recursos`);
-
+  console.log(`✔ RolePermission: matriz ${Object.values(OrgRole).length} papéis × ${PERMISSION_RESOURCES.length} recursos`);
   // ---------------------------------------------------------------------
   // 10. Comunidade — estado/cidade/comunidade + 1 roda pública (dado nao vinculado a org)
   // ---------------------------------------------------------------------

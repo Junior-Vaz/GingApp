@@ -10,14 +10,11 @@ import { isActiveSuperAdmin } from '../../../shared/access/super-admin';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
-import { CreatePlatformUserDto } from './dto/create-platform-user.dto';
+import { BCRYPT_ROUNDS, CreatePlatformUserDto } from './dto/create-platform-user.dto';
 import { ListPlatformTeamQueryDto } from './dto/list-platform-team-query.dto';
 import { ResetPlatformUserPasswordDto } from './dto/reset-platform-user-password.dto';
 import { UpdatePlatformUserDto } from './dto/update-platform-user.dto';
 import { changesOwnPrivileges, leavesNoActiveSuperAdmin } from './platform-team.rules';
-
-/** Mesmo custo usado no seed (prisma/seed.ts). */
-const BCRYPT_ROUNDS = 10;
 
 /** Único formato em que um usuário da equipe sai da API: NUNCA passwordHash nem twoFactorSecret. */
 const PUBLIC_SELECT = {
