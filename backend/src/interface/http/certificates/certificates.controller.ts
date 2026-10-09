@@ -1,4 +1,7 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { sendPage } from '../../../shared/pagination/pagination';
+import { ListCertificatesQueryDto } from './dto/list-certificates-query.dto';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
@@ -12,8 +15,12 @@ export class CertificatesController {
 
   @Get()
   @CanAccess('certificates', 'view')
-  findAll(@CurrentOrganization() organizationId: number) {
-    return this.certificatesService.findAll(organizationId);
+  async findAll(
+    @CurrentOrganization() organizationId: number,
+    @Query() query: ListCertificatesQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return sendPage(res, await this.certificatesService.findAll(organizationId, query));
   }
 
   /** Sem @CanAccess: escopado por construção aos alunos do próprio usuário (nunca à

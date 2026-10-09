@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
 import { createTestApp } from './utils/test-app';
+import { ALUNO_EMAIL as ALUNO, MESTRE_EMAIL as MESTRE, SecondOrg, createSecondOrg, loginAs } from './utils/list-helpers';
 
 /**
  * Rodas (src/interface/http/rodas/rodas.service.ts e rodas.controller.ts) — domínio público
@@ -206,5 +207,115 @@ describe('Rodas e participantes (e2e)', () => {
 
     const gone = await prisma.rodaParticipant.findUnique({ where: { id: alunoParticipantId } });
     assert.equal(gone, null);
+  });
+});
+
+/** Paginação + filtros (lista PÚBLICA), limpar campos no PATCH. */
+describe('Rodas — lista paginada e limpar campos (e2e)', () => {
+  const TAG = `B2RODA${Date.now()}`;
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let mestre: Awaited<ReturnType<typeof loginAs>>;
+  let aluno: Awaited<ReturnType<typeof loginAs>>;
+  let orgB: SecondOrg;
+  const stateIds: number[] = [];
+  const cityIds: number[] = [];
+  const get = (path: string) => request(app.getHttpServer()).get(`/api${path}`); // pública: sem token
+  const patch = (id: number, body: object) =>
+    request(app.getHttpServer()).patch(`/api/rodas/${id}`).set('Authorization', `Bearer ${mestre.token}`).send(body);
+
+  before(async () => {
+    app = await createTestApp();
+    mestre = await loginAs(app, MESTRE);
+    aluno = await loginAs(app, ALUNO);
+    orgB = await createSecondOrg(app, prisma, 'roda');
+    for (let k = 0; k < 2; k++) {
+      const st = await prisma.state.create({ data: { name: `${TAG} UF${k}`, uf: `R${k}${String(Date.now()).slice(-5)}` } });
+      stateIds.push(st.id);
+      cityIds.push((await prisma.city.create({ data: { name: `${TAG} Cidade${k}`, stateId: st.id } })).id);
+    }
+    // 55 rodas da org A: estado/cidade 0 nas 20 primeiras, 1 nas demais; local em 'Praça' nas pares.
+    await prisma.roda.createMany({
+      data: Array.from({ length: 55 }, (_, i) => ({
+        organizationId: mestre.organizationId,
+        title: `${TAG} roda ${String(i).padStart(2, '0')}`,
+        date: new Date(Date.UTC(2032, 0, 1 + i)),
+        stateId: stateIds[i < 20 ? 0 : 1],
+        cityId: cityIds[i < 20 ? 0 : 1],
+        location: i % 2 === 0 ? `Praça ${TAG}Q` : null,
+      })),
+    });
+    await prisma.roda.createMany({
+      data: Array.from({ length: 3 }, (_, i) => ({
+        organizationId: orgB.organizationId,
+        title: `${TAG} orgB ${i}`,
+        date: new Date(Date.UTC(2032, 5, 1 + i)),
+        stateId: stateIds[0],
+      })),
+    });
+  });
+
+  after(async () => {
+    const ids = (await prisma.roda.findMany({ where: { title: { startsWith: TAG } }, select: { id: true } })).map((r) => r.id);
+    await prisma.rodaParticipant.deleteMany({ where: { rodaId: { in: ids } } });
+    await prisma.roda.deleteMany({ where: { id: { in: ids } } });
+    await prisma.city.deleteMany({ where: { id: { in: cityIds } } });
+    await prisma.state.deleteMany({ where: { id: { in: stateIds } } });
+    await orgB.cleanup();
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  it('pública sem token; sem limit: array de 50 e X-Total-Count global; limit/offset fatiam (date asc, id asc)', async () => {
+    const res = await get('/rodas').expect(200);
+    assert.ok(Array.isArray(res.body));
+    assert.equal(res.body.length, 50);
+    assert.equal(res.headers['x-total-count'], String(await prisma.roda.count()));
+
+    const all = await prisma.roda.findMany({ where: { title: { startsWith: TAG } }, orderBy: [{ date: 'asc' }, { id: 'asc' }] });
+    const page = await get(`/rodas?q=${TAG}&limit=10&offset=50`).expect(200);
+    assert.equal(page.headers['x-total-count'], '58'); // lista é pública: inclui as 3 da org B (regra existente)
+    assert.deepEqual(page.body.map((r: { id: number }) => r.id), all.slice(50, 60).map((r) => r.id));
+  });
+
+  it('limit=201, limit=0, offset=-1, stateId inválido e parâmetro desconhecido => 400', async () => {
+    for (const qs of ['limit=201', 'limit=0', 'offset=-1', 'stateId=abc', 'cityId=x', 'foo=1']) await get(`/rodas?${qs}`).expect(400);
+  });
+
+  it('filtros: stateId, cityId, q (título e local, insensível a caixa)', async () => {
+    assert.equal((await get(`/rodas?q=${TAG}&stateId=${stateIds[0]}`).expect(200)).headers['x-total-count'], String(20 + 3));
+    assert.equal((await get(`/rodas?q=${TAG}&stateId=${stateIds[1]}`).expect(200)).headers['x-total-count'], '35');
+    assert.equal((await get(`/rodas?q=${TAG}&cityId=${cityIds[0]}`).expect(200)).headers['x-total-count'], '20');
+    assert.equal((await get(`/rodas?q=${TAG}&stateId=${stateIds[0]}&cityId=${cityIds[1]}`).expect(200)).headers['x-total-count'], '0');
+    assert.equal((await get(`/rodas?q=${(TAG + 'q').toLowerCase()}`).expect(200)).headers['x-total-count'], '28');
+    assert.equal((await get(`/rodas?q=${TAG}%20roda%2054`).expect(200)).headers['x-total-count'], '1');
+  });
+
+  it('PATCH null limpa description/location/stateId/cityId/communityId/imageUrl (2ª via: Prisma)', async () => {
+    const community = await prisma.community.create({ data: { name: `${TAG} com`, stateId: stateIds[0] } });
+    const roda = await prisma.roda.create({
+      data: { organizationId: mestre.organizationId, title: `${TAG} limpar`, date: new Date(), description: 'd', location: 'l', stateId: stateIds[0], cityId: cityIds[0], communityId: community.id, imageUrl: 'https://exemplo.com/a.png' },
+    });
+    await patch(roda.id, { description: null, location: null, stateId: null, cityId: null, communityId: null, imageUrl: null }).expect(200);
+    const db = await prisma.roda.findUniqueOrThrow({ where: { id: roda.id } });
+    assert.deepEqual([db.description, db.location, db.stateId, db.cityId, db.communityId, db.imageUrl], [null, null, null, null, null, null]);
+    await patch(roda.id, { cityId: 99999999 }).expect(400);
+    await patch(roda.id, { imageUrl: '' }).expect(400);
+    await prisma.roda.delete({ where: { id: roda.id } });
+    await prisma.community.delete({ where: { id: community.id } });
+  });
+
+  it('null em campo OBRIGATÓRIO => 400 (title, date) e nada muda', async () => {
+    const roda = await prisma.roda.create({ data: { organizationId: mestre.organizationId, title: `${TAG} obrig`, date: new Date() } });
+    for (const body of [{ title: null }, { date: null }]) await patch(roda.id, body).expect(400);
+    assert.equal((await prisma.roda.findUniqueOrThrow({ where: { id: roda.id } })).title, `${TAG} obrig`);
+  });
+
+  it('RBAC inalterado: PATCH sem token 401; ALUNO 403; roda de OUTRA organização 404 para o MESTRE', async () => {
+    const mine = await prisma.roda.findFirstOrThrow({ where: { organizationId: mestre.organizationId, title: { startsWith: TAG } } });
+    await request(app.getHttpServer()).patch(`/api/rodas/${mine.id}`).send({ location: 'x' }).expect(401);
+    await request(app.getHttpServer()).patch(`/api/rodas/${mine.id}`).set('Authorization', `Bearer ${aluno.token}`).send({ location: 'x' }).expect(403);
+    const other = await prisma.roda.findFirstOrThrow({ where: { organizationId: orgB.organizationId, title: { startsWith: TAG } } });
+    await patch(other.id, { location: 'x' }).expect(404);
   });
 });

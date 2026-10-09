@@ -160,3 +160,134 @@ describe('Teachers CRUD (e2e)', () => {
     assert.equal(await prisma.organizationUser.count(), membershipsBefore);
   });
 });
+
+
+// ---------------------------------------------------------------------------------------------
+// B1 — paginacao + filtros no servidor e limpar campos opcionais no PATCH
+// ---------------------------------------------------------------------------------------------
+import { createOtherOrg, deleteOtherOrg, list, loginToken } from './utils/page-helpers';
+
+describe('Teachers: paginacao, filtros e limpar campos (e2e)', () => {
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let mestreToken: string;
+  let alunoToken: string;
+  let orgId: number;
+  let otherOrgId: number;
+  const stamp = Date.now();
+  const tag = `E2EB1T${stamp}`; // sem espacos/colchetes: tambem entra no e-mail
+  const emailDomain = `@b1-${stamp}.local`;
+
+  async function makeTeacher(organizationId: number, label: string, role: OrgRole = OrgRole.PROFESSOR, status = 'ACTIVE', phone: string | null = null) {
+    const user = await prisma.user.create({
+      data: { email: `${label.toLowerCase()}${emailDomain}`, passwordHash: 'x', name: `${tag} ${label}`, phone },
+    });
+    const membership = await prisma.organizationUser.create({ data: { organizationId, userId: user.id, role, status } });
+    return { user, membership };
+  }
+
+  before(async () => {
+    app = await createTestApp();
+    mestreToken = await loginToken(app, MESTRE_EMAIL);
+    alunoToken = await loginToken(app, ALUNO_EMAIL);
+    orgId = (await prisma.organizationUser.findFirstOrThrow({ where: { user: { email: MESTRE_EMAIL } } })).organizationId;
+    otherOrgId = await createOtherOrg(prisma, 'teachers');
+
+    for (let i = 0; i < 55; i++) await makeTeacher(orgId, `Prof${String(i).padStart(2, '0')}`);
+    await makeTeacher(orgId, 'MestreB1', OrgRole.MESTRE);
+    await makeTeacher(orgId, 'InativoB1', OrgRole.PROFESSOR, 'INACTIVE');
+    await makeTeacher(orgId, 'AlunoB1', OrgRole.ALUNO); // nao e professor: nunca aparece
+    for (let i = 0; i < 3; i++) await makeTeacher(otherOrgId, `Alheio${i}`);
+  });
+
+  after(async () => {
+    const users = await prisma.user.findMany({ where: { email: { endsWith: emailDomain } }, select: { id: true } });
+    const ids = users.map((u) => u.id);
+    await prisma.organizationUser.deleteMany({ where: { userId: { in: ids } } });
+    await prisma.user.deleteMany({ where: { id: { in: ids } } });
+    await deleteOtherOrg(prisma, otherOrgId);
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  const q = () => `q=${encodeURIComponent(tag)}`;
+
+  it('sem limit devolve 50 itens (array) e X-Total-Count correto; total NAO inclui outra organizacao nem nao-professores', async () => {
+    const r = await list(app, 'teachers', mestreToken, q());
+    assert.equal(r.status, 200);
+    assert.ok(Array.isArray(r.body));
+    assert.equal(r.body.length, 50);
+    assert.equal(r.total, 57); // 55 + Mestre + Inativo; Aluno e os 3 da outra org ficam de fora
+    const semQ = await list(app, 'teachers', mestreToken);
+    assert.equal(semQ.body.length, 50);
+    assert.equal(
+      semQ.total,
+      await prisma.organizationUser.count({ where: { organizationId: orgId, role: { in: [OrgRole.MESTRE, OrgRole.PROFESSOR] } } }),
+    );
+  });
+
+  it('limit/offset retornam a fatia certa (igual ao Prisma) com o mesmo total; formato do item inalterado', async () => {
+    const expected = await prisma.organizationUser.findMany({
+      where: { organizationId: orgId, role: { in: [OrgRole.MESTRE, OrgRole.PROFESSOR] }, user: { name: { contains: tag } } },
+      orderBy: { id: 'desc' },
+      skip: 50,
+      take: 10,
+    });
+    const r = await list(app, 'teachers', mestreToken, `${q()}&limit=10&offset=50`);
+    assert.equal(r.total, 57);
+    assert.deepEqual(r.body.map((t: { id: number }) => t.id), expected.map((t) => t.id));
+    assert.deepEqual(Object.keys(r.body[0]).sort(), ['createdAt', 'id', 'role', 'status', 'user']);
+    assert.deepEqual(Object.keys(r.body[0].user).sort(), ['email', 'id', 'name', 'phone', 'photo']);
+  });
+
+  it('limit=201, limit=0 e offset=-1 retornam 400', async () => {
+    for (const bad of ['limit=201', 'limit=0', 'offset=-1']) {
+      assert.equal((await list(app, 'teachers', mestreToken, bad)).status, 400, bad);
+    }
+  });
+
+  it('filtros role e status (valores fora do dominio => 400)', async () => {
+    const m = await list(app, 'teachers', mestreToken, `${q()}&role=MESTRE`);
+    assert.equal(m.total, 1);
+    assert.equal(m.body[0].user.name, `${tag} MestreB1`);
+    const p = await list(app, 'teachers', mestreToken, `${q()}&role=PROFESSOR`);
+    assert.equal(p.total, 56);
+    const i = await list(app, 'teachers', mestreToken, `${q()}&status=INACTIVE`);
+    assert.equal(i.total, 1);
+    assert.equal(i.body[0].user.name, `${tag} InativoB1`);
+    assert.equal((await list(app, 'teachers', mestreToken, 'role=ALUNO')).status, 400);
+    assert.equal((await list(app, 'teachers', mestreToken, 'status=XPTO')).status, 400);
+  });
+
+  it('q busca (case-insensitive) em nome e e-mail', async () => {
+    assert.equal((await list(app, 'teachers', mestreToken, `q=${tag.toLowerCase()}%20inativob1`)).total, 1);
+    assert.equal((await list(app, 'teachers', mestreToken, `q=mestreb1${emailDomain.toUpperCase()}`)).total, 1);
+  });
+
+  it('PATCH phone=null LIMPA o telefone (confirmado via Prisma); null em name/role/status => 400', async () => {
+    const { user, membership } = await makeTeacher(orgId, 'LimparB1', OrgRole.PROFESSOR, 'ACTIVE', '11999990000');
+    const r = await request(app.getHttpServer())
+      .patch(`/api/teachers/${membership.id}`)
+      .set('Authorization', `Bearer ${mestreToken}`)
+      .send({ phone: null })
+      .expect(200);
+    assert.equal(r.body.user.phone, null);
+    assert.equal((await prisma.user.findUniqueOrThrow({ where: { id: user.id } })).phone, null);
+
+    for (const body of [{ name: null }, { role: null }, { status: null }]) {
+      await request(app.getHttpServer())
+        .patch(`/api/teachers/${membership.id}`)
+        .set('Authorization', `Bearer ${mestreToken}`)
+        .send(body)
+        .expect(400);
+    }
+    const still = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
+    assert.equal(still.name, `${tag} LimparB1`);
+  });
+
+  it('RBAC inalterado: ALUNO recebe 403 em GET /teachers (com ou sem parametros) e sem token 401', async () => {
+    await request(app.getHttpServer()).get('/api/teachers').set('Authorization', `Bearer ${alunoToken}`).expect(403);
+    await request(app.getHttpServer()).get('/api/teachers?limit=5&q=x').set('Authorization', `Bearer ${alunoToken}`).expect(403);
+    await request(app.getHttpServer()).get('/api/teachers?limit=5').expect(401);
+  });
+});

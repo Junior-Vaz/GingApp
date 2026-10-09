@@ -1,36 +1,39 @@
-import { IsDateString, IsInt, IsOptional, IsString, IsUrl, MinLength } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString, IsUrl, MinLength, ValidateIf } from 'class-validator';
 
+/** Limpar campo: `null` grava NULL nas colunas NULLÁVEIS (description, location, stateId, cityId,
+ * communityId, imageUrl). As OBRIGATÓRIAS (title, date) usam `@ValidateIf(v !== undefined)`:
+ * ausente = não muda; null = 400. `imageUrl: ""` segue inválido (IsUrl) — mande null. */
 export class UpdateRodaDto {
-  @IsOptional()
+  @ValidateIf((_, v) => v !== undefined)
   @IsString()
   @MinLength(2)
   title?: string;
 
   @IsOptional()
   @IsString()
-  description?: string;
+  description?: string | null;
 
-  @IsOptional()
+  @ValidateIf((_, v) => v !== undefined)
   @IsDateString()
   date?: string;
 
   @IsOptional()
   @IsString()
-  location?: string;
+  location?: string | null;
 
   @IsOptional()
   @IsInt()
-  stateId?: number;
+  stateId?: number | null;
 
   @IsOptional()
   @IsInt()
-  cityId?: number;
+  cityId?: number | null;
 
   @IsOptional()
   @IsInt()
-  communityId?: number;
+  communityId?: number | null;
 
   @IsOptional()
   @IsUrl()
-  imageUrl?: string;
+  imageUrl?: string | null;
 }

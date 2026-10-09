@@ -1,4 +1,7 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { sendPage } from '../../../shared/pagination/pagination';
+import { ListStudentsQueryDto } from './dto/list-students-query.dto';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
@@ -13,8 +16,12 @@ export class StudentsController {
 
   @Get()
   @CanAccess('students', 'view')
-  findAll(@CurrentOrganization() organizationId: number) {
-    return this.studentsService.findAll(organizationId);
+  async findAll(
+    @CurrentOrganization() organizationId: number,
+    @Query() query: ListStudentsQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return sendPage(res, await this.studentsService.findAll(organizationId, query));
   }
 
   /** Não passa por @CanAccess: qualquer MEMBER autenticado pode ver os PRÓPRIOS vínculos —

@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrgRole } from '@prisma/client';
+import { OrgRole, Prisma } from '@prisma/client';
+import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { ListAnnouncementsQueryDto } from './dto/list-announcements-query.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
 
@@ -19,12 +21,27 @@ import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
 export class AnnouncementsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(organizationId: number) {
-    return this.prisma.announcement.findMany({
-      where: { organizationId },
-      orderBy: { id: 'desc' },
-      take: 50,
-    });
+  async findAll(organizationId: number, query: ListAnnouncementsQueryDto = {}): Promise<Page<unknown>> {
+    const q = query.q?.trim();
+    const where: Prisma.AnnouncementWhereInput = {
+      organizationId,
+      ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
+      ...(query.unitId !== undefined ? { unitId: query.unitId } : {}),
+      ...(q
+        ? {
+            OR: [
+              { title: { contains: q, mode: 'insensitive' } },
+              { body: { contains: q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.announcement.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.announcement.count({ where }),
+    ]);
+    return { items, total };
   }
 
   async findOne(organizationId: number, id: number) {

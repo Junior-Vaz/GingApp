@@ -1,38 +1,41 @@
 import { RecordStatus } from '@prisma/client';
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, ValidateIf } from 'class-validator';
 
-/** Todos os campos opcionais (update parcial) — sem @nestjs/mapped-types para não adicionar
- * dependência só para isso; os validadores são os mesmos de CreateLessonDto. */
+/**
+ * Update parcial. `null` LIMPA as colunas nulláveis (unitId, teacherUserId, startTime, endTime,
+ * notes). classId, date e status sao obrigatorios no schema: `null` falha a validacao (400) via
+ * `@ValidateIf(v !== undefined)` (um `@IsOptional()` deixaria passar e o Prisma daria 500).
+ */
 export class UpdateLessonDto {
-  @IsOptional()
+  @ValidateIf((_, v) => v !== undefined)
   @IsInt()
   classId?: number;
 
   @IsOptional()
   @IsInt()
-  unitId?: number;
+  unitId?: number | null;
 
   @IsOptional()
   @IsInt()
-  teacherUserId?: number;
+  teacherUserId?: number | null;
 
-  @IsOptional()
+  @ValidateIf((_, v) => v !== undefined)
   @IsDateString()
   date?: string;
 
   @IsOptional()
   @IsString()
-  startTime?: string;
+  startTime?: string | null;
 
   @IsOptional()
   @IsString()
-  endTime?: string;
+  endTime?: string | null;
 
   @IsOptional()
   @IsString()
-  notes?: string;
+  notes?: string | null;
 
-  @IsOptional()
+  @ValidateIf((_, v) => v !== undefined)
   @IsEnum(RecordStatus)
   status?: RecordStatus;
 }

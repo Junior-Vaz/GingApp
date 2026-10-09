@@ -1,43 +1,48 @@
 import { StudentStatus } from '@prisma/client';
-import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
 
-/** Todos os campos opcionais (update parcial) — sem @nestjs/mapped-types para não adicionar
- * dependência só para isso; os validadores são os mesmos de CreateStudentDto. */
+/**
+ * Update parcial. Semantica de PATCH: campo ausente = nao mexe; `null` = LIMPA a coluna (so nos
+ * campos nulláveis no schema: unitId, birthDate, document, phone, email, photo, joinedAt).
+ * Colunas obrigatorias (name, status) usam `@ValidateIf(v !== undefined)` em vez de
+ * `@IsOptional()`, que deixaria `null` passar e o Prisma devolveria 500: aqui `null` falha a
+ * validacao (400).
+ */
 export class UpdateStudentDto {
-  @IsOptional()
+  @ValidateIf((_, v) => v !== undefined)
   @IsString()
   @MinLength(2)
   name?: string;
 
   @IsOptional()
   @IsInt()
-  unitId?: number;
+  unitId?: number | null;
 
   @IsOptional()
   @IsDateString()
-  birthDate?: string;
+  birthDate?: string | null;
 
   @IsOptional()
   @IsString()
-  document?: string;
+  document?: string | null;
 
   @IsOptional()
   @IsString()
-  phone?: string;
+  phone?: string | null;
 
   @IsOptional()
   @IsEmail()
-  email?: string;
+  email?: string | null;
 
   @IsOptional()
   @IsString()
-  photo?: string;
+  photo?: string | null;
 
-  @IsOptional()
+  @ValidateIf((_, v) => v !== undefined)
   @IsEnum(StudentStatus)
   status?: StudentStatus;
 
   @IsOptional()
   @IsDateString()
-  joinedAt?: string;
+  joinedAt?: string | null;
 }

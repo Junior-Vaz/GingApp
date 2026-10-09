@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
 import { createTestApp } from './utils/test-app';
+import { ALUNO_EMAIL as ALUNO, MESTRE_EMAIL as MESTRE, SecondOrg, createSecondOrg, loginAs } from './utils/list-helpers';
 
 /**
  * Comunicados (src/interface/http/announcements/announcements.service.ts) + Notificações
@@ -203,5 +204,110 @@ describe('Comunicados e Notificações (e2e)', () => {
     const persisted = await prisma.announcement.findUnique({ where: { id: announcementId } });
     assert.ok(persisted !== null, 'o comunicado deveria continuar existindo no banco (soft-delete)');
     assert.equal(persisted?.isActive, false);
+  });
+});
+
+/** Paginação + filtros, limpar campos no PATCH e RBAC de GET /announcements. */
+describe('Comunicados — lista paginada e limpar campos (e2e)', () => {
+  const TAG = `B2ANN${Date.now()}`;
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let mestre: Awaited<ReturnType<typeof loginAs>>;
+  let aluno: Awaited<ReturnType<typeof loginAs>>;
+  let orgB: SecondOrg;
+  let unitId: number;
+  const get = (path: string, token = mestre.token) =>
+    request(app.getHttpServer()).get(`/api${path}`).set('Authorization', `Bearer ${token}`);
+  const patch = (id: number, body: object) =>
+    request(app.getHttpServer()).patch(`/api/announcements/${id}`).set('Authorization', `Bearer ${mestre.token}`).send(body);
+
+  before(async () => {
+    app = await createTestApp();
+    mestre = await loginAs(app, MESTRE);
+    aluno = await loginAs(app, ALUNO);
+    orgB = await createSecondOrg(app, prisma, 'ann');
+    unitId = (await prisma.unit.findFirstOrThrow({ where: { organizationId: mestre.organizationId } })).id;
+
+    // 55 comunicados: inativos os múltiplos de 5 (11), com unidade os 10 primeiros, corpo marcado nos pares.
+    await prisma.announcement.createMany({
+      data: Array.from({ length: 55 }, (_, i) => ({
+        organizationId: mestre.organizationId,
+        createdByUserId: mestre.userId,
+        title: `${TAG} aviso ${i}`,
+        body: i % 2 === 0 ? `Corpo ${TAG}Y` : 'Corpo comum',
+        isActive: i % 5 !== 0,
+        unitId: i < 10 ? unitId : null,
+        publishedAt: new Date(),
+      })),
+    });
+    await prisma.announcement.createMany({
+      data: Array.from({ length: 3 }, (_, i) => ({
+        organizationId: orgB.organizationId,
+        createdByUserId: orgB.userId,
+        title: `${TAG} orgB ${i}`,
+        body: 'b',
+      })),
+    });
+  });
+
+  after(async () => {
+    await prisma.announcement.deleteMany({ where: { title: { startsWith: TAG } } });
+    await orgB.cleanup();
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  it('sem limit: array de 50 e X-Total-Count real; limit/offset fatiam na mesma ordem (id desc)', async () => {
+    const res = await get('/announcements').expect(200);
+    assert.ok(Array.isArray(res.body));
+    assert.equal(res.body.length, 50);
+    assert.equal(res.headers['x-total-count'], String(await prisma.announcement.count({ where: { organizationId: mestre.organizationId } })));
+    const all = await prisma.announcement.findMany({ where: { organizationId: mestre.organizationId, title: { startsWith: TAG } }, orderBy: { id: 'desc' } });
+    const page = await get(`/announcements?q=${TAG}&limit=10&offset=50`).expect(200);
+    assert.equal(page.headers['x-total-count'], '55');
+    assert.deepEqual(page.body.map((a: { id: number }) => a.id), all.slice(50).map((a) => a.id));
+  });
+
+  it('limit=201, limit=0, offset=-1, isActive inválido, unitId inválido e parâmetro desconhecido => 400', async () => {
+    for (const qs of ['limit=201', 'limit=0', 'offset=-1', 'isActive=talvez', 'unitId=x', 'foo=1']) await get(`/announcements?${qs}`).expect(400);
+  });
+
+  it('filtros: isActive (true/false), unitId e q (título e corpo)', async () => {
+    assert.equal((await get(`/announcements?q=${TAG}&isActive=false`).expect(200)).headers['x-total-count'], '11');
+    assert.equal((await get(`/announcements?q=${TAG}&isActive=true`).expect(200)).headers['x-total-count'], '44');
+    assert.equal((await get(`/announcements?q=${TAG}&unitId=${unitId}`).expect(200)).headers['x-total-count'], '10');
+    assert.equal((await get(`/announcements?q=${TAG}&unitId=${unitId}&isActive=false`).expect(200)).headers['x-total-count'], '2'); // 0 e 5
+    assert.equal((await get(`/announcements?q=${(TAG + 'y').toLowerCase()}`).expect(200)).headers['x-total-count'], '28');
+    assert.equal((await get(`/announcements?q=${TAG}%20aviso%2054`).expect(200)).headers['x-total-count'], '1');
+  });
+
+  it('total NÃO inclui outra organização', async () => {
+    assert.equal((await get(`/announcements?q=${TAG}`).expect(200)).headers['x-total-count'], '55');
+    assert.equal((await get(`/announcements?q=${TAG}`, orgB.token).expect(200)).headers['x-total-count'], '3');
+  });
+
+  it('PATCH unitId=null limpa a unidade (volta ao grupo inteiro) — 2ª via: Prisma', async () => {
+    const a = await prisma.announcement.create({
+      data: { organizationId: mestre.organizationId, createdByUserId: mestre.userId, title: `${TAG} limpar`, body: 'corpo', unitId },
+    });
+    await patch(a.id, { unitId: null }).expect(200);
+    assert.equal((await prisma.announcement.findUniqueOrThrow({ where: { id: a.id } })).unitId, null);
+  });
+
+  it('null em campo OBRIGATÓRIO => 400 (title, body, isActive, publishedAt) e nada muda', async () => {
+    const a = await prisma.announcement.create({
+      data: { organizationId: mestre.organizationId, createdByUserId: mestre.userId, title: `${TAG} obrig`, body: 'corpo', publishedAt: new Date() },
+    });
+    for (const body of [{ title: null }, { body: null }, { isActive: null }, { publishedAt: null }]) await patch(a.id, body).expect(400);
+    const db = await prisma.announcement.findUniqueOrThrow({ where: { id: a.id } });
+    assert.equal(db.title, `${TAG} obrig`);
+    assert.ok(db.publishedAt && db.isActive);
+  });
+
+  it('RBAC inalterado: sem token 401; ALUNO lista (200) mas não edita (403)', async () => {
+    await request(app.getHttpServer()).get('/api/announcements').expect(401);
+    await get('/announcements', aluno.token).expect(200);
+    const a = await prisma.announcement.findFirstOrThrow({ where: { title: { startsWith: TAG }, organizationId: mestre.organizationId } });
+    await request(app.getHttpServer()).patch(`/api/announcements/${a.id}`).set('Authorization', `Bearer ${aluno.token}`).send({ unitId: null }).expect(403);
   });
 });

@@ -1,6 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrgRole, ParticipantStatus } from '@prisma/client';
+import { OrgRole, ParticipantStatus, Prisma } from '@prisma/client';
+import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { ListRodasQueryDto } from './dto/list-rodas-query.dto';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { CreateRodaDto } from './dto/create-roda.dto';
 import { UpdateRodaDto } from './dto/update-roda.dto';
@@ -20,11 +22,28 @@ const ADMIN_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR];
 export class RodasService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
-    return this.prisma.roda.findMany({
-      orderBy: { date: 'asc' },
-      take: 50,
-    });
+  /** Lista PÚBLICA (todas as organizações, sem filtro de tenant — regra existente): o total
+   * também é global. `id` como desempate mantém a paginação determinística. */
+  async findAll(query: ListRodasQueryDto = {}): Promise<Page<unknown>> {
+    const q = query.q?.trim();
+    const where: Prisma.RodaWhereInput = {
+      ...(query.stateId !== undefined ? { stateId: query.stateId } : {}),
+      ...(query.cityId !== undefined ? { cityId: query.cityId } : {}),
+      ...(q
+        ? {
+            OR: [
+              { title: { contains: q, mode: 'insensitive' } },
+              { location: { contains: q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.roda.findMany({ where, orderBy: [{ date: 'asc' }, { id: 'asc' }], ...pageArgs(query) }),
+      this.prisma.roda.count({ where }),
+    ]);
+    return { items, total };
   }
 
   /** Dados públicos de referência (não há endpoint dedicado de State/City ainda) — usados
@@ -163,16 +182,21 @@ export class RodasService {
 
   /** State/City/Community são dados públicos (não pertencem a nenhuma organização) — aqui só
    * confirmamos que o id informado existe de verdade, não uma checagem de tenant. */
-  private async assertReferencesExist(dto: Pick<CreateRodaDto, 'stateId' | 'cityId' | 'communityId'>): Promise<void> {
-    if (dto.stateId !== undefined) {
+  private async assertReferencesExist(dto: {
+    stateId?: number | null;
+    cityId?: number | null;
+    communityId?: number | null;
+  }): Promise<void> {
+    // `!= null`: null (limpar o campo no PATCH) não tem o que validar.
+    if (dto.stateId != null) {
       const state = await this.prisma.state.findUnique({ where: { id: dto.stateId } });
       if (!state) throw new BadRequestException('Estado inválido.');
     }
-    if (dto.cityId !== undefined) {
+    if (dto.cityId != null) {
       const city = await this.prisma.city.findUnique({ where: { id: dto.cityId } });
       if (!city) throw new BadRequestException('Cidade inválida.');
     }
-    if (dto.communityId !== undefined) {
+    if (dto.communityId != null) {
       const community = await this.prisma.community.findUnique({ where: { id: dto.communityId } });
       if (!community) throw new BadRequestException('Comunidade inválida.');
     }

@@ -1,4 +1,7 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { sendPage } from '../../../shared/pagination/pagination';
+import { ListRodasQueryDto } from './dto/list-rodas-query.dto';
 import { Public } from '../../../shared/decorators/public.decorator';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
@@ -14,8 +17,8 @@ export class RodasController {
 
   @Public()
   @Get()
-  findAll() {
-    return this.rodasService.findAll();
+  async findAll(@Query() query: ListRodasQueryDto, @Res({ passthrough: true }) res: Response) {
+    return sendPage(res, await this.rodasService.findAll(query));
   }
 
   @Public()

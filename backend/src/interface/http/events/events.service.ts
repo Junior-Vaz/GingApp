@@ -1,6 +1,8 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrgRole } from '@prisma/client';
+import { OrgRole, Prisma } from '@prisma/client';
+import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { ListEventsQueryDto } from './dto/list-events-query.dto';
 import { StudentsService } from '../students/students.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -21,12 +23,33 @@ export class EventsService {
     private readonly studentsService: StudentsService,
   ) {}
 
-  findAll(organizationId: number) {
-    return this.prisma.event.findMany({
-      where: { organizationId },
-      orderBy: { id: 'desc' },
-      take: 50,
-    });
+  async findAll(organizationId: number, query: ListEventsQueryDto = {}): Promise<Page<unknown>> {
+    const and: Prisma.EventWhereInput[] = [];
+    // from/to: data do evento, datas civis (UTC) inclusivas.
+    if (query.from) and.push({ date: { gte: new Date(`${query.from.slice(0, 10)}T00:00:00.000Z`) } });
+    if (query.to) {
+      and.push({ date: { lt: new Date(new Date(`${query.to.slice(0, 10)}T00:00:00.000Z`).getTime() + 86_400_000) } });
+    }
+    const q = query.q?.trim();
+    if (q) {
+      and.push({
+        OR: [
+          { title: { contains: q, mode: 'insensitive' } },
+          { location: { contains: q, mode: 'insensitive' } },
+        ],
+      });
+    }
+    const where: Prisma.EventWhereInput = {
+      organizationId,
+      ...(query.type ? { type: query.type } : {}),
+      AND: and,
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.event.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.event.count({ where }),
+    ]);
+    return { items, total };
   }
 
   async findOne(organizationId: number, id: number) {
@@ -245,12 +268,16 @@ export class EventsService {
 
   /** State/City são dados públicos (não pertencem a nenhuma organização) — mesmo espírito de
    * RodasService.assertReferencesExist: só confirma que o id existe de verdade. */
-  private async assertLocationReferencesExist(dto: Pick<CreateEventDto, 'stateId' | 'cityId'>): Promise<void> {
-    if (dto.stateId !== undefined) {
+  private async assertLocationReferencesExist(dto: {
+    stateId?: number | null;
+    cityId?: number | null;
+  }): Promise<void> {
+    // `!= null`: null (limpar o campo no PATCH) não tem o que validar.
+    if (dto.stateId != null) {
       const state = await this.prisma.state.findUnique({ where: { id: dto.stateId } });
       if (!state) throw new BadRequestException('Estado inválido.');
     }
-    if (dto.cityId !== undefined) {
+    if (dto.cityId != null) {
       const city = await this.prisma.city.findUnique({ where: { id: dto.cityId } });
       if (!city) throw new BadRequestException('Cidade inválida.');
     }

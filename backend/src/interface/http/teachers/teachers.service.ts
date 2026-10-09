@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrgRole } from '@prisma/client';
+import { OrgRole, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { pageArgs } from '../../../shared/pagination/pagination';
+import { ListTeachersQueryDto } from './dto/list-teachers-query.dto';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
@@ -23,13 +25,33 @@ const TEACHER_SELECT = {
 export class TeachersService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll(organizationId: number) {
-    return this.prisma.organizationUser.findMany({
-      where: { organizationId, role: { in: TEACHER_ROLES } },
-      select: TEACHER_SELECT,
-      orderBy: { id: 'desc' },
-      take: 50,
-    });
+  async findAll(organizationId: number, query: ListTeachersQueryDto = {}) {
+    // organizationId e o filtro de papel (MESTRE/PROFESSOR) sempre no where, em findMany e count.
+    const where: Prisma.OrganizationUserWhereInput = {
+      organizationId,
+      role: query.role ? query.role : { in: TEACHER_ROLES },
+    };
+    if (query.status) where.status = query.status;
+    const q = query.q?.trim();
+    if (q) {
+      where.user = {
+        OR: [
+          { name: { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+        ],
+      };
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.organizationUser.findMany({
+        where,
+        select: TEACHER_SELECT,
+        orderBy: { id: 'desc' },
+        ...pageArgs(query),
+      }),
+      this.prisma.organizationUser.count({ where }),
+    ]);
+    return { items, total };
   }
 
   async findOne(organizationId: number, id: number) {

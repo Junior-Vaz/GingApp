@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrgRole } from '@prisma/client';
+import { Lesson, OrgRole, Prisma } from '@prisma/client';
+import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { ListLessonsQueryDto } from './dto/list-lessons-query.dto';
 import { ClassesService } from '../classes/classes.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
@@ -15,12 +17,25 @@ export class LessonsService {
     private readonly classesService: ClassesService,
   ) {}
 
-  findAll(organizationId: number) {
-    return this.prisma.lesson.findMany({
-      where: { organizationId },
-      orderBy: { id: 'desc' },
-      take: 50,
-    });
+  async findAll(organizationId: number, query: ListLessonsQueryDto = {}): Promise<Page<Lesson>> {
+    const where: Prisma.LessonWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
+    if (query.classId !== undefined) where.classId = query.classId;
+    if (query.status) where.status = query.status;
+    if (query.from || query.to) {
+      where.date = {
+        ...(query.from ? { gte: new Date(query.from) } : {}),
+        // `to` so com data (YYYY-MM-DD) inclui o dia inteiro, nao so a meia-noite.
+        ...(query.to ? { lte: new Date(/^\d{4}-\d{2}-\d{2}$/.test(query.to) ? `${query.to}T23:59:59.999Z` : query.to) } : {}),
+      };
+    }
+    const q = query.q?.trim();
+    if (q) where.notes = { contains: q, mode: 'insensitive' };
+
+    const [items, total] = await Promise.all([
+      this.prisma.lesson.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.lesson.count({ where }),
+    ]);
+    return { items, total };
   }
 
   /** "Minhas aulas" — aulas das turmas em que os alunos ligados ao usuário autenticado estão
@@ -87,7 +102,7 @@ export class LessonsService {
         classId: dto.classId,
         unitId: dto.unitId,
         teacherUserId: dto.teacherUserId,
-        date: dto.date ? new Date(dto.date) : undefined,
+        date: dto.date ? new Date(dto.date) : undefined, // date e obrigatoria: null ja barrado no DTO
         startTime: dto.startTime,
         endTime: dto.endTime,
         notes: dto.notes,

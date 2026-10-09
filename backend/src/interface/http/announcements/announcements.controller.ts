@@ -1,4 +1,7 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { sendPage } from '../../../shared/pagination/pagination';
+import { ListAnnouncementsQueryDto } from './dto/list-announcements-query.dto';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
@@ -12,8 +15,12 @@ export class AnnouncementsController {
 
   @Get()
   @CanAccess('announcements', 'view')
-  findAll(@CurrentOrganization() organizationId: number) {
-    return this.announcementsService.findAll(organizationId);
+  async findAll(
+    @CurrentOrganization() organizationId: number,
+    @Query() query: ListAnnouncementsQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return sendPage(res, await this.announcementsService.findAll(organizationId, query));
   }
 
   @Get(':id')

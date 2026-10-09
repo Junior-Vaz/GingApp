@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { ListCertificatesQueryDto } from './dto/list-certificates-query.dto';
 import { StudentsService } from '../students/students.service';
 import { CreateCertificateDto } from './dto/create-certificate.dto';
 import { UpdateCertificateDto } from './dto/update-certificate.dto';
@@ -21,12 +24,43 @@ export class CertificatesService {
     private readonly studentsService: StudentsService,
   ) {}
 
-  findAll(organizationId: number) {
-    return this.prisma.certificate.findMany({
-      where: { organizationId },
-      include: { student: { select: { id: true, name: true } } },
-      orderBy: { id: 'desc' },
-    });
+  /** Antes SEM limite; agora paginado (padrão 50, igual aos demais módulos) — `limit`/`offset` e
+   * o header X-Total-Count dão acesso ao resto. */
+  async findAll(organizationId: number, query: ListCertificatesQueryDto = {}): Promise<Page<unknown>> {
+    const and: Prisma.CertificateWhereInput[] = [];
+    // from/to: data de emissão, datas civis (UTC) inclusivas.
+    if (query.from) and.push({ issuedAt: { gte: new Date(`${query.from.slice(0, 10)}T00:00:00.000Z`) } });
+    if (query.to) {
+      and.push({
+        issuedAt: { lt: new Date(new Date(`${query.to.slice(0, 10)}T00:00:00.000Z`).getTime() + 86_400_000) },
+      });
+    }
+    const q = query.q?.trim();
+    if (q) {
+      and.push({
+        OR: [
+          { title: { contains: q, mode: 'insensitive' } },
+          { verificationCode: { contains: q, mode: 'insensitive' } },
+          { student: { name: { contains: q, mode: 'insensitive' } } },
+        ],
+      });
+    }
+    const where: Prisma.CertificateWhereInput = {
+      organizationId,
+      ...(query.studentId !== undefined ? { studentId: query.studentId } : {}),
+      AND: and,
+    };
+
+    const [items, total] = await Promise.all([
+      this.prisma.certificate.findMany({
+        where,
+        include: { student: { select: { id: true, name: true } } },
+        orderBy: { id: 'desc' },
+        ...pageArgs(query),
+      }),
+      this.prisma.certificate.count({ where }),
+    ]);
+    return { items, total };
   }
 
   async findOne(organizationId: number, id: number) {

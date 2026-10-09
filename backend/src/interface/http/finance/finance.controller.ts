@@ -1,10 +1,13 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { sendPage } from '../../../shared/pagination/pagination';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { FinanceService } from './finance.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
 import { UpdateFinanceRecordDto } from './dto/update-finance-record.dto';
+import { ListFinanceQueryDto } from './dto/list-finance-query.dto';
 
 @Controller('finance')
 export class FinanceController {
@@ -12,8 +15,20 @@ export class FinanceController {
 
   @Get()
   @CanAccess('finance', 'view')
-  findAll(@CurrentOrganization() organizationId: number) {
-    return this.financeService.findAll(organizationId);
+  async findAll(
+    @CurrentOrganization() organizationId: number,
+    @Query() query: ListFinanceQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return sendPage(res, await this.financeService.findAll(organizationId, query));
+  }
+
+  /** Totais agregados no banco sob os mesmos filtros da lista (limit/offset são ignorados).
+   * Precisa vir antes de `:id`. */
+  @Get('summary')
+  @CanAccess('finance', 'view')
+  summary(@CurrentOrganization() organizationId: number, @Query() query: ListFinanceQueryDto) {
+    return this.financeService.summary(organizationId, query);
   }
 
   /** Sem @CanAccess: escopado por construção aos alunos do próprio usuário (nunca à

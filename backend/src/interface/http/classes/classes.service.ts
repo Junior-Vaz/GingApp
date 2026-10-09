@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Class, Prisma } from '@prisma/client';
+import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { ListClassesQueryDto } from './dto/list-classes-query.dto';
 import { StudentsService } from '../students/students.service';
 import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
@@ -12,12 +15,18 @@ export class ClassesService {
     private readonly studentsService: StudentsService,
   ) {}
 
-  findAll(organizationId: number) {
-    return this.prisma.class.findMany({
-      where: { organizationId },
-      orderBy: { id: 'desc' },
-      take: 50,
-    });
+  async findAll(organizationId: number, query: ListClassesQueryDto = {}): Promise<Page<Class>> {
+    const where: Prisma.ClassWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
+    if (query.status) where.status = query.status;
+    if (query.unitId !== undefined) where.unitId = query.unitId;
+    const q = query.q?.trim();
+    if (q) where.name = { contains: q, mode: 'insensitive' };
+
+    const [items, total] = await Promise.all([
+      this.prisma.class.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.class.count({ where }),
+    ]);
+    return { items, total };
   }
 
   /** "Minhas turmas" — as turmas em que os alunos ligados ao usuário autenticado estão

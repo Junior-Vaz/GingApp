@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
 import { createTestApp } from './utils/test-app';
+import { ALUNO_EMAIL as ALUNO, MESTRE_EMAIL as MESTRE, SecondOrg, createSecondOrg, loginAs } from './utils/list-helpers';
 
 /**
  * Eventos + participantes (src/interface/http/events/events.service.ts e
@@ -232,5 +233,116 @@ describe('Eventos e participantes (e2e)', () => {
 
     const participantGone = await prisma.eventParticipant.findUnique({ where: { id: secondParticipantId } });
     assert.equal(participantGone, null);
+  });
+});
+
+/** Paginação + filtros, limpar campos no PATCH e RBAC de GET /events. */
+describe('Eventos — lista paginada e limpar campos (e2e)', () => {
+  const TAG = `B2EVT${Date.now()}`;
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let mestre: Awaited<ReturnType<typeof loginAs>>;
+  let aluno: Awaited<ReturnType<typeof loginAs>>;
+  let orgB: SecondOrg;
+  let stateId: number;
+  let cityId: number;
+  let unitId: number;
+  const get = (path: string, token = mestre.token) =>
+    request(app.getHttpServer()).get(`/api${path}`).set('Authorization', `Bearer ${token}`);
+  const patch = (id: number, body: object) =>
+    request(app.getHttpServer()).patch(`/api/events/${id}`).set('Authorization', `Bearer ${mestre.token}`).send(body);
+
+  before(async () => {
+    app = await createTestApp();
+    mestre = await loginAs(app, MESTRE);
+    aluno = await loginAs(app, ALUNO);
+    orgB = await createSecondOrg(app, prisma, 'evt');
+    const state = await prisma.state.create({ data: { name: `${TAG} UF`, uf: `E${String(Date.now()).slice(-6)}` } });
+    stateId = state.id;
+    cityId = (await prisma.city.create({ data: { name: `${TAG} Cidade`, stateId } })).id;
+    unitId = (await prisma.unit.findFirstOrThrow({ where: { organizationId: mestre.organizationId } })).id;
+
+    // 55 eventos: dia i de 2031-01 (+i dias), tipo BATIZADO nos 5 primeiros, local só nos pares.
+    await prisma.event.createMany({
+      data: Array.from({ length: 55 }, (_, i) => ({
+        organizationId: mestre.organizationId,
+        title: `${TAG} evento ${i}`,
+        type: i < 5 ? 'BATIZADO' : 'OUTRO',
+        date: new Date(Date.UTC(2031, 0, 1 + i)),
+        location: i % 2 === 0 ? `Ginásio ${TAG}Z` : null,
+      })),
+    });
+    await prisma.event.createMany({
+      data: Array.from({ length: 3 }, (_, i) => ({
+        organizationId: orgB.organizationId,
+        title: `${TAG} orgB ${i}`,
+        date: new Date(Date.UTC(2031, 0, 1)),
+      })),
+    });
+  });
+
+  after(async () => {
+    await prisma.event.deleteMany({ where: { title: { startsWith: TAG } } });
+    await prisma.city.deleteMany({ where: { id: cityId } });
+    await prisma.state.deleteMany({ where: { id: stateId } });
+    await orgB.cleanup();
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  it('sem limit: array de 50 e X-Total-Count real; limit/offset fatiam na mesma ordem (id desc)', async () => {
+    const res = await get('/events').expect(200);
+    assert.ok(Array.isArray(res.body));
+    assert.equal(res.body.length, 50);
+    assert.equal(res.headers['x-total-count'], String(await prisma.event.count({ where: { organizationId: mestre.organizationId } })));
+
+    const all = await prisma.event.findMany({ where: { organizationId: mestre.organizationId, title: { startsWith: TAG } }, orderBy: { id: 'desc' } });
+    const page = await get(`/events?q=${TAG}&limit=10&offset=50`).expect(200);
+    assert.equal(page.headers['x-total-count'], '55');
+    assert.deepEqual(page.body.map((e: { id: number }) => e.id), all.slice(50).map((e) => e.id));
+  });
+
+  it('limit=201, limit=0, offset=-1, type inválido, from inválido e parâmetro desconhecido => 400', async () => {
+    for (const qs of ['limit=201', 'limit=0', 'offset=-1', 'type=NADA', 'from=ontem', 'foo=1']) await get(`/events?${qs}`).expect(400);
+  });
+
+  it('filtros: type, from/to (inclusivos), q em título e local (insensível a caixa)', async () => {
+    assert.equal((await get(`/events?q=${TAG}&type=BATIZADO`).expect(200)).headers['x-total-count'], '5');
+    assert.equal((await get(`/events?q=${TAG}&from=2031-01-10&to=2031-01-12`).expect(200)).headers['x-total-count'], '3');
+    assert.equal((await get(`/events?q=${TAG}&from=2031-01-30`).expect(200)).headers['x-total-count'], String(55 - 29));
+    assert.equal((await get(`/events?q=${TAG}&to=2031-01-01`).expect(200)).headers['x-total-count'], '1');
+    assert.equal((await get(`/events?q=${(TAG + 'z').toLowerCase()}`).expect(200)).headers['x-total-count'], '28'); // local, pares 0..54
+    assert.equal((await get(`/events?q=${TAG}%20evento%2054`).expect(200)).headers['x-total-count'], '1');
+  });
+
+  it('total NÃO inclui outra organização', async () => {
+    assert.equal((await get(`/events?q=${TAG}`).expect(200)).headers['x-total-count'], '55');
+    assert.equal((await get(`/events?q=${TAG}`, orgB.token).expect(200)).headers['x-total-count'], '3');
+  });
+
+  it('PATCH null limpa description/location/unitId/stateId/cityId/imageUrl (2ª via: Prisma) e valida referências só quando não-null', async () => {
+    const ev = await prisma.event.create({
+      data: { organizationId: mestre.organizationId, title: `${TAG} limpar`, date: new Date(), description: 'd', location: 'l', unitId, stateId, cityId, imageUrl: 'https://exemplo.com/a.png' },
+    });
+    await patch(ev.id, { description: null, location: null, unitId: null, stateId: null, cityId: null, imageUrl: null }).expect(200);
+    const db = await prisma.event.findUniqueOrThrow({ where: { id: ev.id } });
+    assert.deepEqual([db.description, db.location, db.unitId, db.stateId, db.cityId, db.imageUrl], [null, null, null, null, null, null]);
+    await patch(ev.id, { stateId: 99999999 }).expect(400); // id inexistente continua 400
+    await patch(ev.id, { imageUrl: '' }).expect(400); // vazio não é URL; para limpar use null
+  });
+
+  it('null em campo OBRIGATÓRIO => 400 (title, date, type, isPublic) e nada muda', async () => {
+    const ev = await prisma.event.create({ data: { organizationId: mestre.organizationId, title: `${TAG} obrig`, date: new Date() } });
+    for (const body of [{ title: null }, { date: null }, { type: null }, { isPublic: null }]) await patch(ev.id, body).expect(400);
+    const db = await prisma.event.findUniqueOrThrow({ where: { id: ev.id } });
+    assert.equal(db.title, `${TAG} obrig`);
+    assert.equal(db.type, 'OUTRO');
+  });
+
+  it('RBAC inalterado: sem token 401; ALUNO lista (200) mas não edita (403)', async () => {
+    await request(app.getHttpServer()).get('/api/events').expect(401);
+    await get('/events', aluno.token).expect(200);
+    const ev = await prisma.event.findFirstOrThrow({ where: { title: { startsWith: TAG } } });
+    await request(app.getHttpServer()).patch(`/api/events/${ev.id}`).set('Authorization', `Bearer ${aluno.token}`).send({ description: 'x' }).expect(403);
   });
 });

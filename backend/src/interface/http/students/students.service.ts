@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, Student } from '@prisma/client';
+import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { ListStudentsQueryDto } from './dto/list-students-query.dto';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
@@ -14,12 +16,22 @@ export class StudentsService {
     private readonly subscriptionsService: SubscriptionsService,
   ) {}
 
-  findAll(organizationId: number) {
-    return this.prisma.student.findMany({
-      where: { organizationId },
-      orderBy: { id: 'desc' },
-      take: 50,
-    });
+  async findAll(organizationId: number, query: ListStudentsQueryDto = {}): Promise<Page<Student>> {
+    const where: Prisma.StudentWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
+    if (query.status) where.status = query.status;
+    if (query.unitId !== undefined) where.unitId = query.unitId;
+    const q = query.q?.trim();
+    if (q) {
+      where.OR = (['name', 'email', 'document', 'phone'] as const).map((field) => ({
+        [field]: { contains: q, mode: 'insensitive' as const },
+      }));
+    }
+
+    const [items, total] = await Promise.all([
+      this.prisma.student.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.student.count({ where }),
+    ]);
+    return { items, total };
   }
 
   /**
@@ -111,13 +123,14 @@ export class StudentsService {
       data: {
         unitId: dto.unitId,
         name: dto.name,
-        birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
+        // null limpa a coluna (NULL); undefined deixa como esta.
+        birthDate: dto.birthDate === null ? null : dto.birthDate ? new Date(dto.birthDate) : undefined,
         document: dto.document,
         phone: dto.phone,
         email: dto.email,
         photo: dto.photo,
         status: dto.status,
-        joinedAt: dto.joinedAt ? new Date(dto.joinedAt) : undefined,
+        joinedAt: dto.joinedAt === null ? null : dto.joinedAt ? new Date(dto.joinedAt) : undefined,
       },
     });
   }

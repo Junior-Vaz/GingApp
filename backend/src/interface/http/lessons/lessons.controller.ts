@@ -1,4 +1,7 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { sendPage } from '../../../shared/pagination/pagination';
+import { ListLessonsQueryDto } from './dto/list-lessons-query.dto';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
@@ -12,8 +15,12 @@ export class LessonsController {
 
   @Get()
   @CanAccess('lessons', 'view')
-  findAll(@CurrentOrganization() organizationId: number) {
-    return this.lessonsService.findAll(organizationId);
+  async findAll(
+    @CurrentOrganization() organizationId: number,
+    @Query() query: ListLessonsQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    return sendPage(res, await this.lessonsService.findAll(organizationId, query));
   }
 
   /** Sem @CanAccess: escopado por construção às turmas do próprio usuário. */
