@@ -74,11 +74,29 @@ export class StudentsService {
     return this.prisma.student.update({
       where: { id: student.id },
       data: {
+        // null limpa a coluna (NULL); undefined deixa como está.
         photo: dto.photo,
         coverPhoto: dto.coverPhoto,
-        socialLinks: dto.socialLinks ? ({ ...dto.socialLinks } as Prisma.InputJsonValue) : undefined,
+        socialLinks: this.toSocialLinksInput(dto.socialLinks),
       },
     });
+  }
+
+  /**
+   * socialLinks (coluna Json? nullable): undefined = não mexe; null OU objeto sem nenhuma rede
+   * ({} ou só chaves null) = Prisma.DbNull (NULL de verdade no Postgres — NÃO Prisma.JsonNull,
+   * que gravaria o literal JSON `null` e deixaria `IS NULL` falso; um único estado "vazio", sem
+   * {} gravado); objeto com redes = substitui por inteiro, descartando chaves null/undefined.
+   */
+  private toSocialLinksInput(
+    socialLinks: UpdateMyProfileDto['socialLinks'],
+  ): Prisma.InputJsonValue | typeof Prisma.DbNull | undefined {
+    if (socialLinks === undefined) return undefined;
+    if (socialLinks === null) return Prisma.DbNull;
+    const filled = Object.fromEntries(
+      Object.entries(socialLinks).filter(([, url]) => url !== null && url !== undefined),
+    );
+    return Object.keys(filled).length > 0 ? (filled as Prisma.InputJsonValue) : Prisma.DbNull;
   }
 
   async findOne(organizationId: number, id: number) {

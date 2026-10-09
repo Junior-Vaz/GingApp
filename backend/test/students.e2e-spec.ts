@@ -325,3 +325,206 @@ describe('Students: paginacao, filtros e limpar campos (e2e)', () => {
     assert.equal(a.status, b.status);
   });
 });
+
+// ---------------------------------------------------------------------------------------------
+// Perfil proprio: LIMPAR foto/capa/redes (PATCH /students/me/profile com null)
+// ---------------------------------------------------------------------------------------------
+import { OrgRole } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+
+describe('Students: aluno limpa foto/capa/redes do proprio perfil (e2e)', () => {
+  let app: INestApplication;
+  const prisma = new PrismaClient();
+  let alunoToken: string;
+  let mestreToken: string;
+  let orgBToken: string;
+  let orgAId: number;
+  let anaId: number;
+  let otherOrgId: number;
+  let otherOrgStudentId: number; // aluno da org B (com login proprio)
+  let sameOrgStudentId: number; // outro aluno da org A (outro userId)
+  const userIds: number[] = [];
+  const tag = `e2e-perfil-${Date.now()}`;
+  const FULL = {
+    photo: 'https://img.e2e/perfil-foto.jpg',
+    coverPhoto: 'https://img.e2e/perfil-capa.jpg',
+    socialLinks: {
+      instagram: 'https://instagram.com/e2e',
+      youtube: 'https://youtube.com/@e2e',
+      whatsapp: 'https://wa.me/5511999999999',
+    },
+  };
+  const patchMe = (token: string, body: object) =>
+    request(app.getHttpServer()).patch('/api/students/me/profile').set('Authorization', `Bearer ${token}`).send(body);
+  const ana = () => prisma.student.findUniqueOrThrow({ where: { id: anaId } });
+  // SQL cru: distingue NULL de verdade do literal JSON `null` (que o Prisma tambem le como null).
+  const socialLinksIsSqlNull = async () =>
+    (await prisma.$queryRaw<{ isnull: boolean }[]>`SELECT "socialLinks" IS NULL AS isnull FROM "Student" WHERE id = ${anaId}`)[0].isnull;
+  const resetAna = () =>
+    prisma.student.update({ where: { id: anaId }, data: { photo: FULL.photo, coverPhoto: FULL.coverPhoto, socialLinks: FULL.socialLinks } });
+
+  before(async () => {
+    app = await createTestApp();
+    alunoToken = await login(app, ALUNO_EMAIL);
+    mestreToken = await login(app, MESTRE_EMAIL);
+    orgAId = (await prisma.organizationUser.findFirstOrThrow({ where: { user: { email: ALUNO_EMAIL } } })).organizationId;
+    anaId = (await prisma.student.findFirstOrThrow({ where: { organizationId: orgAId, user: { email: ALUNO_EMAIL } } })).id;
+
+    const passwordHash = await bcrypt.hash(DEV_PASSWORD, 4);
+    // Org B isolada com um aluno que faz login de verdade.
+    const orgB = await prisma.organization.create({
+      data: { name: `E2E Perfil Org B (${tag})`, slug: `${tag}-b`, type: 'GROUP', status: 'ACTIVE' },
+    });
+    otherOrgId = orgB.id;
+    const userB = await prisma.user.create({ data: { email: `${tag}-b@e2e.local`, passwordHash, name: 'Aluno B', userType: 'MEMBER', status: 'ACTIVE' } });
+    userIds.push(userB.id);
+    await prisma.organizationUser.create({ data: { organizationId: orgB.id, userId: userB.id, role: OrgRole.ALUNO, status: 'ACTIVE' } });
+    otherOrgStudentId = (await prisma.student.create({ data: { organizationId: orgB.id, userId: userB.id, name: `${tag} Aluno B`, ...FULL } })).id;
+    orgBToken = await login(app, `${tag}-b@e2e.local`);
+
+    // Outro aluno da MESMA org A (outro userId), sem login.
+    const userA2 = await prisma.user.create({ data: { email: `${tag}-a2@e2e.local`, passwordHash, name: 'Aluno A2', userType: 'MEMBER', status: 'ACTIVE' } });
+    userIds.push(userA2.id);
+    sameOrgStudentId = (await prisma.student.create({ data: { organizationId: orgAId, userId: userA2.id, name: `${tag} Aluno A2`, ...FULL } })).id;
+  });
+
+  after(async () => {
+    // Restaura a Ana do seed ao estado original (sem foto/capa/redes).
+    await prisma.student.update({ where: { id: anaId }, data: { photo: null, coverPhoto: null, socialLinks: Prisma.DbNull } });
+    await prisma.student.deleteMany({ where: { id: { in: [otherOrgStudentId, sameOrgStudentId] } } });
+    await prisma.organizationUser.deleteMany({ where: { organizationId: otherOrgId } });
+    await prisma.organization.deleteMany({ where: { id: otherOrgId } });
+    await prisma.user.deleteMany({ where: { id: { in: userIds } } });
+    await prisma.$disconnect();
+    await app.close();
+  });
+
+  it('photo: null limpa (NULL no Postgres) sem tocar capa/redes; resposta tambem traz null', async () => {
+    await resetAna();
+    const res = await patchMe(alunoToken, { photo: null }).expect(200);
+    assert.equal(res.body.photo, null);
+    const p = await ana();
+    assert.equal(p.photo, null);
+    assert.equal(p.coverPhoto, FULL.coverPhoto);
+    assert.deepEqual(p.socialLinks, FULL.socialLinks);
+    // SQL cru: NULL de verdade, nao JSON 'null' nem string vazia.
+    const raw = await prisma.$queryRaw<{ photo: string | null }[]>`SELECT photo FROM "Student" WHERE id = ${anaId}`;
+    assert.equal(raw[0].photo, null);
+  });
+
+  it('coverPhoto: null limpa sem tocar foto/redes', async () => {
+    await resetAna();
+    await patchMe(alunoToken, { coverPhoto: null }).expect(200);
+    const p = await ana();
+    assert.equal(p.coverPhoto, null);
+    assert.equal(p.photo, FULL.photo);
+    assert.deepEqual(p.socialLinks, FULL.socialLinks);
+  });
+
+  it('socialLinks: null limpa a coluna Json (SQL NULL, nao JSON null)', async () => {
+    await resetAna();
+    const res = await patchMe(alunoToken, { socialLinks: null }).expect(200);
+    assert.equal(res.body.socialLinks, null);
+    const p = await ana();
+    assert.equal(p.socialLinks, null);
+    assert.equal(p.photo, FULL.photo);
+    assert.equal(await socialLinksIsSqlNull(), true);
+  });
+
+  it('socialLinks: {} (e so chaves null) limpa todas as redes => coluna NULL', async () => {
+    await resetAna();
+    await patchMe(alunoToken, { socialLinks: {} }).expect(200);
+    assert.equal((await ana()).socialLinks, null);
+    assert.equal(await socialLinksIsSqlNull(), true);
+    await resetAna();
+    await patchMe(alunoToken, { socialLinks: { instagram: null, youtube: null } }).expect(200);
+    assert.equal((await ana()).socialLinks, null);
+    assert.equal(await socialLinksIsSqlNull(), true);
+  });
+
+  it('reenviar socialLinks SEM uma chave remove so aquela (substitui por inteiro); chave null tambem e descartada', async () => {
+    await resetAna();
+    await patchMe(alunoToken, { socialLinks: { instagram: FULL.socialLinks.instagram, whatsapp: FULL.socialLinks.whatsapp } }).expect(200);
+    const p = await ana();
+    assert.deepEqual(p.socialLinks, { instagram: FULL.socialLinks.instagram, whatsapp: FULL.socialLinks.whatsapp });
+    assert.equal(p.photo, FULL.photo);
+    await patchMe(alunoToken, { socialLinks: { instagram: FULL.socialLinks.instagram, whatsapp: null } }).expect(200);
+    assert.deepEqual((await ana()).socialLinks, { instagram: FULL.socialLinks.instagram });
+  });
+
+  it('campos ausentes (undefined) nao alteram nada, inclusive corpo vazio', async () => {
+    await resetAna();
+    const before = await ana();
+    await patchMe(alunoToken, {}).expect(200);
+    const after = await ana();
+    assert.equal(after.photo, before.photo);
+    assert.equal(after.coverPhoto, before.coverPhoto);
+    assert.deepEqual(after.socialLinks, before.socialLinks);
+    await patchMe(alunoToken, { photo: 'https://example.com/outra.jpg' }).expect(200);
+    const only = await ana();
+    assert.equal(only.photo, 'https://example.com/outra.jpg');
+    assert.equal(only.coverPhoto, FULL.coverPhoto);
+    assert.deepEqual(only.socialLinks, FULL.socialLinks);
+  });
+
+  it('valores invalidos => 400 e nada e gravado ("" nao limpa; so null limpa)', async () => {
+    await resetAna();
+    const before = await ana();
+    const bads: object[] = [
+      { photo: '' },
+      { coverPhoto: 'nao-e-url' },
+      { photo: 123 },
+      { photo: false },
+      { socialLinks: 'texto' },
+      { socialLinks: [] },
+      { socialLinks: { instagram: '' } },
+      { socialLinks: { instagram: 'nao-e-url' } },
+      { socialLinks: { myspace: 'https://myspace.com/x' } }, // chave fora do conjunto fixo
+      { photo: null, socialLinks: { youtube: 'xx' } }, // um campo invalido derruba o pedido todo
+    ];
+    for (const body of bads) {
+      await patchMe(alunoToken, body).expect(400);
+    }
+    const after = await ana();
+    assert.equal(after.photo, before.photo);
+    assert.equal(after.coverPhoto, before.coverPhoto);
+    assert.deepEqual(after.socialLinks, before.socialLinks);
+  });
+
+  it('limpar o proprio perfil nao afeta aluno de terceiros (mesma org e outra org); e vice-versa', async () => {
+    await resetAna();
+    await patchMe(alunoToken, { photo: null, coverPhoto: null, socialLinks: null }).expect(200);
+    const mine = await ana();
+    assert.equal(mine.photo, null);
+    assert.equal(mine.coverPhoto, null);
+    assert.equal(mine.socialLinks, null);
+    for (const id of [sameOrgStudentId, otherOrgStudentId]) {
+      const other = await prisma.student.findUniqueOrThrow({ where: { id } });
+      assert.equal(other.photo, FULL.photo);
+      assert.equal(other.coverPhoto, FULL.coverPhoto);
+      assert.deepEqual(other.socialLinks, FULL.socialLinks);
+    }
+    // Vice-versa: o aluno da org B limpa o dele; Ana (org A) e o outro aluno da org A ficam intactos.
+    await resetAna();
+    await patchMe(orgBToken, { photo: null, coverPhoto: null, socialLinks: null }).expect(200);
+    const b = await prisma.student.findUniqueOrThrow({ where: { id: otherOrgStudentId } });
+    assert.equal(b.photo, null);
+    assert.equal(b.coverPhoto, null);
+    assert.equal(b.socialLinks, null);
+    const a = await ana();
+    assert.equal(a.photo, FULL.photo);
+    assert.deepEqual(a.socialLinks, FULL.socialLinks);
+    const a2 = await prisma.student.findUniqueOrThrow({ where: { id: sameOrgStudentId } });
+    assert.equal(a2.photo, FULL.photo);
+    assert.deepEqual(a2.socialLinks, FULL.socialLinks);
+  });
+
+  it('RBAC inalterado: sem token 401; MESTRE sem Student proprio 404 mesmo enviando null (nada e gravado)', async () => {
+    await resetAna();
+    await request(app.getHttpServer()).patch('/api/students/me/profile').send({ photo: null }).expect(401);
+    await patchMe(mestreToken, { photo: null, coverPhoto: null, socialLinks: null }).expect(404);
+    const p = await ana();
+    assert.equal(p.photo, FULL.photo);
+    assert.deepEqual(p.socialLinks, FULL.socialLinks);
+  });
+});

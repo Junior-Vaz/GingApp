@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Award, Check, Facebook, Instagram, LogOut, MapPin, MessageCircle, QrCode, Sprout, Users, Youtube, Music2 } from "lucide-react";
+import { Award, Check, Facebook, Instagram, LogOut, MapPin, MessageCircle, QrCode, Sprout, Users, X, Youtube, Music2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { api, errorMessage } from "@/lib/api";
 import { logout } from "@/lib/auth";
-import { passportActions } from "@/lib/derive";
+import { buildProfilePayload, passportActions } from "@/lib/derive";
 import { dayOnly, fmt, initials, passportUrl } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
 import {
@@ -56,7 +56,22 @@ function Avatar({ photo, name, size = 36 }: { photo?: string | null | undefined;
   );
 }
 
-function ProfileForm({ student }: { student: Student }) {
+/** Campo de URL com “Remover” (só aparece preenchido): limpa o campo; o servidor limpa ao salvar. */
+function UrlField({ id, label, value, onChange, placeholder }: { id: string; label: string; value: string; onChange: (value: string) => void; placeholder: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <input className="profile-input min-w-0 flex-1" id={id} type="url" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      {value.trim() !== "" && (
+        <Button type="button" variant="ghost" size="sm" aria-label={`Remover ${label}`} onClick={() => onChange("")}>
+          <X />
+          Remover
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function ProfileForm({ student }: { student: Student }) {
   const queryClient = useQueryClient();
   const links = student.socialLinks ?? {};
   const [form, setForm] = useState({
@@ -69,21 +84,10 @@ function ProfileForm({ student }: { student: Student }) {
     whatsapp: links.whatsapp ?? "",
   });
   const set = (key: keyof typeof form) => (value: string) => setForm((prev) => ({ ...prev, [key]: value }));
-  const clean = (value: string) => value.trim() || undefined;
 
   const save = useMutation({
-    mutationFn: () =>
-      api.patch("/students/me/profile", {
-        photo: clean(form.photo),
-        coverPhoto: clean(form.coverPhoto),
-        socialLinks: {
-          instagram: clean(form.instagram),
-          youtube: clean(form.youtube),
-          tiktok: clean(form.tiktok),
-          facebook: clean(form.facebook),
-          whatsapp: clean(form.whatsapp),
-        },
-      }),
+    // Campo vazio => null (limpa no servidor); ver buildProfilePayload.
+    mutationFn: () => api.patch("/students/me/profile", buildProfilePayload(form)),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["students"] });
       toast.success("Perfil atualizado.");
@@ -98,27 +102,21 @@ function ProfileForm({ student }: { student: Student }) {
 
   return (
     <form onSubmit={submit}>
+      <p className="text-xs text-muted-foreground">Para remover foto, capa ou uma rede, deixe o campo vazio (ou use “Remover”) e salve.</p>
       <label className="field-label" htmlFor="photo">
         Foto (URL)
       </label>
-      <input className="profile-input" id="photo" type="url" value={form.photo} onChange={(e) => set("photo")(e.target.value)} placeholder="https://..." />
+      <UrlField id="photo" label="foto" value={form.photo} onChange={set("photo")} placeholder="https://..." />
       <label className="field-label" htmlFor="coverPhoto">
         Foto de capa (URL)
       </label>
-      <input className="profile-input" id="coverPhoto" type="url" value={form.coverPhoto} onChange={(e) => set("coverPhoto")(e.target.value)} placeholder="https://..." />
+      <UrlField id="coverPhoto" label="foto de capa" value={form.coverPhoto} onChange={set("coverPhoto")} placeholder="https://..." />
       {SOCIAL_FIELDS.map((field) => (
         <div key={field.key}>
           <label className="field-label" htmlFor={field.key}>
             {field.label}
           </label>
-          <input
-            className="profile-input"
-            id={field.key}
-            type="url"
-            value={form[field.key]}
-            onChange={(e) => set(field.key)(e.target.value)}
-            placeholder={field.placeholder}
-          />
+          <UrlField id={field.key} label={field.label} value={form[field.key]} onChange={set(field.key)} placeholder={field.placeholder} />
         </div>
       ))}
       <Button className="mt-6" type="submit" disabled={save.isPending}>
@@ -199,7 +197,7 @@ export function ProfilePage() {
             </div>
           )}
           {own ? (
-            <ProfileForm key={own.id + (own.photo ?? "") + (own.coverPhoto ?? "")} student={own} />
+            <ProfileForm key={own.id + (own.photo ?? "") + (own.coverPhoto ?? "") + JSON.stringify(own.socialLinks ?? null)} student={own} />
           ) : (
             !students.isLoading && (
               <p className="text-xs text-muted-foreground">

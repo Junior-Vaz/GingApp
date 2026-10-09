@@ -19,7 +19,31 @@ export function passportActions(viewer: Passport["viewer"], role: string | undef
   };
 }
 
-const WEEKDAYS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
+const SOCIAL_KEYS = ["instagram", "youtube", "tiktok", "facebook", "whatsapp"] as const;
+
+export type ProfileFormValues = { photo: string; coverPhoto: string } & Record<(typeof SOCIAL_KEYS)[number], string>;
+
+/**
+ * Corpo do PATCH /students/me/profile a partir do formulário (que sempre reenvia tudo).
+ * Campo esvaziado => `null` (o backend LIMPA a coluna; `undefined`/omitido deixaria o valor
+ * antigo). Redes: o objeto vai SEM as chaves esvaziadas (o backend substitui por inteiro) e,
+ * se nenhuma sobrou, `null` (limpa todas).
+ */
+export function buildProfilePayload(form: ProfileFormValues) {
+  const orNull = (value: string) => value.trim() || null;
+  const socialLinks: Record<string, string> = {};
+  for (const key of SOCIAL_KEYS) {
+    const value = form[key].trim();
+    if (value) socialLinks[key] = value;
+  }
+  return {
+    photo: orNull(form.photo),
+    coverPhoto: orNull(form.coverPhoto),
+    socialLinks: Object.keys(socialLinks).length > 0 ? socialLinks : null,
+  };
+}
+
+const WEEKDAYS =["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
 export function weekdayLabel(weekday: number): string {
   return WEEKDAYS[weekday] ?? "";
