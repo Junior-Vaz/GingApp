@@ -318,7 +318,11 @@ async function main() {
     // aluno) — dar view=true (padrão da matriz default) para ALUNO/RESPONSAVEL exporia a
     // situação financeira de outros alunos. Restrito até existir uma view "meu financeiro"
     // com filtro por studentId (Fase 2, PWA).
+    // Decisão do dono: o financeiro do grupo (lista, totais, lançamentos) é SÓ do MESTRE —
+    // PROFESSOR não vê nem cria/edita/apaga. Bancos já existentes são atualizados pela migration
+    // de dados 20261009020000_restrict_professor_finance (o seed só roda em dev/e2e).
     finance: {
+      [OrgRole.PROFESSOR]: { view: false, create: false, edit: false, delete: false },
       [OrgRole.ALUNO]: { view: false, create: false, edit: false, delete: false },
       [OrgRole.RESPONSAVEL]: { view: false, create: false, edit: false, delete: false },
     },

@@ -10,6 +10,7 @@ import { dayOnly, fmt, formatCurrency } from "@/lib/format";
 
 export function DashboardPage() {
   const { data, isLoading, error, refetch } = useDashboard();
+  const finance = data?.finance;
 
   return (
     <div>
@@ -50,20 +51,25 @@ export function DashboardPage() {
             />
           </div>
 
-          <div className="grid gap-4 md:grid-cols-3">
-            <StatCard
-              icon={Wallet}
-              label="Mensalidades previstas"
-              value={formatCurrency(data.finance.pendingCents)}
-              hint={`${data.finance.pendingCount} lançamento(s) pendente(s)`}
-            />
-            <StatCard
-              icon={Wallet}
-              tone="danger"
-              label="Mensalidades atrasadas"
-              value={formatCurrency(data.finance.overdueCents)}
-              hint={`${data.finance.overdueCount} lançamento(s) atrasado(s)`}
-            />
+          {/* Cards financeiros só se o backend enviou `finance` (MESTRE); PROFESSOR não recebe. */}
+          <div className={finance ? "grid gap-4 md:grid-cols-3" : "grid gap-4 sm:grid-cols-2 xl:grid-cols-4"}>
+            {finance && (
+              <>
+                <StatCard
+                  icon={Wallet}
+                  label="Mensalidades previstas"
+                  value={formatCurrency(finance.pendingCents)}
+                  hint={`${finance.pendingCount} lançamento(s) pendente(s)`}
+                />
+                <StatCard
+                  icon={Wallet}
+                  tone="danger"
+                  label="Mensalidades atrasadas"
+                  value={formatCurrency(finance.overdueCents)}
+                  hint={`${finance.overdueCount} lançamento(s) atrasado(s)`}
+                />
+              </>
+            )}
             <StatCard icon={Award} label="Graduações (30d)" value={data.graduations.last30d} />
           </div>
 

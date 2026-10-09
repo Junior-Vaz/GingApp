@@ -27,12 +27,14 @@ describe('RBAC — matriz RolePermission (e2e)', () => {
   const prisma = new PrismaClient();
   let mestreToken: string;
   let alunoToken: string;
+  let professorToken: string;
   const createdClassIds: number[] = [];
 
   before(async () => {
     app = await createTestApp();
     mestreToken = await login(app, MESTRE_EMAIL);
     alunoToken = await login(app, ALUNO_EMAIL);
+    professorToken = await login(app, 'professor@gingabrasil.com.br');
   });
 
   after(async () => {
@@ -99,6 +101,28 @@ describe('RBAC — matriz RolePermission (e2e)', () => {
       .get('/api/finance')
       .set('Authorization', `Bearer ${alunoToken}`)
       .expect(403);
+  });
+
+  it('PROFESSOR não pode ver registros financeiros (financeiro é só do MESTRE) — 403; MESTRE — 200', async () => {
+    await request(app.getHttpServer())
+      .get('/api/finance')
+      .set('Authorization', `Bearer ${professorToken}`)
+      .expect(403);
+    await request(app.getHttpServer())
+      .get('/api/finance')
+      .set('Authorization', `Bearer ${mestreToken}`)
+      .expect(200);
+  });
+
+  it('PROFESSOR continua acessando classes e dashboard (só o finance foi restringido) — 200', async () => {
+    await request(app.getHttpServer())
+      .get('/api/classes')
+      .set('Authorization', `Bearer ${professorToken}`)
+      .expect(200);
+    await request(app.getHttpServer())
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${professorToken}`)
+      .expect(200);
   });
 
   it('mas ALUNO pode ver o PRÓPRIO financeiro escopado via /finance/me — 200', async () => {

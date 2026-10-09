@@ -28,9 +28,9 @@ const rec = (o: Partial<FinanceRecord> & { id: number }): FinanceRecord => ({
 });
 
 const records: FinanceRecord[] = [
-  rec({ id: 1, description: "Mensalidade Ana", amountCents: 15000, status: "PAID", paidAt: "2024-01-05T10:00:00.000Z", dueDate: "2024-01-10T00:00:00.000Z" }),
-  rec({ id: 2, description: "Mensalidade Bia", amountCents: 20050, status: "PENDING", dueDate: "2099-02-10T00:00:00.000Z", studentId: 2 }),
-  rec({ id: 3, description: "Camiseta", type: null, studentId: null, amountCents: 5000, status: "PENDING", dueDate: "2020-01-10T00:00:00.000Z" }),
+  rec({ id: 1, student: { id: 1, name: "Ana" }, description: "Mensalidade Ana", amountCents: 15000, status: "PAID", paidAt: "2024-01-05T10:00:00.000Z", dueDate: "2024-01-10T00:00:00.000Z" }),
+  rec({ id: 2, student: { id: 2, name: "Bia" }, description: "Mensalidade Bia", amountCents: 20050, status: "PENDING", dueDate: "2099-02-10T00:00:00.000Z", studentId: 2 }),
+  rec({ id: 3, description: "Camiseta", type: null, studentId: null, student: null, amountCents: 5000, status: "PENDING", dueDate: "2020-01-10T00:00:00.000Z" }),
 ];
 
 // Numeros propositalmente MAIORES que a pagina de 3 itens: provam que os cards vem do servidor.
@@ -86,7 +86,7 @@ const base = () => ({
   "GET /finance": () => json(200, records, { "X-Total-Count": String(records.length) }),
   "GET /finance/summary": () => json(200, SUMMARY),
   "GET /students": studentsRoute,
-  // aluno por id: coluna "Aluno" da tabela e aluno atual na edicao
+  // aluno por id: SO o aluno atual na edicao (a coluna "Aluno" da tabela vem em GET /finance)
   "GET /students/1": () => json(200, STUDENTS[0]),
   "GET /students/2": () => json(200, STUDENTS[1]),
 });
@@ -282,14 +282,31 @@ describe("FinanceiroPage", () => {
     expect(studentCalls().some((c) => c.query.get("limit") === "200")).toBe(false);
   });
 
-  it("coluna Aluno da tabela resolve o nome por id (GET /students/:id), mesmo fora da busca", async () => {
+  it("coluna Aluno usa student.name vindo de GET /finance, sem NENHUM GET /students/:id por linha", async () => {
     const calls = mockApi(onlyAnaInResults());
     renderPage();
     await screen.findByText("Mensalidade Bia");
-    const row = screen.getByText("Mensalidade Bia").closest("tr")!;
-    expect(await within(row).findByText("Bia")).toBeInTheDocument();
-    expect(calls.some((c) => c.path === "/students/2")).toBe(true);
-    expect(within(screen.getByText("Camiseta").closest("tr")!).queryByText("Bia")).toBeNull(); // sem aluno = "—"
+    const bia = screen.getByText("Mensalidade Bia").closest("tr")!;
+    const ana = screen.getByText("Mensalidade Ana").closest("tr")!;
+    const camiseta = screen.getByText("Camiseta").closest("tr")!;
+    expect(within(bia).getByText("Bia")).toBeInTheDocument(); // sincrono: nao depende de chamada extra
+    expect(within(ana).getByText("Ana")).toBeInTheDocument();
+    expect(within(camiseta).queryByText("Bia")).toBeNull();
+    expect(within(camiseta).queryByText("Ana")).toBeNull();
+    expect(within(camiseta).getAllByText("—").length).toBeGreaterThan(0); // sem aluno = "—"
+    // da pagina carregada em diante, nenhuma chamada por id de aluno
+    await waitFor(() => expect(calls.some((c) => c.path === "/finance/summary")).toBe(true));
+    expect(calls.filter((c) => /^\/students\/\d+$/.test(c.path))).toHaveLength(0);
+  });
+
+  it("lista antiga sem o campo student (compat): coluna Aluno mostra traço e a tabela não quebra", async () => {
+    mockApi({
+      ...base(),
+      "GET /finance": () => json(200, [rec({ id: 7, description: "Legado" })], { "X-Total-Count": "1" }),
+    });
+    renderPage();
+    const row = (await screen.findByText("Legado")).closest("tr")!;
+    expect(within(row).getAllByText("—").length).toBeGreaterThan(0);
   });
 
   it("filtro por aluno: busca no servidor, envia studentId na lista E no summary e voltar a Todos remove", async () => {

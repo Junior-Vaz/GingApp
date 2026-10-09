@@ -13,7 +13,6 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { api, buildQuery, type QueryParams } from "@/lib/api";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
-import { useStudentNames } from "@/lib/student-lookup";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -79,9 +78,9 @@ export function FinanceiroPage() {
   const [editing, setEditing] = useState<FinanceRecord | "new" | null>(null);
   const [deleting, setDeleting] = useState<FinanceRecord | null>(null);
 
-  // Nome do aluno por id (GET /students/:id, cache compartilhado com o seletor): a coluna não
-  // depende de uma lista parcial de alunos.
-  const studentName = useStudentNames((list.items ?? []).map((r) => r.studentId));
+  // Nome do aluno vem no próprio item (GET /finance devolve `student: { id, name } | null`):
+  // nenhuma chamada extra por linha.
+  const studentName = (r: FinanceRecord) => r.student?.name ?? "—";
 
   const money = (cents: number | undefined) => (cents === undefined ? "—" : formatCurrency(cents));
 
@@ -97,7 +96,7 @@ export function FinanceiroPage() {
         </span>
       ),
     },
-    { id: "student", header: "Aluno", sortValue: (r) => studentName(r.studentId) },
+    { id: "student", header: "Aluno", sortValue: (r) => studentName(r) },
     {
       id: "amount",
       header: "Valor",

@@ -36,6 +36,19 @@ describe("RelatoriosPage", () => {
     expect(sections[2]!.rows[3]!.value).toMatch(/300,50/);
   });
 
+  it("sem finance no dashboard (PROFESSOR): a seção Financeiro some e o resto continua", async () => {
+    const { finance: _omit, ...withoutFinance } = SUMMARY;
+    void _omit;
+    const sections = buildSections(withoutFinance);
+    expect(sections.map((s) => s.title)).toEqual(["Alunos", "Frequência", "Graduações"]);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(200, withoutFinance)));
+    renderPage();
+    expect(await screen.findByTestId("relatorio-content")).toBeInTheDocument();
+    expect(screen.queryByText("Valor em atraso")).not.toBeInTheDocument();
+    expect(screen.queryByText("Lançamentos pendentes")).not.toBeInTheDocument();
+    expect(screen.getByText("87%")).toBeInTheDocument();
+  });
+
   it("renderiza as seções a partir de GET /dashboard e imprime", async () => {
     const fetchMock = vi.fn().mockResolvedValue(json(200, SUMMARY));
     vi.stubGlobal("fetch", fetchMock);

@@ -39,7 +39,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/aulas", label: "Aulas", icon: CalendarDays },
   { to: "/frequencia", label: "Frequência", icon: ClipboardCheck },
   { to: "/graduacoes", label: "Graduações", icon: Award },
-  { to: "/financeiro", label: "Financeiro", icon: Wallet },
+  // Financeiro é só do MESTRE (backend: RolePermission PROFESSOR/finance = tudo false).
+  { to: "/financeiro", label: "Financeiro", icon: Wallet, roles: ["MESTRE"] },
   { to: "/eventos", label: "Eventos", icon: PartyPopper },
   { to: "/rodas", label: "Rodas", icon: CircleDot },
   { to: "/certificados", label: "Certificados", icon: BadgeCheck },
@@ -49,6 +50,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/unidades", label: "Unidades", icon: Building2, roles: ["MESTRE"] },
   { to: "/configuracoes", label: "Configurações", icon: Settings, roles: ["MESTRE"] },
 ];
+
+/** Mensagem mostrada quando um papel do painel abre uma rota que não é dele (ex.: PROFESSOR em /financeiro). */
+export const ROUTE_FORBIDDEN_MESSAGE = "Você não tem permissão para acessar esta área.";
+
+/** O papel pode abrir esta rota do menu? Rotas fora do menu, ou sem `roles`, são livres para o painel. */
+export function canAccessRoute(role: OrgRole | undefined, to: string): boolean {
+  const item = NAV_ITEMS.find((i) => i.to === to);
+  return !item?.roles || (role !== undefined && item.roles.includes(role));
+}
 
 export function navItemsFor(role: OrgRole | undefined): NavItem[] {
   return NAV_ITEMS.filter((item) => !item.roles || (role !== undefined && item.roles.includes(role)));

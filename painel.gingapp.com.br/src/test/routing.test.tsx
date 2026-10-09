@@ -2,9 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "@tanstack/react-router";
 import { QueryClient } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
-import { NAV_ITEMS, navItemsFor } from "@/lib/nav";
+import { toast } from "sonner";
+import { NAV_ITEMS, ROUTE_FORBIDDEN_MESSAGE, canAccessRoute, navItemsFor } from "@/lib/nav";
 import { TOKEN_STORAGE_KEY, USER_STORAGE_KEY, saveSession, type AuthUser } from "@/lib/session";
 import { login, PANEL_FORBIDDEN_MESSAGE, safeRedirect } from "@/lib/auth";
+
+vi.mock("sonner", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
+  toast: { success: vi.fn(), error: vi.fn() },
+}));
 
 function makeUser(role: AuthUser["role"], userType: AuthUser["userType"] = "MEMBER"): AuthUser {
   return {
@@ -73,6 +79,35 @@ describe("guard de rotas", () => {
     }
   });
 
+  it("PROFESSOR em /financeiro: vai para /dashboard com aviso, mantém a sessão (não é deslogado)", async () => {
+    saveSession("t", makeUser("PROFESSOR"));
+    vi.mocked(toast.error).mockClear();
+    const router = makeRouter("/financeiro");
+    await router.load();
+    expect(router.state.location.pathname).toBe("/dashboard");
+    expect(toast.error).toHaveBeenCalledWith(ROUTE_FORBIDDEN_MESSAGE);
+    expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("t");
+    expect(localStorage.getItem(USER_STORAGE_KEY)).not.toBeNull();
+  });
+
+  it("MESTRE entra em /financeiro sem aviso; PROFESSOR continua entrando nas demais rotas (ex.: /alunos, /relatorios)", async () => {
+    saveSession("t", makeUser("MESTRE"));
+    vi.mocked(toast.error).mockClear();
+    const mestre = makeRouter("/financeiro");
+    await mestre.load();
+    expect(mestre.state.location.pathname).toBe("/financeiro");
+    expect(toast.error).not.toHaveBeenCalled();
+
+    localStorage.clear();
+    saveSession("t", makeUser("PROFESSOR"));
+    for (const path of ["/alunos", "/relatorios", "/dashboard"]) {
+      const router = makeRouter(path);
+      await router.load();
+      expect(router.state.location.pathname).toBe(path);
+    }
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   it("todas as 15 rotas do menu existem na árvore", async () => {
     expect(NAV_ITEMS).toHaveLength(15);
     saveSession("t", makeUser("MESTRE"));
@@ -85,12 +120,25 @@ describe("guard de rotas", () => {
 });
 
 describe("menu por papel", () => {
-  it("MESTRE vê 15 itens; PROFESSOR não vê Unidades/Configurações", () => {
-    expect(navItemsFor("MESTRE")).toHaveLength(15);
+  it("MESTRE vê 15 itens (com Financeiro); PROFESSOR não vê Financeiro/Unidades/Configurações", () => {
+    const mestre = navItemsFor("MESTRE").map((i) => i.label);
+    expect(mestre).toHaveLength(15);
+    expect(mestre).toContain("Financeiro");
     const labels = navItemsFor("PROFESSOR").map((i) => i.label);
-    expect(labels).toHaveLength(13);
+    expect(labels).toHaveLength(12);
+    expect(labels).not.toContain("Financeiro");
     expect(labels).not.toContain("Unidades");
     expect(labels).not.toContain("Configurações");
+    expect(labels).toContain("Dashboard");
+    expect(navItemsFor(undefined).map((i) => i.label)).not.toContain("Financeiro");
+  });
+
+  it("canAccessRoute: /financeiro só MESTRE; rota sem restrição ou fora do menu é livre", () => {
+    expect(canAccessRoute("MESTRE", "/financeiro")).toBe(true);
+    expect(canAccessRoute("PROFESSOR", "/financeiro")).toBe(false);
+    expect(canAccessRoute(undefined, "/financeiro")).toBe(false);
+    expect(canAccessRoute("PROFESSOR", "/alunos")).toBe(true);
+    expect(canAccessRoute("PROFESSOR", "/rota-fora-do-menu")).toBe(true);
   });
 });
 

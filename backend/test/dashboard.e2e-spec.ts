@@ -14,6 +14,7 @@ import { createTestApp } from './utils/test-app';
  */
 const DEV_PASSWORD = 'Dev@12345';
 const MESTRE_EMAIL = 'mestre-dashboard@e2e-dashboard-test.local';
+const PROFESSOR_EMAIL = 'professor-dashboard@e2e-dashboard-test.local';
 
 describe('Dashboard (e2e)', () => {
   let app: INestApplication;
@@ -22,6 +23,8 @@ describe('Dashboard (e2e)', () => {
   let orgId: number;
   let mestreUserId: number;
   let mestreToken: string;
+  let professorUserId: number;
+  let professorToken: string;
 
   const studentIds: number[] = [];
   let classId: number;
@@ -55,6 +58,21 @@ describe('Dashboard (e2e)', () => {
 
     await prisma.organizationUser.create({
       data: { organizationId: orgId, userId: mestreUserId, role: OrgRole.MESTRE, status: 'ACTIVE' },
+    });
+
+    // PROFESSOR da mesma organização: tem dashboard:view mas NÃO finance:view (financeiro é só do MESTRE).
+    const professorUser = await prisma.user.create({
+      data: {
+        email: PROFESSOR_EMAIL,
+        passwordHash,
+        name: 'Professor E2E Dashboard',
+        userType: 'MEMBER',
+        status: 'ACTIVE',
+      },
+    });
+    professorUserId = professorUser.id;
+    await prisma.organizationUser.create({
+      data: { organizationId: orgId, userId: professorUserId, role: OrgRole.PROFESSOR, status: 'ACTIVE' },
     });
 
     // 2 Student: 1 ACTIVE, 1 INACTIVE.
@@ -110,6 +128,12 @@ describe('Dashboard (e2e)', () => {
       .send({ email: MESTRE_EMAIL, password: DEV_PASSWORD })
       .expect(200);
     mestreToken = login.body.accessToken;
+
+    const professorLogin = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: PROFESSOR_EMAIL, password: DEV_PASSWORD })
+      .expect(200);
+    professorToken = professorLogin.body.accessToken;
   });
 
   after(async () => {
@@ -120,7 +144,7 @@ describe('Dashboard (e2e)', () => {
     await prisma.student.deleteMany({ where: { organizationId: orgId } });
     await prisma.organizationUser.deleteMany({ where: { organizationId: orgId } });
     await prisma.organization.delete({ where: { id: orgId } });
-    await prisma.user.delete({ where: { id: mestreUserId } });
+    await prisma.user.deleteMany({ where: { id: { in: [mestreUserId, professorUserId] } } });
     await prisma.$disconnect();
     await app.close();
   });
@@ -136,8 +160,26 @@ describe('Dashboard (e2e)', () => {
     assert.equal(res.body.classes.active, 1);
     assert.equal(res.body.finance.pendingCount, 1);
     assert.equal(res.body.finance.overdueCount, 1);
+    assert.equal(res.body.finance.pendingCents, 10000);
+    assert.equal(res.body.finance.overdueCents, 20000);
 
     const upcomingIds = res.body.upcomingEvents.map((e: { id: number }) => e.id);
     assert.ok(upcomingIds.includes(eventId), 'o evento futuro criado neste teste deveria aparecer em upcomingEvents');
+  });
+
+  it('GET /dashboard como PROFESSOR: 200 com alunos/turmas/eventos, mas SEM nenhum dado financeiro', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/dashboard')
+      .set('Authorization', `Bearer ${professorToken}`)
+      .expect(200);
+
+    assert.equal(res.body.students.active, 1);
+    assert.equal(res.body.classes.active, 1);
+    assert.ok(Array.isArray(res.body.upcomingEvents));
+    assert.ok(!('finance' in res.body), 'PROFESSOR não deve receber o bloco finance');
+    const raw = JSON.stringify(res.body);
+    for (const leak of ['finance', 'Cents', 'overdue', 'pending']) {
+      assert.ok(!raw.includes(leak), `resposta do PROFESSOR vazou "${leak}": ${raw}`);
+    }
   });
 });

@@ -7,6 +7,8 @@ export type FinanceStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELLED";
 export interface FinanceRecord {
   id: number;
   studentId: number | null;
+  /** Aluno do lançamento, já resolvido pelo servidor em GET /finance (sem GET /students/:id por linha). */
+  student?: { id: number; name: string } | null;
   unitId: number | null;
   description: string;
   amountCents: number;

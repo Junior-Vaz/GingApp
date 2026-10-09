@@ -95,7 +95,14 @@ export class FinanceService {
   async findAll(organizationId: number, query: ListFinanceQueryDto = {}): Promise<Page<unknown>> {
     const where = this.buildWhere(organizationId, query, civilTodayStart());
     const [items, total] = await Promise.all([
-      this.prisma.financialRecord.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      // `student: { id, name } | null` vem no mesmo SELECT (join do Prisma, sem N+1) — mesmo
+      // formato de GET /certificates; os campos existentes (incl. studentId) seguem iguais.
+      this.prisma.financialRecord.findMany({
+        where,
+        include: { student: { select: { id: true, name: true } } },
+        orderBy: { id: 'desc' },
+        ...pageArgs(query),
+      }),
       this.prisma.financialRecord.count({ where }),
     ]);
     return { items, total };
@@ -151,7 +158,7 @@ export class FinanceService {
   /**
    * "Meu financeiro" — escopado aos alunos ligados ao usuário autenticado (ele mesmo ou seus
    * dependentes via StudentGuardian), NUNCA à organização inteira. Resolve a pendência
-   * registrada em §10.7: GET /finance é restrito a MESTRE/PROFESSOR porque não é filtrado;
+   * registrada em §10.7: GET /finance é restrito ao MESTRE porque não é filtrado;
    * esta rota é o jeito seguro de um ALUNO/RESPONSAVEL ver os próprios lançamentos.
    */
   async findMine(organizationId: number, userId: number) {

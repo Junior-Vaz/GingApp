@@ -156,6 +156,7 @@ describe('Finance — lista paginada, limpar campos e resumo (e2e)', () => {
   const prisma = new PrismaClient();
   let mestre: Awaited<ReturnType<typeof loginAs>>;
   let aluno: Awaited<ReturnType<typeof loginAs>>;
+  let professor: Awaited<ReturnType<typeof loginAs>>;
   let orgB: SecondOrg;
   let anaId: number;
   const get = (path: string, token = mestre.token) =>
@@ -167,6 +168,7 @@ describe('Finance — lista paginada, limpar campos e resumo (e2e)', () => {
     app = await createTestApp();
     mestre = await loginAs(app, MESTRE);
     aluno = await loginAs(app, ALUNO);
+    professor = await loginAs(app, 'professor@gingabrasil.com.br');
     orgB = await createSecondOrg(app, prisma, 'fin');
     anaId = (await prisma.student.findFirstOrThrow({ where: { organizationId: mestre.organizationId, user: { email: ALUNO } } })).id;
 
@@ -375,5 +377,60 @@ describe('Finance — lista paginada, limpar campos e resumo (e2e)', () => {
     await get('/finance/summary', aluno.token).expect(403);
     await request(app.getHttpServer()).get('/api/finance/summary').expect(401);
     await get('/finance/me', aluno.token).expect(200);
+  });
+
+  it('GET /finance inclui student { id, name } | null por item (join, sem N+1) e mantém os campos existentes', async () => {
+    const res = await get(`/finance?q=${encodeURIComponent(`${TAG} lanc`)}&limit=100`).expect(200); // só os 55 do before (outros testes criam mais com a mesma TAG)
+    assert.equal(res.body.length, 55);
+    const ana = await prisma.student.findUniqueOrThrow({ where: { id: anaId } });
+    const withStudent = res.body.filter((r: { studentId: number | null }) => r.studentId !== null);
+    assert.equal(withStudent.length, 3);
+    for (const r of withStudent) {
+      assert.deepEqual(r.student, { id: anaId, name: ana.name });
+    }
+    for (const r of res.body.filter((x: { studentId: number | null }) => x.studentId === null)) {
+      assert.equal(r.student, null);
+    }
+    // campos existentes intactos
+    const one = res.body[0];
+    for (const k of ['id', 'organizationId', 'studentId', 'unitId', 'description', 'amountCents', 'type', 'dueDate', 'paidAt', 'status', 'createdAt', 'updatedAt']) {
+      assert.ok(k in one, `campo ${k} sumiu`);
+    }
+    // o filtro por aluno continua funcionando e traz o aluno
+    const byStudent = await get(`/finance?q=${encodeURIComponent(`${TAG} lanc`)}&studentId=${anaId}`).expect(200);
+    assert.equal(byStudent.body.length, 3);
+    assert.ok(byStudent.body.every((r: { student: { id: number } }) => r.student.id === anaId));
+  });
+
+  it('PROFESSOR (financeiro é só do MESTRE): 403 em GET /finance, /finance/summary, /finance/:id e POST/PATCH/DELETE — e nada é gravado/alterado', async () => {
+    const mine = await prisma.financialRecord.findFirstOrThrow({
+      where: { organizationId: mestre.organizationId, description: { startsWith: TAG } },
+    });
+    const countBefore = await prisma.financialRecord.count({ where: { organizationId: mestre.organizationId } });
+    const auth = (r: request.Test) => r.set('Authorization', `Bearer ${professor.token}`);
+    const api = () => request(app.getHttpServer());
+
+    await get('/finance', professor.token).expect(403);
+    await get('/finance/summary', professor.token).expect(403);
+    await get(`/finance/${mine.id}`, professor.token).expect(403);
+    await auth(api().post('/api/finance'))
+      .send({ description: `${TAG} professor`, amountCents: 100, dueDate: new Date().toISOString() })
+      .expect(403);
+    await auth(api().patch(`/api/finance/${mine.id}`)).send({ amountCents: 1 }).expect(403);
+    await auth(api().delete(`/api/finance/${mine.id}`)).expect(403);
+
+    // 2ª via independente (Prisma): nada criado, valor intacto, registro ainda existe
+    assert.equal(await prisma.financialRecord.count({ where: { organizationId: mestre.organizationId } }), countBefore);
+    const after = await prisma.financialRecord.findUniqueOrThrow({ where: { id: mine.id } });
+    assert.equal(after.amountCents, mine.amountCents);
+
+    // a matriz no banco é a fonte: PROFESSOR/finance tudo false
+    const perm = await prisma.rolePermission.findUniqueOrThrow({ where: { role_resource: { role: 'PROFESSOR', resource: 'finance' } } });
+    assert.deepEqual([perm.canView, perm.canCreate, perm.canEdit, perm.canDelete], [false, false, false, false]);
+
+    // MESTRE segue com acesso total
+    await get('/finance').expect(200);
+    await get('/finance/summary').expect(200);
+    await get(`/finance/${mine.id}`).expect(200);
   });
 });
