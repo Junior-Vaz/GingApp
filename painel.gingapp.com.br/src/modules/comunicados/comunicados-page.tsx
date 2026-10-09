@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
 import { fmt, toDate } from "@/lib/format";
-import { useSessionUser } from "@/lib/session";
+import { useCan } from "@/lib/session";
 import { useUnitNames } from "@/lib/unit-lookup";
 import { NativeSelect } from "@/modules/rodas/native-select";
 
@@ -61,9 +61,8 @@ export function ComunicadosPage() {
   const create = announcements.useCreate();
   const update = announcements.useUpdate();
   const remove = announcements.useRemove();
-  const user = useSessionUser();
   // Espelha a matriz do seed: PROFESSOR não tem announcements:delete (o backend decide de fato).
-  const canDelete = user?.role === "MESTRE";
+  const canDelete = useCan("announcements", "delete");
 
   const [editing, setEditing] = useState<Announcement | "new" | null>(null);
   const [deleting, setDeleting] = useState<Announcement | null>(null);

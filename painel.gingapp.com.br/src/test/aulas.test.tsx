@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearSession, loginAs } from "./login-as";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -61,10 +62,15 @@ function setup(
 
 const mutations = (calls: Call[]) => calls.filter((c) => c.method !== "GET");
 
+beforeEach(() => {
+  loginAs("MESTRE"); // a UI esconde ações conforme o papel (useCan); os testes de PROFESSOR trocam o papel
+});
+
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  clearSession();
 });
 
 describe("AulasPage", () => {
@@ -292,6 +298,19 @@ describe("AulasPage", () => {
     await waitFor(() => expect(mutations(calls)).toHaveLength(1));
     expect(mutations(calls)[0]).toMatchObject({ url: "/lessons/1", method: "DELETE" });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Aula cancelada."));
+  });
+
+  it("RBAC: MESTRE vê Cancelar aula; PROFESSOR não (lessons:delete) mas continua com Editar", async () => {
+    setup();
+    await screen.findByRole("cell", { name: "Infantil" });
+    expect(screen.getByRole("button", { name: "Cancelar aula de Infantil" })).toBeInTheDocument();
+    cleanup();
+
+    loginAs("PROFESSOR");
+    setup();
+    await screen.findByRole("cell", { name: "Infantil" });
+    expect(screen.queryByRole("button", { name: /Cancelar aula/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Editar aula de Infantil" })).toBeInTheDocument();
   });
 
   it("'Voltar' no diálogo de cancelamento não chama a API", async () => {

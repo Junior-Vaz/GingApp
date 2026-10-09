@@ -19,6 +19,7 @@ import {
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
+import { useCan } from "@/lib/session";
 import {
   certificateLink,
   certificateToEdit,
@@ -65,6 +66,7 @@ export function CertificadosPage() {
   const create = certificates.useCreate();
   const update = certificates.useUpdate();
   const remove = certificates.useRemove();
+  const canDelete = useCan("certificates", "delete"); // PROFESSOR: sem certificates:delete (backend responde 403)
 
   const [issuing, setIssuing] = useState(false);
   const [editing, setEditing] = useState<Certificate | null>(null);
@@ -156,9 +158,11 @@ export function CertificadosPage() {
             <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
               Editar
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setDeleting(c)}>
-              Apagar
-            </Button>
+            {canDelete && (
+              <Button variant="ghost" size="sm" onClick={() => setDeleting(c)}>
+                Apagar
+              </Button>
+            )}
           </>
         )}
       />

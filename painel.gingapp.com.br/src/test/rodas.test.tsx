@@ -107,6 +107,19 @@ describe("RodasPage - listagem e dono", () => {
     expect(screen.queryByRole("button", { name: "Excluir Roda Alheia" })).toBeNull();
   });
 
+  it("RBAC: MESTRE vê Excluir na roda própria; PROFESSOR não (rodas:delete) mas continua com Editar", async () => {
+    const mestre = renderPage();
+    await screen.findByText("Roda de Sábado");
+    expect(screen.getByRole("button", { name: "Excluir Roda de Sábado" })).toBeInTheDocument();
+    mestre.unmount();
+
+    saveSession("tok", { ...USER, role: "PROFESSOR" });
+    renderPage();
+    await screen.findByText("Roda de Sábado");
+    expect(screen.queryByRole("button", { name: /^Excluir/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Editar Roda de Sábado" })).toBeInTheDocument();
+  });
+
   it("estado vazio e estado de erro", async () => {
     rodas = [];
     renderPage();

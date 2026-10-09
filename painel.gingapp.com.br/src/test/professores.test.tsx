@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearSession, loginAs } from "./login-as";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -38,9 +39,14 @@ const teachers = [
 ];
 const base = () => ({ "GET /teachers": () => json(200, teachers, { "X-Total-Count": String(teachers.length) }) });
 
+beforeEach(() => {
+  loginAs("MESTRE"); // a UI esconde ações conforme o papel (useCan); os testes de PROFESSOR trocam o papel
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  clearSession();
 });
 
 describe("schema de professores", () => {
@@ -211,6 +217,25 @@ describe("ProfessoresPage", () => {
     fireEvent.click(within(alert).getByRole("button", { name: "Inativar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/teachers/10")).toBe(true));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Professor inativado."));
+  });
+
+  it("RBAC: MESTRE vê Novo professor/Editar/Inativar; PROFESSOR (só teachers:view) não vê nenhum nem a coluna Ações", async () => {
+    mockApi(base());
+    const mestre = renderPage(<ProfessoresPage />);
+    await screen.findByText("Mestre Bimba");
+    expect(screen.getByRole("button", { name: /Novo professor/ })).toBeInTheDocument();
+    expect(screen.getAllByText("Editar").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Inativar")).toHaveLength(1);
+    mestre.unmount();
+
+    loginAs("PROFESSOR");
+    renderPage(<ProfessoresPage />);
+    await screen.findByText("Mestre Bimba");
+    expect(screen.queryByRole("button", { name: /Novo professor/ })).toBeNull();
+    expect(screen.queryByText("Editar")).toBeNull();
+    expect(screen.queryByText("Inativar")).toBeNull();
+    expect(screen.queryByRole("columnheader", { name: "Ações" })).toBeNull();
+    expect(screen.getByText("Mestre Bimba")).toBeInTheDocument(); // a lista (teachers:view) continua
   });
 
   it("e-mail já cadastrado (400) vira toast e mantém o formulário", async () => {

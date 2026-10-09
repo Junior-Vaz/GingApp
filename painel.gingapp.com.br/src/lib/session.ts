@@ -100,3 +100,44 @@ function subscribe(listener: Listener) {
 export function useSessionUser(): AuthUser | null {
   return useSyncExternalStore(subscribe, getUser, () => null);
 }
+
+export type PermissionAction = "view" | "create" | "edit" | "delete";
+export type PermissionResource =
+  | "students"
+  | "classes"
+  | "lessons"
+  | "attendance"
+  | "graduations"
+  | "finance"
+  | "events"
+  | "rodas"
+  | "announcements"
+  | "teachers"
+  | "certificates";
+
+/**
+ * Espelho de UX da matriz RolePermission do backend (backend/prisma/seed.ts): MESTRE pode tudo;
+ * PROFESSOR = view/create/edit sem delete, exceto `teachers` (só view) e `finance` (nada). Outros
+ * papéis não usam o painel. O backend decide de fato (CanAccessGuard, 403) - isto só evita
+ * mostrar botão que sempre falharia. Sem sessão = nega (falha fechada).
+ */
+const PROFESSOR_ACTIONS: Partial<Record<PermissionResource, readonly PermissionAction[]>> = {
+  teachers: ["view"],
+  finance: [],
+};
+const PROFESSOR_DEFAULT: readonly PermissionAction[] = ["view", "create", "edit"];
+
+export function roleCan(
+  role: OrgRole | undefined,
+  resource: PermissionResource,
+  action: PermissionAction,
+): boolean {
+  if (role === "MESTRE") return true;
+  if (role === "PROFESSOR") return (PROFESSOR_ACTIONS[resource] ?? PROFESSOR_DEFAULT).includes(action);
+  return false;
+}
+
+/** O usuário da sessão pode `action` em `resource`? Ex.: `useCan("students", "delete")`. */
+export function useCan(resource: PermissionResource, action: PermissionAction): boolean {
+  return roleCan(useSessionUser()?.role, resource, action);
+}

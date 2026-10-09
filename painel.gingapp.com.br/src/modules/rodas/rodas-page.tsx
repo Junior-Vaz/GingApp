@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fmt, toDate } from "@/lib/format";
 import { useListParams } from "@/lib/list-params";
-import { useSessionUser } from "@/lib/session";
+import { useCan, useSessionUser } from "@/lib/session";
 import { rodas } from "./api";
 import { NativeSelect } from "./native-select";
 import { useCities, useStates } from "./reference";
@@ -25,6 +25,7 @@ export function RodasPage() {
   const create = rodas.useCreate();
   const update = rodas.useUpdate();
   const remove = rodas.useRemove();
+  const canDelete = useCan("rodas", "delete"); // PROFESSOR: sem rodas:delete (backend responde 403)
 
   const [editing, setEditing] = useState<Roda | "new" | null>(null);
   const [deleting, setDeleting] = useState<Roda | null>(null);
@@ -128,9 +129,11 @@ export function RodasPage() {
                 <Button variant="ghost" size="sm" onClick={() => setEditing(r)} aria-label={`Editar ${r.title}`}>
                   Editar
                 </Button>
-                <Button variant="ghost" size="sm" onClick={() => setDeleting(r)} aria-label={`Excluir ${r.title}`}>
-                  Excluir
-                </Button>
+                {canDelete && (
+                  <Button variant="ghost" size="sm" onClick={() => setDeleting(r)} aria-label={`Excluir ${r.title}`}>
+                    Excluir
+                  </Button>
+                )}
               </>
             )}
           </>

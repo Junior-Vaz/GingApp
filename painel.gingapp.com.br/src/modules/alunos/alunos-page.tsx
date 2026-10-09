@@ -11,6 +11,7 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { Input } from "@/components/ui/input";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
+import { useCan } from "@/lib/session";
 import { dayOnly, fmt } from "@/lib/format";
 import { useUnitNames } from "@/lib/unit-lookup";
 import { NativeSelect } from "./native-select";
@@ -40,6 +41,7 @@ export function AlunosPage() {
   const create = students.useCreate();
   const update = students.useUpdate();
   const remove = students.useRemove();
+  const canDelete = useCan("students", "delete"); // PROFESSOR: sem students:delete (backend responde 403)
   const [editing, setEditing] = useState<Student | "new" | null>(null);
   const [deleting, setDeleting] = useState<Student | null>(null);
 
@@ -131,7 +133,7 @@ export function AlunosPage() {
             <Button variant="ghost" size="sm" onClick={() => setEditing(s)}>
               Editar
             </Button>
-            {s.status !== "INACTIVE" && (
+            {canDelete && s.status !== "INACTIVE" && (
               <Button variant="ghost" size="sm" onClick={() => setDeleting(s)}>
                 Inativar
               </Button>

@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearSession, loginAs } from "./login-as";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -88,9 +89,14 @@ describe("certificados utils", () => {
 });
 
 describe("CertificadosPage", () => {
+  beforeEach(() => {
+    loginAs("MESTRE"); // a UI esconde ações conforme o papel (useCan); os testes de PROFESSOR trocam o papel
+  });
+
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.clearAllMocks();
+    clearSession();
   });
 
   it("lista no servidor: data sem deslocar o dia, params iniciais sem filtros vazios", async () => {
@@ -294,6 +300,21 @@ describe("CertificadosPage", () => {
     await waitFor(() => expect(mutations(calls, "PATCH")).toHaveLength(1));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("fileUrl must be a URL address"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("RBAC: MESTRE vê Apagar; PROFESSOR não (certificates:delete) mas continua com Verificação e Editar", async () => {
+    mockApi(base());
+    const mestre = renderPage();
+    await inTable.findByText("Ana Souza");
+    expect(within(screen.getByRole("table")).getAllByText("Apagar").length).toBeGreaterThan(0);
+    mestre.unmount();
+
+    loginAs("PROFESSOR");
+    renderPage();
+    await inTable.findByText("Ana Souza");
+    expect(screen.queryByText("Apagar")).toBeNull();
+    expect(within(screen.getByRole("table")).getAllByText("Editar").length).toBeGreaterThan(0);
+    expect(within(screen.getByRole("table")).getAllByText("Verificação").length).toBeGreaterThan(0);
   });
 
   it("apaga só depois de confirmar", async () => {

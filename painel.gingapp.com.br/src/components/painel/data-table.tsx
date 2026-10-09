@@ -57,7 +57,7 @@ interface DataTableProps<T> {
   pageSize?: number;
   emptyMessage?: string;
   /** Coluna extra à direita (ex.: botões Editar/Excluir). */
-  rowActions?: (row: T) => ReactNode;
+  rowActions?: ((row: T) => ReactNode) | undefined;
   /** Conteúdo ao lado da busca (filtros, botão "Novo"). */
   toolbar?: ReactNode;
   /**

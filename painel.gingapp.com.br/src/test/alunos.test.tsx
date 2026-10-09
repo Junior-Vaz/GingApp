@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearSession, loginAs } from "./login-as";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -58,9 +59,14 @@ const base = () => ({
   "GET /units/7": () => json(200, units[0]),
 });
 
+beforeEach(() => {
+  loginAs("MESTRE"); // a UI esconde ações conforme o papel (useCan); os testes de PROFESSOR trocam o papel
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  clearSession();
 });
 
 describe("schema de alunos", () => {
@@ -370,6 +376,21 @@ describe("AlunosPage", () => {
     fireEvent.click(within(alert).getByRole("button", { name: "Inativar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/students/1")).toBe(true));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Aluno inativado."));
+  });
+
+  it("RBAC: MESTRE vê Inativar; PROFESSOR não (students:delete) mas continua com Editar e Novo aluno", async () => {
+    mockApi(base());
+    const mestre = renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    expect(screen.getAllByText("Inativar")).toHaveLength(1);
+    mestre.unmount();
+
+    loginAs("PROFESSOR");
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    expect(screen.queryByText("Inativar")).toBeNull();
+    expect(screen.getAllByText("Editar").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /Novo aluno/ })).toBeInTheDocument();
   });
 
   it("erro do backend no POST vira toast e mantém o formulário aberto", async () => {

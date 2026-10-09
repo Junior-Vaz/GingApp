@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { EventosPage } from "@/modules/eventos";
+import { clearSession, loginAs } from "./login-as";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -104,6 +105,7 @@ function renderPage() {
 const sent = (method: string, path: string) => calls.filter((c) => c.method === method && c.path === path);
 
 beforeEach(() => {
+  loginAs("MESTRE"); // a UI esconde ações conforme o papel (useCan); os testes de PROFESSOR trocam o papel
   events = [EVENT];
   participants = [
     { id: 50, eventId: 7, studentId: 11, guestName: null, status: "CONFIRMED", student: { id: 11, name: "Ana Souza" } },
@@ -116,6 +118,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  clearSession();
 });
 
 describe("EventosPage - listagem", () => {
@@ -228,6 +231,20 @@ describe("EventosPage - criar / editar / excluir", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Excluir" }));
     await waitFor(() => expect(sent("DELETE", "/events/7")).toHaveLength(1));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Evento excluído."));
+  });
+
+  it("RBAC: MESTRE vê Excluir; PROFESSOR não (events:delete) mas continua com Editar e Participantes", async () => {
+    const mestre = renderPage();
+    await screen.findByText("Batizado 2026");
+    expect(screen.getByRole("button", { name: "Excluir Batizado 2026" })).toBeInTheDocument();
+    mestre.unmount();
+
+    loginAs("PROFESSOR");
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    expect(screen.queryByRole("button", { name: /^Excluir/ })).toBeNull();
+    expect(screen.getByRole("button", { name: "Editar Batizado 2026" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Participantes de Batizado 2026" })).toBeInTheDocument();
   });
 
   it("erro de exclusão vira toast.error e mantém o diálogo", async () => {

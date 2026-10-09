@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { fmt, toDate } from "@/lib/format";
 import { useListParams } from "@/lib/list-params";
+import { useCan } from "@/lib/session";
 import { NativeSelect } from "@/modules/rodas/native-select";
 import { events } from "./api";
 import { EventForm } from "./event-form";
@@ -54,6 +55,7 @@ export function EventosPage() {
   const create = events.useCreate();
   const update = events.useUpdate();
   const remove = events.useRemove();
+  const canDelete = useCan("events", "delete"); // PROFESSOR: sem events:delete (backend responde 403)
 
   const [editing, setEditing] = useState<EventItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<EventItem | null>(null);
@@ -123,9 +125,11 @@ export function EventosPage() {
             <Button variant="ghost" size="sm" onClick={() => setEditing(e)} aria-label={`Editar ${e.title}`}>
               Editar
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setDeleting(e)} aria-label={`Excluir ${e.title}`}>
-              Excluir
-            </Button>
+            {canDelete && (
+              <Button variant="ghost" size="sm" onClick={() => setDeleting(e)} aria-label={`Excluir ${e.title}`}>
+                Excluir
+              </Button>
+            )}
           </>
         )}
       />

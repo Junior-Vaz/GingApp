@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearSession, loginAs } from "./login-as";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -50,9 +51,14 @@ const base = () => ({
   "GET /units/7": () => json(200, units[0]),
 });
 
+beforeEach(() => {
+  loginAs("MESTRE"); // a UI esconde ações conforme o papel (useCan); os testes de PROFESSOR trocam o papel
+});
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
+  clearSession();
 });
 
 describe("schema de turmas", () => {
@@ -324,6 +330,20 @@ describe("TurmasPage", () => {
     fireEvent.click(within(alert).getByRole("button", { name: "Inativar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/classes/1")).toBe(true));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Turma inativada."));
+  });
+
+  it("RBAC: MESTRE vê Inativar; PROFESSOR não (classes:delete) mas continua com Editar", async () => {
+    mockApi(base());
+    const mestre = renderPage(<TurmasPage />);
+    await screen.findByText("Infantil");
+    expect(screen.getAllByText("Inativar")).toHaveLength(1);
+    mestre.unmount();
+
+    loginAs("PROFESSOR");
+    renderPage(<TurmasPage />);
+    await screen.findByText("Infantil");
+    expect(screen.queryByText("Inativar")).toBeNull();
+    expect(screen.getAllByText("Editar").length).toBeGreaterThan(0);
   });
 
   it("erro do backend no DELETE vira toast e mantém o diálogo", async () => {

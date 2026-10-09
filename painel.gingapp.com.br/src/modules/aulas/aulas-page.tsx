@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { dayOnly, fmt } from "@/lib/format";
 import { useListParams } from "@/lib/list-params";
+import { useCan } from "@/lib/session";
 import { NativeSelect } from "./native-select";
 import {
   OPTIONS_LIMIT,
@@ -32,6 +33,7 @@ export function AulasPage() {
   const create = lessons.useCreate();
   const update = lessons.useUpdate();
   const remove = lessons.useRemove();
+  const canDelete = useCan("lessons", "delete"); // cancelar aula = DELETE; PROFESSOR sem lessons:delete (403)
   const classes = useClassOptions();
   const teachers = useTeacherOptions();
 
@@ -111,7 +113,7 @@ export function AulasPage() {
             <Button variant="ghost" size="sm" onClick={() => setEditing(l)} aria-label={`Editar aula de ${className(l.classId)}`}>
               <Pencil /> Editar
             </Button>
-            {l.status === "ACTIVE" && (
+            {canDelete && l.status === "ACTIVE" && (
               <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setCancelling(l)} aria-label={`Cancelar aula de ${className(l.classId)}`}>
                 <Ban /> Cancelar
               </Button>

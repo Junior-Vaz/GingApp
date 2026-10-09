@@ -10,6 +10,7 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { Input } from "@/components/ui/input";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
+import { useCan } from "@/lib/session";
 import { NativeSelect } from "@/modules/alunos/native-select";
 import {
   TEACHER_ROLE_LABEL,
@@ -38,6 +39,10 @@ export function ProfessoresPage() {
   const create = teachers.useCreate();
   const update = teachers.useUpdate();
   const remove = teachers.useRemove();
+  // PROFESSOR só tem teachers:view (seed): sem criar, editar nem inativar - backend responderia 403.
+  const canCreate = useCan("teachers", "create");
+  const canEdit = useCan("teachers", "edit");
+  const canDelete = useCan("teachers", "delete");
   const [editing, setEditing] = useState<Teacher | "new" | null>(null);
   const [deleting, setDeleting] = useState<Teacher | null>(null);
 
@@ -71,9 +76,11 @@ export function ProfessoresPage() {
         title="Professores"
         description="Mestres e professores do grupo."
         actions={
-          <Button onClick={() => setEditing("new")}>
-            <Plus /> Novo professor
-          </Button>
+          canCreate ? (
+            <Button onClick={() => setEditing("new")}>
+              <Plus /> Novo professor
+            </Button>
+          ) : undefined
         }
       />
       <DataTable
@@ -112,18 +119,24 @@ export function ProfessoresPage() {
             </NativeSelect>
           </div>
         }
-        rowActions={(t) => (
-          <>
-            <Button variant="ghost" size="sm" onClick={() => setEditing(t)}>
-              Editar
-            </Button>
-            {t.status === "ACTIVE" && (
-              <Button variant="ghost" size="sm" onClick={() => setDeleting(t)}>
-                Inativar
-              </Button>
-            )}
-          </>
-        )}
+        rowActions={
+          canEdit || canDelete
+            ? (t) => (
+                <>
+                  {canEdit && (
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(t)}>
+                      Editar
+                    </Button>
+                  )}
+                  {canDelete && t.status === "ACTIVE" && (
+                    <Button variant="ghost" size="sm" onClick={() => setDeleting(t)}>
+                      Inativar
+                    </Button>
+                  )}
+                </>
+              )
+            : undefined
+        }
       />
 
       <FormDialog<TeacherFormValues>

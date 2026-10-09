@@ -4,7 +4,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { toast } from "sonner";
 import { NAV_ITEMS, ROUTE_FORBIDDEN_MESSAGE, canAccessRoute, navItemsFor } from "@/lib/nav";
-import { TOKEN_STORAGE_KEY, USER_STORAGE_KEY, saveSession, type AuthUser } from "@/lib/session";
+import { TOKEN_STORAGE_KEY, USER_STORAGE_KEY, roleCan, saveSession, type AuthUser } from "@/lib/session";
 import { login, PANEL_FORBIDDEN_MESSAGE, safeRedirect } from "@/lib/auth";
 
 vi.mock("sonner", async (importOriginal) => ({
@@ -106,6 +106,47 @@ describe("guard de rotas", () => {
       expect(router.state.location.pathname).toBe(path);
     }
     expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it.each(["/unidades", "/configuracoes"])(
+    "PROFESSOR abrindo %s por URL direta: vai para /dashboard com aviso e mantém a sessão; MESTRE entra sem aviso",
+    async (path) => {
+      localStorage.clear();
+      saveSession("t", makeUser("PROFESSOR"));
+      vi.mocked(toast.error).mockClear();
+      const prof = makeRouter(path);
+      await prof.load();
+      expect(prof.state.location.pathname).toBe("/dashboard");
+      expect(toast.error).toHaveBeenCalledWith(ROUTE_FORBIDDEN_MESSAGE);
+      expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("t");
+      expect(localStorage.getItem(USER_STORAGE_KEY)).not.toBeNull();
+
+      localStorage.clear();
+      saveSession("t", makeUser("MESTRE"));
+      vi.mocked(toast.error).mockClear();
+      const mestre = makeRouter(path);
+      await mestre.load();
+      expect(mestre.state.location.pathname).toBe(path);
+      expect(toast.error).not.toHaveBeenCalled();
+    },
+  );
+
+  it("roleCan espelha a matriz do seed: MESTRE tudo; PROFESSOR sem delete, teachers só view, finance nada", () => {
+    const resources = ["students", "classes", "lessons", "attendance", "graduations", "events", "rodas", "announcements", "certificates"] as const;
+    const actions = ["view", "create", "edit", "delete"] as const;
+    for (const r of [...resources, "teachers", "finance"] as const) {
+      for (const a of actions) expect(roleCan("MESTRE", r, a)).toBe(true);
+    }
+    for (const r of resources) {
+      expect(roleCan("PROFESSOR", r, "view")).toBe(true);
+      expect(roleCan("PROFESSOR", r, "create")).toBe(true);
+      expect(roleCan("PROFESSOR", r, "edit")).toBe(true);
+      expect(roleCan("PROFESSOR", r, "delete")).toBe(false);
+    }
+    expect(actions.map((a) => roleCan("PROFESSOR", "teachers", a))).toEqual([true, false, false, false]);
+    expect(actions.map((a) => roleCan("PROFESSOR", "finance", a))).toEqual([false, false, false, false]);
+    // sem sessão / papéis do app: nega (falha fechada)
+    for (const role of [undefined, "ALUNO", "RESPONSAVEL"] as const) expect(roleCan(role, "students", "view")).toBe(false);
   });
 
   it("todas as 15 rotas do menu existem na árvore", async () => {

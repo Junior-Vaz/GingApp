@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
+import { useCan } from "@/lib/session";
 import { useUnitNames } from "@/lib/unit-lookup";
 import { NativeSelect } from "@/modules/alunos/native-select";
 import {
@@ -41,6 +42,7 @@ export function TurmasPage() {
   const create = classes.useCreate();
   const update = classes.useUpdate();
   const remove = classes.useRemove();
+  const canDelete = useCan("classes", "delete"); // PROFESSOR: sem classes:delete (backend responde 403)
   const [editing, setEditing] = useState<ClassItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<ClassItem | null>(null);
 
@@ -117,7 +119,7 @@ export function TurmasPage() {
             <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
               Editar
             </Button>
-            {c.status === "ACTIVE" && (
+            {canDelete && c.status === "ACTIVE" && (
               <Button variant="ghost" size="sm" onClick={() => setDeleting(c)}>
                 Inativar
               </Button>
