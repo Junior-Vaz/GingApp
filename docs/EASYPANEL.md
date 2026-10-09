@@ -242,10 +242,10 @@ Se for usar, teste primeiro com o seu IP **incluído** e valide o login antes de
 
 ## 12. Lista do que NÃO foi verificado
 
-1. Build real de qualquer imagem Docker do GingApp (Docker Hub deu timeout; `node:22-alpine` não foi baixado). O healthcheck do backend usa `node -e fetch(...)` (fetch global do Node 22) e não `wget`, para não depender de binário que nunca foi conferido na `node:22-alpine`; ele **também não foi executado** dentro da imagem real.
-2. Execução do `migrate` e do `bootstrap.ts` (só li o código; nenhum dos dois foi executado por mim). O `backend/Dockerfile` e `bootstrap.ts` estavam com alterações **não commitadas** de outro trabalho na hora em que escrevi este guia; a imagem `gingapp-migrate` só terá esse comportamento depois que essas alterações forem commitadas e o CI publicar de novo.
+1. ~~Build real das imagens~~ **VERIFICADO (2026-10-09, máquina local):** as 5 imagens (backend `runner`, `migrate`, painel, app, admin) buildaram com os mesmos build-args do CI, usando o espelho `public.ecr.aws/docker/library` no lugar do Docker Hub (que dava timeout/`toomanyrequests`). Tamanhos: backend 566 MB, migrate 767 MB, frontends ~75 MB.
+2. ~~Execução do `migrate`/`bootstrap`~~ **VERIFICADO (2026-10-09, local):** subiu o compose (`postgres:16-alpine` + `migrate` + `backend`) com essas imagens: Postgres ficou saudável, o `migrate` aplicou todas as migrations e criou o super admin, o backend ficou `healthy` (o healthcheck com `node -e fetch(...)` funcionou dentro da imagem), `GET /api/health` → `200 {"status":"ok","database":"up"}`, `POST /api/auth/platform-login` com o super admin do bootstrap → `200`, e os 3 nginx responderam. Isso **não** foi feito no Easypanel nem no GHCR (só localmente), então continua valendo o que depende do servidor (rede, credenciais, domínios).
 3. Qualquer deploy real no Easypanel; todos os nomes de telas/campos do Easypanel.
-4. Subida real do `postgres:16-alpine` + `migrate` + `backend` juntos no servidor (o compose só foi validado com `docker compose config`; a imagem do Postgres vem do Docker Hub, que pode dar timeout em alguns servidores).
+4. Subida do compose **no servidor do Easypanel** (localmente funcionou, ver item 2). A imagem do Postgres vem do Docker Hub, que pode dar `toomanyrequests`/timeout no servidor: use `POSTGRES_IMAGE=public.ecr.aws/docker/library/postgres:16-alpine` se acontecer.
 5. Se `docker compose up` reexecuta o `migrate` já finalizado no Easypanel.
 6. Credenciais do GHCR no modo Compose do Easypanel.
 7. Backup nativo do Easypanel para o Postgres.

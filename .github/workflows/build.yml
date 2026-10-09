@@ -15,6 +15,11 @@ on:
 env:
   REGISTRY: ghcr.io
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  # Imagens base vem do espelho publico da AWS (espelha as imagens oficiais do Docker Hub, mesmas
+  # tags, sem exigir login). O Docker Hub limita pulls ANONIMOS por IP e os runners do GitHub
+  # compartilham IPs: o job "Start postgres service container" ja falhou com "toomanyrequests".
+  NODE_IMAGE: public.ecr.aws/docker/library/node:22-alpine
+  NGINX_IMAGE: public.ecr.aws/docker/library/nginx:1.27-alpine
 
 jobs:
   validate-backend:
@@ -23,7 +28,9 @@ jobs:
     # Postgres so para a suite e2e (o test:e2e roda migrate deploy + seed no banco apontado).
     services:
       postgres:
-        image: postgres:16-alpine
+        # Espelho da AWS (ver comentario de NODE_IMAGE acima): postgres:16-alpine do Docker Hub
+        # bate no limite de pulls anonimos nos runners do GitHub.
+        image: public.ecr.aws/docker/library/postgres:16-alpine
         env:
           POSTGRES_USER: gingapp
           POSTGRES_PASSWORD: gingapp
@@ -163,12 +170,15 @@ jobs:
         run: |
           {
             echo 'args<<EOF'
+            echo "NODE_IMAGE=$NODE_IMAGE"
             case "$IMAGE" in
               gingapp-painel)
+                echo "NGINX_IMAGE=$NGINX_IMAGE"
                 echo "VITE_API_URL=$API_URL"
                 echo "VITE_APP_URL=$APP_URL"
                 ;;
               gingapp-app|gingapp-admin)
+                echo "NGINX_IMAGE=$NGINX_IMAGE"
                 echo "VITE_API_URL=$API_URL"
                 ;;
             esac

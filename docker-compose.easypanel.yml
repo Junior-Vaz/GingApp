@@ -33,7 +33,9 @@ services:
   # redeploy/recreate do container). ATENCAO: POSTGRES_PASSWORD so vale na PRIMEIRA criacao do
   # volume; trocar a variavel depois NAO muda a senha ja gravada no banco (ver docs/EASYPANEL.md).
   postgres:
-    image: postgres:16-alpine
+    # POSTGRES_IMAGE permite trocar o registro sem editar o arquivo, se o Docker Hub der
+    # "toomanyrequests"/timeout no servidor. Espelho: public.ecr.aws/docker/library/postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     restart: unless-stopped
     networks:
       - gingapp

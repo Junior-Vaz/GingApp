@@ -1,18 +1,24 @@
-# syntax=docker/dockerfile:1
+# Sem a diretiva "# syntax=docker/dockerfile:1": ela faz o BuildKit baixar a imagem docker/dockerfile
+# do Docker Hub (mais um pull sujeito ao limite sem login nos runners do GitHub), e este Dockerfile
+# nao usa nenhum recurso que exija o frontend novo.
+#
+# Imagem base como ARG: o CI troca pelo espelho public.ecr.aws (o Docker Hub limita pulls sem login
+# nos runners compartilhados do GitHub). Padrao = Docker Hub, entao `docker build` local nao muda.
+ARG NODE_IMAGE=node:22-alpine
 
 # ---------- deps: instala todas as dependencias (incl. dev) para build ----------
 # python3/make/g++ sao necessarios so para compilar o binding nativo do bcrypt (node-gyp) -
 # node:22-alpine nao traz build tools por padrao, e nao ha binario pre-compilado do bcrypt
 # para linux-musl (Alpine), so para glibc. Achado real ao tentar buildar esta imagem pela
 # primeira vez (PLANO_PROJETO.md secao 10.12).
-FROM node:22-alpine AS deps
+FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # ---------- build: gera Prisma Client e compila TypeScript ----------
-FROM node:22-alpine AS build
+FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json ./
@@ -26,25 +32,25 @@ RUN npm run build
 # NAO roda "prisma generate" aqui (achado real: a imagem final chegou a 688MB porque isso
 # fazia o npx instalar a CLI "prisma" -- uma devDependency -- direto nesta imagem, trazendo
 # junto ~130MB de dependencias transitivas dela (effect, es-toolkit, fast-check, typescript)
-# que nao tem nenhuma utilidade em runtime. O client gerado (que É necessário em runtime) já
-# existe no stage "build", que tem a CLI disponível de verdade via `npm ci` completo — o
-# runner só copia o resultado gerado de lá, PLANO_PROJETO.md §10.12.
-FROM node:22-alpine AS prod-deps
+# que nao tem nenhuma utilidade em runtime. O client gerado (que Ã‰ necessÃ¡rio em runtime) jÃ¡
+# existe no stage "build", que tem a CLI disponÃ­vel de verdade via `npm ci` completo â€” o
+# runner sÃ³ copia o resultado gerado de lÃ¡, PLANO_PROJETO.md Â§10.12.
+FROM ${NODE_IMAGE} AS prod-deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --omit=optional
 
 # ---------- runner: imagem final enxuta ----------
-FROM node:22-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 
 RUN addgroup -S nodejs && adduser -S nestjs -G nodejs
 
 COPY --from=prod-deps /app/node_modules ./node_modules
-# @prisma/client só fica utilizável depois de "prisma generate" — copiado do stage "build"
-# (não regenerado aqui) para não precisar da CLI do prisma nesta imagem.
+# @prisma/client sÃ³ fica utilizÃ¡vel depois de "prisma generate" â€” copiado do stage "build"
+# (nÃ£o regenerado aqui) para nÃ£o precisar da CLI do prisma nesta imagem.
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY --from=build /app/dist ./dist
@@ -56,19 +62,19 @@ USER nestjs
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
 
-# ---------- migrate: imagem auxiliar de produção = migrations + bootstrap ----------
-# O stage "runner" acima deliberadamente NÃO tem a CLI do prisma (ver comentário em
-# "prod-deps"), então não dá para migrar a partir dele. Reaproveita o stage "build" (que já
-# tem devDependencies completas — CLI do prisma, ts-node, typescript, bcrypt compilado — mais
+# ---------- migrate: imagem auxiliar de produÃ§Ã£o = migrations + bootstrap ----------
+# O stage "runner" acima deliberadamente NÃƒO tem a CLI do prisma (ver comentÃ¡rio em
+# "prod-deps"), entÃ£o nÃ£o dÃ¡ para migrar a partir dele. Reaproveita o stage "build" (que jÃ¡
+# tem devDependencies completas â€” CLI do prisma, ts-node, typescript, bcrypt compilado â€” mais
 # prisma/ (migrations, permission-matrix.ts, bootstrap.ts), src/ e tsconfig.json) em vez de
 # instalar tudo de novo.
 # Roda, NESTA ORDEM e parando no primeiro erro (exit != 0):
-#   1. prisma migrate deploy  — aplica migrations pendentes (idempotente);
-#   2. prisma/bootstrap.ts    — matriz base RolePermission (só linhas ausentes) + primeiro super
+#   1. prisma migrate deploy  â€” aplica migrations pendentes (idempotente);
+#   2. prisma/bootstrap.ts    â€” matriz base RolePermission (sÃ³ linhas ausentes) + primeiro super
 #      admin PLATFORM a partir de SUPER_ADMIN_EMAIL / SUPER_ADMIN_PASSWORD / SUPER_ADMIN_NAME
-#      (opcionais; sem elas só aplica a matriz e avisa; inválidas = falha). Idempotente. NUNCA
-#      cria dados de exemplo — o seed de dev (prisma/seed.ts, senha Dev@12345) não roda aqui.
-# ts-node SEM --transpile-only de propósito: com TypeScript 6 e este tsconfig, o modo
+#      (opcionais; sem elas sÃ³ aplica a matriz e avisa; invÃ¡lidas = falha). Idempotente. NUNCA
+#      cria dados de exemplo â€” o seed de dev (prisma/seed.ts, senha Dev@12345) nÃ£o roda aqui.
+# ts-node SEM --transpile-only de propÃ³sito: com TypeScript 6 e este tsconfig, o modo
 # transpile-only falha com TS5011 ("rootDir must be explicitly set") porque bootstrap.ts importa
 # de ../src (achado real); o modo normal compila e ainda faz a checagem de tipos.
 # Uso: docker compose -f docker-compose.prod.yml run --rm migrate

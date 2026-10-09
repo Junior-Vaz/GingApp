@@ -1,5 +1,9 @@
 # ---- build stage ----
-FROM node:22-alpine AS build
+# Imagens base como ARG: o CI troca pelo espelho public.ecr.aws (o Docker Hub limita pulls sem login
+# nos runners compartilhados do GitHub). Padrao = Docker Hub, entao `docker build` local nao muda.
+ARG NODE_IMAGE=node:22-alpine
+ARG NGINX_IMAGE=nginx:1.27-alpine
+FROM ${NODE_IMAGE} AS build
 WORKDIR /app
 
 COPY package*.json .npmrc ./
@@ -16,7 +20,7 @@ ENV VITE_APP_URL=$VITE_APP_URL
 RUN npm run build
 
 # ---- runtime stage ----
-FROM nginx:1.27-alpine AS runtime
+FROM ${NGINX_IMAGE} AS runtime
 
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
