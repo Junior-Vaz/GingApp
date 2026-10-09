@@ -90,6 +90,34 @@ describe('Passaporte do Capoeirista (e2e)', () => {
     assert.equal(res.body.stats.certificados, certificados);
   });
 
+  it('GET /passport/me como ALUNO menor: viewer diz que não pode publicar nem autorizar (UI não oferece o botão)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/passport/me')
+      .set('Authorization', `Bearer ${alunoToken}`)
+      .expect(200);
+    assert.deepEqual(res.body.viewer, {
+      isGuardian: false,
+      isMinor: true,
+      hasConsent: null,
+      canPublish: false,
+      canConsent: false,
+    });
+  });
+
+  it('GET /passport/me como RESPONSÁVEL sem consentimento: pode autorizar, ainda não pode publicar', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/passport/me')
+      .set('Authorization', `Bearer ${responsavelToken}`)
+      .expect(200);
+    assert.deepEqual(res.body.viewer, {
+      isGuardian: true,
+      isMinor: true,
+      hasConsent: false,
+      canPublish: false,
+      canConsent: true,
+    });
+  });
+
   it('POST /passport/publish como o PRÓPRIO ALUNO (menor de idade) → 403, sem responsável não pode', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/passport/publish')
@@ -147,6 +175,15 @@ describe('Passaporte do Capoeirista (e2e)', () => {
     assert.equal(profile.consentByGuardianId !== null, true);
   });
 
+  it('GET /passport/me como RESPONSÁVEL com consentimento: viewer libera publicar', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/passport/me')
+      .set('Authorization', `Bearer ${responsavelToken}`)
+      .expect(200);
+    assert.equal(res.body.viewer.hasConsent, true);
+    assert.equal(res.body.viewer.canPublish, true);
+  });
+
   it('GET /public/passport/:code SEM token retorna o passaporte público', async () => {
     const profile = await prisma.publicProfile.findUniqueOrThrow({ where: { studentId: anaStudentId } });
 
@@ -155,6 +192,8 @@ describe('Passaporte do Capoeirista (e2e)', () => {
     assert.equal(res.body.student.name, 'Ana Capoeirista');
     assert.equal(res.body.organization.name, 'Grupo Ginga Brasil');
     assert.ok(res.body.stats);
+    // viewer revela menoridade/vínculo de quem consulta: NUNCA pode vazar no endpoint público.
+    assert.equal(res.body.viewer, undefined);
   });
 
   it('GET /public/passport/:code com código inválido → 404', async () => {

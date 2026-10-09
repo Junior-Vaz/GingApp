@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { api, errorMessage } from "@/lib/api";
 import { logout } from "@/lib/auth";
+import { passportActions } from "@/lib/derive";
 import { dayOnly, fmt, initials, passportUrl } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
 import {
@@ -159,6 +160,7 @@ export function ProfilePage() {
   const socials = SOCIAL_FIELDS.filter((field) => links[field.key]);
   const p = passport.data;
   const code = p?.publicProfile?.publicCode;
+  const actions = passportActions(p?.viewer, user?.role);
 
   function handleLogout() {
     logout(queryClient);
@@ -252,13 +254,22 @@ export function ProfilePage() {
                   </Button>
                 ) : (
                   <>
-                    <Button variant="hero" size="sm" disabled={passportAction.isPending} onClick={() => passportAction.mutate("publish")}>
-                      Compartilhar passaporte
-                    </Button>
-                    {user?.role === "RESPONSAVEL" && (
+                    {/* Espelha as regras do backend (LGPD): menor não publica sozinho. Sem `viewer`
+                        (backend antigo) mantém o comportamento anterior e o backend decide. */}
+                    {actions.canPublish && (
+                      <Button variant="hero" size="sm" disabled={passportAction.isPending} onClick={() => passportAction.mutate("publish")}>
+                        Compartilhar passaporte
+                      </Button>
+                    )}
+                    {actions.canConsent && (
                       <Button variant="hero" size="sm" disabled={passportAction.isPending} onClick={() => passportAction.mutate("consent")}>
                         Autorizar e publicar (responsável)
                       </Button>
+                    )}
+                    {actions.showMinorNote && (
+                      <p className="text-sm opacity-90" data-testid="passport-minor-note">
+                        Aluno menor de idade: um responsável cadastrado precisa autorizar e publicar o passaporte.
+                      </p>
                     )}
                   </>
                 )}

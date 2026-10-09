@@ -53,6 +53,14 @@ export interface Passport {
   currentGraduation: { name: string } | null;
   stats: { aulas: number; rodas: number; eventos: number; graduacoes: number; certificados: number };
   publicProfile: { isPublished: boolean; publicCode: string } | null;
+  /** O que ESTE usuário pode fazer com o passaporte (só em /passport/me; o público não traz). */
+  viewer?: {
+    isGuardian: boolean;
+    isMinor: boolean;
+    hasConsent: boolean | null;
+    canPublish: boolean;
+    canConsent: boolean;
+  };
 }
 
 export interface Lesson {

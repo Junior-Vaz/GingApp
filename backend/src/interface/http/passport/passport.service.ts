@@ -69,7 +69,32 @@ export class PassportService {
     if (!student) {
       return null;
     }
-    return this.getForStudent(organizationId, student.id);
+
+    const passport = await this.getForStudent(organizationId, student.id);
+    const guardian =
+      student.userId === userId
+        ? null
+        : await this.prisma.studentGuardian.findFirst({
+            where: { organizationId, studentId: student.id, userId },
+          });
+    const isMinor = this.isMinor(student.birthDate);
+
+    // `viewer` diz à UI o que ESTE usuário pode fazer, espelhando as regras de publish() para
+    // não oferecer botão que só devolve 403. Fica só em /passport/me (autenticado): o endpoint
+    // público (getPublicByCode) usa getForStudent direto e nunca expõe menoridade/vínculo.
+    return {
+      ...passport,
+      viewer: {
+        isGuardian: guardian !== null,
+        isMinor,
+        /** Responsável: consentimento já dado? (null quando não é responsável). */
+        hasConsent: guardian ? guardian.consentPublicProfile : null,
+        /** Pode publicar agora: responsável precisa do consentimento; o próprio aluno só se maior. */
+        canPublish: guardian ? guardian.consentPublicProfile : !isMinor,
+        /** Só um responsável cadastrado pode autorizar o perfil público. */
+        canConsent: guardian !== null,
+      },
+    };
   }
 
   async getPublicByCode(publicCode: string) {

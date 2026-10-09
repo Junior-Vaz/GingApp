@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { QueryClient } from "@tanstack/react-query";
-import { currentStreak, monthStats } from "@/lib/derive";
+import { currentStreak, monthStats, passportActions } from "@/lib/derive";
 import { dayOnly, formatCurrency, initials, readableIconColor, softenColor } from "@/lib/format";
 import { logout } from "@/lib/auth";
 import { getToken, saveSession } from "@/lib/session";
@@ -47,6 +47,57 @@ describe("frequência", () => {
   });
   it("sequência para na primeira falta", () => {
     expect(currentStreak(records)).toBe(2);
+  });
+});
+
+describe("passaporte: ações oferecidas (regra LGPD do backend, evita 403 na tela)", () => {
+  const viewer = (v: Partial<NonNullable<Parameters<typeof passportActions>[0]>>) => ({
+    isGuardian: false,
+    isMinor: false,
+    hasConsent: null,
+    canPublish: false,
+    canConsent: false,
+    ...v,
+  });
+
+  it("aluno menor sem responsável: não oferece publicar nem autorizar, só o aviso", () => {
+    expect(passportActions(viewer({ isMinor: true }), "ALUNO")).toEqual({
+      canPublish: false,
+      canConsent: false,
+      showMinorNote: true,
+    });
+  });
+
+  it("aluno maior de idade pode publicar sozinho", () => {
+    expect(passportActions(viewer({ canPublish: true }), "ALUNO")).toEqual({
+      canPublish: true,
+      canConsent: false,
+      showMinorNote: false,
+    });
+  });
+
+  it("responsável sem consentimento: só 'autorizar e publicar'", () => {
+    expect(
+      passportActions(viewer({ isGuardian: true, isMinor: true, hasConsent: false, canConsent: true }), "RESPONSAVEL"),
+    ).toEqual({ canPublish: false, canConsent: true, showMinorNote: false });
+  });
+
+  it("responsável com consentimento: publica direto, sem o atalho", () => {
+    expect(
+      passportActions(
+        viewer({ isGuardian: true, isMinor: true, hasConsent: true, canPublish: true, canConsent: true }),
+        "RESPONSAVEL",
+      ),
+    ).toEqual({ canPublish: true, canConsent: false, showMinorNote: false });
+  });
+
+  it("sem viewer (backend antigo): mantém o comportamento anterior", () => {
+    expect(passportActions(undefined, "RESPONSAVEL")).toEqual({
+      canPublish: true,
+      canConsent: true,
+      showMinorNote: false,
+    });
+    expect(passportActions(undefined, "ALUNO").canConsent).toBe(false);
   });
 });
 

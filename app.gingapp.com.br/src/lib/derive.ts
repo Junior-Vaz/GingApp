@@ -1,5 +1,23 @@
 import { dayOnly, startOfToday } from "@/lib/format";
-import type { AttendanceRecord, Lesson } from "@/lib/queries";
+import type { AttendanceRecord, Lesson, Passport } from "@/lib/queries";
+
+/**
+ * Que ações de compartilhamento do passaporte a tela deve oferecer. Espelha as regras do
+ * backend (LGPD, PLANO §3.4): menor não publica sozinho, só um responsável cadastrado, e este
+ * antes precisa autorizar. Sem `viewer` (backend antigo) mantém o comportamento anterior e quem
+ * decide é o backend.
+ */
+export function passportActions(viewer: Passport["viewer"], role: string | undefined) {
+  if (!viewer) {
+    return { canPublish: true, canConsent: role === "RESPONSAVEL", showMinorNote: false };
+  }
+  return {
+    canPublish: viewer.canPublish,
+    // Quem já pode publicar não precisa do atalho "autorizar e publicar".
+    canConsent: viewer.canConsent && !viewer.canPublish,
+    showMinorNote: !viewer.canPublish && !viewer.canConsent,
+  };
+}
 
 const WEEKDAYS = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
 
