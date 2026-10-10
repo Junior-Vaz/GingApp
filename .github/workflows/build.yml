@@ -108,6 +108,7 @@ jobs:
           context: ${{ matrix.context }}
           target: ${{ matrix.target }}
           push: true
+          no-cache: true
           build-args: ${{ steps.vite.outputs.args }}
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:latest
