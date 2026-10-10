@@ -4,11 +4,13 @@
 #
 # Sobe: postgres + migrate (one-shot) + backend + painel + app + admin. As imagens
 # (ghcr.io/junior-vaz/gingapp-*:latest) sao publicadas pelo GitHub Actions a cada push na master
-# (.github/workflows/build.yml). VITE_API_URL e VITE_APP_URL sao secrets do GITHUB (entram no bundle
-# do front durante o build da imagem, no Actions) - nao existem aqui.
+# (.github/workflows/build.yml).
 #
-# NENHUMA porta e publicada no host: no Easypanel mapeie cada dominio para a porta interna do
-# servico (backend 3000; painel/app/admin 80). Rede interna "gingapp"; use o nome do servico (DNS).
+# SEM URL DE API: cada front (painel/app/admin) chama /api no proprio dominio e o nginx dele repassa
+# para o servico "backend" desta rede (mesmo padrao do GestorPrint). Entao NAO existe dominio api.,
+# nem VITE_*, nem CORS a configurar. No Easypanel so mapeie 3 dominios (porta 80): painel., app. e
+# admin. O backend nao precisa de dominio publico. Nenhuma porta e publicada no host.
+# (O painel monta o link do QR trocando painel.<dominio> por app.<dominio>.)
 
 services:
   # Banco dentro do compose. Dados no volume gingapp_pgdata (sobrevive a redeploy; apagar o volume
@@ -68,10 +70,12 @@ services:
       JWT_SECRET: "${JWT_SECRET:?defina JWT_SECRET com 32+ caracteres aleatorios - openssl rand -hex 32}"
       JWT_EXPIRES_IN: "1d"
       PORT: "3000"
-      # Origens https dos 3 frontends, separadas por virgula, sem barra final e sem "*".
-      CORS_ORIGINS: "${CORS_ORIGINS:?defina CORS_ORIGINS com as origens https dos 3 frontends, separadas por virgula}"
-      # Atras do proxy do Easypanel: 1 (sem isso o backend ve o IP do proxy).
-      TRUST_PROXY: "1"
+      # O backend em producao exige CORS_ORIGINS nao vazio. Com /api no mesmo dominio dos fronts o
+      # navegador nem usa CORS; este valor so cobre quem chamar a API de outra origem. Opcional.
+      CORS_ORIGINS: "${CORS_ORIGINS:-https://painel.gingapp.com.br,https://app.gingapp.com.br,https://admin.gingapp.com.br}"
+      # 2 proxies na frente do backend: proxy do Easypanel -> nginx do front -> backend (para o IP
+      # real do cliente valer no limite de tentativas de login).
+      TRUST_PROXY: "2"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s

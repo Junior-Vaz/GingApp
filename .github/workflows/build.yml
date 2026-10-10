@@ -92,31 +92,18 @@ jobs:
             echo "nginx_image=$nginx_image" >> "$GITHUB_OUTPUT"
           fi
 
-      # O contexto `secrets` nao existe dentro de `strategy.matrix`, so em steps: por isso os
-      # build-args dos frontends (embutidos no bundle em tempo de build) sao montados aqui.
+      # Sem VITE_API_URL/VITE_APP_URL e sem secrets do GitHub: os frontends chamam /api no proprio
+      # dominio (o nginx repassa para o backend) e o Dockerfile ja tem esse padrao. So as imagens base.
       - name: Compose build args
         id: vite
         env:
-          API_URL: ${{ secrets.VITE_API_URL || 'http://localhost:3000/api' }}
-          APP_URL: ${{ secrets.VITE_APP_URL || 'http://localhost:8082' }}
-          IMAGE: ${{ matrix.image }}
           NODE_IMAGE: ${{ steps.base.outputs.node_image }}
           NGINX_IMAGE: ${{ steps.base.outputs.nginx_image }}
         run: |
           {
             echo 'args<<EOF'
             echo "NODE_IMAGE=$NODE_IMAGE"
-            case "$IMAGE" in
-              gingapp-painel)
-                echo "NGINX_IMAGE=$NGINX_IMAGE"
-                echo "VITE_API_URL=$API_URL"
-                echo "VITE_APP_URL=$APP_URL"
-                ;;
-              gingapp-app|gingapp-admin)
-                echo "NGINX_IMAGE=$NGINX_IMAGE"
-                echo "VITE_API_URL=$API_URL"
-                ;;
-            esac
+            if [ -n "$NGINX_IMAGE" ]; then echo "NGINX_IMAGE=$NGINX_IMAGE"; fi
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 

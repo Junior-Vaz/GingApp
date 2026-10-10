@@ -20,9 +20,20 @@ export const fmt = (date: Date, pattern: string) => format(date, pattern, { loca
 /**
  * Origem do app do aluno, onde moram as páginas públicas de verificação (/verificar/:code).
  * O painel NÃO tem essas rotas, então o link do QR não pode usar window.location.origin.
+ *
+ * Ordem: `VITE_APP_URL` (se definida no build) > convenção de subdomínio (`painel.<dominio>` →
+ * `app.<dominio>`, mesmo protocolo/porta — é assim que a stack do Easypanel é publicada, sem
+ * precisar de nenhuma variável) > `http://localhost:4173` (app em dev).
  */
-const appOrigin = () =>
-  (((import.meta.env["VITE_APP_URL"] as string | undefined) ?? "http://localhost:4173").replace(/\/+$/, ""));
+export const appOrigin = (): string => {
+  const configured = (import.meta.env["VITE_APP_URL"] as string | undefined)?.trim();
+  if (configured) return configured.replace(/\/+$/, "");
+  const { protocol, hostname, port } = window.location;
+  if (hostname.startsWith("painel.")) {
+    return `${protocol}//app.${hostname.slice("painel.".length)}${port ? `:${port}` : ""}`;
+  }
+  return "http://localhost:4173";
+};
 
 /** URL pública (aberta pelo QR Code) de um certificado. */
 export const verificationUrl = (code: string) => `${appOrigin()}/verificar/${code}`;

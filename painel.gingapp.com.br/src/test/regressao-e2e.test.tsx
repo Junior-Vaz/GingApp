@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { DataTable, SERVER_LIST_LIMIT, type Column } from "@/components/painel/data-table";
-import { verificationUrl, passportUrl } from "@/lib/format";
+import { appOrigin, verificationUrl, passportUrl } from "@/lib/format";
 import { classToCreatePayload, classToPayload, emptyClassForm } from "@/modules/turmas/schema";
 
 // Bugs achados no e2e contra a API real que os testes com fetch mockado nao pegaram.
@@ -25,6 +25,38 @@ describe("QR/links publicos apontam para o app do aluno, nao para a origem do pa
     expect(verificationUrl("abc")).toBe("http://localhost:4173/verificar/abc");
     expect(passportUrl("xyz")).toBe("http://localhost:4173/verificar-passaporte/xyz");
     expect(verificationUrl("abc").startsWith(origin)).toBe(false);
+  });
+
+  describe("appOrigin sem VITE_APP_URL (stack do Easypanel: nenhuma variavel de build)", () => {
+    const realLocation = window.location;
+    const setLocation = (loc: { protocol: string; hostname: string; port: string }) =>
+      Object.defineProperty(window, "location", { value: { ...realLocation, ...loc }, writable: true, configurable: true });
+
+    afterEach(() => {
+      Object.defineProperty(window, "location", { value: realLocation, writable: true, configurable: true });
+      vi.unstubAllEnvs();
+    });
+
+    it("painel.<dominio> -> app.<dominio>, mesmo protocolo", () => {
+      vi.stubEnv("VITE_APP_URL", "");
+      setLocation({ protocol: "https:", hostname: "painel.gingapp.com.br", port: "" });
+      expect(appOrigin()).toBe("https://app.gingapp.com.br");
+      expect(verificationUrl("abc")).toBe("https://app.gingapp.com.br/verificar/abc");
+    });
+
+    it("preserva a porta e cai em localhost:4173 fora da convencao painel.*", () => {
+      vi.stubEnv("VITE_APP_URL", "");
+      setLocation({ protocol: "http:", hostname: "painel.exemplo.test", port: "8081" });
+      expect(appOrigin()).toBe("http://app.exemplo.test:8081");
+      setLocation({ protocol: "http:", hostname: "localhost", port: "5173" });
+      expect(appOrigin()).toBe("http://localhost:4173");
+    });
+
+    it("VITE_APP_URL definida ganha da convencao (e perde a barra final)", () => {
+      vi.stubEnv("VITE_APP_URL", "https://meuapp.exemplo.com/");
+      setLocation({ protocol: "https:", hostname: "painel.gingapp.com.br", port: "" });
+      expect(appOrigin()).toBe("https://meuapp.exemplo.com");
+    });
   });
 });
 
