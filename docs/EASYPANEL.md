@@ -21,6 +21,7 @@ O compose sobe `postgres` + `migrate` (aplica as migrations e cria o super admin
 - **`POSTGRES_PASSWORD`:** só letras e números. Só vale na **primeira** criação do volume; trocar depois não muda a senha gravada (para trocar: `ALTER USER gingapp PASSWORD '...'` no Postgres e depois atualize a variável). Apagar o volume apaga o banco.
 - **`JWT_SECRET`:** 32+ caracteres aleatórios (`openssl rand -hex 32`).
 - **Super admin:** `EMAIL` e `PASSWORD` **juntos** (só um dos dois, ou senha fraca, faz o `migrate` falhar e o backend não sobe). Senha: 12–72 caracteres, 3 de 4 classes (minúscula, maiúscula, dígito, símbolo), sem conter o e-mail nem termos como `dev@12345`, `senha`, `admin`, `gingapp`. Se o e-mail já existir, o bootstrap **não** altera nada (nem a senha).
+- **`COMPOSE_PARALLEL_LIMIT=1`:** baixa uma imagem por vez (ver Problemas conhecidos, "TLS handshake timeout no primeiro deploy").
 - *(Opcional)* `CORS_ORIGINS`: o padrão do compose já cobre `painel./app./admin.gingapp.com.br`; só importa se algo chamar a API de outra origem.
 
 ## 3. Subir
@@ -45,6 +46,7 @@ O compose sobe `postgres` + `migrate` (aplica as migrations e cria o super admin
 
 ## 5. Problemas conhecidos
 
+- **`TLS handshake timeout` no primeiro deploy** (mesmo com o servidor alcançando o GHCR, ex.: o GestorPrint sobe): o 1º deploy baixa ~1,6 GB (backend 566 MB + migrate 767 MB + 3 frontends + Postgres) e, em paralelo, o handshake com o `ghcr.io` pode estourar o prazo. Defina `COMPOSE_PARALLEL_LIMIT=1` no Environment (baixa uma imagem por vez; testado: o compose lê essa variável do `.env` e serializa os pulls). Se ainda falhar, clique em **Deploy** de novo: as camadas já baixadas ficam em cache e cada tentativa avança. Redeploys seguintes só baixam o que mudou.
 - **`TLS handshake timeout` / `unauthorized` / `denied` ao baixar do `ghcr.io`:** `timeout` = rede do servidor até o GHCR (teste `curl -4 -sI https://ghcr.io/v2/` no servidor; `HTTP/2 401` = alcançável); `unauthorized`/`denied` = pacote privado e servidor sem login (passo 1.2); `manifest unknown`/`not found` = o Actions ainda não publicou as imagens (passo 1.1).
 - **`/api/...` dá 502 num front:** o backend não está de pé (veja o log dele e o do `migrate`); o nginx do front só encontra o `backend` quando ele está rodando.
 - **Actions falhando em `Pull base images`:** os registros anônimos (espelho da AWS e Docker Hub) limitam pulls por IP; o passo tenta os dois com nova tentativa por alguns minutos. Se esgotar, rode o workflow de novo.
