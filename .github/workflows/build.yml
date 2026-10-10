@@ -1,0 +1,139 @@
+name: Build & Push Docker Images
+
+# Mesmo fluxo do GestorPrint: a cada push na master o GitHub Actions builda as imagens e publica no
+# GHCR (ghcr.io/<dono>/gingapp-*:latest e :<sha>); o Easypanel so baixa o :latest. Sem testes aqui
+# (ficam em tests.yml, em pull request ou manual) para o deploy sair rapido; o Dockerfile de cada
+# projeto roda `npm run build`, entao erro de tipo/compilacao reprova a imagem.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Um push novo cancela o build anterior da mesma branch.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build-images:
+    name: Build ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # target: runner - o Dockerfile tem um stage "migrate" depois do "runner"; sem target
+          # o Docker builda o ultimo stage (a imagem pesada de migration) como se fosse o backend.
+          - name: Backend
+            image: gingapp-backend
+            context: ./backend
+            target: runner
+            frontend: "false"
+          # Imagem de migration (prisma migrate deploy + bootstrap do super admin)
+          - name: Migrate
+            image: gingapp-migrate
+            context: ./backend
+            target: migrate
+            frontend: "false"
+          - name: Painel
+            image: gingapp-painel
+            context: ./painel.gingapp.com.br
+            target: ""
+            frontend: "true"
+          - name: App
+            image: gingapp-app
+            context: ./app.gingapp.com.br
+            target: ""
+            frontend: "true"
+          - name: Admin
+            image: gingapp-admin
+            context: ./admin.gingapp.com.br
+            target: ""
+            frontend: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lowercase owner name
+        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+
+      # Imagens base (node/nginx). Registros anonimos limitam pulls por IP e os runners do GitHub
+      # compartilham IP: o Docker Hub deu "toomanyrequests" e o espelho da AWS deu "Rate exceeded"
+      # (inclusive ao baixar o builder do docker/setup-buildx-action, por isso ele NAO e usado: o
+      # builder padrao do runner nao precisa de pull). Aqui tenta o espelho da AWS e, se falhar, o
+      # Docker Hub, em rodadas com espera crescente; o build usa a copia local e o registro nem e
+      # consultado (testado com um registro inalcancavel).
+      - name: Pull base images (retry + fallback)
+        id: base
+        env:
+          FRONTEND: ${{ matrix.frontend }}
+        run: |
+          pull_any() {
+            for attempt in 1 2 3 4; do
+              for img in "$@"; do
+                if docker pull "$img" > /dev/null 2>&1; then echo "$img"; return 0; fi
+              done
+              echo "rodada $attempt/4 falhou para: $*; aguardando $((attempt * 20))s" >&2
+              sleep $((attempt * 20))
+            done
+            return 1
+          }
+          node_image=$(pull_any public.ecr.aws/docker/library/node:22-alpine node:22-alpine) || { echo "nao foi possivel baixar a imagem base do node"; exit 1; }
+          echo "node_image=$node_image" >> "$GITHUB_OUTPUT"
+          if [ "$FRONTEND" = "true" ]; then
+            nginx_image=$(pull_any public.ecr.aws/docker/library/nginx:1.27-alpine nginx:1.27-alpine) || { echo "nao foi possivel baixar a imagem base do nginx"; exit 1; }
+            echo "nginx_image=$nginx_image" >> "$GITHUB_OUTPUT"
+          fi
+
+      # O contexto `secrets` nao existe dentro de `strategy.matrix`, so em steps: por isso os
+      # build-args dos frontends (embutidos no bundle em tempo de build) sao montados aqui.
+      - name: Compose build args
+        id: vite
+        env:
+          API_URL: ${{ secrets.VITE_API_URL || 'http://localhost:3000/api' }}
+          APP_URL: ${{ secrets.VITE_APP_URL || 'http://localhost:8082' }}
+          IMAGE: ${{ matrix.image }}
+          NODE_IMAGE: ${{ steps.base.outputs.node_image }}
+          NGINX_IMAGE: ${{ steps.base.outputs.nginx_image }}
+        run: |
+          {
+            echo 'args<<EOF'
+            echo "NODE_IMAGE=$NODE_IMAGE"
+            case "$IMAGE" in
+              gingapp-painel)
+                echo "NGINX_IMAGE=$NGINX_IMAGE"
+                echo "VITE_API_URL=$API_URL"
+                echo "VITE_APP_URL=$APP_URL"
+                ;;
+              gingapp-app|gingapp-admin)
+                echo "NGINX_IMAGE=$NGINX_IMAGE"
+                echo "VITE_API_URL=$API_URL"
+                ;;
+            esac
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.image }}
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ matrix.context }}
+          target: ${{ matrix.target }}
+          push: true
+          build-args: ${{ steps.vite.outputs.args }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
+            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:${{ github.sha }}

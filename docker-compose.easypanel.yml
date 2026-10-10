@@ -1,28 +1,18 @@
-# GingApp - UNICO compose do Easypanel. Cole este arquivo inteiro no servico Compose do Easypanel.
+# GingApp - UNICO compose do Easypanel (mesmo fluxo do GestorPrint: Actions -> GHCR -> Easypanel).
+# Cole este arquivo inteiro no servico Compose do Easypanel e preencha o Environment com o
+# .env.easypanel.example.
 #
-# Sobe: postgres + migrate (one-shot) + backend + painel + app + admin.
-# As imagens sao CONSTRUIDAS no proprio servidor, buscando o codigo direto do GitHub (contexto
-# git remoto "https://github.com/...#master:pasta"): nao precisa de registro de imagens (GHCR/Docker
-# Hub), de CI, de PAT de pacote, nem de enviar as pastas do repo para o Easypanel. So o Docker Hub
-# (node, nginx, postgres) e o registry npm precisam estar acessiveis.
-#
-# VARIAVEIS: veja o .env.easypanel.example (ou cole no Environment do Easypanel):
-#   POSTGRES_PASSWORD, JWT_SECRET, CORS_ORIGINS, SUPER_ADMIN_EMAIL, SUPER_ADMIN_PASSWORD,
-#   VITE_API_URL, VITE_APP_URL e, se o repositorio for PRIVADO, GIT_TOKEN.
-#
-# REPOSITORIO PRIVADO: crie um token do GitHub so de leitura (Settings > Developer settings >
-# Fine-grained tokens > acesso ao repo GingApp, permissao "Contents: Read-only") e ponha em GIT_TOKEN.
-# Repositorio PUBLICO: deixe GIT_TOKEN vazio.
-#
-# Primeiro deploy: ~5-10 min (compila o backend e os 3 frontends no servidor; recomendado >= 4 GB de
-# RAM livre ou swap). Cada Deploy rebuilda a partir do ultimo commit da master.
+# Sobe: postgres + migrate (one-shot) + backend + painel + app + admin. As imagens
+# (ghcr.io/junior-vaz/gingapp-*:latest) sao publicadas pelo GitHub Actions a cada push na master
+# (.github/workflows/build.yml). VITE_API_URL e VITE_APP_URL sao secrets do GITHUB (entram no bundle
+# do front durante o build da imagem, no Actions) - nao existem aqui.
 #
 # NENHUMA porta e publicada no host: no Easypanel mapeie cada dominio para a porta interna do
 # servico (backend 3000; painel/app/admin 80). Rede interna "gingapp"; use o nome do servico (DNS).
 
 services:
-  # Banco. Dados no volume nomeado gingapp_pgdata (sobrevive a redeploy; apagar o volume apaga o
-  # banco). ATENCAO: POSTGRES_PASSWORD so vale na PRIMEIRA criacao do volume.
+  # Banco dentro do compose. Dados no volume gingapp_pgdata (sobrevive a redeploy; apagar o volume
+  # apaga o banco). ATENCAO: POSTGRES_PASSWORD so vale na PRIMEIRA criacao do volume.
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -44,10 +34,8 @@ services:
   # One-shot: prisma migrate deploy + bootstrap idempotente (cria o super admin se ainda nao
   # existir) e SAI. O backend so sobe depois que este termina com sucesso.
   migrate:
-    build:
-      context: https://${GIT_TOKEN:+x-access-token:${GIT_TOKEN}@}github.com/Junior-Vaz/GingApp.git#master:backend
-      target: migrate
-    image: gingapp-migrate:local
+    image: ghcr.io/junior-vaz/gingapp-migrate:latest
+    pull_policy: always
     restart: "no"
     networks:
       - gingapp
@@ -63,10 +51,8 @@ services:
       SUPER_ADMIN_NAME: "${SUPER_ADMIN_NAME:-}"
 
   backend:
-    build:
-      context: https://${GIT_TOKEN:+x-access-token:${GIT_TOKEN}@}github.com/Junior-Vaz/GingApp.git#master:backend
-      target: runner
-    image: gingapp-backend:local
+    image: ghcr.io/junior-vaz/gingapp-backend:latest
+    pull_policy: always
     restart: unless-stopped
     networks:
       - gingapp
@@ -95,34 +81,24 @@ services:
 
   # Painel da escola. Easypanel: dominio do painel -> porta 80.
   painel:
-    build:
-      context: https://${GIT_TOKEN:+x-access-token:${GIT_TOKEN}@}github.com/Junior-Vaz/GingApp.git#master:painel.gingapp.com.br
-      args:
-        VITE_API_URL: "${VITE_API_URL:?defina VITE_API_URL, ex.: https://api.seudominio.com.br/api}"
-        VITE_APP_URL: "${VITE_APP_URL:?defina VITE_APP_URL, ex.: https://app.seudominio.com.br}"
-    image: gingapp-painel:local
+    image: ghcr.io/junior-vaz/gingapp-painel:latest
+    pull_policy: always
     restart: unless-stopped
     networks:
       - gingapp
 
   # App do aluno. Easypanel: dominio do app -> porta 80.
   app:
-    build:
-      context: https://${GIT_TOKEN:+x-access-token:${GIT_TOKEN}@}github.com/Junior-Vaz/GingApp.git#master:app.gingapp.com.br
-      args:
-        VITE_API_URL: "${VITE_API_URL:?defina VITE_API_URL, ex.: https://api.seudominio.com.br/api}"
-    image: gingapp-app:local
+    image: ghcr.io/junior-vaz/gingapp-app:latest
+    pull_policy: always
     restart: unless-stopped
     networks:
       - gingapp
 
   # Admin da plataforma. Easypanel: dominio do admin -> porta 80.
   admin:
-    build:
-      context: https://${GIT_TOKEN:+x-access-token:${GIT_TOKEN}@}github.com/Junior-Vaz/GingApp.git#master:admin.gingapp.com.br
-      args:
-        VITE_API_URL: "${VITE_API_URL:?defina VITE_API_URL, ex.: https://api.seudominio.com.br/api}"
-    image: gingapp-admin:local
+    image: ghcr.io/junior-vaz/gingapp-admin:latest
+    pull_policy: always
     restart: unless-stopped
     networks:
       - gingapp
