@@ -48,10 +48,7 @@ type NavItem = (typeof mainNav)[number] | (typeof communityNav)[number] | (typeo
 export function Brand({ mobile = false }: { mobile?: boolean }) {
   return (
     <div className={`brand ${mobile ? "mobile-brand" : ""}`}>
-      <img src="/favicon.png" alt="" width="35" height="35" />
-      <span>
-        gingapp<span className="brand-dot">.</span>
-      </span>
+      <img src="/logo.png" alt="GingApp" className="h-9 w-auto object-contain" />
     </div>
   );
 }

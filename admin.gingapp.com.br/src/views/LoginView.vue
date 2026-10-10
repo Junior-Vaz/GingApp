@@ -30,7 +30,7 @@ async function handleSubmit(): Promise<void> {
   <div class="flex min-h-screen items-center justify-center bg-slate-50 px-4">
     <div class="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
       <div class="mb-8 text-center">
-        <h1 class="text-xl font-semibold tracking-tight text-slate-900">GingApp</h1>
+        <img src="/logo.png" alt="GingApp" class="mx-auto h-12 w-auto object-contain" />
         <p class="mt-1 text-sm text-slate-500">SaaS Admin — equipe interna</p>
       </div>
 

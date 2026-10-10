@@ -50,7 +50,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Brand withBadge />
           </div>
           <img
-            src="/favicon.png"
+            src="/icone.png"
             alt="GingApp"
             className="hidden size-7 rounded-full group-data-[collapsible=icon]:block"
           />

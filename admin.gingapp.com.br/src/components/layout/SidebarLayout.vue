@@ -30,7 +30,7 @@ function handleLogout(): void {
   <div class="flex min-h-screen bg-slate-50 text-slate-900">
     <aside class="flex w-60 shrink-0 flex-col border-r border-slate-200 bg-white">
       <div class="flex h-16 items-center gap-2 border-b border-slate-200 px-6">
-        <span class="text-base font-semibold tracking-tight">GingApp</span>
+        <img src="/logo.png" alt="GingApp" class="h-8 w-auto object-contain" />
         <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">Admin</span>
       </div>
 
