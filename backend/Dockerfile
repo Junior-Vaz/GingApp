@@ -80,3 +80,18 @@ CMD ["node", "dist/main.js"]
 # Uso: docker compose -f docker-compose.prod.yml run --rm migrate
 FROM build AS migrate
 CMD ["sh", "-c", "npx prisma migrate deploy && npx ts-node prisma/bootstrap.ts"]
+
+# ---------- server: imagem do backend usada no Easypanel (migrations + bootstrap + API) ----------
+# Mesmo padrao do GestorPrint/idinner: UMA imagem de backend que, ao subir, aplica as migrations e so
+# entao inicia a API (sem servico/imagem "migrate" separado). Reaproveita o stage "build" (CLI do prisma,
+# ts-node, dist/ compilado). Ordem, parando no primeiro erro (exit != 0 => o container reinicia e tenta
+# de novo, mostrando o erro no log):
+#   1. prisma migrate deploy - aplica migrations pendentes (idempotente);
+#   2. prisma/bootstrap.ts   - matriz base RolePermission + primeiro super admin PLATFORM a partir de
+#      SUPER_ADMIN_EMAIL/SUPER_ADMIN_PASSWORD/SUPER_ADMIN_NAME (idempotente; nunca cria dados de exemplo);
+#   3. node dist/main.js     - a API (exec: vira o PID 1 e recebe os sinais do Docker).
+# Os stages "runner" (imagem enxuta) e "migrate" ficam para o docker-compose.prod.yml.
+FROM build AS server
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["sh", "-c", "npx prisma migrate deploy && npx ts-node prisma/bootstrap.ts && exec node dist/main.js"]

@@ -1,17 +1,18 @@
-# GingApp - UNICO compose do Easypanel (Actions -> Docker Hub -> Easypanel).
+# GingApp - UNICO compose do Easypanel (mesmo fluxo do GestorPrint/idinner: Actions -> GHCR -> Easypanel).
 # Cole este arquivo inteiro no servico Compose do Easypanel e preencha o Environment com o
 # .env.easypanel.example.
 #
-# Sobe: postgres + migrate (one-shot) + backend + painel + app + admin. As imagens
-# (<DOCKERHUB_USER>/gingapp-*:latest) sao publicadas no Docker Hub pelo GitHub Actions a cada push na
-# master (.github/workflows/build.yml). Docker Hub e nao GHCR porque o servidor do Easypanel deste
-# projeto da TLS handshake timeout no ghcr.io (rede dele) mas baixa do Docker Hub normalmente.
+# Sobe: postgres + backend + painel + app + admin. As imagens (ghcr.io/junior-vaz/gingapp-*:latest) sao
+# publicadas pelo GitHub Actions a cada push na master (.github/workflows/build.yml).
+#
+# O backend aplica as migrations e cria o super admin ao subir (como o GestorPrint) - nao ha servico
+# "migrate" separado.
 #
 # SEM URL DE API: cada front (painel/app/admin) chama /api no proprio dominio e o nginx dele repassa
-# para o servico "backend" desta rede (mesmo padrao do GestorPrint). Entao NAO existe dominio api.,
-# nem VITE_*, nem CORS a configurar. No Easypanel so mapeie 3 dominios (porta 80): painel., app. e
-# admin. O backend nao precisa de dominio publico. Nenhuma porta e publicada no host.
-# (O painel monta o link do QR trocando painel.<dominio> por app.<dominio>.)
+# para o servico "backend" desta rede. Entao NAO existe dominio api., nem VITE_*, nem CORS a configurar.
+# No Easypanel so mapeie 3 dominios (porta 80): painel., app. e admin. O backend nao precisa de dominio
+# publico. Nenhuma porta e publicada no host. (O painel monta o link do QR trocando painel.<dominio>
+# por app.<dominio>.)
 
 services:
   # Banco dentro do compose. Dados no volume gingapp_pgdata (sobrevive a redeploy; apagar o volume
@@ -34,27 +35,8 @@ services:
       retries: 10
       start_period: 10s
 
-  # One-shot: prisma migrate deploy + bootstrap idempotente (cria o super admin se ainda nao
-  # existir) e SAI. O backend so sobe depois que este termina com sucesso.
-  migrate:
-    image: "${DOCKERHUB_USER:?defina DOCKERHUB_USER (seu usuario do Docker Hub, em minusculas)}/gingapp-migrate:latest"
-    pull_policy: always
-    restart: "no"
-    networks:
-      - gingapp
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      DATABASE_URL: "postgresql://gingapp:${POSTGRES_PASSWORD}@postgres:5432/gingapp?schema=public"
-      # EMAIL e PASSWORD juntos (ou nenhum). Senha: 12+ caracteres, 3 de 4 classes (minuscula,
-      # maiuscula, digito, simbolo), sem conter o e-mail nem termos como dev@12345/senha/admin/gingapp.
-      SUPER_ADMIN_EMAIL: "${SUPER_ADMIN_EMAIL:-}"
-      SUPER_ADMIN_PASSWORD: "${SUPER_ADMIN_PASSWORD:-}"
-      SUPER_ADMIN_NAME: "${SUPER_ADMIN_NAME:-}"
-
   backend:
-    image: "${DOCKERHUB_USER:?defina DOCKERHUB_USER (seu usuario do Docker Hub, em minusculas)}/gingapp-backend:latest"
+    image: ghcr.io/junior-vaz/gingapp-backend:latest
     pull_policy: always
     restart: unless-stopped
     networks:
@@ -62,8 +44,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
     environment:
       NODE_ENV: "production"
       DATABASE_URL: "postgresql://gingapp:${POSTGRES_PASSWORD}@postgres:5432/gingapp?schema=public"
@@ -77,16 +57,24 @@ services:
       # 2 proxies na frente do backend: proxy do Easypanel -> nginx do front -> backend (para o IP
       # real do cliente valer no limite de tentativas de login).
       TRUST_PROXY: "2"
+      # Super admin inicial (criado so se o e-mail ainda nao existir; se existir, nada muda).
+      # EMAIL e PASSWORD juntos (ou nenhum). Senha: 12+ caracteres, 3 de 4 classes (minuscula,
+      # maiuscula, digito, simbolo), sem conter o e-mail nem termos como dev@12345/senha/admin/gingapp.
+      # Senha fraca ou so um dos dois = o backend NAO sobe (veja o log).
+      SUPER_ADMIN_EMAIL: "${SUPER_ADMIN_EMAIL:-}"
+      SUPER_ADMIN_PASSWORD: "${SUPER_ADMIN_PASSWORD:-}"
+      SUPER_ADMIN_NAME: "${SUPER_ADMIN_NAME:-}"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
       timeout: 10s
       retries: 5
-      start_period: 30s
+      # migrations + bootstrap (ts-node) rodam antes da API subir
+      start_period: 120s
 
   # Painel da escola. Easypanel: dominio do painel -> porta 80.
   painel:
-    image: "${DOCKERHUB_USER:?defina DOCKERHUB_USER (seu usuario do Docker Hub, em minusculas)}/gingapp-painel:latest"
+    image: ghcr.io/junior-vaz/gingapp-painel:latest
     pull_policy: always
     restart: unless-stopped
     networks:
@@ -94,7 +82,7 @@ services:
 
   # App do aluno. Easypanel: dominio do app -> porta 80.
   app:
-    image: "${DOCKERHUB_USER:?defina DOCKERHUB_USER (seu usuario do Docker Hub, em minusculas)}/gingapp-app:latest"
+    image: ghcr.io/junior-vaz/gingapp-app:latest
     pull_policy: always
     restart: unless-stopped
     networks:
@@ -102,7 +90,7 @@ services:
 
   # Admin da plataforma. Easypanel: dominio do admin -> porta 80.
   admin:
-    image: "${DOCKERHUB_USER:?defina DOCKERHUB_USER (seu usuario do Docker Hub, em minusculas)}/gingapp-admin:latest"
+    image: ghcr.io/junior-vaz/gingapp-admin:latest
     pull_policy: always
     restart: unless-stopped
     networks:
