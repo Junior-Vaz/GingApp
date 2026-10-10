@@ -1,9 +1,10 @@
-# GingApp - UNICO compose do Easypanel (mesmo fluxo do GestorPrint/idinner: Actions -> GHCR -> Easypanel).
+# GingApp - UNICO compose do Easypanel (Actions -> Docker Hub -> Easypanel).
 # Cole este arquivo inteiro no servico Compose do Easypanel e preencha o Environment com o
 # .env.easypanel.example.
 #
-# Sobe: postgres + backend + painel + app + admin. As imagens (ghcr.io/junior-vaz/gingapp-*:latest) sao
-# publicadas pelo GitHub Actions a cada push na master (.github/workflows/build.yml).
+# Sobe: postgres + backend + painel + app + admin. As imagens (DOCKERHUB_USERNAME/gingapp-*:latest)
+# sao publicadas pelo GitHub Actions a cada push na master (.github/workflows/build.yml).
+# O servidor deste deploy nao alcanca ghcr.io/github.com; o Docker Hub (registry-1.docker.io) sim.
 #
 # O backend aplica as migrations e cria o super admin ao subir (como o GestorPrint) - nao ha servico
 # "migrate" separado.
@@ -36,7 +37,7 @@ services:
       start_period: 10s
 
   backend:
-    image: ghcr.io/junior-vaz/gingapp-backend:latest
+    image: ${DOCKERHUB_USERNAME:?defina DOCKERHUB_USERNAME}/gingapp-backend:latest
     pull_policy: always
     restart: unless-stopped
     networks:
@@ -74,7 +75,7 @@ services:
 
   # Painel da escola. Easypanel: dominio do painel -> porta 80.
   painel:
-    image: ghcr.io/junior-vaz/gingapp-painel:latest
+    image: ${DOCKERHUB_USERNAME:?defina DOCKERHUB_USERNAME}/gingapp-painel:latest
     pull_policy: always
     restart: unless-stopped
     networks:
@@ -82,7 +83,7 @@ services:
 
   # App do aluno. Easypanel: dominio do app -> porta 80.
   app:
-    image: ghcr.io/junior-vaz/gingapp-app:latest
+    image: ${DOCKERHUB_USERNAME:?defina DOCKERHUB_USERNAME}/gingapp-app:latest
     pull_policy: always
     restart: unless-stopped
     networks:
@@ -90,7 +91,7 @@ services:
 
   # Admin da plataforma. Easypanel: dominio do admin -> porta 80.
   admin:
-    image: ghcr.io/junior-vaz/gingapp-admin:latest
+    image: ${DOCKERHUB_USERNAME:?defina DOCKERHUB_USERNAME}/gingapp-admin:latest
     pull_policy: always
     restart: unless-stopped
     networks:

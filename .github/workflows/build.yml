@@ -1,10 +1,9 @@
 name: Build & Push Docker Images
 
-# Mesmo fluxo do GestorPrint/idinner: a cada push na master o GitHub Actions builda as imagens e publica
-# no GHCR (ghcr.io/<dono>/gingapp-*:latest e :<sha>) com o GITHUB_TOKEN (sem secrets, sem conta extra);
-# o Easypanel so baixa o :latest. Sem testes aqui (ficam em tests.yml, em pull request ou manual) para o
-# deploy sair rapido; o Dockerfile de cada projeto roda `npm run build`, entao erro de tipo/compilacao
-# reprova a imagem.
+# Push na master -> GitHub Actions builda e publica no Docker Hub
+# (DOCKERHUB_USERNAME/gingapp-*:latest e :<sha>). O Easypanel baixa o :latest.
+# GHCR nao e usado: o servidor do Easypanel nao alcanca github.com/ghcr.io (timeout),
+# mas alcanca registry-1.docker.io. Secrets: DOCKERHUB_USERNAME e DOCKERHUB_TOKEN.
 
 on:
   push:
@@ -17,7 +16,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY: ghcr.io
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
@@ -26,7 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -55,9 +52,6 @@ jobs:
             frontend: "true"
     steps:
       - uses: actions/checkout@v4
-
-      - name: Lowercase owner name
-        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
 
       # Imagens base (node/nginx). Registros anonimos limitam pulls por IP e os runners do GitHub
       # compartilham IP: o Docker Hub deu "toomanyrequests" e o espelho da AWS deu "Rate exceeded"
@@ -102,12 +96,11 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-      - name: Log in to GitHub Container Registry
+      - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Build and push ${{ matrix.image }}
         uses: docker/build-push-action@v5
@@ -117,5 +110,5 @@ jobs:
           push: true
           build-args: ${{ steps.vite.outputs.args }}
           tags: |
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.image }}:${{ github.sha }}
