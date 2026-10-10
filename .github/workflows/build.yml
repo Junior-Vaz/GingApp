@@ -1,7 +1,10 @@
 name: Build & Push Docker Images
 
-# Mesmo fluxo do GestorPrint: a cada push na master o GitHub Actions builda as imagens e publica no
-# GHCR (ghcr.io/<dono>/gingapp-*:latest e :<sha>); o Easypanel so baixa o :latest. Sem testes aqui
+# A cada push na master o GitHub Actions builda as imagens e publica no DOCKER HUB
+# (<DOCKERHUB_USERNAME>/gingapp-*:latest e :<sha>); o Easypanel so baixa o :latest. Docker Hub e nao
+# GHCR porque o servidor do Easypanel do projeto da TLS handshake timeout no ghcr.io.
+# SECRETS do repositorio (Settings > Secrets and variables > Actions): DOCKERHUB_USERNAME e DOCKERHUB_TOKEN
+# (Access Token do Docker Hub com permissao Read & Write). Sem testes aqui
 # (ficam em tests.yml, em pull request ou manual) para o deploy sair rapido; o Dockerfile de cada
 # projeto roda `npm run build`, entao erro de tipo/compilacao reprova a imagem.
 
@@ -16,7 +19,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  REGISTRY: ghcr.io
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
@@ -25,7 +27,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -61,8 +62,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Lowercase owner name
-        run: echo "OWNER=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
+      # Login ANTES de baixar as imagens base: pulls autenticados contam por conta, nao por IP
+      # compartilhado do runner (evita o toomanyrequests do Docker Hub anonimo).
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Lowercase Docker Hub user
+        env:
+          DH_USER: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: echo "DH_USER_LC=${DH_USER,,}" >> $GITHUB_ENV
 
       # Imagens base (node/nginx). Registros anonimos limitam pulls por IP e os runners do GitHub
       # compartilham IP: o Docker Hub deu "toomanyrequests" e o espelho da AWS deu "Rate exceeded"
@@ -107,13 +118,6 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build and push ${{ matrix.image }}
         uses: docker/build-push-action@v5
         with:
@@ -122,5 +126,5 @@ jobs:
           push: true
           build-args: ${{ steps.vite.outputs.args }}
           tags: |
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
-            ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:${{ github.sha }}
+            docker.io/${{ env.DH_USER_LC }}/${{ matrix.image }}:latest
+            docker.io/${{ env.DH_USER_LC }}/${{ matrix.image }}:${{ github.sha }}
