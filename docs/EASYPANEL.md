@@ -286,6 +286,20 @@ Observações:
 
 ---
 
+## 15. Alternativa: imagens no Docker Hub (servidor que não alcança o `ghcr.io`)
+
+Use o **mesmo** `docker-compose.easypanel.yml` (pode ser colado no Easypanel, não precisa de Git), mas com as imagens vindo do Docker Hub, que o servidor alcança. O CI publica nos dois registros quando os secrets abaixo existem.
+
+1. Crie uma conta no Docker Hub (gratuita) e um **Access Token** (Account settings → Personal access tokens, permissão *Read & Write*).
+2. No GitHub: repositório → *Settings → Secrets and variables → Actions* → crie `DOCKERHUB_USERNAME` (seu usuário) e `DOCKERHUB_TOKEN` (o token). Rode o workflow *Build & Push Docker Images* (Actions → Run workflow, ou um push na `master`).
+3. Confira em hub.docker.com se existem os 5 repositórios `gingapp-backend`, `gingapp-migrate`, `gingapp-painel`, `gingapp-app`, `gingapp-admin`.
+4. No Easypanel (Environment): `IMAGE_PREFIX=docker.io/SEU_USUARIO` (minúsculas). Se os repositórios forem **públicos**, o servidor baixa sem login; se forem privados, faça `docker login` no servidor.
+5. Deploy.
+
+**Atenção à privacidade:** repositórios criados por push no Docker Hub costumam nascer **públicos** (confira *Account settings → Default privacy*; **[NÃO VERIFICADO]** o padrão exato da sua conta). `gingapp-backend` e `gingapp-migrate` contêm o código compilado/fonte do backend; os 3 frontends são estáticos que o navegador baixa de qualquer jeito. Contas gratuitas têm só 1 repositório privado: se o backend não pode ser público, prefira a seção 14 (build no servidor) ou a seção 13 (consertar a rota até o GHCR).
+
+---
+
 ## 12. Lista do que NÃO foi verificado
 
 1. ~~Build real das imagens~~ **VERIFICADO (2026-10-09, máquina local):** as 5 imagens (backend `runner`, `migrate`, painel, app, admin) buildaram com os mesmos build-args do CI, usando o espelho `public.ecr.aws/docker/library` no lugar do Docker Hub (que dava timeout/`toomanyrequests`). Tamanhos: backend 566 MB, migrate 767 MB, frontends ~75 MB.

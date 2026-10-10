@@ -57,7 +57,7 @@ services:
   # depois que este servico termina com sucesso (service_completed_successfully); este so roda
   # depois que o Postgres esta saudavel.
   migrate:
-    image: ghcr.io/junior-vaz/gingapp-migrate:${IMAGE_TAG:-latest}
+    image: ${IMAGE_PREFIX:-ghcr.io/junior-vaz}/gingapp-migrate:${IMAGE_TAG:-latest}
     pull_policy: ${PULL_POLICY:-always}
     restart: "no"
     networks:
@@ -79,7 +79,7 @@ services:
 
   backend:
     # Stage "runner": enxuto, sem CLI do prisma (por isso as migrations rodam no servico acima).
-    image: ghcr.io/junior-vaz/gingapp-backend:${IMAGE_TAG:-latest}
+    image: ${IMAGE_PREFIX:-ghcr.io/junior-vaz}/gingapp-backend:${IMAGE_TAG:-latest}
     pull_policy: ${PULL_POLICY:-always}
     restart: unless-stopped
     networks:
@@ -119,7 +119,7 @@ services:
 
   # Painel da escola. Easypanel: dominio do painel -> porta 80.
   painel:
-    image: ghcr.io/junior-vaz/gingapp-painel:${IMAGE_TAG:-latest}
+    image: ${IMAGE_PREFIX:-ghcr.io/junior-vaz}/gingapp-painel:${IMAGE_TAG:-latest}
     pull_policy: ${PULL_POLICY:-always}
     restart: unless-stopped
     networks:
@@ -127,7 +127,7 @@ services:
 
   # App do aluno. Easypanel: dominio do app -> porta 80.
   app:
-    image: ghcr.io/junior-vaz/gingapp-app:${IMAGE_TAG:-latest}
+    image: ${IMAGE_PREFIX:-ghcr.io/junior-vaz}/gingapp-app:${IMAGE_TAG:-latest}
     pull_policy: ${PULL_POLICY:-always}
     restart: unless-stopped
     networks:
@@ -135,7 +135,7 @@ services:
 
   # Admin da plataforma. Easypanel: dominio do admin -> porta 80.
   admin:
-    image: ghcr.io/junior-vaz/gingapp-admin:${IMAGE_TAG:-latest}
+    image: ${IMAGE_PREFIX:-ghcr.io/junior-vaz}/gingapp-admin:${IMAGE_TAG:-latest}
     pull_policy: ${PULL_POLICY:-always}
     restart: unless-stopped
     networks:
