@@ -4,8 +4,7 @@ name: Build & Push Docker Images
 # Os testes (lint, unitarios, e2e, build dos frontends) ficam em .github/workflows/tests.yml e rodam
 # em pull request ou manualmente (decisao do dono: o pipeline de deploy estava lento demais).
 # Mesmo assim o build NAO e cego: o Dockerfile de cada projeto roda `npm run build` (tsc + nest build /
-# vite build), entao erro de tipo ou de compilacao reprova a imagem. Cache de camadas (GitHub Actions
-# cache) acelera os runs seguintes.
+# vite build), entao erro de tipo ou de compilacao reprova a imagem.
 
 on:
   push:
@@ -106,13 +105,28 @@ jobs:
             echo 'EOF'
           } >> "$GITHUB_OUTPUT"
 
-      # Buildx e necessario para o cache do tipo "gha". O builder (driver docker-container) baixa a
-      # imagem moby/buildkit; do Docker Hub ela falhava com timeout/limite de pulls anonimos no
-      # runner, entao vem do espelho da AWS (mesma imagem, mesma tag).
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: image=public.ecr.aws/vend/moby/buildkit:buildx-stable-1
+      # SEM docker/setup-buildx-action: ele baixa a imagem moby/buildkit de um registro anonimo e
+      # falhou duas vezes (Docker Hub: timeout/limite; espelho da AWS: "Rate exceeded"), porque os
+      # runners do GitHub compartilham IP. O builder padrao ja vem no runner e nao precisa de pull.
+      # As imagens base (node/nginx) sao baixadas aqui, com NOVAS TENTATIVAS e espera crescente; o
+      # build seguinte usa a copia local e nem consulta o registro (testado com um registro
+      # inalcancavel). Trade-off: sem cache de camadas (cache gha exige o builder docker-container).
+      - name: Pre-pull base images (com retry)
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          pull() {
+            for i in 1 2 3 4 5 6; do
+              if docker pull "$1"; then return 0; fi
+              echo "pull de $1 falhou (tentativa $i/6); aguardando $((i * 15))s"
+              sleep $((i * 15))
+            done
+            return 1
+          }
+          pull "$NODE_IMAGE"
+          case "$IMAGE" in
+            gingapp-painel|gingapp-app|gingapp-admin) pull "$NGINX_IMAGE" ;;
+          esac
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -135,6 +149,4 @@ jobs:
           target: ${{ matrix.target }}
           push: true
           build-args: ${{ steps.vite.outputs.args }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
           tags: ${{ steps.vite.outputs.tags }}
