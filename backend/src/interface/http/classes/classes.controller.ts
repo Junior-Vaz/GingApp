@@ -8,6 +8,7 @@ import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { ClassesService } from './classes.service';
 import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
+import { EnrollStudentDto } from './dto/enroll-student.dto';
 
 @Controller('classes')
 export class ClassesController {
@@ -49,6 +50,32 @@ export class ClassesController {
     @Body() dto: UpdateClassDto,
   ) {
     return this.classesService.update(organizationId, id, dto);
+  }
+
+  @Get(':id/students')
+  @CanAccess('classes', 'view')
+  listStudents(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.classesService.listStudents(organizationId, id);
+  }
+
+  @Post(':id/students')
+  @CanAccess('classes', 'edit')
+  enrollStudent(
+    @CurrentOrganization() organizationId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EnrollStudentDto,
+  ) {
+    return this.classesService.enrollStudent(organizationId, id, dto.studentId);
+  }
+
+  @Delete(':id/students/:studentId')
+  @CanAccess('classes', 'edit')
+  unenrollStudent(
+    @CurrentOrganization() organizationId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Param('studentId', ParseIntPipe) studentId: number,
+  ) {
+    return this.classesService.unenrollStudent(organizationId, id, studentId);
   }
 
   @Delete(':id')

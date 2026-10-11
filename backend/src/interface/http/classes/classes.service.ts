@@ -101,6 +101,49 @@ export class ClassesService {
     return this.prisma.class.update({ where: { id }, data: { status: 'INACTIVE' } });
   }
 
+  /** Alunos matriculados (ativos) na turma, com os dados básicos do aluno. */
+  async listStudents(organizationId: number, classId: number) {
+    await this.findOne(organizationId, classId);
+    const enrollments = await this.prisma.classStudent.findMany({
+      where: { organizationId, classId, status: 'ACTIVE' },
+      include: { student: { select: { id: true, name: true, status: true } } },
+      orderBy: { student: { name: 'asc' } },
+    });
+    return enrollments.map((e) => ({
+      id: e.id,
+      studentId: e.studentId,
+      name: e.student.name,
+      studentStatus: e.student.status,
+      enrolledAt: e.enrolledAt,
+    }));
+  }
+
+  /** Matricula um aluno na turma (idempotente: reativa uma matrícula inativa, repetir não duplica). */
+  async enrollStudent(organizationId: number, classId: number, studentId: number) {
+    await this.findOne(organizationId, classId);
+    const student = await this.prisma.student.findFirst({ where: { id: studentId, organizationId } });
+    if (!student) {
+      throw new BadRequestException('Aluno inválido para esta organização.');
+    }
+    return this.prisma.classStudent.upsert({
+      where: { classId_studentId: { classId, studentId } },
+      create: { organizationId, classId, studentId },
+      update: { status: 'ACTIVE' },
+    });
+  }
+
+  /** Desmatricula: mantém o registro (histórico de frequência) e marca INACTIVE. */
+  async unenrollStudent(organizationId: number, classId: number, studentId: number) {
+    await this.findOne(organizationId, classId);
+    const enrollment = await this.prisma.classStudent.findFirst({
+      where: { organizationId, classId, studentId },
+    });
+    if (!enrollment) {
+      throw new NotFoundException('Matrícula não encontrada.');
+    }
+    return this.prisma.classStudent.update({ where: { id: enrollment.id }, data: { status: 'INACTIVE' } });
+  }
+
   /** Nunca confiar em unitId vindo do corpo da requisição sem confirmar que pertence à
    * organização do usuário autenticado (PLANO_PROJETO.md §3.2 item 4). */
   private async assertUnitBelongsToOrganization(organizationId: number, unitId: number): Promise<void> {

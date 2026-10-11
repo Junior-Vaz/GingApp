@@ -5,8 +5,9 @@ import {
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import { OrganizationType, OrgRole, Prisma, RecordStatus, UserType } from '@prisma/client';
+import { Organization, OrganizationType, OrgRole, Prisma, RecordStatus, UserType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { Page, PageQueryDto, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { ResetMestrePasswordDto } from './dto/reset-mestre-password.dto';
@@ -44,11 +45,14 @@ export class OrganizationsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Equipe PLATFORM (ou super admin) enxerga todas as organizações — uso do admin.gingapp.com.br. */
-  findAllForPlatform() {
-    return this.prisma.organization.findMany({
-      orderBy: { id: 'desc' },
-      take: 50,
-    });
+  async findAllForPlatform(query: PageQueryDto = {}): Promise<Page<Organization>> {
+    const q = query.q?.trim();
+    const where: Prisma.OrganizationWhereInput = q ? { name: { contains: q, mode: 'insensitive' } } : {};
+    const [items, total] = await Promise.all([
+      this.prisma.organization.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.organization.count({ where }),
+    ]);
+    return { items, total };
   }
 
   /** Mestre/professor/aluno vê apenas a própria organização (contexto do JWT). */

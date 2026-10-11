@@ -38,6 +38,8 @@ export interface StudentPickerProps {
   initial?: StudentOption | null;
   disabled?: boolean;
   className?: string;
+  /** Ids de alunos a esconder dos resultados (ex.: já matriculados). O aluno atual (`value`) nunca é removido. */
+  excludeIds?: number[];
 }
 
 const optionLabel = (s: StudentOption) => `${s.name}${s.status === "INACTIVE" ? " (inativo)" : ""}`;
@@ -63,6 +65,7 @@ export function StudentPicker({
   initial,
   disabled,
   className,
+  excludeIds,
 }: StudentPickerProps) {
   const uid = useId();
   const searchId = `${uid}-busca`;
@@ -75,7 +78,7 @@ export function StudentPicker({
   const q = useDebouncedValue(text.trim(), 300);
   const search = useStudentSearch(q);
 
-  const results = search.data?.items ?? [];
+  const results = (search.data?.items ?? []).filter((s) => !excludeIds?.includes(s.id) || s.id === value);
   const total = search.data?.total ?? 0;
 
   // Quem é o aluno de `value`? escolhido agora > objeto do registro > resultados da busca.

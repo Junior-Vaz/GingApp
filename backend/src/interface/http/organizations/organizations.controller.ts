@@ -1,4 +1,18 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import type { Response } from 'express';
+import { PageQueryDto, sendPage } from '../../../shared/pagination/pagination';
 import { Throttle } from '@nestjs/throttler';
 import { UserType } from '@prisma/client';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
@@ -32,11 +46,16 @@ export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
 
   @Get()
-  findAll(@CurrentUser() user: AuthenticatedUser) {
+  async findAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: PageQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const isPlatformUser = user.userType === UserType.PLATFORM || user.isSuperAdmin;
 
     if (isPlatformUser) {
-      return this.organizationsService.findAllForPlatform();
+      // Corpo continua um array; o total vem em X-Total-Count (padrão das demais listagens).
+      return sendPage(res, await this.organizationsService.findAllForPlatform(query));
     }
 
     return this.organizationsService.findOwn(user.organizationId!);

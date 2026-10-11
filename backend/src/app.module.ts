@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { PrismaRangeFilter } from './shared/filters/prisma-range.filter';
 import { ThrottlerGuard, ThrottlerModule, seconds } from '@nestjs/throttler';
 import { SharedModule } from './shared/shared.module';
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
@@ -33,12 +34,17 @@ import { PlatformDashboardModule } from './interface/http/platform-dashboard/pla
 import { PlatformSettingsModule } from './interface/http/platform-settings/platform-settings.module';
 import { PlatformTeamModule } from './interface/http/platform-team/platform-team.module';
 
+const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
+
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     // Rate limiting global (PLANO_PROJETO.md §3.1) — limites mais estritos em login/platform-login
-    // via @Throttle() nos próprios controllers.
-    ThrottlerModule.forRoot([{ name: 'default', ttl: seconds(60), limit: 60 }]),
+    // via @Throttle() nos próprios controllers. O padrão global era 60/min por IP: baixo demais para um
+    // SPA (cada tela dispara várias consultas) e para uma turma inteira atrás do mesmo Wi-Fi/NAT —
+    // gerava 429 em endpoints aleatórios em produção. Padrão agora 600/min por IP, ajustável por
+    // GLOBAL_THROTTLE_LIMIT (os testes/auditorias podem subir ou desligar).
+    ThrottlerModule.forRoot([{ name: 'default', ttl: seconds(60), limit: GLOBAL_THROTTLE_LIMIT }]),
     SharedModule,
 
     AuthModule,
@@ -69,6 +75,7 @@ import { PlatformTeamModule } from './interface/http/platform-team/platform-team
     PlatformTeamModule,
   ],
   providers: [
+    { provide: APP_FILTER, useClass: PrismaRangeFilter },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     // JwtAuthGuard global: toda rota exige Bearer token, exceto as marcadas com @Public().
     { provide: APP_GUARD, useClass: JwtAuthGuard },

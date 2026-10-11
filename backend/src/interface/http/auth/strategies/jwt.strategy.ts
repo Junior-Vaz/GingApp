@@ -40,6 +40,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Sessão expirada. Faça login novamente.');
     }
 
+    // Token escopado a um grupo: a membership precisa continuar ativa (professor inativado
+    // perde o acesso na hora, sem esperar o token expirar).
+    if (payload.organizationId != null) {
+      const membership = await this.prisma.organizationUser.findFirst({
+        where: { userId: user.id, organizationId: payload.organizationId, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      if (!membership) {
+        throw new UnauthorizedException('Acesso ao grupo inativo.');
+      }
+    }
+
     return {
       id: user.id,
       email: user.email,

@@ -283,6 +283,26 @@ export class EventsService {
       }
     }
 
+    const include = { student: { select: { id: true, name: true } } };
+
+    // Idempotente: repetir a inscrição do mesmo aluno não duplica (atualiza o status, se enviado).
+    if (hasStudent) {
+      const existing = await this.prisma.eventParticipant.findFirst({
+        where: { organizationId, eventId, studentId: dto.studentId },
+        include,
+      });
+      if (existing) {
+        if (dto.status && dto.status !== existing.status) {
+          return this.prisma.eventParticipant.update({
+            where: { id: existing.id },
+            data: { status: dto.status },
+            include,
+          });
+        }
+        return existing;
+      }
+    }
+
     return this.prisma.eventParticipant.create({
       data: {
         organizationId,
@@ -290,8 +310,10 @@ export class EventsService {
         studentId: dto.studentId,
         guestName: dto.guestName,
         status: dto.status,
+        // Guarda quem inscreveu o convidado, para ele poder cancelar a própria inscrição.
+        userId: hasGuest ? requester.id : undefined,
       },
-      include: { student: { select: { id: true, name: true } } },
+      include,
     });
   }
 
@@ -322,7 +344,9 @@ export class EventsService {
       const myStudents = participant.studentId
         ? await this.studentsService.findMine(organizationId, requester.id)
         : [];
-      const isMine = participant.studentId != null && myStudents.some((s) => s.id === participant.studentId);
+      const isMine =
+        (participant.studentId != null && myStudents.some((s) => s.id === participant.studentId)) ||
+        (participant.studentId == null && participant.userId === requester.id);
       if (!isMine) {
         throw new ForbiddenException('Você só pode cancelar a própria inscrição.');
       }

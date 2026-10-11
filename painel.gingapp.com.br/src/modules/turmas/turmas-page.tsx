@@ -15,6 +15,7 @@ import { useListParams } from "@/lib/list-params";
 import { useCan } from "@/lib/session";
 import { useUnitNames } from "@/lib/unit-lookup";
 import { NativeSelect } from "@/modules/alunos/native-select";
+import { ClassStudentsDialog } from "./students-dialog";
 import {
   CLASS_STATUS_LABEL,
   WEEKDAY_LABEL,
@@ -43,8 +44,10 @@ export function TurmasPage() {
   const update = classes.useUpdate();
   const remove = classes.useRemove();
   const canDelete = useCan("classes", "delete"); // PROFESSOR: sem classes:delete (backend responde 403)
+  const canView = useCan("classes", "view");
   const [editing, setEditing] = useState<ClassItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<ClassItem | null>(null);
+  const [studentsOf, setStudentsOf] = useState<ClassItem | null>(null);
 
   // Nomes só das unidades desta página (GET /units/:id por id distinto): não depende de lista com teto.
   const nameOfUnit = useUnitNames((list.items ?? []).map((c) => c.unitId));
@@ -116,6 +119,11 @@ export function TurmasPage() {
         }
         rowActions={(c) => (
           <>
+            {canView && (
+              <Button variant="ghost" size="sm" onClick={() => setStudentsOf(c)}>
+                Alunos
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
               Editar
             </Button>
@@ -251,6 +259,8 @@ export function TurmasPage() {
           </>
         )}
       </FormDialog>
+
+      <ClassStudentsDialog turma={studentsOf} onClose={() => setStudentsOf(null)} />
 
       <ConfirmDialog
         open={deleting !== null}
