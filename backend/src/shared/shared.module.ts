@@ -1,6 +1,7 @@
 import { Global, Module } from '@nestjs/common';
 import { PrismaService } from './prisma/prisma.service';
 import { PermissionsService } from './access/permissions.service';
+import { UnitScopeService } from './access/unit-scope';
 import { BILLING_GATEWAY_SERVICE } from './billing/billing-gateway.interface';
 import { StubBillingGatewayService } from './billing/stub-billing-gateway.service';
 
@@ -19,8 +20,9 @@ import { StubBillingGatewayService } from './billing/stub-billing-gateway.servic
   providers: [
     PrismaService,
     PermissionsService,
+    UnitScopeService,
     { provide: BILLING_GATEWAY_SERVICE, useClass: StubBillingGatewayService },
   ],
-  exports: [PrismaService, PermissionsService, BILLING_GATEWAY_SERVICE],
+  exports: [PrismaService, PermissionsService, UnitScopeService, BILLING_GATEWAY_SERVICE],
 })
 export class SharedModule {}

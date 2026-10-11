@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { KeyRound, Plus } from "lucide-react";
+import { KeyRound, MapPin, Plus } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ResetPasswordDialog } from "@/components/painel/account-dialogs";
@@ -16,6 +16,8 @@ import { createCrud, notifyError } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
 import { useCan } from "@/lib/session";
 import { NativeSelect } from "@/modules/alunos/native-select";
+import { units as unitsCrud } from "@/modules/unidades/units";
+import { UnidadesAtuacaoDialog } from "./unidades-atuacao-dialog";
 import {
   TEACHER_ROLE_LABEL,
   TEACHER_STATUS_LABEL,
@@ -25,6 +27,7 @@ import {
   editTeacherSchema,
   emptyTeacherForm,
   teacherToForm,
+  unitsSummary,
   type Teacher,
   type TeacherFormValues,
   type TeacherInput,
@@ -50,6 +53,10 @@ export function ProfessoresPage() {
   const [editing, setEditing] = useState<Teacher | "new" | null>(null);
   const [deleting, setDeleting] = useState<Teacher | null>(null);
   const [resetting, setResetting] = useState<Teacher | null>(null);
+  const [assigningUnits, setAssigningUnits] = useState<Teacher | null>(null);
+  // Unidades do grupo (nomes da coluna e checkboxes do diálogo "Unidades de atuação").
+  const unitsQuery = unitsCrud.useList({ limit: 200 });
+  const allUnits = unitsQuery.data ?? [];
   // POST /teachers/:id/reset-password (204): só o Mestre (teachers:edit) e só para PROFESSOR do próprio grupo.
   const resetPassword = useMutation({
     mutationFn: ({ id, newPassword }: { id: number; newPassword: string }) =>
@@ -62,6 +69,11 @@ export function ProfessoresPage() {
     { id: "name", header: "Nome", sortValue: (t) => t.user.name, cell: (t) => <span className="font-medium">{t.user.name}</span> },
     { id: "email", header: "E-mail", sortValue: (t) => t.user.email, cell: (t) => t.user.email },
     { id: "phone", header: "Telefone", cell: (t) => t.user.phone || "—" },
+    {
+      id: "units",
+      header: "Unidades",
+      cell: (t) => (t.role === "MESTRE" ? "Todas" : unitsSummary(t.unitIds, allUnits)),
+    },
     {
       id: "role",
       header: "Papel",
@@ -138,6 +150,11 @@ export function ProfessoresPage() {
                   {canEdit && (
                     <Button variant="ghost" size="sm" onClick={() => setEditing(t)}>
                       Editar
+                    </Button>
+                  )}
+                  {canEdit && t.role === "PROFESSOR" && (
+                    <Button variant="ghost" size="sm" onClick={() => setAssigningUnits(t)} aria-label={`Unidades de atuação de ${t.user.name}`}>
+                      <MapPin /> Unidades de atuação
                     </Button>
                   )}
                   {canEdit && t.role === "PROFESSOR" && t.status === "ACTIVE" && (
@@ -260,6 +277,12 @@ export function ProfessoresPage() {
           </>
         )}
       </FormDialog>
+
+      <UnidadesAtuacaoDialog
+        teacher={assigningUnits}
+        units={allUnits}
+        onOpenChange={(open) => !open && setAssigningUnits(null)}
+      />
 
       <ResetPasswordDialog
         open={resetting !== null}

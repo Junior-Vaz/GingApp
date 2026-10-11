@@ -76,6 +76,12 @@ async function handleSubmit(): Promise<void> {
           {{ isSubmitting ? 'Entrando…' : 'Entrar' }}
         </button>
       </form>
+
+      <p data-testid="legal-links" class="mt-6 text-center text-xs text-slate-400">
+        <RouterLink to="/termos" class="underline">Termos de Uso</RouterLink>
+        ·
+        <RouterLink to="/privacidade" class="underline">Política de Privacidade</RouterLink>
+      </p>
     </div>
   </div>
 </template>

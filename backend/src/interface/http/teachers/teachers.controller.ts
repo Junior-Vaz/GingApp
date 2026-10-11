@@ -1,15 +1,17 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { ListTeachersQueryDto } from './dto/list-teachers-query.dto';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
+import { MestreOnlyGuard } from '../../../shared/guards/mestre-only.guard';
 import { UserThrottlerGuard } from '../../../shared/guards/user-throttler.guard';
 import { ResetMemberPasswordDto } from '../../../shared/security/reset-member-password.dto';
 import { MESTRE_RESET_THROTTLE_LIMIT } from '../organizations/organizations.controller';
 import { TeachersService } from './teachers.service';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
+import { SetTeacherUnitsDto } from './dto/set-teacher-units.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
 
 @Controller('teachers')
@@ -30,6 +32,29 @@ export class TeachersController {
   @CanAccess('teachers', 'view')
   findOne(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
     return this.teachersService.findOne(organizationId, id);
+  }
+
+  /**
+   * Unidades de atuação do professor (E08; `id` = membership). Só o MESTRE do grupo lê/define: quem tem unidades
+   * atribuídas só enxerga/edita alunos, turmas, aulas e frequência delas (ver shared/access/unit-scope.ts); sem
+   * nenhuma, vê tudo. PUT substitui o conjunto (lista vazia = sem restrição).
+   */
+  @Get(':id/units')
+  @CanAccess('teachers', 'view')
+  @UseGuards(MestreOnlyGuard)
+  getUnits(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.teachersService.getUnits(organizationId, id);
+  }
+
+  @Put(':id/units')
+  @CanAccess('teachers', 'edit')
+  @UseGuards(MestreOnlyGuard)
+  setUnits(
+    @CurrentOrganization() organizationId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SetTeacherUnitsDto,
+  ) {
+    return this.teachersService.setUnits(organizationId, id, dto);
   }
 
   @Post()

@@ -3,6 +3,12 @@ import { FinancialStatus, StudentStatus, UserType } from '@prisma/client';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { civilTodayStart } from '../finance/finance.service';
+import {
+  groupWideOrUnitFilter,
+  lessonScopeFilter,
+  UnitScopeService,
+  unitScopeFilter,
+} from '../../../shared/access/unit-scope';
 
 /**
  * Dashboard administrativo (projeto.txt §30 — "Como está meu grupo?"), sempre isolado por
@@ -11,7 +17,10 @@ import { civilTodayStart } from '../finance/finance.service';
  */
 @Injectable()
 export class DashboardService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly unitScope: UnitScopeService,
+  ) {}
 
   /**
    * O bloco `finance` só existe para quem tem finance:view na matriz RolePermission (hoje só o
@@ -30,6 +39,13 @@ export class DashboardService {
     startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
+    // Escopo por unidade (E08, shared/access/unit-scope.ts): o PROFESSOR com unidades atribuídas vê só os números das
+    // suas unidades (alunos, turmas, aulas, frequência, graduações dos seus alunos, eventos do grupo e das unidades).
+    // O financeiro é só do Mestre (canViewFinance) e não entra aqui.
+    const unitScope = await this.unitScope.resolve(user, organizationId);
+    const studentScope = unitScopeFilter(unitScope);
+    const lessonScope = lessonScopeFilter(unitScope);
+
     const emptyAggregate = { _count: 0, _sum: { amountCents: null as number | null } };
 
     const [
@@ -45,14 +61,14 @@ export class DashboardService {
       graduationsLast30d,
       upcomingEvents,
     ] = await Promise.all([
-      this.prisma.student.count({ where: { organizationId, status: StudentStatus.ACTIVE } }),
+      this.prisma.student.count({ where: { organizationId, status: StudentStatus.ACTIVE, ...studentScope } }),
       this.prisma.student.count({
-        where: { organizationId, joinedAt: { gte: thirtyDaysAgo } },
+        where: { organizationId, joinedAt: { gte: thirtyDaysAgo }, ...studentScope },
       }),
-      this.prisma.student.count({ where: { organizationId, status: StudentStatus.INACTIVE } }),
-      this.prisma.class.count({ where: { organizationId, status: 'ACTIVE' } }),
+      this.prisma.student.count({ where: { organizationId, status: StudentStatus.INACTIVE, ...studentScope } }),
+      this.prisma.class.count({ where: { organizationId, status: 'ACTIVE', ...studentScope } }),
       this.prisma.lesson.count({
-        where: { organizationId, date: { gte: startOfToday, lt: startOfTomorrow } },
+        where: { organizationId, date: { gte: startOfToday, lt: startOfTomorrow }, AND: [lessonScope] },
       }),
       !canViewFinance
         ? emptyAggregate
@@ -76,14 +92,14 @@ export class DashboardService {
             _sum: { amountCents: true },
           }),
       this.prisma.attendance.findMany({
-        where: { organizationId, createdAt: { gte: thirtyDaysAgo } },
+        where: { organizationId, createdAt: { gte: thirtyDaysAgo }, lesson: lessonScope },
         select: { present: true },
       }),
       this.prisma.studentGraduation.count({
-        where: { organizationId, graduatedAt: { gte: thirtyDaysAgo } },
+        where: { organizationId, graduatedAt: { gte: thirtyDaysAgo }, student: studentScope },
       }),
       this.prisma.event.findMany({
-        where: { organizationId, date: { gte: now } },
+        where: { organizationId, date: { gte: now }, AND: [groupWideOrUnitFilter(unitScope)] },
         orderBy: { date: 'asc' },
         take: 5,
         select: { id: true, title: true, date: true, location: true },

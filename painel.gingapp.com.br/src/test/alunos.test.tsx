@@ -35,6 +35,9 @@ function mockApi(routes: Record<string, (call: Call) => Response>) {
   return calls;
 }
 
+/** Último GET /students (as outras chamadas — unidades, cobrança — não entram na conta). */
+const lastStudents = (calls: Call[]) => calls.filter((c) => c.method === "GET" && c.path === "/students").at(-1)!;
+
 function renderPage(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
@@ -120,12 +123,12 @@ describe("AlunosPage", () => {
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "INACTIVE" } });
     await waitFor(() => expect(screen.queryByText("Ana Souza")).not.toBeInTheDocument());
     expect(screen.getByText("José Álvaro")).toBeInTheDocument();
-    expect(calls.at(-1)!.query.get("status")).toBe("INACTIVE");
+    expect(lastStudents(calls).query.get("status")).toBe("INACTIVE");
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "" } });
     await screen.findByRole("option", { name: "Sede Centro" });
     fireEvent.change(screen.getByLabelText("Filtrar por unidade"), { target: { value: "7" } });
-    await waitFor(() => expect(calls.at(-1)!.query.get("unitId")).toBe("7"));
-    expect(calls.at(-1)!.query.has("status")).toBe(false);
+    await waitFor(() => expect(lastStudents(calls).query.get("unitId")).toBe("7"));
+    expect(lastStudents(calls).query.has("status")).toBe(false);
     fireEvent.change(screen.getByLabelText("Filtrar por unidade"), { target: { value: "" } });
 
     // busca com debounce: só depois de ~300ms vai um GET com q (e um só, não um por tecla)
@@ -133,7 +136,7 @@ describe("AlunosPage", () => {
     fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "Jos" } });
     fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "José" } });
     expect(calls.filter((c) => c.path === "/students").length).toBe(before);
-    await waitFor(() => expect(calls.at(-1)!.query.get("q")).toBe("José"));
+    await waitFor(() => expect(lastStudents(calls).query.get("q")).toBe("José"));
     expect(calls.filter((c) => c.path === "/students" && c.query.has("q"))).toHaveLength(1);
     await waitFor(() => expect(screen.queryByText("Ana Souza")).not.toBeInTheDocument());
   });
@@ -158,11 +161,11 @@ describe("AlunosPage", () => {
     fireEvent.click(screen.getByLabelText("Próxima página"));
     expect(await screen.findByText("Aluno 11")).toBeInTheDocument();
     expect(screen.queryByText("Aluno 01")).not.toBeInTheDocument();
-    expect(calls.at(-1)!.query.get("offset")).toBe("10");
+    expect(lastStudents(calls).query.get("offset")).toBe("10");
     expect(screen.getByText("Página 2 de 3")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "ACTIVE" } });
-    await waitFor(() => expect(calls.at(-1)!.query.get("status")).toBe("ACTIVE"));
-    expect(calls.at(-1)!.query.get("offset")).toBe("0");
+    await waitFor(() => expect(lastStudents(calls).query.get("status")).toBe("ACTIVE"));
+    expect(lastStudents(calls).query.get("offset")).toBe("0");
     expect(await screen.findByText("Página 1 de 3")).toBeInTheDocument();
   });
 

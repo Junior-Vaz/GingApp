@@ -18,6 +18,7 @@ import {
   type Student,
 } from "@/lib/queries";
 import { ChangePasswordSection } from "./change-password";
+import { MyDataSection } from "./legal";
 import { QrDialog } from "./journey";
 import { PageHeading, StateMessage } from "./shared";
 
@@ -214,6 +215,7 @@ export function ProfilePage() {
             </p>
           )}
           <ChangePasswordSection />
+          {!user?.mustChangePassword && <MyDataSection />}
           <Button variant="outline" className="mt-6" onClick={handleLogout}>
             <LogOut />
             Sair da conta

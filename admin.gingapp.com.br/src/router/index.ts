@@ -16,6 +16,20 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: false },
   },
   {
+    path: '/termos',
+    name: 'terms',
+    component: () => import('@/views/LegalView.vue'),
+    props: { type: 'terms' },
+    meta: { requiresAuth: false },
+  },
+  {
+    path: '/privacidade',
+    name: 'privacy',
+    component: () => import('@/views/LegalView.vue'),
+    props: { type: 'privacy' },
+    meta: { requiresAuth: false },
+  },
+  {
     path: '/',
     redirect: '/dashboard',
   },

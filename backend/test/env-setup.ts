@@ -11,3 +11,7 @@ process.env.ORG_CREATE_THROTTLE_LIMIT = '100';
 // rate limit por conta própria (limite rebaixado).
 process.env.CHANGE_PASSWORD_THROTTLE_LIMIT = '100';
 process.env.MESTRE_RESET_THROTTLE_LIMIT = '100';
+// Sem o job diario de mensalidade vencida (@nestjs/schedule) nos testes: nenhum timer/cron e registrado
+// (AppModule so inclui ScheduleModule/JobsModule quando OVERDUE_CRON != 'false'). O job e testado a parte
+// em test/overdue-cron.spec.ts (registro do cron e execucao direta, sem esperar o relogio).
+process.env.OVERDUE_CRON = 'false';

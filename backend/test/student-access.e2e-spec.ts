@@ -134,13 +134,21 @@ describe('Acesso do aluno, responsáveis e reset de senha (e2e)', () => {
       assert.equal(login.body.user.role, 'ALUNO');
       assert.equal(login.body.user.organizationId, mestre.organizationId);
       assert.equal(login.body.user.mustChangePassword, true);
-      const me = await http().get('/api/students/me').set(auth(login.body.accessToken)).expect(200);
+      // Senha provisória pendente: o servidor barra tudo (403 MUST_CHANGE_PASSWORD) até a troca da própria senha.
+      const gated = await http().get('/api/students/me').set(auth(login.body.accessToken)).expect(403);
+      assert.equal(gated.body.code, 'MUST_CHANGE_PASSWORD');
+      const changed = await http()
+        .post('/api/auth/change-password')
+        .set(auth(login.body.accessToken))
+        .send({ currentPassword: TEMP_PASSWORD, newPassword: NEW_PASSWORD })
+        .expect(200);
+      const me = await http().get('/api/students/me').set(auth(changed.body.accessToken)).expect(200);
       assert.deepEqual(
         me.body.map((s: { id: number }) => s.id),
         [student.id],
       );
       // Menor privilégio: o aluno continua sem acesso administrativo.
-      await http().get('/api/students').set(auth(login.body.accessToken)).expect(403);
+      await http().get('/api/students').set(auth(changed.body.accessToken)).expect(403);
 
       const account = await http().get(`/api/students/${student.id}/account`).set(auth(mestre.token)).expect(200);
       assert.equal(account.body.hasAccount, true);
@@ -280,22 +288,24 @@ describe('Acesso do aluno, responsáveis e reset de senha (e2e)', () => {
       const e = email('reset');
       await http().post(`/api/students/${student.id}/account`).set(auth(mestre.token)).send({ email: e, password: TEMP_PASSWORD }).expect(201);
       const oldToken = await loginToken(e, TEMP_PASSWORD);
-      await http().get('/api/students/me').set(auth(oldToken)).expect(200);
+      // (a conta nasce com senha provisória: só /auth/me responde 200; o resto é 403 até a troca)
+      await http().get('/api/auth/me').set(auth(oldToken)).expect(200);
 
       // senha fraca / corpo inválido
       await http().post(`/api/students/${student.id}/reset-password`).set(auth(mestre.token)).send({ newPassword: 'curta' }).expect(400);
       await http().post(`/api/students/${student.id}/reset-password`).set(auth(mestre.token)).send({ newPassword: 'Dev@12345' }).expect(400);
       await http().post(`/api/students/${student.id}/reset-password`).set(auth(mestre.token)).send({}).expect(400);
-      await http().get('/api/students/me').set(auth(oldToken)).expect(200); // nada mudou
+      await http().get('/api/auth/me').set(auth(oldToken)).expect(200); // nada mudou
 
       const res = await http().post(`/api/students/${student.id}/reset-password`).set(auth(mestre.token)).send({ newPassword: NEW_PASSWORD }).expect(204);
       assert.equal(res.text, '');
 
-      await http().get('/api/students/me').set(auth(oldToken)).expect(401); // sessão revogada
+      await http().get('/api/auth/me').set(auth(oldToken)).expect(401); // sessão revogada
       await loginRaw(e, TEMP_PASSWORD).expect(401);
       const login = await loginRaw(e, NEW_PASSWORD).expect(200);
       assert.equal(login.body.user.mustChangePassword, true);
-      await http().get('/api/students/me').set(auth(login.body.accessToken)).expect(200);
+      await http().get('/api/auth/me').set(auth(login.body.accessToken)).expect(200);
+      await http().get('/api/students/me').set(auth(login.body.accessToken)).expect(403); // exige a troca antes
 
       // A troca da PRÓPRIA senha limpa a flag.
       await http().post('/api/auth/change-password').set(auth(login.body.accessToken)).send({ currentPassword: NEW_PASSWORD, newPassword: 'Definitiva@2026z' }).expect(200);
@@ -406,9 +416,15 @@ describe('Acesso do aluno, responsáveis e reset de senha (e2e)', () => {
       const login = await loginRaw(gEmail, TEMP_PASSWORD).expect(200);
       assert.equal(login.body.user.role, 'RESPONSAVEL');
       assert.equal(login.body.user.mustChangePassword, true);
-      const me = await http().get('/api/students/me').set(auth(login.body.accessToken)).expect(200);
+      await http().get('/api/students/me').set(auth(login.body.accessToken)).expect(403); // senha provisória pendente
+      const changed = await http()
+        .post('/api/auth/change-password')
+        .set(auth(login.body.accessToken))
+        .send({ currentPassword: TEMP_PASSWORD, newPassword: 'Troca@Intermed2026q' })
+        .expect(200);
+      const me = await http().get('/api/students/me').set(auth(changed.body.accessToken)).expect(200);
       assert.deepEqual(me.body.map((s: { id: number }) => s.id), [student.id]);
-      await http().get('/api/students').set(auth(login.body.accessToken)).expect(403);
+      await http().get('/api/students').set(auth(changed.body.accessToken)).expect(403);
 
       // Responsável duplicado (mesmo usuário) no mesmo aluno => 409.
       const dup = await http().post(`/api/students/${student.id}/guardians`).set(auth(mestre.token)).send({ name: 'Joao de novo', email: gEmail, createAccount: true }).expect(409);
@@ -457,7 +473,13 @@ describe('Acesso do aluno, responsáveis e reset de senha (e2e)', () => {
       assert.equal(second.body.linkedExistingUser, true);
       assert.equal(await countUsers(), usersMid);
       assert.equal((await prisma.user.findUniqueOrThrow({ where: { email: gEmail } })).passwordHash, before.passwordHash);
-      const token = await loginToken(gEmail, TEMP_PASSWORD);
+      const provisional = await loginToken(gEmail, TEMP_PASSWORD);
+      const changedGuardian = await http()
+        .post('/api/auth/change-password')
+        .set(auth(provisional))
+        .send({ currentPassword: TEMP_PASSWORD, newPassword: 'Troca@Responsavel2026r' })
+        .expect(200);
+      const token = changedGuardian.body.accessToken as string;
       const me = await http().get('/api/students/me').set(auth(token)).expect(200);
       assert.deepEqual(me.body.map((s: { id: number }) => s.id).sort(), [student.id, student2.id].sort());
 

@@ -50,8 +50,19 @@ export function civilTodayStart(now: Date = new Date()): Date {
   return new Date(`${ymd}T00:00:00.000Z`);
 }
 
+/**
+ * Cláusula ÚNICA de "atrasado" (SSOT): status OVERDUE gravado OU PENDING com vencimento anterior a `today`
+ * (data civil de São Paulo, ver civilTodayStart). Usada pela lista/resumo do financeiro e pela lista de
+ * inadimplentes (FinanceCollectionService) — assim as duas nunca divergem.
+ */
+export function effectiveOverdueClause(today: Date): Prisma.FinancialRecordWhereInput {
+  return {
+    OR: [{ status: FinancialStatus.OVERDUE }, { status: FinancialStatus.PENDING, dueDate: { lt: today } }],
+  };
+}
+
 /** Início (UTC) do dia civil de um ISO/yyyy-MM-dd. */
-function dayStart(iso: string): Date {
+export function dayStart(iso: string): Date {
   return new Date(`${iso.slice(0, 10)}T00:00:00.000Z`);
 }
 
@@ -81,9 +92,7 @@ export class FinanceService {
     if (query.status === FinancialStatus.PENDING) {
       and.push({ status: FinancialStatus.PENDING, dueDate: { gte: today } });
     } else if (query.status === FinancialStatus.OVERDUE) {
-      and.push({
-        OR: [{ status: FinancialStatus.OVERDUE }, { status: FinancialStatus.PENDING, dueDate: { lt: today } }],
-      });
+      and.push(effectiveOverdueClause(today));
     } else if (query.status) {
       and.push({ status: query.status });
     }
@@ -310,6 +319,9 @@ export class FinanceService {
       paidAt = null;
     }
 
+    // Sair de PAID (PENDING/OVERDUE) também limpa a forma de pagamento e o valor pago da baixa (E07), como o paidAt.
+    const leavingPaid = dto.status === 'PENDING' || dto.status === 'OVERDUE';
+
     return this.prisma.financialRecord.update({
       where: { id },
       data: {
@@ -321,6 +333,7 @@ export class FinanceService {
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
         status: dto.status,
         paidAt,
+        ...(leavingPaid ? { paymentMethod: null, paidCents: null } : {}),
       },
     });
   }

@@ -94,30 +94,33 @@ export class GraduationsController {
   @CanAccess('graduations', 'create')
   createStudentGraduation(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('studentId', ParseIntPipe) studentId: number,
     @Body() dto: CreateStudentGraduationDto,
   ) {
-    return this.graduationsService.createStudentGraduation(organizationId, studentId, dto);
+    return this.graduationsService.createStudentGraduation(organizationId, studentId, dto, user);
   }
 
   @Patch('students/:studentId/:graduationId')
   @CanAccess('graduations', 'edit')
   updateStudentGraduation(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('studentId', ParseIntPipe) studentId: number,
     @Param('graduationId', ParseIntPipe) graduationId: number,
     @Body() dto: UpdateStudentGraduationDto,
   ) {
-    return this.graduationsService.updateStudentGraduation(organizationId, studentId, graduationId, dto);
+    return this.graduationsService.updateStudentGraduation(organizationId, studentId, graduationId, dto, user);
   }
 
   @Delete('students/:studentId/:graduationId')
   @CanAccess('graduations', 'delete')
   removeStudentGraduation(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('studentId', ParseIntPipe) studentId: number,
     @Param('graduationId', ParseIntPipe) graduationId: number,
   ) {
-    return this.graduationsService.removeStudentGraduation(organizationId, studentId, graduationId);
+    return this.graduationsService.removeStudentGraduation(organizationId, studentId, graduationId, user);
   }
 }

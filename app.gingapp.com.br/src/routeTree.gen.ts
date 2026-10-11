@@ -11,6 +11,8 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as PrivacidadeRouteImport } from './routes/privacidade'
+import { Route as TermosRouteImport } from './routes/termos'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppAulasRouteImport } from './routes/_app.aulas'
 import { Route as AppComunidadeRouteImport } from './routes/_app.comunidade'
@@ -31,6 +33,16 @@ const AppRoute = AppRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacidadeRoute = PrivacidadeRouteImport.update({
+  id: '/privacidade',
+  path: '/privacidade',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermosRoute = TermosRouteImport.update({
+  id: '/termos',
+  path: '/termos',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -97,6 +109,8 @@ const VerificarCodeRoute = VerificarCodeRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/login': typeof LoginRoute
+  '/privacidade': typeof PrivacidadeRoute
+  '/termos': typeof TermosRoute
   '/aulas': typeof AppAulasRoute
   '/comunidade': typeof AppComunidadeRoute
   '/eventos': typeof AppEventosRoute
@@ -111,6 +125,8 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
+  '/privacidade': typeof PrivacidadeRoute
+  '/termos': typeof TermosRoute
   '/aulas': typeof AppAulasRoute
   '/comunidade': typeof AppComunidadeRoute
   '/eventos': typeof AppEventosRoute
@@ -128,6 +144,8 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
   '/login': typeof LoginRoute
+  '/privacidade': typeof PrivacidadeRoute
+  '/termos': typeof TermosRoute
   '/_app/aulas': typeof AppAulasRoute
   '/_app/comunidade': typeof AppComunidadeRoute
   '/_app/eventos': typeof AppEventosRoute
@@ -146,6 +164,8 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/privacidade'
+    | '/termos'
     | '/aulas'
     | '/comunidade'
     | '/eventos'
@@ -160,6 +180,8 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
+    | '/privacidade'
+    | '/termos'
     | '/aulas'
     | '/comunidade'
     | '/eventos'
@@ -176,6 +198,8 @@ export interface FileRouteTypes {
     | '__root__'
     | '/_app'
     | '/login'
+    | '/privacidade'
+    | '/termos'
     | '/_app/aulas'
     | '/_app/comunidade'
     | '/_app/eventos'
@@ -193,6 +217,8 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
+  PrivacidadeRoute: typeof PrivacidadeRoute
+  TermosRoute: typeof TermosRoute
   VerificarPassaporteCodeRoute: typeof VerificarPassaporteCodeRoute
   VerificarCodeRoute: typeof VerificarCodeRoute
 }
@@ -211,6 +237,20 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacidade': {
+      id: '/privacidade'
+      path: '/privacidade'
+      fullPath: '/privacidade'
+      preLoaderRoute: typeof PrivacidadeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/termos': {
+      id: '/termos'
+      path: '/termos'
+      fullPath: '/termos'
+      preLoaderRoute: typeof TermosRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -331,6 +371,8 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
+  PrivacidadeRoute: PrivacidadeRoute,
+  TermosRoute: TermosRoute,
   VerificarPassaporteCodeRoute: VerificarPassaporteCodeRoute,
   VerificarCodeRoute: VerificarCodeRoute,
 }

@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import ChangePasswordModal from '@/components/ChangePasswordModal.vue'
+import TermsGateModal from '@/components/TermsGateModal.vue'
 import { routes } from '@/router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -9,6 +10,11 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const isChangePasswordOpen = ref(false)
+
+// Senha provisória pendente: o servidor barra todas as rotas (403 MUST_CHANGE_PASSWORD), então só a troca aparece.
+const mustChangePassword = computed(() => authStore.user?.mustChangePassword === true)
+// Aceite dos Termos/Política pendente (vem depois da troca de senha obrigatória).
+const needsTerms = computed(() => !mustChangePassword.value && authStore.user?.termsAcceptanceRequired === true)
 
 const navItems = computed(() =>
   routes
@@ -74,10 +80,15 @@ function handleLogout(): void {
 
     <main class="min-w-0 flex-1 overflow-y-auto">
       <div class="mx-auto max-w-6xl px-8 py-8">
-        <RouterView />
+        <p v-if="mustChangePassword" role="alert" data-testid="must-change-password" class="text-sm text-slate-600">
+          Altere a senha provisória na janela aberta para liberar o admin.
+        </p>
+        <RouterView v-else />
       </div>
     </main>
 
-    <ChangePasswordModal v-if="isChangePasswordOpen" @close="isChangePasswordOpen = false" />
+    <ChangePasswordModal v-if="mustChangePassword" forced @close="() => undefined" />
+    <ChangePasswordModal v-else-if="isChangePasswordOpen" @close="isChangePasswordOpen = false" />
+    <TermsGateModal v-if="needsTerms" @logout="handleLogout" />
   </div>
 </template>

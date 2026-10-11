@@ -9,6 +9,8 @@ import { User, UserType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuthenticatedUser, JwtPayload } from '../../../shared/interfaces/jwt-payload.interface';
+import { isMembershipBlockedByInactiveStudent } from '../../../shared/access/inactive-student-access';
+import { buildTermsStatus } from '../../../shared/legal/legal-documents';
 import { BCRYPT_ROUNDS } from '../../../shared/security/password-policy';
 import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
 import { issuedAtFor, revocationCutoff } from '../../../shared/security/token-revocation';
@@ -50,11 +52,16 @@ export class AuthService {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
-    const memberships = await this.prisma.organizationUser.findMany({
+    const activeMemberships = await this.prisma.organizationUser.findMany({
       // Grupo INACTIVE (desativado pela plataforma) não conta: sem vínculo utilizável => 401 genérico.
       where: { userId: user.id, status: 'ACTIVE', organization: { status: 'ACTIVE' } },
       include: { organization: true },
     });
+    // Aluno inativado: o vínculo ALUNO daquele grupo não é utilizável (os outros vínculos da pessoa seguem).
+    const memberships = [];
+    for (const candidate of activeMemberships) {
+      if (!(await isMembershipBlockedByInactiveStudent(this.prisma, candidate))) memberships.push(candidate);
+    }
 
     if (memberships.length === 0) {
       throw new UnauthorizedException(INVALID_CREDENTIALS);
@@ -95,6 +102,7 @@ export class AuthService {
         organizationSlug: membership.organization.slug,
         role: membership.role,
         mustChangePassword: user.mustChangePassword,
+        ...buildTermsStatus(user),
       },
     };
   }
@@ -127,6 +135,8 @@ export class AuthService {
         email: user.email,
         userType: user.userType,
         isSuperAdmin: user.isSuperAdmin,
+        mustChangePassword: user.mustChangePassword,
+        ...buildTermsStatus(user),
       },
     };
   }
@@ -160,7 +170,7 @@ export class AuthService {
             },
           })
         : null;
-      if (!membership) {
+      if (!membership || (await isMembershipBlockedByInactiveStudent(this.prisma, membership))) {
         throw new UnauthorizedException('Usuário inválido ou inativo.');
       }
       membershipPayload = { organizationId: membership.organizationId, role: membership.role };

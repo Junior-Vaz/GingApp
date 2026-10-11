@@ -3032,3 +3032,43 @@ compartilhada). Prova: `/api/health` sem `"database":"up"`. Solução: aliases �
 4. Inativar unidade com alunos/turmas ativos não é bloqueado.
 5. E07 cobrança de mensalidade ponta a ponta, E08 permissão por unidade, E10 termos/LGPD, E11 backup — próximas ondas.
 6. Importantes: upload de imagens (volume local), CSV, relatórios reais, AuditLog, admin em português, refresh token, Web Push.
+
+## E08 — Autorização por unidade (Onda 2)
+
+**Estado: concluído (sem commit).** Helper único: `backend/src/shared/access/unit-scope.ts` (`UnitScopeService.resolve(user, orgId)` -> `number[] | 'ALL'`; filtros `unitScopeFilter`/`lessonScopeFilter`/`groupWideOrUnitFilter`; `assertUnitAccess`, `assertUnitTarget`, `assertUnitOwned`, `resolveWriteUnit`, `assertUnitUpdate`).
+
+Decisões:
+1. Só o PROFESSOR com 1+ registros em `UserUnitAccess` da organização fica restrito às unidades listadas. MESTRE, PLATFORM/super admin, ALUNO e RESPONSAVEL = sem restrição por unidade (o escopo de aluno/responsável continua por vínculo, rotas `/me`).
+2. PROFESSOR SEM nenhum registro mantém o comportamento anterior (vê tudo), para não quebrar grupos existentes. O Mestre volta a liberar tudo com `PUT /teachers/:id/units { unitIds: [] }`. Atenção: o seed e o grupo demo dão `UserUnitAccess` aos professores, então eles passam a ser restritos.
+3. Registro SEM unidade (aluno/turma/aula legados) continua visível e editável pelo professor restrito; aula sem `unitId` herda a unidade da turma. Evento/comunicado sem unidade = grupo inteiro: legível por todos, só o Mestre altera (403 para o restrito).
+4. Leitura fora do escopo = 404 igual ao inexistente (lista e `X-Total-Count` usam o mesmo `where`); unidade de destino no corpo fora do escopo = 403; criação pelo restrito sem `unitId` assume a única unidade dele (ou 400 se tem várias); não pode mover para fora do escopo nem limpar a unidade.
+5. Aplicado em: students (+ conta de acesso e responsáveis por id), classes (+ matrícula/geração de aulas), lessons, attendance, events, announcements, units (lista/leitura), dashboard, graduations por aluno e certificates. Fora: finance e notifications (outros agentes), passport/`/me` (por vínculo).
+6. API: `GET/PUT /teachers/:id/units` (só Mestre; valida unidades do mesmo grupo; substitui o conjunto; Mestre como alvo = 400), `GET /teachers` e `GET /teachers/:id` devolvem `unitIds`. Painel: Professores -> coluna "Unidades" e ação "Unidades de atuação" (checkboxes).
+7. Testes: `test/unit-scope.spec.ts` (puro), `test/unit-scope.e2e-spec.ts` (25 casos, grupo próprio). Ajustes em `announcements-notifications.e2e-spec.ts` (professor do seed agora restrito) e `teachers.e2e-spec.ts` (`unitIds`).
+
+Pendências: (a) `/events/:id/participants` POST por professor restrito não confere a unidade do aluno inscrito; (b) `GET /calendar` (eventos públicos entre grupos) não aplica escopo; (c) professor do demo/seed restrito pode surpreender quem testa pelo painel; (d) sem cache do escopo (1 consulta extra por requisição do PROFESSOR).
+
+### 10.39 Onda 2 de completude (cobranÃ§a, escopo por unidade, LGPD, backup)
+
+**Data:** 2026-10-12 Â· **Status:** âœ… concluÃ­do. Gate: backend 80 unit + 688 e2e (`test:quick`) + 14 (bootstrap), admin 113, painel 402, app 88.
+
+- **E07 cobranÃ§a**: `StudentBilling` (valor em centavos + dia 1..31), `FinancialRecord.competence/paymentMethod/paidCents` (unique aluno+mÃªs+tipo),
+  `Organization.paymentInstructions`; geraÃ§Ã£o mensal idempotente, baixa/estorno/cancelamento, inadimplentes, recibo imprimÃ­vel (painel), "Como pagar" (app).
+- **E08 escopo por unidade** (`shared/access/unit-scope.ts`): sÃ³ PROFESSOR com 1+ registros em `UserUnitAccess` fica restrito; sem registros vÃª tudo (compatÃ­vel);
+  registros sem unidade seguem visÃ­veis (sÃ³ o MESTRE altera); fora do escopo = 404; `GET/PUT /teachers/:id/units`.
+- **E10 LGPD**: textos MODELO em `backend/src/shared/legal/` (revisar com jurÃ­dico; preencher campos `[...]`), aceite versionado (`LEGAL_VERSION`), `/auth/me/export`,
+  `/auth/me/delete-request`; o servidor sÃ³ barra sem aceite com `TERMS_ENFORCEMENT=true`.
+- **E11 backup**: serviÃ§o `backup` no compose (pg_dump diÃ¡rio, retenÃ§Ã£o 14 dias, volume `gingapp_backups`) + `ops/backup/restore.sh`. **NÃƒO executado** (Docker local sem acesso ao Docker Hub): rodar `restore.sh verify` em staging.
+- `mustChangePassword` imposto no servidor (JwtAuthGuard) e nas telas; aluno inativo/suspenso nÃ£o loga; cron diÃ¡rio 03:00 America/Sao_Paulo de mensalidade vencida (`OVERDUE_CRON=false` desliga; `@nestjs/schedule`).
+
+#### O que NÃƒO deu certo e a soluÃ§Ã£o
+- `demo-seed` esperava 6 turmas para o professor; com E08 ele vÃª sÃ³ as das suas unidades â†’ teste ajustado (0 < n < 6), MESTRE segue vendo as 6.
+- Rodadas de testes dos agentes (mutaÃ§Ã£o, revalidaÃ§Ã£o) levavam 30+ min â†’ decisÃ£o do owner: testes simples. Novo `npm run test:quick -- --smoke` (essencial, dezenas de segundos).
+- Meu primeiro script de gate falhou por sintaxe do PowerShell (`--` dentro de grupo) â†’ script em arquivo `.ps1`.
+
+#### PendÃªncias (numeradas)
+1. Dashboard e "Recebido" ainda somam `amountCents`, nÃ£o `paidCents`; recibo sÃ³ no painel (app nÃ£o tem).
+2. `POST /events/:id/participants` por professor restrito nÃ£o confere a unidade do aluno; `GET /calendar` pÃºblico sem escopo.
+3. Tela de pedidos de exclusÃ£o (LGPD) no admin; copiar dumps para fora do servidor e alerta de falha do backup; `restore.sh verify` em staging.
+4. RevisÃ£o jurÃ­dica dos textos; admin sem "Meus dados".
+5. Ainda do inventÃ¡rio: upload de imagens, CSV, relatÃ³rios reais, AuditLog (admin), admin em portuguÃªs, refresh token, Web Push, e-mail/esqueci a senha (SMTP), comunidade pÃºblica, eventos/rodas/comunicados mais ricos, certificado em PDF.

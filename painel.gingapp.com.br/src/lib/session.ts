@@ -32,6 +32,12 @@ export interface AuthUser {
   organizationId: number;
   organizationSlug: string;
   role: OrgRole;
+  /** Senha definida por outra pessoa (conta criada/redefinida pelo Mestre): o painel exige a troca antes de tudo. */
+  mustChangePassword?: boolean;
+  /** Termos de Uso/Política de Privacidade (E10): true = há aceite pendente; o painel mostra a tela bloqueante. */
+  termsAcceptanceRequired?: boolean;
+  currentTermsVersion?: string;
+  acceptedTermsVersion?: string | null;
 }
 
 /** O usuário pode usar o painel de gestão? (MEMBER com papel MESTRE ou PROFESSOR.) */
@@ -92,8 +98,29 @@ export function saveSession(token: string, user: AuthUser): void {
  */
 export function replaceToken(token: string): void {
   const store = storage();
-  if (!store || store.getItem(USER_STORAGE_KEY) === null) return;
+  const rawUser = store?.getItem(USER_STORAGE_KEY) ?? null;
+  if (!store || rawUser === null) return;
   store.setItem(TOKEN_STORAGE_KEY, token);
+  // Só é chamada depois de a PRÓPRIA senha ser trocada: a troca obrigatória (mustChangePassword) está cumprida.
+  try {
+    const user = JSON.parse(rawUser) as AuthUser;
+    if (user.mustChangePassword) store.setItem(USER_STORAGE_KEY, JSON.stringify({ ...user, mustChangePassword: false }));
+  } catch {
+    // usuário guardado ilegível: getUser() já devolve null
+  }
+  emit();
+}
+
+/** Mescla campos no usuário da sessão (ex.: depois do aceite dos termos). Sem sessão guardada não faz nada. */
+export function updateSessionUser(patch: Partial<AuthUser>): void {
+  const store = storage();
+  const rawUser = store?.getItem(USER_STORAGE_KEY) ?? null;
+  if (!store || rawUser === null) return;
+  try {
+    store.setItem(USER_STORAGE_KEY, JSON.stringify({ ...(JSON.parse(rawUser) as AuthUser), ...patch }));
+  } catch {
+    return;
+  }
   emit();
 }
 

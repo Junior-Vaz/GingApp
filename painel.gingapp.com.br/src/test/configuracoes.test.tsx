@@ -198,6 +198,7 @@ describe("ConfiguracoesPage — editar dados do grupo", () => {
       state: "GO",
       website: "https://ginga.example.com",
       logo: "https://cdn.example.com/logo.png",
+      paymentInstructions: null,
       socialLinks: { youtube: "https://youtube.com/@ginga" },
     });
     expect(patches(calls)[0]!.body).not.toHaveProperty("slug");
@@ -234,6 +235,7 @@ describe("ConfiguracoesPage — editar dados do grupo", () => {
       state: null,
       website: null,
       logo: "https://cdn.example.com/logo.png",
+      paymentInstructions: null,
       socialLinks: null,
     });
   });
@@ -278,7 +280,7 @@ describe("org-schema", () => {
     expect(form).toMatchObject({ name: "Ginga Brasil", phone: "", foundedYear: "", state: "", website: "", instagram: "" });
     expect(organizationToPayload(form)).toEqual({
       name: "Ginga Brasil", document: "12.345.678/0001-90", email: "contato@gb.com", phone: null, description: null, history: null,
-      foundedYear: null, city: null, state: null, website: null, logo: null, socialLinks: null,
+      foundedYear: null, city: null, state: null, website: null, logo: null, paymentInstructions: null, socialLinks: null,
     });
   });
 

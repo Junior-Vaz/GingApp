@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Unit } from "@/modules/unidades/units";
 
 export type TeacherRole = "MESTRE" | "PROFESSOR";
 
@@ -8,6 +9,8 @@ export interface Teacher {
   role: TeacherRole;
   status: string;
   createdAt?: string;
+  /** Unidades de atuação (E08): vazio = sem restrição (vê todas). Só vem em GET /teachers e /teachers/:id. */
+  unitIds?: number[];
   user: { id: number; name: string; email: string; phone: string | null; photo?: string | null };
 }
 
@@ -90,4 +93,11 @@ export function editPayload(values: TeacherFormValues): TeacherInput {
     role: values.role,
     status: values.status,
   };
+}
+
+/** Lista de unidades de atuação do professor para exibir na tabela: vazio = sem restrição (vê todas). */
+export function unitsSummary(unitIds: number[] | undefined, units: Unit[]): string {
+  if (!unitIds || unitIds.length === 0) return "Todas";
+  const names = unitIds.map((id) => units.find((u) => u.id === id)?.name ?? `#${id}`);
+  return names.length <= 2 ? names.join(", ") : `${names.slice(0, 2).join(", ")} +${names.length - 2}`;
 }

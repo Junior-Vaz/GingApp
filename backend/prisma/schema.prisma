@@ -61,6 +61,15 @@ enum FinancialStatus {
   CANCELLED
 }
 
+/// Forma de pagamento da baixa de um lançamento (E07).
+enum PaymentMethod {
+  CASH
+  PIX
+  CARD
+  TRANSFER
+  OTHER
+}
+
 enum SubscriptionStatus {
   TRIALING
   ACTIVE
@@ -82,23 +91,29 @@ enum ParticipantStatus {
 // =========================================================================
 
 model User {
-  id                 Int       @id @default(autoincrement())
-  email              String    @unique
-  passwordHash       String
-  name               String
-  phone              String?
-  photo              String?
-  userType           UserType  @default(MEMBER)
-  isSuperAdmin       Boolean   @default(false)
-  status             String    @default("ACTIVE")
-  twoFactorSecret    String?
-  tokenValidAfter    DateTime?
+  id                   Int       @id @default(autoincrement())
+  email                String    @unique
+  passwordHash         String
+  name                 String
+  phone                String?
+  photo                String?
+  userType             UserType  @default(MEMBER)
+  isSuperAdmin         Boolean   @default(false)
+  status               String    @default("ACTIVE")
+  twoFactorSecret      String?
+  tokenValidAfter      DateTime?
   /// true quando a senha atual foi definida por outra pessoa (conta de aluno/responsavel criada pelo
   /// Mestre/Professor, ou senha redefinida por ele): os frontends devem exigir a troca no proximo login.
   /// Limpo por POST /auth/change-password.
-  mustChangePassword Boolean   @default(false)
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  mustChangePassword   Boolean   @default(false)
+  /// Aceite dos Termos de Uso + Politica de Privacidade (LGPD, E10): versao do texto aceita pelo titular
+  /// (ver backend/src/shared/legal) e quando. NULL = nunca aceitou. Um texto novo (versao diferente da
+  /// atual) volta a exigir o aceite. O servidor so BLOQUEIA o uso se TERMS_ENFORCEMENT=true; por padrao
+  /// quem barra e o frontend (modal bloqueante), para nao quebrar seed/demo/e2e.
+  acceptedTermsVersion String?
+  acceptedTermsAt      DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
 
   memberships                  OrganizationUser[]
   unitAccess                   UserUnitAccess[]
@@ -114,8 +129,30 @@ model User {
   rodaParticipations           RodaParticipant[]      @relation("RodaParticipantUser")
   publicProfile                PublicProfile?         @relation("PublicProfileUser")
   updatedPlatformSettings      PlatformSetting[]      @relation("PlatformSettingUpdatedBy")
+  dataDeletionRequests         DataDeletionRequest[]  @relation("DataDeletionRequestUser")
 
   @@index([userType])
+}
+
+/// Pedido do titular para excluir/anonimizar os proprios dados (LGPD art. 18, E10). POST /auth/me/delete-request
+/// apenas REGISTRA o pedido (status PENDING): nada e apagado automaticamente — a equipe/Mestre avalia (ha
+/// historico escolar/financeiro a preservar) e executa manualmente, depois marca RESOLVED/REJECTED.
+model DataDeletionRequest {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  /// Grupo do token no momento do pedido (NULL para equipe PLATFORM).
+  organizationId Int?
+  /// PENDING | RESOLVED | REJECTED (texto livre de proposito, como Notification.type).
+  status         String    @default("PENDING")
+  reason         String?
+  requestedAt    DateTime  @default(now())
+  resolvedAt     DateTime?
+  resolutionNote String?
+
+  user User @relation("DataDeletionRequestUser", fields: [userId], references: [id])
+
+  @@index([userId, status])
+  @@index([status, requestedAt])
 }
 
 model Plan {
@@ -252,29 +289,33 @@ model AuditLog {
 // =========================================================================
 
 model Organization {
-  id          Int              @id @default(autoincrement())
-  name        String
-  slug        String           @unique
-  type        OrganizationType @default(GROUP)
-  status      RecordStatus     @default(ACTIVE)
-  document    String?
-  email       String?
-  phone       String?
-  logo        String?
+  id                  Int              @id @default(autoincrement())
+  name                String
+  slug                String           @unique
+  type                OrganizationType @default(GROUP)
+  status              RecordStatus     @default(ACTIVE)
+  document            String?
+  email               String?
+  phone               String?
+  logo                String?
   /// Perfil institucional do grupo (projeto.txt §13), editado pelo MESTRE em PATCH /organizations/me.
   /// description = apresentacao curta; history = historia do grupo; foundedYear = ano de fundacao;
   /// city/state = cidade e UF-sede (texto livre, nao FK); website = site; socialLinks = redes
   /// ({ instagram?, youtube?, tiktok?, facebook?, whatsapp? }, todas opcionais, so URLs).
-  description String?
-  history     String?
-  foundedYear Int?
-  city        String?
-  state       String?
-  website     String?
-  socialLinks Json?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  description         String?
+  history             String?
+  foundedYear         Int?
+  city                String?
+  state               String?
+  website             String?
+  socialLinks         Json?
+  /// "Como pagar" (E07): texto livre (chave PIX, dados bancarios, link, orientacoes) mostrado ao aluno/
+  /// responsavel no app. Editado pelo MESTRE em PATCH /organizations/me.
+  paymentInstructions String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
 
+  studentBillings       StudentBilling[]
   users                 OrganizationUser[]
   units                 Unit[]
   userUnitAccess        UserUnitAccess[]
@@ -395,8 +436,27 @@ model Student {
   rodaParticipations  RodaParticipant[]
   publicProfile       PublicProfile?      @relation("PublicProfileStudent")
   certificates        Certificate[]
+  billing             StudentBilling?
 
   @@index([organizationId, status])
+}
+
+/// Cobranca mensal do aluno (E07): valor da mensalidade (centavos) e dia de vencimento (1..31; em meses
+/// curtos vale o ultimo dia do mes). Tabela PROPRIA (nao colunas de Student) de proposito: o financeiro e
+/// so do MESTRE, e GET /students e lido por professor — o valor nao pode vazar por la.
+model StudentBilling {
+  id              Int      @id @default(autoincrement())
+  organizationId  Int
+  studentId       Int      @unique
+  monthlyFeeCents Int
+  dueDay          Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 /// Responsavel legal do aluno (obrigatorio quando o aluno e menor de idade, por birthDate —
@@ -571,6 +631,13 @@ model FinancialRecord {
   dueDate        DateTime
   paidAt         DateTime?
   status         FinancialStatus @default(PENDING)
+  /// Competencia 'YYYY-MM' (so nos lancamentos gerados em lote por POST /finance/generate-monthly); o
+  /// unique (studentId, competence, type) garante 1 mensalidade por aluno+mes mesmo com chamadas
+  /// concorrentes (NULLs sao distintos no Postgres: lancamentos avulsos nao sao afetados).
+  competence     String?
+  /// Baixa (E07): forma de pagamento e valor efetivamente pago (centavos; padrao = amountCents).
+  paymentMethod  PaymentMethod?
+  paidCents      Int?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
@@ -578,6 +645,7 @@ model FinancialRecord {
   student      Student?     @relation(fields: [studentId], references: [id])
   unit         Unit?        @relation(fields: [unitId], references: [id])
 
+  @@unique([studentId, competence, type])
   @@index([organizationId, status])
   @@index([studentId, dueDate])
 }

@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { LogIn } from "lucide-react";
 import { Brand } from "@/components/painel/brand";
+import { LegalLinks } from "@/components/painel/legal";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -115,6 +116,7 @@ export function LoginPage({ redirect }: { redirect?: string | undefined }) {
             </form>
           </Form>
         </Card>
+        <LegalLinks />
       </div>
     </div>
   );

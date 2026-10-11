@@ -39,25 +39,30 @@ export class AnnouncementsController {
   @CanAccess('announcements', 'create')
   create(
     @CurrentOrganization() organizationId: number,
-    @CurrentUser('id') userId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateAnnouncementDto,
   ) {
-    return this.announcementsService.create(organizationId, userId, dto);
+    return this.announcementsService.create(organizationId, user.id, dto, user);
   }
 
   @Patch(':id')
   @CanAccess('announcements', 'edit')
   update(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateAnnouncementDto,
   ) {
-    return this.announcementsService.update(organizationId, id, dto);
+    return this.announcementsService.update(organizationId, id, dto, user);
   }
 
   @Delete(':id')
   @CanAccess('announcements', 'delete')
-  remove(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
-    return this.announcementsService.remove(organizationId, id);
+  remove(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.announcementsService.remove(organizationId, id, user);
   }
 }

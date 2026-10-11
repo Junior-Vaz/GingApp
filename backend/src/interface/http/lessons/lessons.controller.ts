@@ -6,6 +6,7 @@ import { ListMyLessonsQueryDto } from './dto/list-my-lessons-query.dto';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { LessonsService } from './lessons.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
@@ -18,10 +19,11 @@ export class LessonsController {
   @CanAccess('lessons', 'view')
   async findAll(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListLessonsQueryDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return sendPage(res, await this.lessonsService.findAll(organizationId, query));
+    return sendPage(res, await this.lessonsService.findAll(organizationId, query, user));
   }
 
   /** Sem @CanAccess: escopado por construção às turmas do próprio usuário. Paginado (total em
@@ -38,29 +40,42 @@ export class LessonsController {
 
   @Get(':id')
   @CanAccess('lessons', 'view')
-  findOne(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
-    return this.lessonsService.findOne(organizationId, id);
+  findOne(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.lessonsService.findOne(organizationId, id, user);
   }
 
   @Post()
   @CanAccess('lessons', 'create')
-  create(@CurrentOrganization() organizationId: number, @Body() dto: CreateLessonDto) {
-    return this.lessonsService.create(organizationId, dto);
+  create(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateLessonDto,
+  ) {
+    return this.lessonsService.create(organizationId, dto, user);
   }
 
   @Patch(':id')
   @CanAccess('lessons', 'edit')
   update(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateLessonDto,
   ) {
-    return this.lessonsService.update(organizationId, id, dto);
+    return this.lessonsService.update(organizationId, id, dto, user);
   }
 
   @Delete(':id')
   @CanAccess('lessons', 'delete')
-  remove(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
-    return this.lessonsService.remove(organizationId, id);
+  remove(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.lessonsService.remove(organizationId, id, user);
   }
 }

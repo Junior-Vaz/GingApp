@@ -142,6 +142,13 @@ export class UpdateOwnOrganizationDto {
   @MaxLength(500)
   logo?: string | null;
 
+  /** "Como pagar" (E07): texto livre mostrado ao aluno/responsável no app (chave PIX, dados bancários, orientações). */
+  @IsOptional()
+  @Transform(trimOrNull)
+  @IsString()
+  @MaxLength(2000)
+  paymentInstructions?: string | null;
+
   /** `null` ou `{}` (sem nenhuma rede) => coluna volta a NULL; objeto com redes => substitui por inteiro. */
   @IsOptional()
   @IsObject()

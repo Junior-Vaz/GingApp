@@ -20,6 +20,11 @@ export interface AuthUser {
   role: OrgRole;
   /** Senha definida pelo Mestre/Professor (conta criada ou senha redefinida): a troca é obrigatória no primeiro acesso. */
   mustChangePassword?: boolean;
+  /** Termos de Uso/Política de Privacidade (E10): true = há aceite pendente; o app mostra a tela bloqueante de aceite. */
+  termsAcceptanceRequired?: boolean;
+  /** Versão vigente dos textos legais informada pelo servidor (a que o usuário precisa aceitar). */
+  currentTermsVersion?: string;
+  acceptedTermsVersion?: string | null;
 }
 
 type Listener = () => void;
@@ -84,6 +89,19 @@ export function replaceToken(token: string): void {
     if (user.mustChangePassword) store.setItem(USER_STORAGE_KEY, JSON.stringify({ ...user, mustChangePassword: false }));
   } catch {
     // usuário guardado ilegível: getUser() já devolve null; nada a limpar
+  }
+  emit();
+}
+
+/** Mescla campos no usuário da sessão (ex.: depois do aceite dos termos). Sem sessão guardada não faz nada. */
+export function updateSessionUser(patch: Partial<AuthUser>): void {
+  const store = storage();
+  const rawUser = store?.getItem(USER_STORAGE_KEY) ?? null;
+  if (!store || rawUser === null) return;
+  try {
+    store.setItem(USER_STORAGE_KEY, JSON.stringify({ ...(JSON.parse(rawUser) as AuthUser), ...patch }));
+  } catch {
+    return; // usuário guardado ilegível: getUser() já devolve null
   }
   emit();
 }

@@ -136,11 +136,12 @@ export class OrganizationsService {
       state: dto.state,
       website: dto.website,
       logo: dto.logo,
+      paymentInstructions: dto.paymentInstructions,
       socialLinks: toSocialLinksInput(dto.socialLinks),
     };
     if (Object.values(data).every((value) => value === undefined)) {
       throw new BadRequestException(
-        'Informe ao menos um campo para atualizar (name, document, email, phone, description, history, foundedYear, city, state, website, logo ou socialLinks).',
+        'Informe ao menos um campo para atualizar (name, document, email, phone, description, history, foundedYear, city, state, website, logo, paymentInstructions ou socialLinks).',
       );
     }
     return this.updateOrFail(organizationId, data);

@@ -12,6 +12,7 @@ import {
   type FinanceSummary,
 } from "@/modules/financeiro/finance-utils";
 import { formatCurrency } from "@/lib/format";
+import { billingChanged, billingFieldsError, billingPayload, currentMonth, toPayPayload } from "@/modules/financeiro/collection";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -498,5 +499,74 @@ describe("FinanceiroPage", () => {
     fireEvent.click(within(dialog).getByText("Excluir"));
     await waitFor(() => expect(mutations(calls, "DELETE")).toHaveLength(1));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Lançamento excluído."));
+  });
+
+  it("baixa rapida: abre com hoje/PIX/valor do lancamento e envia POST /finance/:id/pay", async () => {
+    const calls = mockApi({
+      ...base(),
+      "POST /finance/2/pay": () => json(200, { ...records[1], status: "PAID" }),
+    });
+    renderPage();
+    await screen.findByText("Mensalidade Bia");
+    fireEvent.click(screen.getByLabelText("Dar baixa em Mensalidade Bia"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Confirmar baixa"));
+    await waitFor(() => expect(mutations(calls, "POST").filter((c) => c.path === "/finance/2/pay")).toHaveLength(1));
+    const body = mutations(calls, "POST").find((c) => c.path === "/finance/2/pay")!.body as Record<string, unknown>;
+    expect(body).toMatchObject({ paymentMethod: "PIX", paidCents: 20050 });
+    expect(body["paidAt"]).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Baixa registrada."));
+  });
+
+  it("gerar mensalidades do mes: POST /finance/generate-monthly com o mes e resumo criados/ignorados", async () => {
+    const calls = mockApi({
+      ...base(),
+      "POST /finance/generate-monthly": () =>
+        json(200, { month: currentMonth(), created: 3, ignored: 1, withoutFee: 2, ignoredStudents: [] }),
+    });
+    renderPage();
+    await screen.findByText("Mensalidade Bia");
+    fireEvent.click(screen.getByText("Gerar mensalidades do mês"));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByText("Gerar"));
+    await waitFor(() => expect(mutations(calls, "POST")).toHaveLength(1));
+    expect(mutations(calls, "POST")[0]!.body).toEqual({ month: currentMonth() });
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(expect.stringContaining("3 mensalidade(s) criada(s)")),
+    );
+  });
+
+  it("destaque de inadimplencia vem do servidor e leva a aba Inadimplentes", async () => {
+    mockApi({
+      ...base(),
+      "GET /finance/delinquents/summary": () => json(200, { students: 4, overdueCents: 123400, overdueCount: 6 }),
+      "GET /finance/delinquents": () => json(200, [], { "X-Total-Count": "0" }),
+    });
+    renderPage();
+    const box = await screen.findByTestId("delinquents-highlight");
+    expect(box).toHaveTextContent("4 aluno(s) inadimplente(s)");
+    expect(box).toHaveTextContent("6 lançamento(s)");
+    fireEvent.click(within(box).getByText("Ver inadimplentes"));
+    expect(await screen.findByText("Nenhum aluno inadimplente.")).toBeInTheDocument();
+  });
+});
+
+describe("cobranca (utils)", () => {
+  it("valor e dia andam juntos; payload manda os dois ou null nos dois; so grava se mudou", () => {
+    expect(billingFieldsError({ monthlyFee: "", dueDay: "" })).toBeNull();
+    expect(billingFieldsError({ monthlyFee: "150,00", dueDay: "10" })).toBeNull();
+    expect(billingFieldsError({ monthlyFee: "150,00", dueDay: "" })?.field).toBe("dueDay");
+    expect(billingFieldsError({ monthlyFee: "", dueDay: "10" })?.field).toBe("monthlyFee");
+    expect(billingFieldsError({ monthlyFee: "10", dueDay: "32" })?.field).toBe("dueDay");
+    expect(billingPayload({ monthlyFee: "150,50", dueDay: "31" })).toEqual({ monthlyFeeCents: 15050, dueDay: 31 });
+    expect(billingPayload({ monthlyFee: "", dueDay: "" })).toEqual({ monthlyFeeCents: null, dueDay: null });
+    const saved = { studentId: 1, monthlyFeeCents: 15000, dueDay: 10 };
+    expect(billingChanged({ monthlyFee: "150,00", dueDay: "10" }, saved)).toBe(false);
+    expect(billingChanged({ monthlyFee: "", dueDay: "" }, saved)).toBe(true);
+    expect(toPayPayload({ paidAt: "2026-10-01", paymentMethod: "CASH", amountReais: "9,00" })).toEqual({
+      paymentMethod: "CASH",
+      paidAt: "2026-10-01",
+      paidCents: 900,
+    });
   });
 });

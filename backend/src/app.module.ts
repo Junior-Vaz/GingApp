@@ -33,6 +33,10 @@ import { CalendarModule } from './interface/http/calendar/calendar.module';
 import { PlatformDashboardModule } from './interface/http/platform-dashboard/platform-dashboard.module';
 import { PlatformSettingsModule } from './interface/http/platform-settings/platform-settings.module';
 import { PlatformTeamModule } from './interface/http/platform-team/platform-team.module';
+import { LegalModule } from './interface/http/legal/legal.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { JobsModule } from './jobs/jobs.module';
+import { isOverdueCronEnabled } from './jobs/overdue-cron.service';
 
 const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
 
@@ -73,6 +77,11 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     PlatformDashboardModule,
     PlatformSettingsModule,
     PlatformTeamModule,
+    LegalModule,
+
+    // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador
+    // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.
+    ...(isOverdueCronEnabled() ? [ScheduleModule.forRoot(), JobsModule] : []),
   ],
   providers: [
     { provide: APP_FILTER, useClass: PrismaRangeFilter },

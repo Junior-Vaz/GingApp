@@ -1,4 +1,16 @@
-import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Post, Req, UseFilters, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Header,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Req,
+  UseFilters,
+  UseGuards,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
@@ -7,9 +19,15 @@ import { Public } from '../../../shared/decorators/public.decorator';
 import { JoinedValidationMessageFilter } from '../../../shared/filters/joined-validation-message.filter';
 import { UserThrottlerGuard } from '../../../shared/guards/user-throttler.guard';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
+import { AllowDuringGate } from '../../../shared/decorators/allow-during-gate.decorator';
+import { TermsStatus } from '../../../shared/legal/legal-types';
+import { AccountExportService } from './account-export.service';
+import { AccountService, DeletionRequestView, MeResponse } from './account.service';
 import { AuthResponse } from './auth-response.interface';
 import { AuthService } from './auth.service';
+import { AcceptTermsDto } from './dto/accept-terms.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { DeleteRequestDto } from './dto/delete-request.dto';
 import { LoginDto } from './dto/login.dto';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 
@@ -23,10 +41,15 @@ const LOGIN_THROTTLE = { default: { limit: LOGIN_THROTTLE_LIMIT, ttl: 60_000 } }
 export const CHANGE_PASSWORD_THROTTLE_LIMIT = Number(process.env.CHANGE_PASSWORD_THROTTLE_LIMIT ?? 5);
 const CHANGE_PASSWORD_THROTTLE = { default: { limit: CHANGE_PASSWORD_THROTTLE_LIMIT, ttl: 60_000 } };
 
+// Exportar os proprios dados / pedir exclusao sao acoes raras e mais caras que uma consulta: 10/min por IP.
+const EXPORT_THROTTLE = { default: { limit: 10, ttl: 60_000 } };
+
 @Controller('auth')
 export class AuthController {
   constructor(
     private readonly authService: AuthService,
+    private readonly accountService: AccountService,
+    private readonly exportService: AccountExportService,
     private readonly config: ConfigService,
   ) {}
 
@@ -55,6 +78,7 @@ export class AuthController {
    * um accessToken novo. Limite estrito por IP (ThrottlerGuard global) E por usuário (UserThrottlerGuard,
    * depois da autenticação): ambos usam o @Throttle abaixo.
    */
+  @AllowDuringGate('mustChangePassword', 'terms')
   @UseGuards(UserThrottlerGuard)
   @Throttle(CHANGE_PASSWORD_THROTTLE)
   @HttpCode(HttpStatus.OK)
@@ -64,6 +88,50 @@ export class AuthController {
     @Body() dto: ChangePasswordDto,
   ): Promise<{ accessToken: string }> {
     return this.authService.changePassword(user, dto);
+  }
+
+  /**
+   * Perfil da PRÓPRIA conta + estado do aceite dos Termos/Política (E10). Liberada mesmo com senha provisória
+   * pendente e/ou aceite pendente: é como o frontend descobre o que ainda precisa fazer.
+   */
+  @AllowDuringGate('mustChangePassword', 'terms')
+  @Get('me')
+  me(@CurrentUser() user: AuthenticatedUser): Promise<MeResponse> {
+    return this.accountService.me(user);
+  }
+
+  /** Aceite da versão vigente dos Termos de Uso + Política de Privacidade (GET /legal -> version). */
+  @AllowDuringGate('terms')
+  @HttpCode(HttpStatus.OK)
+  @Post('accept-terms')
+  acceptTerms(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: AcceptTermsDto,
+    @Req() req: Request,
+  ): Promise<TermsStatus> {
+    return this.accountService.acceptTerms(user, dto.version, req.ip);
+  }
+
+  /** Direito de acesso/portabilidade (LGPD): JSON com todos os dados do próprio usuário. */
+  @AllowDuringGate('terms')
+  @Throttle(EXPORT_THROTTLE)
+  @Header('Content-Disposition', 'attachment; filename="gingapp-meus-dados.json"')
+  @Get('me/export')
+  exportMyData(@CurrentUser() user: AuthenticatedUser): Promise<Record<string, unknown>> {
+    return this.exportService.export(user);
+  }
+
+  /** Direito de eliminação/anonimização (LGPD): REGISTRA o pedido; nada é apagado automaticamente. */
+  @AllowDuringGate('terms')
+  @Throttle(EXPORT_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @Post('me/delete-request')
+  requestDeletion(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: DeleteRequestDto,
+    @Req() req: Request,
+  ): Promise<DeletionRequestView> {
+    return this.accountService.requestDeletion(user, dto.reason, req.ip);
   }
 
   /**

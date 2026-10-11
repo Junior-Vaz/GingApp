@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { billingFieldsError } from "@/modules/financeiro/collection";
 
 export type StudentStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "FORMER";
 
@@ -39,18 +40,26 @@ export const STUDENT_STATUS_LABEL: Record<StudentStatus, string> = {
   FORMER: "Ex-aluno",
 };
 
-export const studentSchema = z.object({
-  name: z.string().trim().min(2, "Informe o nome do aluno (mínimo 2 letras)."),
-  unitId: z.string(),
-  birthDate: z.string(),
-  document: z.string(),
-  phone: z.string(),
-  email: z
-    .string()
-    .trim()
-    .refine((v) => v === "" || z.string().email().safeParse(v).success, "E-mail inválido."),
-  status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED", "FORMER"]),
-});
+export const studentSchema = z
+  .object({
+    name: z.string().trim().min(2, "Informe o nome do aluno (mínimo 2 letras)."),
+    unitId: z.string(),
+    birthDate: z.string(),
+    document: z.string(),
+    phone: z.string(),
+    email: z
+      .string()
+      .trim()
+      .refine((v) => v === "" || z.string().email().safeParse(v).success, "E-mail inválido."),
+    status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED", "FORMER"]),
+    /** Cobrança mensal (E07; só quem tem finance:edit vê os campos): valor em reais e dia 1..31, juntos ou ambos vazios. */
+    monthlyFee: z.string().optional(),
+    dueDay: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    const error = billingFieldsError({ monthlyFee: value.monthlyFee ?? "", dueDay: value.dueDay ?? "" });
+    if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [error.field], message: error.message });
+  });
 export type StudentFormValues = z.infer<typeof studentSchema>;
 
 export const emptyStudentForm: StudentFormValues = {
@@ -61,6 +70,8 @@ export const emptyStudentForm: StudentFormValues = {
   phone: "",
   email: "",
   status: "ACTIVE",
+  monthlyFee: "",
+  dueDay: "",
 };
 
 export function studentToForm(student: Student): StudentFormValues {

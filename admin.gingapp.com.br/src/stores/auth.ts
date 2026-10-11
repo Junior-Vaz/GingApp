@@ -19,6 +19,12 @@ export interface AuthUser {
   email: string
   userType: 'MEMBER' | 'PLATFORM'
   isSuperAdmin: boolean
+  /** Senha definida por outra pessoa (ex.: redefinida por um super admin): o admin exige a troca antes de tudo. */
+  mustChangePassword?: boolean
+  /** Termos de Uso/Política de Privacidade (E10): true = há aceite pendente; o admin mostra a tela bloqueante. */
+  termsAcceptanceRequired?: boolean
+  currentTermsVersion?: string
+  acceptedTermsVersion?: string | null
 }
 
 interface LoginResponse {
@@ -83,6 +89,15 @@ export const useAuthStore = defineStore('auth', () => {
     if (!user.value) return
     token.value = newToken
     localStorage.setItem(AUTH_TOKEN_KEY, newToken)
+    // Só é chamada depois de a PRÓPRIA senha ser trocada: a troca obrigatória (mustChangePassword) está cumprida.
+    if (user.value.mustChangePassword) updateUser({ mustChangePassword: false })
+  }
+
+  /** Mescla campos no usuário da sessão (ex.: depois do aceite dos termos). Sem sessão não faz nada. */
+  function updateUser(patch: Partial<AuthUser>): void {
+    if (!user.value) return
+    user.value = { ...user.value, ...patch }
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user.value))
   }
 
   function logout(): void {
@@ -92,5 +107,5 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem(AUTH_USER_KEY)
   }
 
-  return { token, user, isAuthenticated, login, logout, replaceToken }
+  return { token, user, isAuthenticated, login, logout, replaceToken, updateUser }
 })

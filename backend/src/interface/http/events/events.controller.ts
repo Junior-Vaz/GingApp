@@ -28,30 +28,43 @@ export class EventsController {
 
   @Get(':id')
   @CanAccess('events', 'view')
-  findOne(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
-    return this.eventsService.findOne(organizationId, id);
+  findOne(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.eventsService.findOne(organizationId, id, user);
   }
 
   @Post()
   @CanAccess('events', 'create')
-  create(@CurrentOrganization() organizationId: number, @Body() dto: CreateEventDto) {
-    return this.eventsService.create(organizationId, dto);
+  create(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateEventDto,
+  ) {
+    return this.eventsService.create(organizationId, dto, user);
   }
 
   @Patch(':id')
   @CanAccess('events', 'edit')
   update(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateEventDto,
   ) {
-    return this.eventsService.update(organizationId, id, dto);
+    return this.eventsService.update(organizationId, id, dto, user);
   }
 
   @Delete(':id')
   @CanAccess('events', 'delete')
-  remove(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
-    return this.eventsService.remove(organizationId, id);
+  remove(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.eventsService.remove(organizationId, id, user);
   }
 
   @Get(':eventId/participants')

@@ -3,6 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, CalendarCheck, Eye, EyeOff, Loader2, LogIn, Lock, Mail, Medal, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { login } from "@/lib/auth";
+import { LegalLinks } from "./legal";
 import rodaImage from "@/assets/capoeira-roda.jpg";
 
 const HIGHLIGHTS = [
@@ -173,6 +174,7 @@ export function LoginPage({ redirect }: { redirect?: string | undefined }) {
           <p className="mt-8 text-center text-xs text-muted-foreground">
             Esqueceu a senha? Peça ao mestre ou à coordenação do seu grupo para redefinir.
           </p>
+          <LegalLinks />
         </div>
       </main>
     </div>

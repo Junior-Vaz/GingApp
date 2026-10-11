@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { AppShell } from "@/components/painel/app-shell";
-import { clearSession, isAuthenticated } from "@/lib/session";
+import { MustChangePasswordScreen, TermsGate } from "@/components/painel/legal";
+import { clearSession, isAuthenticated, useSessionUser } from "@/lib/session";
 
 // Guard: sem sessão de gestão válida (token + papel MESTRE/PROFESSOR) -> /login?redirect=...
 // A autorização real continua sendo validada pelo backend (CanAccessGuard).
@@ -11,9 +12,17 @@ export const Route = createFileRoute("/_app")({
       throw redirect({ to: "/login", search: { redirect: location.href } });
     }
   },
-  component: () => (
+  component: AppLayout,
+});
+
+function AppLayout() {
+  const user = useSessionUser();
+  // Senha provisória definida por outra pessoa: o servidor barra todas as rotas (403 MUST_CHANGE_PASSWORD) até a troca.
+  if (user?.mustChangePassword) return <MustChangePasswordScreen />;
+  return (
     <AppShell>
       <Outlet />
+      <TermsGate />
     </AppShell>
-  ),
-});
+  );
+}

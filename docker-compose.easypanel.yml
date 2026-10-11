@@ -77,6 +77,11 @@ services:
       # Se faltar/for fraca, o erro vai pro log e a API sobe sem o demo. Desligar (vazio/false) NAO apaga dados.
       DEMO_GROUP: "${DEMO_GROUP:-}"
       DEMO_PASSWORD: "${DEMO_PASSWORD:-}"
+      # Job diario das mensalidades vencidas (03:00 America/Sao_Paulo). OVERDUE_CRON=false desliga.
+      OVERDUE_CRON: "${OVERDUE_CRON:-true}"
+      # TERMS_ENFORCEMENT=true: o servidor tambem barra (403) quem nao aceitou a versao vigente dos Termos/Politica.
+      # Padrao false: so o frontend exige o aceite.
+      TERMS_ENFORCEMENT: "${TERMS_ENFORCEMENT:-false}"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
@@ -84,6 +89,57 @@ services:
       retries: 5
       # migrations + bootstrap (ts-node) rodam antes da API subir
       start_period: 120s
+
+  # Backup diario do banco (E11). Mesma imagem do postgres (sem conta nova): roda pg_dump -Fc contra o
+  # gingapp-db a cada BACKUP_INTERVAL_HOURS (padrao 24h; o 1o dump sai logo que o servico sobe) e grava em
+  # /backups (volume gingapp_backups) como gingapp-AAAAMMDDTHHMMSSZ.dump. Retencao: apaga os .dump com mais de
+  # BACKUP_KEEP_DAYS dias (padrao 14). So apaga um dump antigo DEPOIS de gravar o novo com sucesso (um dump que
+  # falha nunca remove os anteriores). BACKUP_ENABLED=false deixa o servico parado (sem dump, sem erro).
+  # O volume fica no MESMO servidor do banco: copie /backups para fora periodicamente (docs/EASYPANEL.md, secao 7).
+  # Restaurar: docs/EASYPANEL.md, secao 7 (script ops/backup/restore.sh).
+  # ($$ = o compose nao interpola; o sh do container e quem expande.)
+  backup:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks:
+      gingapp:
+        aliases: [gingapp-backup]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: gingapp-db
+      PGUSER: gingapp
+      PGDATABASE: gingapp
+      PGPASSWORD: "${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD}"
+      BACKUP_ENABLED: "${BACKUP_ENABLED:-true}"
+      BACKUP_KEEP_DAYS: "${BACKUP_KEEP_DAYS:-14}"
+      BACKUP_INTERVAL_HOURS: "${BACKUP_INTERVAL_HOURS:-24}"
+    volumes:
+      - gingapp_backups:/backups
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        if [ "$${BACKUP_ENABLED}" = "false" ]; then
+          echo "[backup] desligado (BACKUP_ENABLED=false)"
+          while true; do sleep 3600; done
+        fi
+        case "$${BACKUP_KEEP_DAYS}" in ''|*[!0-9]*) echo "[backup] BACKUP_KEEP_DAYS invalido, usando 14"; BACKUP_KEEP_DAYS=14;; esac
+        case "$${BACKUP_INTERVAL_HOURS}" in ''|*[!0-9]*|0) echo "[backup] BACKUP_INTERVAL_HOURS invalido, usando 24"; BACKUP_INTERVAL_HOURS=24;; esac
+        echo "[backup] ligado: a cada $${BACKUP_INTERVAL_HOURS}h, retencao $${BACKUP_KEEP_DAYS} dia(s), destino /backups"
+        while true; do
+          stamp=$$(date -u +%Y%m%dT%H%M%SZ)
+          file="/backups/gingapp-$${stamp}.dump"
+          if pg_dump -Fc -f "$${file}.tmp" && [ -s "$${file}.tmp" ]; then
+            mv "$${file}.tmp" "$${file}"
+            echo "[backup] ok: $${file} ($$(wc -c < "$${file}") bytes)"
+            find /backups -maxdepth 1 -name 'gingapp-*.dump' -mtime +"$${BACKUP_KEEP_DAYS}" -print -delete
+          else
+            echo "[backup] FALHOU em $${stamp}; dumps anteriores mantidos"
+            rm -f "$${file}.tmp"
+          fi
+          sleep $$((BACKUP_INTERVAL_HOURS * 3600))
+        done
 
   # Painel da escola. Easypanel: dominio do painel -> porta 80.
   painel:
@@ -111,6 +167,7 @@ services:
 
 volumes:
   gingapp_pgdata:
+  gingapp_backups:
 
 networks:
   gingapp:

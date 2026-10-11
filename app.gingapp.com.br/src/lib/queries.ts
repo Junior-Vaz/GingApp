@@ -122,6 +122,25 @@ export interface FinanceSummary {
 
 export type FinanceStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELLED";
 
+/** Parte de GET /organizations (o grupo do usuário) usada no app: "Como pagar" do financeiro (E07). */
+export interface OwnOrganization {
+  id: number;
+  name: string;
+  paymentInstructions: string | null;
+}
+
+/** Instruções de pagamento do grupo (texto livre do MESTRE). Falha silenciosa: o bloco só some. */
+export function useOwnOrganization() {
+  return useQuery({
+    queryKey: ["organizations", "own"],
+    queryFn: async () => {
+      const data = await api.get<OwnOrganization | OwnOrganization[] | null>("/organizations");
+      return Array.isArray(data) ? (data[0] ?? null) : data;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export interface FinancialRecord {
   id: number;
   description: string;

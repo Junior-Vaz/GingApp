@@ -9,11 +9,21 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { createCrud } from "@/lib/crud";
+import { useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { createCrud, notifyError } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
 import { useCan } from "@/lib/session";
-import { dayOnly, fmt } from "@/lib/format";
+import { dayOnly, fmt, formatCurrency } from "@/lib/format";
 import { useUnitNames } from "@/lib/unit-lookup";
+import {
+  billingChanged,
+  billingPayload,
+  billingSummary,
+  billingToFields,
+  type StudentBilling,
+} from "@/modules/financeiro/collection";
+import { BILLING_KEY, useStudentBillings } from "@/modules/financeiro/finance-api";
 import { AcessoAlunoDialog } from "./acesso-aluno-dialog";
 import { NativeSelect } from "./native-select";
 import { ResponsaveisDialog } from "./responsaveis-dialog";
@@ -45,6 +55,10 @@ export function AlunosPage() {
   const remove = students.useRemove();
   const canDelete = useCan("students", "delete"); // PROFESSOR: sem students:delete (backend responde 403)
   const canEdit = useCan("students", "edit"); // acesso do aluno e responsáveis exigem students:edit
+  // Cobrança mensal (E07) é do financeiro: só quem tem finance:view vê a coluna e finance:edit grava (hoje só o MESTRE).
+  const canViewFinance = useCan("finance", "view");
+  const canEditFinance = useCan("finance", "edit");
+  const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Student | "new" | null>(null);
   const [deleting, setDeleting] = useState<Student | null>(null);
   const [accessOf, setAccessOf] = useState<Student | null>(null);
@@ -53,6 +67,10 @@ export function AlunosPage() {
   // Nomes só das unidades desta página (GET /units/:id por id distinto): não depende de lista com teto.
   const nameOfUnit = useUnitNames((list.items ?? []).map((s) => s.unitId));
   const unitName = (id: number | null) => (id === null ? "—" : nameOfUnit(id, `Unidade #${id}`));
+
+  // Valor/dia de vencimento só das linhas desta página (GET /finance/billing?studentIds=...).
+  const billings = useStudentBillings((list.items ?? []).map((s) => s.id), canViewFinance);
+  const billingOf = new Map<number, StudentBilling>((billings.data ?? []).map((b) => [b.studentId, b]));
 
   const columns: Column<Student>[] = [
     {
@@ -78,6 +96,16 @@ export function AlunosPage() {
       cell: (s) => (s.birthDate ? fmt(dayOnly(s.birthDate), "dd/MM/yyyy") : "—"),
     },
     { id: "contact", header: "Contato", cell: (s) => s.phone || s.email || "—" },
+    ...(canViewFinance
+      ? [
+          {
+            id: "billing",
+            header: "Mensalidade",
+            sortValue: (s: Student) => billingOf.get(s.id)?.monthlyFeeCents ?? null,
+            cell: (s: Student) => billingSummary(billingOf.get(s.id), formatCurrency),
+          } satisfies Column<Student>,
+        ]
+      : []),
     {
       id: "access",
       header: "Acesso",
@@ -169,12 +197,29 @@ export function AlunosPage() {
         onOpenChange={(o) => !o && setEditing(null)}
         title={isEdit ? "Editar aluno" : "Novo aluno"}
         schema={studentSchema}
-        defaultValues={editing && editing !== "new" ? studentToForm(editing) : emptyStudentForm}
-        onSubmit={(values) =>
+        defaultValues={
           editing && editing !== "new"
-            ? update.mutateAsync({ id: editing.id, data: studentToUpdatePayload(values) })
-            : create.mutateAsync(studentToPayload(values))
+            ? { ...studentToForm(editing), ...billingToFields(billingOf.get(editing.id)) }
+            : emptyStudentForm
         }
+        onSubmit={async (values) => {
+          const saved = editing && editing !== "new" ? editing : null;
+          const student = saved
+            ? await update.mutateAsync({ id: saved.id, data: studentToUpdatePayload(values) })
+            : await create.mutateAsync(studentToPayload(values));
+          // Cobrança: só com finance:edit, e na edição só se a cobrança atual já foi carregada (senão um
+          // formulário "vazio" por não ter carregado apagaria a cobrança). Sem mudança, nem chama.
+          const fields = { monthlyFee: values.monthlyFee ?? "", dueDay: values.dueDay ?? "" };
+          const previous = saved ? billingOf.get(saved.id) : undefined;
+          if (canEditFinance && (!saved || billings.isSuccess) && billingChanged(fields, previous)) {
+            try {
+              await api.put(`/finance/billing/${student.id}`, billingPayload(fields));
+              void queryClient.invalidateQueries({ queryKey: BILLING_KEY });
+            } catch (error) {
+              notifyError(error, "O aluno foi salvo, mas não foi possível salvar a mensalidade.");
+            }
+          }
+        }}
       >
         {(form) => (
           <>
@@ -257,6 +302,36 @@ export function AlunosPage() {
                 </FormItem>
               )}
             />
+            {canEditFinance && (!isEdit || billings.isSuccess) && (
+              <div className="grid grid-cols-2 gap-3">
+                <FormField
+                  control={form.control}
+                  name="monthlyFee"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Mensalidade (R$)</FormLabel>
+                      <FormControl>
+                        <Input inputMode="decimal" placeholder="0,00" {...field} value={field.value ?? ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="dueDay"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Dia do vencimento</FormLabel>
+                      <FormControl>
+                        <Input inputMode="numeric" placeholder="1 a 31" {...field} value={field.value ?? ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            )}
             {isEdit && (
               <FormField
                 control={form.control}

@@ -494,7 +494,10 @@ describe('Grupo demo (prisma/demo.ts) (e2e)', () => {
       const { token, user } = await login(app, 'professor1');
       assert.equal(user.role, 'PROFESSOR');
       assert.equal((await get(app, 'students', token)).status, 200);
-      assert.equal((await get(app, 'classes', token)).total, 6);
+      // Escopo por unidade (E08): o professor do demo atua em unidades específicas e só vê as turmas
+      // delas (3 das 6 do grupo); o MESTRE continua vendo as 6.
+      const profClasses = (await get(app, 'classes', token)).total;
+      assert.ok(profClasses > 0 && profClasses < 6, `turmas visíveis ao professor: ${profClasses}`);
       assert.equal((await get(app, 'finance', token)).status, 403);
     });
 

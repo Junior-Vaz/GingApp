@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { PermissionsService } from '../../../shared/access/permissions.service';
+import { UnitScopeService, unitScopeFilter } from '../../../shared/access/unit-scope';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { StudentsService } from '../students/students.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -20,6 +21,7 @@ export class GraduationsService {
     private readonly permissions: PermissionsService,
     private readonly studentsService: StudentsService,
     private readonly notifications: NotificationsService,
+    private readonly unitScope: UnitScopeService,
   ) {}
 
   /** Sistemas de graduação configuráveis do grupo, com seus níveis (projeto.txt §26). */
@@ -128,7 +130,8 @@ export class GraduationsService {
    */
   async findStudentHistory(organizationId: number, studentId: number, requester: AuthenticatedUser) {
     if (await this.permissions.can(requester, 'graduations', 'view')) {
-      await this.assertStudentBelongsToOrganization(organizationId, studentId);
+      // Staff: o PROFESSOR com unidades atribuídas (E08) só vê o histórico de alunos das suas unidades (404).
+      await this.assertStudentBelongsToOrganization(organizationId, studentId, requester);
     } else {
       const link = await this.studentsService.resolveLink(organizationId, requester.id, studentId);
       if (!link?.linked) {
@@ -145,8 +148,13 @@ export class GraduationsService {
 
   /** Registra uma nova graduação para o aluno. Nunca confia em FKs vindas do corpo sem
    * confirmar que pertencem à organização do usuário autenticado. */
-  async createStudentGraduation(organizationId: number, studentId: number, dto: CreateStudentGraduationDto) {
-    await this.assertStudentBelongsToOrganization(organizationId, studentId);
+  async createStudentGraduation(
+    organizationId: number,
+    studentId: number,
+    dto: CreateStudentGraduationDto,
+    requester?: AuthenticatedUser,
+  ) {
+    await this.assertStudentBelongsToOrganization(organizationId, studentId, requester);
     await this.assertLevelBelongsToOrganization(organizationId, dto.graduationLevelId);
 
     const graduation = await this.prisma.studentGraduation.create({
@@ -181,7 +189,9 @@ export class GraduationsService {
     studentId: number,
     graduationId: number,
     dto: UpdateStudentGraduationDto,
+    requester?: AuthenticatedUser,
   ) {
+    await this.assertStudentBelongsToOrganization(organizationId, studentId, requester);
     await this.assertStudentGraduationExists(organizationId, studentId, graduationId);
     if (dto.graduationLevelId !== undefined) {
       await this.assertLevelBelongsToOrganization(organizationId, dto.graduationLevelId);
@@ -201,7 +211,13 @@ export class GraduationsService {
    * Desfaz um registro lançado por engano (hard delete — é o próprio registro, não o aluno).
    * Se já existe certificado emitido a partir dela, 409: o certificado precisa ser tratado antes.
    */
-  async removeStudentGraduation(organizationId: number, studentId: number, graduationId: number) {
+  async removeStudentGraduation(
+    organizationId: number,
+    studentId: number,
+    graduationId: number,
+    requester?: AuthenticatedUser,
+  ) {
+    await this.assertStudentBelongsToOrganization(organizationId, studentId, requester);
     await this.assertStudentGraduationExists(organizationId, studentId, graduationId);
     const certificates = await this.prisma.certificate.count({
       where: { studentGraduationId: graduationId, organizationId },
@@ -239,8 +255,15 @@ export class GraduationsService {
     return system;
   }
 
-  private async assertStudentBelongsToOrganization(organizationId: number, studentId: number): Promise<void> {
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, organizationId } });
+  private async assertStudentBelongsToOrganization(
+    organizationId: number,
+    studentId: number,
+    requester?: AuthenticatedUser,
+  ): Promise<void> {
+    const scope = await this.unitScope.resolve(requester, organizationId);
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, organizationId, ...unitScopeFilter(scope) },
+    });
     if (!student) {
       throw new NotFoundException('Aluno não encontrado.');
     }

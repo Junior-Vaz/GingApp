@@ -43,6 +43,11 @@ import { DEV_PASSWORD, loginAs } from './utils/list-helpers';
  */
 const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/health', 'pública, sem dado pessoal'],
+  ['/api/legal', 'pública: versão vigente dos textos legais (E10), sem dado pessoal'],
+  ['/api/legal/terms', 'pública: Termos de Uso (texto estático versionado no repositório)'],
+  ['/api/legal/privacy', 'pública: Política de Privacidade (texto estático versionado no repositório)'],
+  ['/api/auth/me', 'perfil da PRÓPRIA conta (req.user) + estado do aceite dos termos; sem dado de terceiros'],
+  ['/api/auth/me/export', 'exportação LGPD dos dados do PRÓPRIO usuário (próprio aluno e dependentes; só o seu registro de responsável)'],
   ['/api/organizations', 'MEMBER vê só a própria organização (dados institucionais)'],
   ['/api/units', 'unidades do próprio grupo (endereço institucional, sem dado de aluno)'],
   ['/api/units/:id', 'idem /units, escopo organizationId'],

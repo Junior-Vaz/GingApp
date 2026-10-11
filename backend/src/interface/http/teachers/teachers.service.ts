@@ -9,6 +9,7 @@ import { BCRYPT_ROUNDS, normalizeEmail } from '../../../shared/security/password
 import { resetMemberPassword } from '../../../shared/security/reset-member-password';
 import { ResetMemberPasswordDto } from '../../../shared/security/reset-member-password.dto';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
+import { SetTeacherUnitsDto } from './dto/set-teacher-units.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
 
 const TEACHER_ROLES = [OrgRole.MESTRE, OrgRole.PROFESSOR];
@@ -46,7 +47,7 @@ export class TeachersService {
       };
     }
 
-    const [items, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.prisma.organizationUser.findMany({
         where,
         select: TEACHER_SELECT,
@@ -55,7 +56,9 @@ export class TeachersService {
       }),
       this.prisma.organizationUser.count({ where }),
     ]);
-    return { items, total };
+    // unitIds (E08): unidades de atuação de cada professor da página, numa única consulta (vazio = sem restrição).
+    const unitsByUser = await this.unitIdsByUser(organizationId, rows.map((r) => r.user.id));
+    return { items: rows.map((r) => ({ ...r, unitIds: unitsByUser.get(r.user.id) ?? [] })), total };
   }
 
   async findOne(organizationId: number, id: number) {
@@ -66,7 +69,57 @@ export class TeachersService {
     if (!membership) {
       throw new NotFoundException('Professor não encontrado.');
     }
-    return membership;
+    const unitsByUser = await this.unitIdsByUser(organizationId, [membership.user.id]);
+    return { ...membership, unitIds: unitsByUser.get(membership.user.id) ?? [] };
+  }
+
+  /** Unidades de atuação (UserUnitAccess) dos usuários, ordenadas por id, na organização informada. */
+  private async unitIdsByUser(organizationId: number, userIds: number[]): Promise<Map<number, number[]>> {
+    const map = new Map<number, number[]>();
+    if (userIds.length === 0) return map;
+    const rows = await this.prisma.userUnitAccess.findMany({
+      where: { organizationId, userId: { in: userIds } },
+      select: { userId: true, unitId: true },
+      orderBy: { unitId: 'asc' },
+    });
+    for (const row of rows) map.set(row.userId, [...(map.get(row.userId) ?? []), row.unitId]);
+    return map;
+  }
+
+  /** Unidades de atuação do professor (`id` = membership). Lista vazia = sem restrição (vê todas as unidades). */
+  async getUnits(organizationId: number, id: number): Promise<{ unitIds: number[] }> {
+    const membership = await this.findOne(organizationId, id); // 404 se não existir ou for de outro grupo
+    return { unitIds: membership.unitIds };
+  }
+
+  /**
+   * Substitui o conjunto de unidades de atuação do PROFESSOR (E08, só o Mestre — ver controller). Todas as unidades
+   * têm de ser do mesmo grupo (400 caso contrário, o mesmo erro de unidade inexistente). Lista vazia remove a
+   * restrição. O Mestre não tem escopo por unidade (vê o grupo todo), então definir unidades para ele é 400.
+   * Serializado por trava da linha da membership (duas trocas concorrentes não colidem no unique userId+unitId).
+   */
+  async setUnits(organizationId: number, id: number, dto: SetTeacherUnitsDto): Promise<{ unitIds: number[] }> {
+    const membership = await this.findOne(organizationId, id); // 404 se não existir ou for de outro grupo
+    if (membership.role !== OrgRole.PROFESSOR) {
+      throw new BadRequestException('O Mestre enxerga todas as unidades do grupo; defina unidades só para professores.');
+    }
+    const unitIds = [...new Set(dto.unitIds)].sort((a, b) => a - b);
+    if (unitIds.length > 0) {
+      const found = await this.prisma.unit.count({ where: { organizationId, id: { in: unitIds } } });
+      if (found !== unitIds.length) {
+        throw new BadRequestException('Unidade inválida para esta organização.');
+      }
+    }
+
+    const userId = membership.user.id;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "OrganizationUser" WHERE id = ${id} FOR UPDATE`;
+      await tx.userUnitAccess.deleteMany({ where: { organizationId, userId } });
+      if (unitIds.length > 0) {
+        await tx.userUnitAccess.createMany({ data: unitIds.map((unitId) => ({ organizationId, userId, unitId })) });
+      }
+    });
+    return { unitIds };
   }
 
   /** Cria o User (userType MEMBER) e a membership (OrganizationUser) juntos. */

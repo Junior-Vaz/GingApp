@@ -4,6 +4,7 @@ import { sendPage } from '../../../shared/pagination/pagination';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { AttendanceService } from './attendance.service';
 import { ListMyAttendanceQueryDto } from './dto/list-my-attendance-query.dto';
 import { AttendanceEntryDto } from './dto/mark-attendance.dto';
@@ -14,8 +15,8 @@ export class AttendanceController {
 
   @Get()
   @CanAccess('attendance', 'view')
-  findAll(@CurrentOrganization() organizationId: number) {
-    return this.attendanceService.findAll(organizationId);
+  findAll(@CurrentOrganization() organizationId: number, @CurrentUser() user: AuthenticatedUser) {
+    return this.attendanceService.findAll(organizationId, user);
   }
 
   /** Sem @CanAccess: escopado por construção aos alunos do próprio usuário. Corpo
@@ -40,18 +41,20 @@ export class AttendanceController {
   @CanAccess('attendance', 'view')
   getRoster(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('lessonId', ParseIntPipe) lessonId: number,
   ) {
-    return this.attendanceService.getRoster(organizationId, lessonId);
+    return this.attendanceService.getRoster(organizationId, lessonId, user);
   }
 
   @Post('lessons/:lessonId')
   @CanAccess('attendance', 'create')
   markAttendance(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('lessonId', ParseIntPipe) lessonId: number,
     @Body(new ParseArrayPipe({ items: AttendanceEntryDto })) entries: AttendanceEntryDto[],
   ) {
-    return this.attendanceService.markAttendance(organizationId, lessonId, entries);
+    return this.attendanceService.markAttendance(organizationId, lessonId, entries, user);
   }
 }

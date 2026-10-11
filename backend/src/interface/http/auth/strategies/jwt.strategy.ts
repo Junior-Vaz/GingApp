@@ -6,6 +6,10 @@ import { resolveJwtSecret } from '../../../../shared/config/runtime-config';
 import { PrismaService } from '../../../../shared/prisma/prisma.service';
 import { AuthenticatedUser, JwtPayload } from '../../../../shared/interfaces/jwt-payload.interface';
 import { isRevokedByCutoff } from '../../../../shared/security/token-revocation';
+import {
+  INACTIVE_STUDENT_MESSAGE,
+  isMembershipBlockedByInactiveStudent,
+} from '../../../../shared/access/inactive-student-access';
 
 interface JwtPayloadWithIat extends JwtPayload {
   iat: number;
@@ -50,10 +54,20 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           status: 'ACTIVE',
           organization: { status: 'ACTIVE' }, // grupo desativado pela plataforma: o token cai na hora
         },
-        select: { id: true },
+        select: { id: true, role: true },
       });
       if (!membership) {
         throw new UnauthorizedException('Acesso ao grupo inativo.');
+      }
+      // Aluno inativado: o vinculo ALUNO deste grupo cai na hora (outros vinculos/dependentes ativos nao).
+      if (
+        await isMembershipBlockedByInactiveStudent(this.prisma, {
+          userId: user.id,
+          organizationId: payload.organizationId,
+          role: membership.role,
+        })
+      ) {
+        throw new UnauthorizedException(INACTIVE_STUDENT_MESSAGE);
       }
     }
 
@@ -64,6 +78,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       isSuperAdmin: user.isSuperAdmin,
       organizationId: payload.organizationId,
       role: payload.role,
+      // Sempre do banco (nunca do token): ver shared/access/access-gate.ts (aplicado pelo JwtAuthGuard).
+      mustChangePassword: user.mustChangePassword,
+      acceptedTermsVersion: user.acceptedTermsVersion,
     };
   }
 }

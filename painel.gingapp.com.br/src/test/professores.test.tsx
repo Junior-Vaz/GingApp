@@ -251,4 +251,47 @@ describe("ProfessoresPage", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("E-mail já cadastrado."));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
+  describe("Unidades de atuação (E08)", () => {
+    const units = [
+      { id: 1, organizationId: 1, name: "Matriz", address: null, city: null, state: null, isMain: true, status: "ACTIVE" },
+      { id: 2, organizationId: 1, name: "Filial B", address: null, city: null, state: null, isMain: false, status: "ACTIVE" },
+    ];
+    const withUnits = [
+      teachers[0]!,
+      { id: 11, role: "PROFESSOR", status: "ACTIVE", unitIds: [1], user: { id: 2, name: "Pastinha", email: "pastinha@x.com", phone: null } },
+    ];
+    const routes = () => ({
+      "GET /teachers": () => json(200, withUnits, { "X-Total-Count": "2" }),
+      "GET /units": () => json(200, units, { "X-Total-Count": "2" }),
+    });
+
+    it("coluna resumida e diálogo com checkboxes: PUT /teachers/:id/units substitui o conjunto", async () => {
+      const calls = mockApi({ ...routes(), "PUT /teachers/11/units": () => json(200, { unitIds: [1, 2] }) });
+      renderPage(<ProfessoresPage />);
+      expect(await screen.findByText("Pastinha")).toBeInTheDocument();
+      expect(await screen.findByText("Matriz")).toBeInTheDocument(); // coluna: nome da unidade, não o id
+      fireEvent.click(screen.getByRole("button", { name: "Unidades de atuação de Pastinha" }));
+      const dialog = await screen.findByRole("dialog");
+      expect(within(dialog).getByRole("checkbox", { name: "Matriz" })).toBeChecked();
+      expect(within(dialog).getByRole("checkbox", { name: "Filial B" })).not.toBeChecked();
+      fireEvent.click(within(dialog).getByRole("checkbox", { name: "Filial B" }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Unidades de atuação atualizadas."));
+      const put = calls.find((c) => c.method === "PUT")!;
+      expect(put.path).toBe("/teachers/11/units");
+      expect(put.body).toEqual({ unitIds: [1, 2] });
+    });
+
+    it("erro do servidor vira toast e mantém o diálogo; o Mestre (linha) não tem a ação", async () => {
+      mockApi({ ...routes(), "PUT /teachers/11/units": () => json(400, { message: "Unidade inválida para esta organização." }) });
+      renderPage(<ProfessoresPage />);
+      await screen.findByText("Pastinha");
+      expect(screen.queryByRole("button", { name: /Unidades de atuação de Mestre Bimba/ })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Unidades de atuação de Pastinha" }));
+      const dialog = await screen.findByRole("dialog");
+      fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Unidade inválida para esta organização."));
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+    });
+  });
 });

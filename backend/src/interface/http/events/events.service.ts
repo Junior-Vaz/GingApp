@@ -8,6 +8,13 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { formatInstantBR } from '../../../shared/dates/format-br';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { MyParticipation, redactParticipant } from '../../../shared/access/participant-privacy';
+import {
+  assertUnitOwned,
+  assertUnitUpdate,
+  groupWideOrUnitFilter,
+  resolveWriteUnit,
+  UnitScopeService,
+} from '../../../shared/access/unit-scope';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { AddEventParticipantDto } from './dto/add-event-participant.dto';
@@ -25,6 +32,7 @@ export class EventsService {
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
     private readonly notifications: NotificationsService,
+    private readonly unitScope: UnitScopeService,
   ) {}
 
   /**
@@ -57,6 +65,9 @@ export class EventsService {
         ],
       });
     }
+    // Escopo por unidade (E08, shared/access/unit-scope.ts): o PROFESSOR com unidades atribuídas só vê eventos do grupo
+    // inteiro (unitId nulo) e das suas unidades; lista e contagem usam o mesmo where.
+    and.push(groupWideOrUnitFilter(await this.unitScope.resolve(requester, organizationId)));
     const where: Prisma.EventWhereInput = {
       organizationId,
       ...(query.type ? { type: query.type } : {}),
@@ -139,24 +150,29 @@ export class EventsService {
     return [...new Set([...own.map((s) => s.id), ...guardianLinks.map((g) => g.studentId)])];
   }
 
-  async findOne(organizationId: number, id: number) {
-    const event = await this.prisma.event.findFirst({ where: { id, organizationId } });
+  async findOne(organizationId: number, id: number, requester?: AuthenticatedUser) {
+    const scope = await this.unitScope.resolve(requester, organizationId);
+    const event = await this.prisma.event.findFirst({
+      where: { id, organizationId, AND: [groupWideOrUnitFilter(scope)] },
+    });
     if (!event) {
       throw new NotFoundException('Evento não encontrado.');
     }
     return event;
   }
 
-  async create(organizationId: number, dto: CreateEventDto) {
-    if (dto.unitId) {
-      await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
+  async create(organizationId: number, dto: CreateEventDto, requester?: AuthenticatedUser) {
+    // Professor restrito: o evento é de uma das suas unidades (a única, por padrão), nunca "do grupo inteiro".
+    const unitId = resolveWriteUnit(await this.unitScope.resolve(requester, organizationId), dto.unitId);
+    if (unitId) {
+      await this.assertUnitBelongsToOrganization(organizationId, unitId);
     }
     await this.assertLocationReferencesExist(dto);
 
     const event = await this.prisma.event.create({
       data: {
         organizationId,
-        unitId: dto.unitId,
+        unitId,
         title: dto.title,
         type: dto.type,
         description: dto.description,
@@ -183,8 +199,11 @@ export class EventsService {
     return event;
   }
 
-  async update(organizationId: number, id: number, dto: UpdateEventDto) {
-    await this.findOne(organizationId, id); // 404 se não existir ou não for desta organização
+  async update(organizationId: number, id: number, dto: UpdateEventDto, requester?: AuthenticatedUser) {
+    const current = await this.findOne(organizationId, id, requester); // 404 se não existir, for de outra organização ou de unidade fora do escopo
+    const scope = await this.unitScope.resolve(requester, organizationId);
+    assertUnitOwned(scope, current.unitId); // evento do grupo inteiro (unitId nulo): legível, mas só o Mestre altera (403)
+    assertUnitUpdate(scope, dto.unitId);
 
     if (dto.unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
@@ -213,8 +232,9 @@ export class EventsService {
    * "inativar" — excluir apaga de verdade. Primeiro remove os EventParticipant do evento
    * (senão a FK quebra), depois o Event, numa transação.
    */
-  async remove(organizationId: number, id: number) {
-    await this.findOne(organizationId, id);
+  async remove(organizationId: number, id: number, requester?: AuthenticatedUser) {
+    const current = await this.findOne(organizationId, id, requester);
+    assertUnitOwned(await this.unitScope.resolve(requester, organizationId), current.unitId);
 
     await this.prisma.$transaction([
       this.prisma.eventParticipant.deleteMany({ where: { eventId: id } }),
@@ -232,7 +252,7 @@ export class EventsService {
    * (inclui menores) saem sem id de aluno/usuário e sem nome (redactParticipant, LGPD).
    */
   async listParticipants(organizationId: number, eventId: number, requester: AuthenticatedUser) {
-    await this.findOne(organizationId, eventId);
+    await this.findOne(organizationId, eventId, requester);
 
     const participants = await this.prisma.eventParticipant.findMany({
       where: { organizationId, eventId },
@@ -275,7 +295,7 @@ export class EventsService {
     requester: AuthenticatedUser,
     dto: AddEventParticipantDto,
   ) {
-    await this.findOne(organizationId, eventId);
+    await this.findOne(organizationId, eventId, requester);
 
     const hasStudent = dto.studentId != null;
     const hasGuest = !!dto.guestName;
@@ -347,7 +367,7 @@ export class EventsService {
     participantId: number,
     requester: AuthenticatedUser,
   ) {
-    await this.findOne(organizationId, eventId);
+    await this.findOne(organizationId, eventId, requester);
 
     const participant = await this.prisma.eventParticipant.findFirst({
       where: { id: participantId, eventId, organizationId },
@@ -380,7 +400,7 @@ export class EventsService {
    * "é meu aluno" de add/removeParticipant.
    */
   async checkIn(organizationId: number, eventId: number, participantId: number, requester: AuthenticatedUser) {
-    await this.findOne(organizationId, eventId);
+    await this.findOne(organizationId, eventId, requester);
 
     if (!this.isOrgAdmin(requester)) {
       throw new ForbiddenException('Só MESTRE/PROFESSOR pode confirmar presença.');

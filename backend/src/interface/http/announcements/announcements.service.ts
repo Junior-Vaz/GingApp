@@ -4,6 +4,13 @@ import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PermissionsService } from '../../../shared/access/permissions.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import {
+  assertUnitOwned,
+  assertUnitUpdate,
+  groupWideOrUnitFilter,
+  resolveWriteUnit,
+  UnitScopeService,
+} from '../../../shared/access/unit-scope';
 import { StudentsService } from '../students/students.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ListAnnouncementsQueryDto } from './dto/list-announcements-query.dto';
@@ -28,6 +35,7 @@ export class AnnouncementsService {
     private readonly permissions: PermissionsService,
     private readonly studentsService: StudentsService,
     private readonly notifications: NotificationsService,
+    private readonly unitScope: UnitScopeService,
   ) {}
 
   /**
@@ -53,9 +61,12 @@ export class AnnouncementsService {
   private async memberScope(
     organizationId: number,
     requester: AuthenticatedUser,
-  ): Promise<Prisma.AnnouncementWhereInput | null> {
+  ): Promise<{ where: Prisma.AnnouncementWhereInput | null; member: boolean }> {
     if (await this.permissions.can(requester, 'announcements', 'create')) {
-      return null;
+      // Staff vê tudo (com autor), EXCETO o PROFESSOR com unidades atribuídas (E08): só os do grupo inteiro e das
+      // suas unidades (continua vendo inativos/agendados e o autor — é só o recorte de unidade).
+      const unitFilter = groupWideOrUnitFilter(await this.unitScope.resolve(requester, organizationId));
+      return { where: unitFilter.OR ? { AND: [unitFilter] } : null, member: false };
     }
     const [students, access] = await Promise.all([
       this.studentsService.findMine(organizationId, requester.id),
@@ -70,11 +81,14 @@ export class AnnouncementsService {
     }
     for (const row of access) unitIds.add(row.unitId);
     return {
-      AND: [
-        { isActive: true },
-        { OR: [{ publishedAt: null }, { publishedAt: { lte: new Date() } }] },
-        { OR: [{ unitId: null }, { unitId: { in: [...unitIds] } }] },
-      ],
+      where: {
+        AND: [
+          { isActive: true },
+          { OR: [{ publishedAt: null }, { publishedAt: { lte: new Date() } }] },
+          { OR: [{ unitId: null }, { unitId: { in: [...unitIds] } }] },
+        ],
+      },
+      member: true,
     };
   }
 
@@ -84,7 +98,7 @@ export class AnnouncementsService {
     query: ListAnnouncementsQueryDto = {},
   ): Promise<Page<unknown>> {
     const q = query.q?.trim();
-    const scope = await this.memberScope(organizationId, requester);
+    const { where: scope, member } = await this.memberScope(organizationId, requester);
     const and: Prisma.AnnouncementWhereInput[] = [];
     if (scope) and.push(scope);
     if (q) {
@@ -101,7 +115,7 @@ export class AnnouncementsService {
       ...(query.unitId !== undefined ? { unitId: query.unitId } : {}),
       AND: and,
     };
-    const omit = scope ? { createdByUserId: true as const } : undefined;
+    const omit = member ? { createdByUserId: true as const } : undefined;
 
     const [items, total] = await Promise.all([
       this.prisma.announcement.findMany({ where, orderBy: { id: 'desc' }, omit, ...pageArgs(query) }),
@@ -111,10 +125,10 @@ export class AnnouncementsService {
   }
 
   async findOne(organizationId: number, id: number, requester: AuthenticatedUser) {
-    const scope = await this.memberScope(organizationId, requester);
+    const { where: scope, member } = await this.memberScope(organizationId, requester);
     const announcement = await this.prisma.announcement.findFirst({
       where: { id, organizationId, ...(scope ? { AND: [scope] } : {}) },
-      omit: scope ? { createdByUserId: true } : undefined,
+      omit: member ? { createdByUserId: true } : undefined,
     });
     if (!announcement) {
       throw new NotFoundException('Comunicado não encontrado.');
@@ -122,25 +136,31 @@ export class AnnouncementsService {
     return announcement;
   }
 
-  /** Leitura sem escopo de visibilidade — SÓ para update/remove, que já exigem
-   * `announcements.edit/delete` (staff) na matriz. */
-  private async findOneOrFail(organizationId: number, id: number) {
-    const announcement = await this.prisma.announcement.findFirst({ where: { id, organizationId } });
+  /** Leitura sem o escopo de visibilidade de MEMBRO — SÓ para update/remove, que já exigem
+   * `announcements.edit/delete` (staff) na matriz. O PROFESSOR com unidades atribuídas (E08) continua sem enxergar
+   * (404) comunicados de unidades fora do escopo, e só altera os das suas unidades (o do grupo inteiro: 403). */
+  private async findOneOrFail(organizationId: number, id: number, requester?: AuthenticatedUser) {
+    const scope = await this.unitScope.resolve(requester, organizationId);
+    const announcement = await this.prisma.announcement.findFirst({
+      where: { id, organizationId, AND: [groupWideOrUnitFilter(scope)] },
+    });
     if (!announcement) {
       throw new NotFoundException('Comunicado não encontrado.');
     }
     return announcement;
   }
 
-  async create(organizationId: number, createdByUserId: number, dto: CreateAnnouncementDto) {
-    if (dto.unitId) {
-      await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
+  async create(organizationId: number, createdByUserId: number, dto: CreateAnnouncementDto, requester?: AuthenticatedUser) {
+    // Professor restrito: publica para uma das suas unidades (a única, por padrão), nunca para o grupo inteiro.
+    const unitId = resolveWriteUnit(await this.unitScope.resolve(requester, organizationId), dto.unitId);
+    if (unitId) {
+      await this.assertUnitBelongsToOrganization(organizationId, unitId);
     }
 
     const announcement = await this.prisma.announcement.create({
       data: {
         organizationId,
-        unitId: dto.unitId,
+        unitId,
         title: dto.title,
         body: dto.body,
         publishedAt: dto.publishedAt ? new Date(dto.publishedAt) : new Date(),
@@ -149,7 +169,7 @@ export class AnnouncementsService {
     });
 
     // Público-alvo e gravação em lote: SSOT em NotificationsService (unitId nulo = todo membro ativo).
-    await this.notifications.notifyAudience(organizationId, dto.unitId ?? null, {
+    await this.notifications.notifyAudience(organizationId, unitId ?? null, {
       title: announcement.title,
       body: announcement.body,
       type: 'ANNOUNCEMENT',
@@ -158,8 +178,11 @@ export class AnnouncementsService {
     return announcement;
   }
 
-  async update(organizationId: number, id: number, dto: UpdateAnnouncementDto) {
-    await this.findOneOrFail(organizationId, id);
+  async update(organizationId: number, id: number, dto: UpdateAnnouncementDto, requester?: AuthenticatedUser) {
+    const current = await this.findOneOrFail(organizationId, id, requester);
+    const scope = await this.unitScope.resolve(requester, organizationId);
+    assertUnitOwned(scope, current.unitId);
+    assertUnitUpdate(scope, dto.unitId);
 
     if (dto.unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
@@ -179,8 +202,9 @@ export class AnnouncementsService {
 
   /** Nunca apaga (comunicado é registro de comunicação, com valor de auditoria) — marca
    * isActive = false, mesmo espírito de soft-delete dos outros módulos. */
-  async remove(organizationId: number, id: number) {
-    await this.findOneOrFail(organizationId, id);
+  async remove(organizationId: number, id: number, requester?: AuthenticatedUser) {
+    const current = await this.findOneOrFail(organizationId, id, requester);
+    assertUnitOwned(await this.unitScope.resolve(requester, organizationId), current.unitId);
     return this.prisma.announcement.update({ where: { id }, data: { isActive: false } });
   }
 

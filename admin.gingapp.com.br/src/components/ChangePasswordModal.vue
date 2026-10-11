@@ -9,6 +9,7 @@ import {
   passwordErrorMessage,
 } from '@/utils/password'
 
+const props = defineProps<{ forced?: boolean }>()
 const emit = defineEmits<{ close: [] }>()
 
 const form = reactive({ current: '', next: '', confirm: '' })
@@ -57,6 +58,9 @@ async function submit(): Promise<void> {
   <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
     <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="change-password-title">
       <h2 id="change-password-title" class="text-lg font-semibold text-slate-900">Alterar minha senha</h2>
+      <p v-if="props.forced" role="alert" data-testid="forced-notice" class="mt-2 text-sm text-amber-700">
+        Sua senha foi definida por outra pessoa. Crie uma senha nova para continuar usando o admin.
+      </p>
 
       <div v-if="done">
         <p role="status" class="mt-4 text-sm text-emerald-700">{{ CHANGE_PASSWORD_SUCCESS }}</p>
@@ -108,7 +112,7 @@ async function submit(): Promise<void> {
         <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
 
         <div class="flex justify-end gap-2 pt-2">
-          <button type="button" class="rounded-md px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" @click="close">
+          <button v-if="!props.forced" type="button" class="rounded-md px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" @click="close">
             Cancelar
           </button>
           <button

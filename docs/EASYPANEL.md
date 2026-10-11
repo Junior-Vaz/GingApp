@@ -5,7 +5,7 @@ Fluxo: **push na `master` → GitHub Actions builda e publica as imagens no Dock
 - `docker-compose.easypanel.yml` – cole **inteiro** no serviço Compose do Easypanel.
 - `.env.easypanel.example` – as variáveis: `POSTGRES_PASSWORD`, `JWT_SECRET`, `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`, `SUPER_ADMIN_NAME`, `DOCKERHUB_USERNAME` e `COMPOSE_PARALLEL_LIMIT=1` (mais, opcionais, `DEMO_GROUP` e `DEMO_PASSWORD` — seção 5).
 
-O compose sobe `postgres` (alias `gingapp-db`) + `backend` (alias `gingapp-api`) + `painel` + `app` + `admin`. **O backend aplica as migrations e cria o super admin ao subir** (como o GestorPrint; não há serviço/imagem `migrate` separado). O Postgres roda dentro do compose, com volume `gingapp_pgdata`.
+O compose sobe `postgres` (alias `gingapp-db`) + `backend` (alias `gingapp-api`) + `backup` (alias `gingapp-backup`, seção 7) + `painel` + `app` + `admin`. **O backend aplica as migrations e cria o super admin ao subir** (como o GestorPrint; não há serviço/imagem `migrate` separado). O Postgres roda dentro do compose, com volume `gingapp_pgdata`.
 
 **Não existe URL de API para configurar** (nem `VITE_*`, nem domínio `api.`): cada front chama `/api` no **próprio domínio** e o nginx dele repassa para o serviço `backend`. Por isso não há CORS a ajustar.
 
@@ -70,6 +70,48 @@ Um grupo de demonstração completo ("Grupo Axé Demo", slug `demo`), só com da
 - **`/api/...` dá 502 num front:** o backend não está de pé (veja o log dele).
 - **Backend reiniciando em loop:** leia o log dele; causas comuns: senha do super admin fraca, `EMAIL` sem `PASSWORD`, ou `POSTGRES_PASSWORD` diferente da gravada no volume.
 
-## 7. O que este repositório não cobre
+## 7. Backup e restore do banco
 
-Backup automatizado do Postgres (manual: `docker exec <container-postgres> pg_dump -U gingapp -d gingapp -Fc > backup.dump` e copie para fora do servidor — o banco é um volume do próprio servidor), monitoramento/alertas, 2FA, logs centralizados e rotação de segredos. Os testes (lint, unitários, e2e) ficam em `.github/workflows/tests.yml`, em pull request ou manualmente, e não bloqueiam o deploy.
+**O que roda:** o serviço `backup` do compose (imagem `postgres:16-alpine`, a mesma do banco; alias `gingapp-backup`) executa `pg_dump -Fc` contra `gingapp-db` assim que sobe e depois a cada `BACKUP_INTERVAL_HOURS` (padrão 24 h), gravando `gingapp-AAAAMMDDTHHMMSSZ.dump` no volume `gingapp_backups` (no contêiner: `/backups`). O dump é gravado como `.tmp` e só vira `.dump` se terminar bem e não estiver vazio; **só depois de um dump novo bem-sucedido** os `.dump` com mais de `BACKUP_KEEP_DAYS` dias são apagados (um dump que falha nunca remove os anteriores).
+
+| Variável | Padrão | Efeito |
+| --- | --- | --- |
+| `BACKUP_ENABLED` | `true` | `false` deixa o serviço parado (sem dump, sem erro) |
+| `BACKUP_KEEP_DAYS` | `14` | retenção em dias (valor inválido volta a 14) |
+| `BACKUP_INTERVAL_HOURS` | `24` | intervalo entre dumps |
+
+**Limites (leia):** o volume `gingapp_backups` fica **no mesmo servidor** do banco. Ele protege de erro de aplicação/migration e de apagão lógico, **não** de perda do servidor. Copie `/backups` para fora periodicamente (destino é decisão do dono: S3/R2/Backblaze, outro servidor, `rclone`…), ex.: `docker cp <container-backup>:/backups ./backups-$(date +%F)`. Acompanhe `docker logs <container-backup>`: cada rodada loga `[backup] ok: ...` ou `[backup] FALHOU ...`. Não há alerta automático de falha.
+
+**Restaurar passo a passo** (testar a restauração periodicamente — um backup que nunca foi restaurado não é prova de nada):
+
+1. Escolha o dump: `docker exec <container-backup> ls -lh /backups` (use o mais recente bom).
+2. **Verificar sem tocar no banco real** (recomendado, rode sempre antes do passo 4 e como teste periódico):
+   ```sh
+   docker cp ops/backup/restore.sh <container-backup>:/tmp/restore.sh
+   docker exec <container-backup> sh /tmp/restore.sh verify /backups/gingapp-AAAAMMDDTHHMMSSZ.dump
+   ```
+   O script confere o formato do dump (`pg_restore --list`), restaura num banco descartável `gingapp_restore_check` (o container já traz `PGHOST/PGUSER/PGPASSWORD`), conta `User`, `Organization`, `Student`, `_prisma_migrations` e as tabelas do schema, e remove o banco descartável (`--keep` mantém). Saída `[restore] OK` e código 0 = dump íntegro e restaurável. Códigos: 2 dump corrompido, 3 falha no restore, 4 conferência falhou.
+3. **Dump de segurança do estado atual** antes de sobrescrever: `docker exec <container-backup> pg_dump -Fc -f /backups/antes-do-restore.dump` (o prefixo diferente impede que a retenção o apague).
+4. **Restaurar de verdade:** pare o `backend` (Easypanel → serviço `backend` → Stop; os fronts podem continuar), e rode:
+   ```sh
+   docker exec <container-backup> sh /tmp/restore.sh replace /backups/gingapp-AAAAMMDDTHHMMSSZ.dump --yes
+   ```
+   (`pg_restore --clean --if-exists` no banco `gingapp`.) Inicie o `backend` de novo: ele aplica as migrations que faltarem em relação ao dump. Confira `/api/health` (`"database":"up"`) e entre no painel.
+5. Desastre total (servidor/volume perdido): suba o compose com o mesmo `POSTGRES_PASSWORD`, deixe o `backend` criar o schema, pare-o, copie o `.dump` guardado fora do servidor para dentro do container `backup` (`docker cp`) e faça o passo 4.
+
+> **Não verificado neste ambiente:** o serviço `backup` e o `restore.sh` foram validados só por leitura — `docker compose config` (YAML, alias, volume, variáveis) e `sh -n` no script (sintaxe). O Docker deste ambiente não consegue baixar imagens, então **não houve execução de `pg_dump`/`pg_restore`**. Faça o passo 2 uma vez em staging/produção logo no primeiro deploy e registre o resultado.
+
+## 8. Privacidade (LGPD): termos, exportação e pedidos de exclusão
+
+- **Textos legais:** versionados em `backend/src/shared/legal/` (`terms-of-use.ts`, `privacy-policy.ts`, `legal-documents.ts`) e servidos publicamente em `GET /api/legal/terms` e `/api/legal/privacy`; os 3 frontends renderizam o mesmo conteúdo (páginas `/termos` e `/privacidade` no app e no painel). **São um MODELO** ("MODELO — revisar com assessoria jurídica"): preencha os campos entre colchetes (razão social, CNPJ, encarregado/DPO, contato, comarca, localização da hospedagem) e revise com um advogado antes de divulgar. Ao mudar qualquer texto, **troque `LEGAL_VERSION`**: todos os usuários passam a ver o aceite pendente.
+- **Aceite:** `POST /api/auth/accept-terms {version}` grava `User.acceptedTermsVersion/At` e uma linha em `AuditLog` (ação `ACCEPT_TERMS`, versão, IP) como evidência. O login devolve `termsAcceptanceRequired`. **Decisão:** por padrão o **servidor não bloqueia** quem não aceitou — a tela de aceite é bloqueante só nos frontends — para não quebrar seed, grupo demo e testes. Para o servidor também barrar (403 `TERMS_NOT_ACCEPTED`), defina `TERMS_ENFORCEMENT=true` no backend.
+- **Direitos do titular:** `GET /api/auth/me/export` devolve um JSON com os dados do próprio usuário (e dos dependentes de quem é responsável). `POST /api/auth/me/delete-request` apenas **registra** o pedido em `DataDeletionRequest` (status `PENDING`); **nada é apagado automaticamente**.
+- **Tratar um pedido de exclusão (manual):** liste os pendentes — `SELECT d.id, d."requestedAt", u.email, d."organizationId", d.reason FROM "DataDeletionRequest" d JOIN "User" u ON u.id = d."userId" WHERE d.status = 'PENDING' ORDER BY d."requestedAt";`. Avalie com o Mestre do grupo (histórico de frequência/financeiro pode ter de ser mantido; nesse caso anonimize nome/e-mail/telefone/documento em vez de apagar), execute, e marque `UPDATE "DataDeletionRequest" SET status='RESOLVED', "resolvedAt"=now(), "resolutionNote"='...' WHERE id=...;` (ou `REJECTED`, sempre com a justificativa). Responda ao titular no prazo legal. **Pendência:** não há tela no admin para isso.
+
+## 9. Jobs agendados
+
+O backend roda, todo dia às **03:00 (America/Sao_Paulo)**, `FinanceOverdueService.markOverdueAndNotify()` para todas as organizações (mensalidade `PENDING` vencida vira `OVERDUE` e o aluno/responsável é notificado; idempotente). Desligue com `OVERDUE_CRON=false`. Os testes e2e rodam com ele desligado. Com mais de uma réplica do backend o job roda em cada uma (seguro por ser idempotente, só redundante).
+
+## 10. O que este repositório não cobre
+
+Cópia dos backups para fora do servidor e alertas de falha do backup (seção 7), monitoramento/alertas, 2FA, logs centralizados e rotação de segredos. Os testes (lint, unitários, e2e) ficam em `.github/workflows/tests.yml`, em pull request ou manualmente, e não bloqueiam o deploy.

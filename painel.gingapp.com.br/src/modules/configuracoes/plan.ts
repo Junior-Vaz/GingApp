@@ -21,6 +21,8 @@ export interface Organization {
   city?: string | null;
   state?: string | null;
   website?: string | null;
+  /** "Como pagar" mostrado ao aluno/responsável no app (E07). */
+  paymentInstructions?: string | null;
   socialLinks?: OrganizationSocialLinks | null;
 }
 

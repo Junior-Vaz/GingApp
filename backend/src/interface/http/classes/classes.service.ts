@@ -8,6 +8,13 @@ import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
 import { isTimeOfDay, isValidTimeRange } from '../../../shared/dates/time-of-day';
 import { assertActiveTeacher } from '../../../shared/access/teacher-membership';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
+import {
+  assertUnitUpdate,
+  resolveWriteUnit,
+  UnitScopeService,
+  unitScopeFilter,
+} from '../../../shared/access/unit-scope';
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
 
 const DAY_MS = 86_400_000;
@@ -45,10 +52,17 @@ export class ClassesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
+    private readonly unitScope: UnitScopeService,
   ) {}
 
-  async findAll(organizationId: number, query: ListClassesQueryDto = {}): Promise<Page<Class>> {
+  /**
+   * Escopo por unidade (E08, shared/access/unit-scope.ts): o PROFESSOR com unidades atribuídas só lista/lê/edita
+   * turmas das suas unidades (lista e contagem usam o mesmo where); `user` omitido = sem restrição. As rotas
+   * /me (findMine) NÃO passam por aqui: o escopo delas é o vínculo do aluno.
+   */
+  async findAll(organizationId: number, query: ListClassesQueryDto = {}, user?: AuthenticatedUser): Promise<Page<Class>> {
     const where: Prisma.ClassWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
+    where.AND = [unitScopeFilter(await this.unitScope.resolve(user, organizationId))];
     if (query.status) where.status = query.status;
     if (query.unitId !== undefined) where.unitId = query.unitId;
     const q = query.q?.trim();
@@ -77,17 +91,19 @@ export class ClassesService {
     return this.prisma.class.findMany({ where: { id: { in: classIds } } });
   }
 
-  async findOne(organizationId: number, id: number) {
-    const classItem = await this.prisma.class.findFirst({ where: { id, organizationId } });
+  async findOne(organizationId: number, id: number, user?: AuthenticatedUser) {
+    const scope = await this.unitScope.resolve(user, organizationId);
+    const classItem = await this.prisma.class.findFirst({ where: { id, organizationId, ...unitScopeFilter(scope) } });
     if (!classItem) {
       throw new NotFoundException('Turma não encontrada.');
     }
     return classItem;
   }
 
-  async create(organizationId: number, dto: CreateClassDto) {
-    if (dto.unitId) {
-      await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
+  async create(organizationId: number, dto: CreateClassDto, user?: AuthenticatedUser) {
+    const unitId = resolveWriteUnit(await this.unitScope.resolve(user, organizationId), dto.unitId);
+    if (unitId) {
+      await this.assertUnitBelongsToOrganization(organizationId, unitId);
     }
     if (dto.teacherUserId) {
       await assertActiveTeacher(this.prisma, organizationId, dto.teacherUserId);
@@ -96,7 +112,7 @@ export class ClassesService {
     return this.prisma.class.create({
       data: {
         organizationId,
-        unitId: dto.unitId,
+        unitId,
         teacherUserId: dto.teacherUserId,
         name: dto.name,
         description: dto.description,
@@ -107,8 +123,9 @@ export class ClassesService {
     });
   }
 
-  async update(organizationId: number, id: number, dto: UpdateClassDto) {
-    const current = await this.findOne(organizationId, id); // 404 se não existir ou não for desta organização
+  async update(organizationId: number, id: number, dto: UpdateClassDto, user?: AuthenticatedUser) {
+    const current = await this.findOne(organizationId, id, user); // 404 se não existir, for de outra organização ou de unidade fora do escopo
+    assertUnitUpdate(await this.unitScope.resolve(user, organizationId), dto.unitId); // 403: não move para fora do escopo
 
     // Update parcial: se só um dos horários vem no payload, compara com o valor já gravado
     // (o DTO só consegue comparar quando os dois vêm juntos). null limpa o campo -> sem comparação.
@@ -144,8 +161,8 @@ export class ClassesService {
    * "Remover" uma turma nunca apaga o registro — o histórico não deve ser apagado quando a
    * turma fica inativa (mesmo padrão do StudentsService). Marca status = INACTIVE.
    */
-  async remove(organizationId: number, id: number) {
-    await this.findOne(organizationId, id);
+  async remove(organizationId: number, id: number, user?: AuthenticatedUser) {
+    await this.findOne(organizationId, id, user);
     return this.prisma.class.update({ where: { id }, data: { status: 'INACTIVE' } });
   }
 
@@ -159,8 +176,13 @@ export class ClassesService {
    *   recriada) é ignorada e contada em `ignored`. Gerações concorrentes da mesma turma são
    *   serializadas por advisory lock transacional (Lesson não tem unique por turma+data).
    */
-  async generateLessons(organizationId: number, classId: number, dto: GenerateLessonsDto): Promise<GenerateLessonsResult> {
-    const klass = await this.findOne(organizationId, classId); // 404 se não existir ou for de outra organização
+  async generateLessons(
+    organizationId: number,
+    classId: number,
+    dto: GenerateLessonsDto,
+    user?: AuthenticatedUser,
+  ): Promise<GenerateLessonsResult> {
+    const klass = await this.findOne(organizationId, classId, user); // 404 se não existir ou for de outra organização
     if (klass.status !== 'ACTIVE') {
       throw new BadRequestException('Turma inativa: reative a turma antes de gerar aulas.');
     }
@@ -223,8 +245,8 @@ export class ClassesService {
   }
 
   /** Alunos matriculados (ativos) na turma, com os dados básicos do aluno. */
-  async listStudents(organizationId: number, classId: number) {
-    await this.findOne(organizationId, classId);
+  async listStudents(organizationId: number, classId: number, user?: AuthenticatedUser) {
+    await this.findOne(organizationId, classId, user);
     const enrollments = await this.prisma.classStudent.findMany({
       where: { organizationId, classId, status: 'ACTIVE' },
       include: { student: { select: { id: true, name: true, status: true } } },
@@ -240,9 +262,13 @@ export class ClassesService {
   }
 
   /** Matricula um aluno na turma (idempotente: reativa uma matrícula inativa, repetir não duplica). */
-  async enrollStudent(organizationId: number, classId: number, studentId: number) {
-    await this.findOne(organizationId, classId);
-    const student = await this.prisma.student.findFirst({ where: { id: studentId, organizationId } });
+  async enrollStudent(organizationId: number, classId: number, studentId: number, user?: AuthenticatedUser) {
+    await this.findOne(organizationId, classId, user);
+    // Aluno de unidade fora do escopo do professor = o MESMO 400 de aluno inexistente/de outro grupo.
+    const scope = await this.unitScope.resolve(user, organizationId);
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, organizationId, ...unitScopeFilter(scope) },
+    });
     if (!student) {
       throw new BadRequestException('Aluno inválido para esta organização.');
     }
@@ -254,8 +280,8 @@ export class ClassesService {
   }
 
   /** Desmatricula: mantém o registro (histórico de frequência) e marca INACTIVE. */
-  async unenrollStudent(organizationId: number, classId: number, studentId: number) {
-    await this.findOne(organizationId, classId);
+  async unenrollStudent(organizationId: number, classId: number, studentId: number, user?: AuthenticatedUser) {
+    await this.findOne(organizationId, classId, user);
     const enrollment = await this.prisma.classStudent.findFirst({
       where: { organizationId, classId, studentId },
     });

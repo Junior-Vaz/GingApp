@@ -642,22 +642,31 @@ describe('Comunicados — visibilidade por vínculo e sem createdByUserId (e2e)'
     await get(`/announcements/${ids.main}`, fx.orphan.token).expect(404);
   });
 
-  it('MESTRE e PROFESSOR continuam vendo TODAS as unidades da organização, com createdByUserId (e nunca a outra organização)', async () => {
+  it('MESTRE vê TODAS as unidades; PROFESSOR também, salvo se tiver unidades atribuídas (E08: então só as dele + gerais) — sempre com createdByUserId e nunca a outra organização', async () => {
     for (const who of [mestre, professor]) {
       const res = await get(`/announcements?q=${TAG}&limit=200`, who.token).expect(200);
+      // O PROFESSOR do seed tem UserUnitAccess na unidade principal (E08): fica restrito a ela + comunicados gerais.
+      const access = (
+        await prisma.userUnitAccess.findMany({ where: { organizationId: fx.organizationId, userId: who.userId } })
+      ).map((r) => r.unitId);
+      const visible = who === mestre || access.length === 0 ? {} : { OR: [{ unitId: null }, { unitId: { in: access } }] };
       const expected = idsOf(
         await prisma.announcement.findMany({
-          where: { organizationId: fx.organizationId, title: { startsWith: TAG } },
+          where: { organizationId: fx.organizationId, title: { startsWith: TAG }, ...visible },
           orderBy: { id: 'desc' },
           select: { id: true },
         }),
       );
-      assert.equal(expected.length, 3 + 7 + 5);
+      if (who === mestre) assert.equal(expected.length, 3 + 7 + 5);
       assert.deepEqual(idsOf(res.body), expected);
       assert.equal(res.headers['x-total-count'], String(expected.length));
       assert.ok(res.body.every((a: { createdByUserId?: number }) => a.createdByUserId === mestre.userId));
       assert.ok(!res.text.includes('orgB-geral'));
       for (const id of [ids.general!, ids.main!, ids.other!]) {
+        if (!expected.includes(id)) {
+          await get(`/announcements/${id}`, who.token).expect(404);
+          continue;
+        }
         const one = await get(`/announcements/${id}`, who.token).expect(200);
         assert.equal(one.body.createdByUserId, mestre.userId);
       }

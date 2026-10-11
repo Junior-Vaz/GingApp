@@ -9,7 +9,12 @@ const { readdirSync } = require('node:fs');
 const path = require('node:path');
 
 const dir = __dirname;
-const filters = process.argv.slice(2);
+// `--smoke`: só o essencial (login, RBAC, isolamento entre grupos, alunos, turmas) — dezenas de segundos,
+// para rodar a cada alteração; o `test:quick` completo e o `test:e2e` ficam para antes do commit/release.
+const SMOKE = ['auth.e2e', 'rbac', 'multi-tenant', 'students.e2e', 'classes.e2e'];
+const args = process.argv.slice(2);
+const smoke = args.includes('--smoke');
+const filters = smoke ? SMOKE : args;
 let specs = readdirSync(dir).filter((f) => f.endsWith('.e2e-spec.ts'));
 if (filters.length > 0) {
   specs = specs.filter((f) => filters.some((p) => f.includes(p)));

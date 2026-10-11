@@ -5,6 +5,7 @@ import { ListCertificatesQueryDto } from './dto/list-certificates-query.dto';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { CertificatesService } from './certificates.service';
 import { CreateCertificateDto } from './dto/create-certificate.dto';
 import { UpdateCertificateDto } from './dto/update-certificate.dto';
@@ -17,10 +18,11 @@ export class CertificatesController {
   @CanAccess('certificates', 'view')
   async findAll(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListCertificatesQueryDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return sendPage(res, await this.certificatesService.findAll(organizationId, query));
+    return sendPage(res, await this.certificatesService.findAll(organizationId, query, user));
   }
 
   /** Sem @CanAccess: escopado por construção aos alunos do próprio usuário (nunca à
@@ -32,29 +34,42 @@ export class CertificatesController {
 
   @Get(':id')
   @CanAccess('certificates', 'view')
-  findOne(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
-    return this.certificatesService.findOne(organizationId, id);
+  findOne(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.certificatesService.findOne(organizationId, id, user);
   }
 
   @Post()
   @CanAccess('certificates', 'create')
-  create(@CurrentOrganization() organizationId: number, @Body() dto: CreateCertificateDto) {
-    return this.certificatesService.create(organizationId, dto);
+  create(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: CreateCertificateDto,
+  ) {
+    return this.certificatesService.create(organizationId, dto, user);
   }
 
   @Patch(':id')
   @CanAccess('certificates', 'edit')
   update(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateCertificateDto,
   ) {
-    return this.certificatesService.update(organizationId, id, dto);
+    return this.certificatesService.update(organizationId, id, dto, user);
   }
 
   @Delete(':id')
   @CanAccess('certificates', 'delete')
-  remove(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
-    return this.certificatesService.remove(organizationId, id);
+  remove(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.certificatesService.remove(organizationId, id, user);
   }
 }

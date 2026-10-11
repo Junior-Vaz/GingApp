@@ -27,4 +27,8 @@ export interface AuthenticatedUser {
   isSuperAdmin: boolean;
   organizationId?: number;
   role?: OrgRole;
+  /** Lido do banco a cada requisição (nunca do token): senha provisória pendente de troca (ver access-gate.ts). */
+  mustChangePassword?: boolean;
+  /** Lido do banco a cada requisição: última versão dos Termos/Política aceita (null = nunca). */
+  acceptedTermsVersion?: string | null;
 }

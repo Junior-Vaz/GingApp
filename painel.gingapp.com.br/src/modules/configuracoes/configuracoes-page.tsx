@@ -133,6 +133,12 @@ function OrganizationCard() {
               <dt className="text-xs font-medium text-muted-foreground">História</dt>
               <dd className="whitespace-pre-line text-sm">{data.history || "-"}</dd>
             </div>
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">Como pagar (mostrado aos alunos no app)</dt>
+              <dd className="whitespace-pre-line text-sm" data-testid="payment-instructions">
+                {data.paymentInstructions || "-"}
+              </dd>
+            </div>
           </dl>
         </>
       ) : (
@@ -308,6 +314,20 @@ function OrganizationCard() {
                       <Input placeholder="https://" {...field} />
                     </FormControl>
                     <FormDescription>O envio de arquivos ainda não existe: informe o link de uma imagem já publicada.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="paymentInstructions"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Como pagar</FormLabel>
+                    <FormControl>
+                      <Textarea rows={4} placeholder="Chave PIX, dados bancários, orientações…" {...field} />
+                    </FormControl>
+                    <FormDescription>Aparece para alunos e responsáveis na tela Financeiro do app.</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

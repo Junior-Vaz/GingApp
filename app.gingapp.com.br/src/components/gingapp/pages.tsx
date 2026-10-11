@@ -15,6 +15,7 @@ import {
   useFinanceSummary,
   useMyStudent,
   useNotifications,
+  useOwnOrganization,
   usePassport,
   usePastLessons,
   useUnreadCount,
@@ -285,7 +286,14 @@ const STATUS_LABEL: Record<FinanceStatus, string> = {
 export function FinancialPage() {
   const finance = useFinance();
   const summary = useFinanceSummary();
+  const organization = useOwnOrganization();
   const [record, setRecord] = useState<FinancialRecord | null>(null);
+  const howToPay = organization.data?.paymentInstructions?.trim();
+  // Próximos vencimentos: em aberto e AINDA não vencidos, do mais próximo para o mais distante.
+  const upcoming = finance.items
+    .filter((item) => effectiveFinanceStatus(item) === "PENDING")
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+    .slice(0, 3);
   // O banner usa SÓ os totais agregados no banco (summary); a lista é paginada e pode estar
   // incompleta, então nunca se soma nada a partir dela.
   const totals = summary.data;
@@ -317,6 +325,29 @@ export function FinancialPage() {
             </div>
           ) : (
             <StateMessage tone="error">{errorMessage(summary.error, "Não foi possível calcular o total em aberto.")}</StateMessage>
+          )}
+          {upcoming.length > 0 && (
+            <>
+              <SectionHeading title="Próximos vencimentos" />
+              <ul className="mb-7 space-y-2 text-sm" data-testid="upcoming-dues">
+                {upcoming.map((item) => (
+                  <li key={item.id} className="flex justify-between gap-3 rounded-lg bg-secondary px-4 py-3">
+                    <span>
+                      {item.description} · {fmt(dayOnly(item.dueDate), "dd/MM/yyyy")}
+                    </span>
+                    <strong>{formatCurrency(item.amountCents)}</strong>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {howToPay && (
+            <>
+              <SectionHeading title="Como pagar" />
+              <p className="mb-7 whitespace-pre-line rounded-lg border p-4 text-sm" data-testid="how-to-pay">
+                {howToPay}
+              </p>
+            </>
           )}
           <SectionHeading title="Histórico de pagamentos" />
           {finance.items.length === 0 ? (

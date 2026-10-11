@@ -5,6 +5,8 @@ import { pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { civilTodayStart } from '../finance/finance.service';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
+import { lessonScopeFilter, UnitScopeService } from '../../../shared/access/unit-scope';
 import { StudentsService } from '../students/students.service';
 import { ListMyAttendanceQueryDto } from './dto/list-my-attendance-query.dto';
 import { AttendanceEntryDto } from './dto/mark-attendance.dto';
@@ -36,11 +38,18 @@ export class AttendanceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
+    private readonly unitScope: UnitScopeService,
   ) {}
 
-  findAll(organizationId: number) {
+  /**
+   * Escopo por unidade (E08, shared/access/unit-scope.ts): o PROFESSOR com unidades atribuídas só lê/registra
+   * chamada de aulas da sua unidade (unidade efetiva da aula = a dela ou a da turma). `user` omitido = sem
+   * restrição. /attendance/me (findMine) não passa por aqui: o escopo dela é o vínculo do aluno.
+   */
+  async findAll(organizationId: number, user?: AuthenticatedUser) {
+    const scope = await this.unitScope.resolve(user, organizationId);
     return this.prisma.attendance.findMany({
-      where: { organizationId },
+      where: { organizationId, lesson: lessonScopeFilter(scope) },
       orderBy: { id: 'desc' },
       take: 50,
     });
@@ -123,8 +132,8 @@ export class AttendanceService {
    * daquela aula, com o registro de Attendance já existente (se houver). `present: null`
    * indica que a chamada ainda não foi feita para aquele aluno nessa aula.
    */
-  async getRoster(organizationId: number, lessonId: number): Promise<RosterEntry[]> {
-    const lesson = await this.assertLessonBelongsToOrganization(organizationId, lessonId);
+  async getRoster(organizationId: number, lessonId: number, user?: AuthenticatedUser): Promise<RosterEntry[]> {
+    const lesson = await this.assertLessonBelongsToOrganization(organizationId, lessonId, user);
 
     const [classStudents, attendances] = await Promise.all([
       this.prisma.classStudent.findMany({
@@ -158,8 +167,9 @@ export class AttendanceService {
     organizationId: number,
     lessonId: number,
     entries: AttendanceEntryDto[],
+    user?: AuthenticatedUser,
   ): Promise<{ count: number }> {
-    await this.assertLessonBelongsToOrganization(organizationId, lessonId);
+    await this.assertLessonBelongsToOrganization(organizationId, lessonId, user);
 
     if (entries.length === 0) {
       return { count: 0 };
@@ -204,8 +214,11 @@ export class AttendanceService {
 
   /** Nunca confiar em lessonId vindo da URL sem confirmar que pertence à organização do
    * usuário autenticado (PLANO_PROJETO.md §3.2 item 4). */
-  private async assertLessonBelongsToOrganization(organizationId: number, lessonId: number) {
-    const lesson = await this.prisma.lesson.findFirst({ where: { id: lessonId, organizationId } });
+  private async assertLessonBelongsToOrganization(organizationId: number, lessonId: number, user?: AuthenticatedUser) {
+    const scope = await this.unitScope.resolve(user, organizationId);
+    const lesson = await this.prisma.lesson.findFirst({
+      where: { id: lessonId, organizationId, AND: [lessonScopeFilter(scope)] },
+    });
     if (!lesson) {
       throw new NotFoundException('Aula não encontrada.');
     }

@@ -2,6 +2,8 @@ import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query,
 import type { Response } from 'express';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { CreateUnitDto } from './dto/create-unit.dto';
 import { ListUnitsQueryDto } from './dto/list-units-query.dto';
@@ -20,17 +22,22 @@ export class UnitsController {
   @CanAccess('units', 'view')
   async findAll(
     @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
     @Query() query: ListUnitsQueryDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return sendPage(res, await this.unitsService.findAll(organizationId, query));
+    return sendPage(res, await this.unitsService.findAll(organizationId, query, user));
   }
 
   /** Uma unidade da própria organização (o painel resolve a unidade atual de um registro em edição). */
   @Get(':id')
   @CanAccess('units', 'view')
-  findOne(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
-    return this.unitsService.findOne(organizationId, id);
+  findOne(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.unitsService.findOne(organizationId, id, user);
   }
 
   @Post()

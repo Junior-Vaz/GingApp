@@ -38,6 +38,7 @@ export const organizationSchema = z.object({
   state: z.string().refine((v) => v === "" || (BR_UFS as readonly string[]).includes(v), "Escolha uma UF válida."),
   website: url("Site"),
   logo: url("Logomarca"),
+  paymentInstructions: z.string().trim().max(2000, "Como pagar: no máximo 2000 caracteres."),
   instagram: url("Instagram"),
   youtube: url("YouTube"),
   tiktok: url("TikTok"),
@@ -60,6 +61,7 @@ export function organizationToForm(org: Organization): OrganizationFormValues {
     state: org.state ?? "",
     website: org.website ?? "",
     logo: org.logo ?? "",
+    paymentInstructions: org.paymentInstructions ?? "",
     instagram: links.instagram ?? "",
     youtube: links.youtube ?? "",
     tiktok: links.tiktok ?? "",
@@ -81,6 +83,7 @@ export interface OrganizationUpdateInput {
   state: string | null;
   website: string | null;
   logo: string | null;
+  paymentInstructions: string | null;
   socialLinks: OrganizationSocialLinks | null;
 }
 
@@ -105,6 +108,7 @@ export function organizationToPayload(values: OrganizationFormValues): Organizat
     state: values.state || null,
     website: orNull(values.website),
     logo: orNull(values.logo),
+    paymentInstructions: orNull(values.paymentInstructions),
     socialLinks: Object.keys(socialLinks).length > 0 ? socialLinks : null,
   };
 }

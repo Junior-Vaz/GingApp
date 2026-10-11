@@ -2,6 +2,13 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, Student } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
+import {
+  assertUnitUpdate,
+  resolveWriteUnit,
+  UnitScopeService,
+  unitScopeFilter,
+} from '../../../shared/access/unit-scope';
 import { ListStudentsQueryDto } from './dto/list-students-query.dto';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateStudentDto } from './dto/create-student.dto';
@@ -14,10 +21,18 @@ export class StudentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly subscriptionsService: SubscriptionsService,
+    private readonly unitScope: UnitScopeService,
   ) {}
 
-  async findAll(organizationId: number, query: ListStudentsQueryDto = {}): Promise<Page<Student>> {
+  /**
+   * Escopo por unidade (E08, ver shared/access/unit-scope.ts): o PROFESSOR com unidades atribuídas só lista/lê/edita
+   * alunos das suas unidades; `user` omitido (chamada interna) = sem restrição. O mesmo `where` vale para a lista
+   * e para a contagem (X-Total-Count).
+   */
+  async findAll(organizationId: number, query: ListStudentsQueryDto = {}, user?: AuthenticatedUser): Promise<Page<Student>> {
     const where: Prisma.StudentWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
+    // AND (e não spread de unitId): o filtro ?unitId= da query se COMBINA com o escopo, nunca o amplia.
+    where.AND = [unitScopeFilter(await this.unitScope.resolve(user, organizationId))];
     if (query.status) where.status = query.status;
     if (query.unitId !== undefined) where.unitId = query.unitId;
     const q = query.q?.trim();
@@ -119,24 +134,26 @@ export class StudentsService {
     return Object.keys(filled).length > 0 ? (filled as Prisma.InputJsonValue) : Prisma.DbNull;
   }
 
-  async findOne(organizationId: number, id: number) {
-    const student = await this.prisma.student.findFirst({ where: { id, organizationId } });
+  async findOne(organizationId: number, id: number, user?: AuthenticatedUser) {
+    const scope = await this.unitScope.resolve(user, organizationId);
+    const student = await this.prisma.student.findFirst({ where: { id, organizationId, ...unitScopeFilter(scope) } });
     if (!student) {
       throw new NotFoundException('Aluno não encontrado.');
     }
     return student;
   }
 
-  async create(organizationId: number, dto: CreateStudentDto) {
-    if (dto.unitId) {
-      await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
+  async create(organizationId: number, dto: CreateStudentDto, user?: AuthenticatedUser) {
+    const unitId = resolveWriteUnit(await this.unitScope.resolve(user, organizationId), dto.unitId);
+    if (unitId) {
+      await this.assertUnitBelongsToOrganization(organizationId, unitId);
     }
     await this.assertWithinStudentLimit(organizationId);
 
     return this.prisma.student.create({
       data: {
         organizationId,
-        unitId: dto.unitId,
+        unitId,
         name: dto.name,
         birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
         document: dto.document,
@@ -149,8 +166,9 @@ export class StudentsService {
     });
   }
 
-  async update(organizationId: number, id: number, dto: UpdateStudentDto) {
-    await this.findOne(organizationId, id); // 404 se não existir ou não for desta organização
+  async update(organizationId: number, id: number, dto: UpdateStudentDto, user?: AuthenticatedUser) {
+    await this.findOne(organizationId, id, user); // 404 se não existir, for de outra organização ou de unidade fora do escopo
+    assertUnitUpdate(await this.unitScope.resolve(user, organizationId), dto.unitId); // 403: não move para fora do escopo
 
     if (dto.unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
@@ -177,8 +195,8 @@ export class StudentsService {
    * "Remover" um aluno nunca apaga o registro — o histórico não deve ser apagado quando o
    * aluno fica inativo (projeto.txt §20). Marca status = INACTIVE.
    */
-  async remove(organizationId: number, id: number) {
-    await this.findOne(organizationId, id);
+  async remove(organizationId: number, id: number, user?: AuthenticatedUser) {
+    await this.findOne(organizationId, id, user);
     return this.prisma.student.update({ where: { id }, data: { status: 'INACTIVE' } });
   }
 

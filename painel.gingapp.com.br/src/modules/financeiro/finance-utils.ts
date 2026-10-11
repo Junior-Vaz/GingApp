@@ -2,6 +2,16 @@ import { z } from "zod";
 import { dayOnly, fmt, startOfToday } from "@/lib/format";
 
 export type FinanceStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELLED";
+export type PaymentMethod = "CASH" | "PIX" | "CARD" | "TRANSFER" | "OTHER";
+
+export const PAYMENT_METHOD_LABEL: Record<PaymentMethod, string> = {
+  CASH: "Dinheiro",
+  PIX: "PIX",
+  CARD: "Cartão",
+  TRANSFER: "Transferência",
+  OTHER: "Outro",
+};
+export const PAYMENT_METHODS = Object.keys(PAYMENT_METHOD_LABEL) as PaymentMethod[];
 
 /** Contrato real de GET /finance (FinancialRecord do Prisma). */
 export interface FinanceRecord {
@@ -16,6 +26,11 @@ export interface FinanceRecord {
   dueDate: string;
   paidAt: string | null;
   status: FinanceStatus;
+  /** Competência 'YYYY-MM' (só nas mensalidades geradas em lote). */
+  competence?: string | null;
+  /** Baixa (POST /finance/:id/pay): forma de pagamento e valor efetivamente pago. */
+  paymentMethod?: PaymentMethod | null;
+  paidCents?: number | null;
 }
 
 export interface StudentRef {

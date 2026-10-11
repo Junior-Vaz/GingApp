@@ -286,7 +286,30 @@ describe("Responsável com 2 dependentes: o aluno ativo guia as telas", () => {
     await waitFor(() => expect(text()).toContain("Você tem R$ 100,00 em aberto"));
     const first = calls.findIndex((c) => c.url.pathname === "/finance/me");
     expect(calls.findIndex((c) => c.url.pathname === "/students/me")).toBeLessThan(first);
-    expect(calls.filter((c) => c.url.pathname !== "/students/me").every((c) => c.url.searchParams.has("studentId"))).toBe(true);
+    expect(calls.filter((c) => c.url.pathname !== "/students/me" && c.url.pathname !== "/organizations").every((c) => c.url.searchParams.has("studentId"))).toBe(true);
+  });
+});
+
+describe("Financeiro: próximos vencimentos e Como pagar (E07)", () => {
+  it("mostra o texto do grupo (GET /organizations) e o próximo vencimento; sem texto, o bloco some", async () => {
+    const base = guardianApi();
+    mockApi((url, init) =>
+      url.pathname === "/organizations"
+        ? { body: { id: 1, name: "Grupo", paymentInstructions: "PIX: 62999990000\nEnvie o comprovante." } }
+        : base(url, init),
+    );
+    render(<FinancialPage />);
+    await waitFor(() => expect(text()).toContain("Como pagar"));
+    expect(container!.querySelector('[data-testid="how-to-pay"]')!.textContent).toContain("PIX: 62999990000");
+    expect(container!.querySelector('[data-testid="upcoming-dues"]')!.textContent).toContain("Mens 10000");
+    unmount();
+
+    mockApi((url, init) =>
+      url.pathname === "/organizations" ? { body: { id: 1, name: "Grupo", paymentInstructions: null } } : base(url, init),
+    );
+    render(<FinancialPage />);
+    await waitFor(() => expect(text()).toContain("Você tem R$ 100,00 em aberto"));
+    expect(text()).not.toContain("Como pagar");
   });
 });
 

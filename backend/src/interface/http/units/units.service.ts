@@ -8,6 +8,8 @@ import {
 import { Prisma, RecordStatus, Unit } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
+import { isRestricted, UnitScopeService } from '../../../shared/access/unit-scope';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateUnitDto } from './dto/create-unit.dto';
 import { ListUnitsQueryDto } from './dto/list-units-query.dto';
@@ -34,10 +36,17 @@ export class UnitsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly subscriptionsService: SubscriptionsService,
+    private readonly unitScope: UnitScopeService,
   ) {}
 
-  async findAll(organizationId: number, query: ListUnitsQueryDto = {}): Promise<Page<Unit>> {
+  /**
+   * Escopo por unidade (E08, shared/access/unit-scope.ts): o PROFESSOR com unidades atribuídas só lista/lê as
+   * suas unidades (os pickers do painel passam a oferecer só elas); `user` omitido ou qualquer outro papel = todas.
+   */
+  async findAll(organizationId: number, query: ListUnitsQueryDto = {}, user?: AuthenticatedUser): Promise<Page<Unit>> {
     const where: Prisma.UnitWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
+    const scope = await this.unitScope.resolve(user, organizationId);
+    if (isRestricted(scope)) where.id = { in: scope };
     if (query.status) where.status = query.status;
     const q = query.q?.trim();
     if (q) where.name = { contains: q, mode: 'insensitive' };
@@ -49,8 +58,11 @@ export class UnitsService {
     return { items, total };
   }
 
-  async findOne(organizationId: number, id: number): Promise<Unit> {
-    const unit = await this.prisma.unit.findFirst({ where: { id, organizationId } });
+  async findOne(organizationId: number, id: number, user?: AuthenticatedUser): Promise<Unit> {
+    const scope = await this.unitScope.resolve(user, organizationId);
+    const unit = await this.prisma.unit.findFirst({
+      where: { id, organizationId, ...(isRestricted(scope) ? { id: { in: scope.includes(id) ? [id] : [] } } : {}) },
+    });
     if (!unit) throw new NotFoundException(UNIT_NOT_FOUND);
     return unit;
   }
