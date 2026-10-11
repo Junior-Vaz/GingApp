@@ -5,7 +5,7 @@ Fluxo: **push na `master` → GitHub Actions builda e publica as imagens no Dock
 - `docker-compose.easypanel.yml` – cole **inteiro** no serviço Compose do Easypanel.
 - `.env.easypanel.example` – as variáveis: `POSTGRES_PASSWORD`, `JWT_SECRET`, `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`, `SUPER_ADMIN_NAME`, `DOCKERHUB_USERNAME` e `COMPOSE_PARALLEL_LIMIT=1`.
 
-O compose sobe `postgres` + `backend` + `painel` + `app` + `admin`. **O backend aplica as migrations e cria o super admin ao subir** (como o GestorPrint; não há serviço/imagem `migrate` separado). O Postgres roda dentro do compose, com volume `gingapp_pgdata`.
+O compose sobe `postgres` (alias `gingapp-db`) + `backend` (alias `gingapp-api`) + `painel` + `app` + `admin`. **O backend aplica as migrations e cria o super admin ao subir** (como o GestorPrint; não há serviço/imagem `migrate` separado). O Postgres roda dentro do compose, com volume `gingapp_pgdata`.
 
 **Não existe URL de API para configurar** (nem `VITE_*`, nem domínio `api.`): cada front chama `/api` no **próprio domínio** e o nginx dele repassa para o serviço `backend`. Por isso não há CORS a ajustar.
 
@@ -55,6 +55,7 @@ O compose sobe `postgres` + `backend` + `painel` + `app` + `admin`. **O backend 
 - **`unauthorized` / `denied` no Docker Hub:** repositório privado sem login no host — torne público (passo 1.4).
 - **`manifest unknown` / `not found`:** o Actions ainda não publicou, ou `DOCKERHUB_USERNAME` no Easypanel não é o mesmo do secret.
 - **Actions falhando em `Pull base images`:** os registros anônimos limitam pulls por IP; o passo tenta o espelho da AWS e o Docker Hub com nova tentativa por alguns minutos. Se esgotar, rode o workflow de novo.
+- **`/api/...` dá 404 ("Cannot GET /api/...") ou `/api/health` responde `{"status":"ok","timestamp":...}` sem `"database":"up"`:** o front está falando com o backend de OUTRO projeto do mesmo Easypanel. Os serviços com domínio entram também numa rede compartilhada, e nomes genéricos (`backend`, `postgres`) existem em vários projetos: o DNS devolvia o container errado. Por isso o compose usa os aliases únicos `gingapp-api` e `gingapp-db` (e o nginx dos fronts aponta para `gingapp-api`). Cole de novo o YAML atualizado no Easypanel e faça Deploy. O `backend` não precisa de domínio: se houver um `api.` mapeado, pode remover.
 - **`/api/...` dá 502 num front:** o backend não está de pé (veja o log dele).
 - **Backend reiniciando em loop:** leia o log dele; causas comuns: senha do super admin fraca, `EMAIL` sem `PASSWORD`, ou `POSTGRES_PASSWORD` diferente da gravada no volume.
 

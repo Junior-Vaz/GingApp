@@ -22,7 +22,11 @@ services:
     image: postgres:16-alpine
     restart: unless-stopped
     networks:
-      - gingapp
+      gingapp:
+        # Alias UNICO: no Easypanel os servicos que recebem dominio entram tambem na rede compartilhada e
+        # nomes genericos (postgres, backend) tambem existem em OUTROS projetos - o DNS devolvia o
+        # container errado (o admin chegou a falar com o backend de outro projeto).
+        aliases: [gingapp-db]
     environment:
       POSTGRES_USER: gingapp
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD (so letras e numeros, ex.: openssl rand -hex 24)}"
@@ -41,13 +45,14 @@ services:
     pull_policy: always
     restart: unless-stopped
     networks:
-      - gingapp
+      gingapp:
+        aliases: [gingapp-api]
     depends_on:
       postgres:
         condition: service_healthy
     environment:
       NODE_ENV: "production"
-      DATABASE_URL: "postgresql://gingapp:${POSTGRES_PASSWORD}@postgres:5432/gingapp?schema=public"
+      DATABASE_URL: "postgresql://gingapp:${POSTGRES_PASSWORD}@gingapp-db:5432/gingapp?schema=public"
       # Minimo 32 caracteres (openssl rand -hex 32); o boot falha com o valor de desenvolvimento.
       JWT_SECRET: "${JWT_SECRET:?defina JWT_SECRET com 32+ caracteres aleatorios - openssl rand -hex 32}"
       JWT_EXPIRES_IN: "1d"
