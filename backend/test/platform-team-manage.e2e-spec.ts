@@ -179,6 +179,10 @@ describe('Platform team — mutações e regras de segurança (e2e)', () => {
     await call('get', '', oldToken).expect(200);
 
     await call('post', `/${resetTarget.id}/reset-password`, s1Token).send({ password: 'curta' }).expect(400);
+    // Política SSOT (12..72 bytes, sem Dev@12345): 10/11 caracteres e a senha padrão são recusados.
+    for (const weak of ['1234567890', '12345678901', 'Dev@12345', 'DEV@12345-extra']) {
+      await call('post', `/${resetTarget.id}/reset-password`, s1Token).send({ password: weak }).expect(400);
+    }
     await call('post', `/${resetTarget.id}/reset-password`, s1Token).send({ password: newPassword, extra: 1 }).expect(400);
     assert.equal((await dbUser(resetTarget.id)).passwordHash, before.passwordHash, 'rejeições não alteram o hash');
 

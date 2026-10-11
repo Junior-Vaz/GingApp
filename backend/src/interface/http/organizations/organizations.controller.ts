@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Query,
   Res,
@@ -14,12 +15,13 @@ import {
 import type { Response } from 'express';
 import { PageQueryDto, sendPage } from '../../../shared/pagination/pagination';
 import { Throttle } from '@nestjs/throttler';
-import { UserType } from '@prisma/client';
+import { RecordStatus, UserType } from '@prisma/client';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { PlatformOnlyGuard } from '../../../shared/guards/platform-only.guard';
 import { SuperAdminGuard } from '../../../shared/guards/super-admin.guard';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
+import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { ResetMestrePasswordDto } from './dto/reset-mestre-password.dto';
 import { OrganizationsService } from './organizations.service';
 
@@ -40,6 +42,10 @@ export const MESTRE_RESET_THROTTLE_LIMIT = Number(process.env.MESTRE_RESET_THROT
  * GET /organizations/:id é só da equipe PLATFORM (PlatformOnlyGuard, a mesma condição do ramo PLATFORM
  * do GET /organizations): a organização + os MESTREs. POST :orgId/members/:userId/reset-password é do
  * super admin ativo: redefine a senha de um MESTRE do grupo e revoga as sessões dele.
+ *
+ * PATCH /organizations/:id (name, document, email, phone; slug imutável) e POST :id/deactivate|reactivate
+ * são do super admin ativo. Desativar NUNCA apaga dados: só marca o grupo INACTIVE, e os usuários dele
+ * deixam de logar/usar token (ver AuthService.login e JwtStrategy).
  */
 @Controller('organizations')
 export class OrganizationsController {
@@ -72,6 +78,26 @@ export class OrganizationsController {
   @UseGuards(PlatformOnlyGuard)
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.organizationsService.findOneForPlatform(id);
+  }
+
+  @Patch(':id')
+  @UseGuards(SuperAdminGuard)
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateOrganizationDto) {
+    return this.organizationsService.update(id, dto);
+  }
+
+  @Post(':id/deactivate')
+  @UseGuards(SuperAdminGuard)
+  @HttpCode(HttpStatus.OK)
+  deactivate(@Param('id', ParseIntPipe) id: number) {
+    return this.organizationsService.setStatus(id, RecordStatus.INACTIVE);
+  }
+
+  @Post(':id/reactivate')
+  @UseGuards(SuperAdminGuard)
+  @HttpCode(HttpStatus.OK)
+  reactivate(@Param('id', ParseIntPipe) id: number) {
+    return this.organizationsService.setStatus(id, RecordStatus.ACTIVE);
   }
 
   @Post(':orgId/members/:userId/reset-password')

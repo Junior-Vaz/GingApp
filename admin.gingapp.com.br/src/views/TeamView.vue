@@ -5,6 +5,7 @@ import PaginationBar from '@/components/PaginationBar.vue'
 import { useAuthStore } from '@/stores/auth'
 import { api, errorMessage } from '@/utils/api'
 import { formatDateTime } from '@/utils/format'
+import { NEW_PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES, passwordProblem } from '@/utils/password'
 
 type MemberStatus = 'ACTIVE' | 'INACTIVE'
 
@@ -36,8 +37,6 @@ interface EditFormState {
 
 const PAGE_SIZE = 20
 const SEARCH_DEBOUNCE_MS = 300
-const PASSWORD_MIN = 10
-const PASSWORD_MAX = 72
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -156,15 +155,6 @@ function openPassword(member: TeamMember): void {
   passwordForm.passwordConfirm = ''
   formError.value = ''
   modal.value = 'password'
-}
-
-function passwordProblem(password: string, confirmation: string): string | null {
-  if (password.length < PASSWORD_MIN) return `A senha precisa ter no mínimo ${PASSWORD_MIN} caracteres.`
-  if (new TextEncoder().encode(password).length > PASSWORD_MAX) {
-    return `A senha pode ter no máximo ${PASSWORD_MAX} caracteres.`
-  }
-  if (password !== confirmation) return 'A confirmação da senha não confere.'
-  return null
 }
 
 /** Depois de revogar sessões / trocar a senha da PRÓPRIA conta, o token atual deixa de valer. */
@@ -475,7 +465,7 @@ onBeforeUnmount(() => {
               <input id="team-password-confirm" v-model="createForm.passwordConfirm" type="password" autocomplete="new-password" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500" />
             </div>
           </div>
-          <p class="-mt-2 text-xs text-slate-400">Mínimo de {{ PASSWORD_MIN }} caracteres.</p>
+          <p class="-mt-2 text-xs text-slate-400">De {{ NEW_PASSWORD_MIN_LENGTH }} a {{ PASSWORD_MAX_BYTES }} caracteres; não pode ser a senha padrão de desenvolvimento.</p>
           <label class="flex items-center gap-2 text-sm font-medium text-slate-700">
             <input v-model="createForm.isSuperAdmin" type="checkbox" class="rounded border-slate-300" />
             Super admin (pode gerir a equipe)
@@ -543,7 +533,7 @@ onBeforeUnmount(() => {
           <div>
             <label for="reset-password" class="mb-1 block text-sm font-medium text-slate-700">Nova senha</label>
             <input id="reset-password" v-model="passwordForm.password" type="password" autocomplete="new-password" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500" />
-            <p class="mt-1 text-xs text-slate-400">Mínimo de {{ PASSWORD_MIN }} caracteres.</p>
+            <p class="mt-1 text-xs text-slate-400">De {{ NEW_PASSWORD_MIN_LENGTH }} a {{ PASSWORD_MAX_BYTES }} caracteres; não pode ser a senha padrão de desenvolvimento.</p>
           </div>
           <div>
             <label for="reset-password-confirm" class="mb-1 block text-sm font-medium text-slate-700">Confirmar nova senha</label>

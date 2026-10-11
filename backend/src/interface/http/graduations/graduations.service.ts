@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { PermissionsService } from '../../../shared/access/permissions.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
@@ -6,6 +7,9 @@ import { StudentsService } from '../students/students.service';
 import { CreateGraduationSystemDto } from './dto/create-graduation-system.dto';
 import { CreateGraduationLevelDto } from './dto/create-graduation-level.dto';
 import { CreateStudentGraduationDto } from './dto/create-student-graduation.dto';
+import { UpdateGraduationSystemDto } from './dto/update-graduation-system.dto';
+import { UpdateGraduationLevelDto } from './dto/update-graduation-level.dto';
+import { UpdateStudentGraduationDto } from './dto/update-student-graduation.dto';
 
 @Injectable()
 export class GraduationsService {
@@ -45,17 +49,72 @@ export class GraduationsService {
   }
 
   async createLevel(organizationId: number, systemId: number, dto: CreateGraduationLevelDto) {
-    await this.assertSystemBelongsToOrganization(organizationId, systemId);
+    const system = await this.assertSystemBelongsToOrganization(organizationId, systemId);
+    if (!system.isActive) {
+      throw new BadRequestException('Sistema de graduação inativo: reative-o para criar níveis.');
+    }
 
-    return this.prisma.graduationLevel.create({
-      data: {
-        organizationId,
-        graduationSystemId: systemId,
-        name: dto.name,
-        order: dto.order,
-        color: dto.color,
-      },
+    return this.prisma.graduationLevel
+      .create({
+        data: {
+          organizationId,
+          graduationSystemId: systemId,
+          name: dto.name,
+          order: dto.order,
+          color: dto.color,
+        },
+      })
+      .catch(rethrowDuplicateOrder);
+  }
+
+  async updateSystem(organizationId: number, systemId: number, dto: UpdateGraduationSystemDto) {
+    await this.assertSystemBelongsToOrganization(organizationId, systemId);
+    return this.prisma.graduationSystem.update({
+      where: { id: systemId },
+      data: { name: dto.name, description: dto.description, isActive: dto.isActive },
+      include: { levels: { orderBy: { order: 'asc' } } },
     });
+  }
+
+  /**
+   * Remover um sistema: se algum aluno já foi graduado em algum nível dele, o histórico não
+   * pode sumir — o sistema só fica inativo (isActive=false, mesmo padrão de StudentsService/
+   * ClassesService). Sem nenhuma graduação concedida, apaga de verdade (níveis + sistema).
+   */
+  async removeSystem(organizationId: number, systemId: number) {
+    await this.assertSystemBelongsToOrganization(organizationId, systemId);
+    const awarded = await this.prisma.studentGraduation.count({
+      where: { organizationId, graduationLevel: { graduationSystemId: systemId } },
+    });
+    if (awarded > 0) {
+      return this.prisma.graduationSystem.update({ where: { id: systemId }, data: { isActive: false } });
+    }
+    await this.prisma.$transaction([
+      this.prisma.graduationLevel.deleteMany({ where: { graduationSystemId: systemId, organizationId } }),
+      this.prisma.graduationSystem.deleteMany({ where: { id: systemId, organizationId } }),
+    ]);
+    return { id: systemId, deleted: true };
+  }
+
+  async updateLevel(organizationId: number, levelId: number, dto: UpdateGraduationLevelDto) {
+    await this.assertLevelExists(organizationId, levelId);
+    return this.prisma.graduationLevel
+      .update({ where: { id: levelId }, data: { name: dto.name, order: dto.order, color: dto.color } })
+      .catch(rethrowDuplicateOrder);
+  }
+
+  /**
+   * Nível já concedido a algum aluno não pode ser apagado (o modelo não tem status para
+   * inativar um nível): 409 — o histórico dos alunos permanece intacto.
+   */
+  async removeLevel(organizationId: number, levelId: number) {
+    await this.assertLevelExists(organizationId, levelId);
+    const awarded = await this.prisma.studentGraduation.count({ where: { graduationLevelId: levelId, organizationId } });
+    if (awarded > 0) {
+      throw new ConflictException('Este nível já foi concedido a alunos e não pode ser removido.');
+    }
+    await this.prisma.graduationLevel.deleteMany({ where: { id: levelId, organizationId } });
+    return { id: levelId, deleted: true };
   }
 
   /**
@@ -99,11 +158,68 @@ export class GraduationsService {
     });
   }
 
-  private async assertSystemBelongsToOrganization(organizationId: number, systemId: number): Promise<void> {
+  /** Corrige a graduação lançada (nível/data/observações). 404 se não for deste aluno/organização. */
+  async updateStudentGraduation(
+    organizationId: number,
+    studentId: number,
+    graduationId: number,
+    dto: UpdateStudentGraduationDto,
+  ) {
+    await this.assertStudentGraduationExists(organizationId, studentId, graduationId);
+    if (dto.graduationLevelId !== undefined) {
+      await this.assertLevelBelongsToOrganization(organizationId, dto.graduationLevelId);
+    }
+    return this.prisma.studentGraduation.update({
+      where: { id: graduationId },
+      data: {
+        graduationLevelId: dto.graduationLevelId,
+        graduatedAt: dto.graduatedAt !== undefined ? new Date(dto.graduatedAt) : undefined,
+        notes: dto.notes,
+      },
+      include: { graduationLevel: true },
+    });
+  }
+
+  /**
+   * Desfaz um registro lançado por engano (hard delete — é o próprio registro, não o aluno).
+   * Se já existe certificado emitido a partir dela, 409: o certificado precisa ser tratado antes.
+   */
+  async removeStudentGraduation(organizationId: number, studentId: number, graduationId: number) {
+    await this.assertStudentGraduationExists(organizationId, studentId, graduationId);
+    const certificates = await this.prisma.certificate.count({
+      where: { studentGraduationId: graduationId, organizationId },
+    });
+    if (certificates > 0) {
+      throw new ConflictException('Há certificado emitido para esta graduação; remova-o antes.');
+    }
+    await this.prisma.studentGraduation.deleteMany({ where: { id: graduationId, studentId, organizationId } });
+    return { id: graduationId, deleted: true };
+  }
+
+  private async assertStudentGraduationExists(organizationId: number, studentId: number, graduationId: number) {
+    const found = await this.prisma.studentGraduation.findFirst({
+      where: { id: graduationId, studentId, organizationId },
+    });
+    if (!found) {
+      throw new NotFoundException('Graduação não encontrada.');
+    }
+    return found;
+  }
+
+  private async assertLevelExists(organizationId: number, levelId: number) {
+    const level = await this.prisma.graduationLevel.findFirst({ where: { id: levelId, organizationId } });
+    if (!level) {
+      throw new NotFoundException('Nível de graduação não encontrado.');
+    }
+    return level;
+  }
+
+  private async assertSystemBelongsToOrganization(organizationId: number, systemId: number) {
     const system = await this.prisma.graduationSystem.findFirst({ where: { id: systemId, organizationId } });
     if (!system) {
       throw new NotFoundException('Sistema de graduação não encontrado.');
     }
+    return system;
   }
 
   private async assertStudentBelongsToOrganization(organizationId: number, studentId: number): Promise<void> {
@@ -119,4 +235,12 @@ export class GraduationsService {
       throw new BadRequestException('Nível de graduação inválido para esta organização.');
     }
   }
+}
+
+/** @@unique([graduationSystemId, order]): ordem repetida no mesmo sistema vira 409, não 500. */
+function rethrowDuplicateOrder(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+    throw new ConflictException('Já existe um nível com esta ordem neste sistema.');
+  }
+  throw error;
 }

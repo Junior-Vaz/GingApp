@@ -20,11 +20,11 @@ export const MESTRE_PASSWORD_MAX_BYTES = PASSWORD_MAX_BYTES;
 /** Slug explícito: minúsculas/dígitos separados por hífen simples (sem acento, espaço nem "_"). */
 export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** CPF (11 dígitos) ou CNPJ (14), com ou sem pontuação. Formato apenas — dígito verificador não é checado. */
-const DOCUMENT_PATTERN = /^(?:\d{11}|\d{14}|\d{3}\.\d{3}\.\d{3}-\d{2}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})$/;
-const PHONE_PATTERN = /^\+?[0-9()\-.\s]{8,30}$/;
+export const DOCUMENT_PATTERN = /^(?:\d{11}|\d{14}|\d{3}\.\d{3}\.\d{3}-\d{2}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})$/;
+export const PHONE_PATTERN = /^\+?[0-9()\-.\s]{8,30}$/;
 
 /** Remove espaços nas pontas de strings; qualquer outro tipo passa intacto (a validação reprova). */
-const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+export const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 
 export class CreateMestreDto {
   @Transform(trim)

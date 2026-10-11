@@ -1,9 +1,5 @@
 import { IsBoolean, IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
-import { PASSWORD_MAX_BYTES } from '../../../../shared/security/password-policy';
-
-/** Tamanho máximo da senha: o bcrypt só considera os primeiros 72 bytes. */
-export const PASSWORD_MIN_LENGTH = 10;
-export const PASSWORD_MAX_LENGTH = PASSWORD_MAX_BYTES;
+import { IsNewPassword } from '../../../../shared/security/new-password.decorator';
 
 export class CreatePlatformUserDto {
   @IsString()
@@ -20,9 +16,8 @@ export class CreatePlatformUserDto {
   @MaxLength(30)
   phone?: string;
 
-  @IsString()
-  @MinLength(PASSWORD_MIN_LENGTH)
-  @MaxLength(PASSWORD_MAX_LENGTH)
+  /** Política SSOT da senha nova (@IsNewPassword): 12..72 bytes, sem Dev@12345 — a mesma de POST /teachers e do MESTRE. */
+  @IsNewPassword()
   password!: string;
 
   @IsOptional()

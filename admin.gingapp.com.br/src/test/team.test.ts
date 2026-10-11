@@ -222,7 +222,7 @@ describe('TeamView — criar', () => {
     await wrapper.get('#team-password-confirm').setValue(values.confirm)
   }
 
-  it('valida nome, e-mail, senha mínima de 10 e confirmação (sem chamar a API)', async () => {
+  it('valida nome, e-mail, senha mínima de 12 (política SSOT) e confirmação (sem chamar a API)', async () => {
     const { calls } = mockFetch(() => listReply(team))
     const { wrapper } = await mountView(TeamView)
     await byText(wrapper, 'button', '+ Novo usuário').trigger('click')
@@ -237,7 +237,20 @@ describe('TeamView — criar', () => {
 
     await fillCreate(wrapper, { password: 'curta123', confirm: 'curta123' })
     await wrapper.get('form').trigger('submit')
-    expect(wrapper.get('[role="alert"]').text()).toContain('mínimo 10 caracteres')
+    expect(wrapper.get('[role="alert"]').text()).toContain('mínimo 12 caracteres')
+
+    // 10 e 11 caracteres (antes aceitos) agora são recusados; Dev@12345 também.
+    for (const weak of ['abcdefghij', 'abcdefghijk']) {
+      await fillCreate(wrapper, { password: weak, confirm: weak })
+      await wrapper.get('form').trigger('submit')
+      expect(wrapper.get('[role="alert"]').text()).toContain('mínimo 12 caracteres')
+    }
+    await fillCreate(wrapper, { password: 'Dev@12345', confirm: 'Dev@12345' })
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('[role="alert"]').text()).toContain('mínimo 12 caracteres')
+    await fillCreate(wrapper, { password: 'xx-DEV@12345-xx', confirm: 'xx-DEV@12345-xx' })
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('[role="alert"]').text()).toContain('senha padrão')
 
     await fillCreate(wrapper, { confirm: PASSWORD + 'x' })
     await wrapper.get('form').trigger('submit')
@@ -385,7 +398,16 @@ describe('TeamView — ações na linha', () => {
     await wrapper.get('#reset-password').setValue('curta')
     await wrapper.get('#reset-password-confirm').setValue('curta')
     await wrapper.get('form').trigger('submit')
-    expect(wrapper.get('[role="alert"]').text()).toContain('mínimo 10 caracteres')
+    expect(wrapper.get('[role="alert"]').text()).toContain('mínimo 12 caracteres')
+
+    await wrapper.get('#reset-password').setValue('Dev@12345')
+    await wrapper.get('#reset-password-confirm').setValue('Dev@12345')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('[role="alert"]').text()).toContain('mínimo 12 caracteres')
+    await wrapper.get('#reset-password').setValue('xx-DEV@12345-xx')
+    await wrapper.get('#reset-password-confirm').setValue('xx-DEV@12345-xx')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('[role="alert"]').text()).toContain('senha padrão')
 
     await wrapper.get('#reset-password').setValue(PASSWORD)
     await wrapper.get('#reset-password-confirm').setValue('diferente-aaaa')

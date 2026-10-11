@@ -1,9 +1,10 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { PlatformOnlyGuard } from '../../../shared/guards/platform-only.guard';
 import { SubscriptionsService } from './subscriptions.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
+import { ListSubscriptionsQueryDto } from './dto/list-subscriptions-query.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 
 @Controller('subscriptions')
@@ -26,8 +27,8 @@ export class SubscriptionsController {
 
   @Get()
   @UseGuards(PlatformOnlyGuard)
-  findAll() {
-    return this.subscriptionsService.findAll();
+  findAll(@Query() query: ListSubscriptionsQueryDto) {
+    return this.subscriptionsService.findAll(query.organizationId);
   }
 
   @Get(':id')

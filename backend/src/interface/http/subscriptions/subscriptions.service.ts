@@ -24,8 +24,10 @@ export class SubscriptionsService {
     @Inject(BILLING_GATEWAY_SERVICE) private readonly gateway: BillingGatewayService,
   ) {}
 
-  findAll() {
+  /** Todas as assinaturas (plataforma) ou, com `organizationId`, só as daquele grupo (mais recente primeiro). */
+  findAll(organizationId?: number) {
     return this.prisma.subscription.findMany({
+      where: organizationId === undefined ? undefined : { organizationId },
       include: { organization: true, plan: true },
       orderBy: { id: 'desc' },
     });

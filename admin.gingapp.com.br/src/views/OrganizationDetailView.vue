@@ -34,6 +34,9 @@ interface Organization {
   slug: string
   type: string
   status: string
+  document?: string | null
+  email?: string | null
+  phone?: string | null
   mestres?: Mestre[]
 }
 
@@ -94,6 +97,18 @@ const resetForm = reactive({ password: '', passwordConfirm: '' })
 const isResetting = ref(false)
 const resetError = ref('')
 
+// Edição dos dados do grupo (modal) e desativar/reativar. Só super admin (o backend responde 403 ao resto).
+const editOpen = ref(false)
+const editForm = reactive({ name: '', document: '', email: '', phone: '' })
+const isEditing = ref(false)
+const editError = ref('')
+const isTogglingStatus = ref(false)
+const statusError = ref('')
+
+/** Mesmos formatos do backend (CreateOrganizationDto): CPF/CNPJ e telefone. O backend decide de fato (400). */
+const DOCUMENT_PATTERN = /^(?:\d{11}|\d{14}|\d{3}\.\d{3}\.\d{3}-\d{2}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})$/
+const PHONE_PATTERN = /^\+?[0-9()\-.\s]{8,30}$/
+
 const mestres = computed(() => organization.value?.mestres ?? [])
 
 /**
@@ -105,6 +120,8 @@ const canReset = computed(() => {
   const me = authStore.user
   return !!me && me.userType === 'PLATFORM' && me.isSuperAdmin
 })
+
+const isInactive = computed(() => organization.value?.status === 'INACTIVE')
 
 const activePlans = computed(() => plans.value.filter((p) => p.isActive))
 const hasOpenSubscription = computed(
@@ -126,7 +143,8 @@ async function loadAll(): Promise<void> {
   try {
     const [loadedOrganization, subscriptions, allPlans, overrides] = await Promise.all([
       api.get<Organization>(`/organizations/${organizationId}`),
-      api.get<Subscription[]>('/subscriptions'),
+      // Filtro no servidor (mais recente primeiro): não baixa as assinaturas de todos os grupos.
+      api.get<Subscription[]>(`/subscriptions?organizationId=${organizationId}`),
       api.get<Plan[]>('/plans'),
       api.get<FeatureOverride[]>(`/organizations/${organizationId}/feature-overrides`),
     ])
@@ -135,8 +153,7 @@ async function loadAll(): Promise<void> {
     plans.value = allPlans
     featureOverrides.value = overrides
 
-    const orgSubscriptions = subscriptions.filter((s) => s.organizationId === organizationId)
-    subscription.value = orgSubscriptions[0] ?? null
+    subscription.value = subscriptions[0] ?? null
     selectedPlanId.value = subscription.value ? String(subscription.value.planId) : ''
   } catch (error) {
     loadError.value = error instanceof ApiError ? error.message : 'Não foi possível carregar a organização.'
@@ -271,6 +288,92 @@ async function submitReset(): Promise<void> {
   }
 }
 
+function openEdit(): void {
+  const org = organization.value
+  if (!canReset.value || !org) return
+  editError.value = ''
+  Object.assign(editForm, {
+    name: org.name,
+    document: org.document ?? '',
+    email: org.email ?? '',
+    phone: org.phone ?? '',
+  })
+  editOpen.value = true
+}
+
+function closeEdit(): void {
+  editOpen.value = false
+}
+
+async function submitEdit(): Promise<void> {
+  if (isEditing.value) return // Enter repetido durante o envio não envia duas vezes
+  editError.value = ''
+  const name = editForm.name.trim()
+  const document = editForm.document.trim()
+  const email = editForm.email.trim()
+  const phone = editForm.phone.trim()
+  if (name.length < 2) {
+    editError.value = 'Informe o nome do grupo (mínimo 2 caracteres).'
+    return
+  }
+  if (document && !DOCUMENT_PATTERN.test(document)) {
+    editError.value = 'O documento deve ser um CPF (11 dígitos) ou CNPJ (14 dígitos).'
+    return
+  }
+  if (email && !/^\S+@\S+\.\S+$/.test(email)) {
+    editError.value = 'Informe um e-mail válido para o grupo.'
+    return
+  }
+  if (phone && !PHONE_PATTERN.test(phone)) {
+    editError.value = 'O telefone deve ter de 8 a 30 caracteres entre dígitos, +, (), - e espaço.'
+    return
+  }
+
+  isEditing.value = true
+  try {
+    // Campo opcional em branco => null (limpa no backend). O slug é imutável e nunca é enviado.
+    const updated = await api.patch<Organization>(`/organizations/${organizationId}`, {
+      name,
+      document: document || null,
+      email: email || null,
+      phone: phone || null,
+    })
+    if (organization.value && updated) organization.value = { ...organization.value, ...updated }
+    editOpen.value = false
+    notice.value = 'Dados do grupo atualizados.'
+  } catch (error) {
+    editError.value = error instanceof ApiError ? error.message : 'Não foi possível salvar o grupo.'
+  } finally {
+    isEditing.value = false
+  }
+}
+
+async function toggleStatus(): Promise<void> {
+  const org = organization.value
+  if (!org || !canReset.value || isTogglingStatus.value) return
+  const deactivating = org.status !== 'INACTIVE'
+  const question = deactivating
+    ? `Desativar o grupo "${org.name}"? Os usuários dele deixam de entrar e as sessões atuais caem. Nenhum dado é apagado e dá para reativar depois.`
+    : `Reativar o grupo "${org.name}"? Os usuários dele voltam a entrar.`
+  if (!confirm(question)) return
+
+  statusError.value = ''
+  isTogglingStatus.value = true
+  try {
+    const updated = await api.post<Organization>(
+      `/organizations/${organizationId}/${deactivating ? 'deactivate' : 'reactivate'}`,
+    )
+    if (organization.value) {
+      organization.value = { ...organization.value, ...(updated ?? { status: deactivating ? 'INACTIVE' : 'ACTIVE' }) }
+    }
+    notice.value = deactivating ? 'Grupo desativado. Nenhum dado foi apagado.' : 'Grupo reativado.'
+  } catch (error) {
+    statusError.value = error instanceof ApiError ? error.message : 'Não foi possível alterar o status do grupo.'
+  } finally {
+    isTogglingStatus.value = false
+  }
+}
+
 onMounted(() => {
   void loadAll()
 })
@@ -286,6 +389,37 @@ onMounted(() => {
       {{ organization?.name ?? `Organization #${organizationId}` }}
     </h1>
     <p v-if="organization" class="mt-1 text-sm text-slate-500">{{ organization.slug }} · {{ organization.type }}</p>
+
+    <div v-if="organization" class="mt-3 flex flex-wrap items-center gap-3" data-testid="org-header">
+      <span
+        data-testid="org-status"
+        class="rounded-full px-2 py-0.5 text-xs font-medium"
+        :class="isInactive ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-700'"
+      >
+        {{ isInactive ? 'Inativo' : 'Ativo' }}
+      </span>
+      <template v-if="canReset">
+        <button
+          type="button"
+          data-action="edit-org"
+          class="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          @click="openEdit"
+        >
+          Editar
+        </button>
+        <button
+          type="button"
+          data-action="toggle-status"
+          :disabled="isTogglingStatus"
+          class="rounded-md px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+          :class="isInactive ? 'text-emerald-700 hover:bg-emerald-50' : 'text-red-600 hover:bg-red-50'"
+          @click="toggleStatus"
+        >
+          {{ isInactive ? 'Reativar' : 'Desativar' }}
+        </button>
+      </template>
+    </div>
+    <p v-if="statusError" role="alert" class="mt-2 text-sm text-red-600">{{ statusError }}</p>
 
     <p v-if="notice" role="status" class="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
       {{ notice }}
@@ -472,6 +606,48 @@ onMounted(() => {
 
     <div class="mt-6 rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-400">
       Uso, atividade e unidades serão implementados nas próximas fases.
+    </div>
+
+    <!-- Modal editar grupo -->
+    <div v-if="editOpen" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+      <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+        <h2 id="edit-title" class="text-lg font-semibold text-slate-900">Editar grupo</h2>
+        <p class="mt-1 text-sm text-slate-500">O slug ({{ organization?.slug }}) não pode ser alterado.</p>
+
+        <form class="mt-4 space-y-4" autocomplete="off" data-testid="edit-form" @submit.prevent="submitEdit">
+          <div>
+            <label for="edit-org-name" class="mb-1 block text-sm font-medium text-slate-700">Nome</label>
+            <input id="edit-org-name" v-model="editForm.name" type="text" maxlength="120" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500" />
+          </div>
+          <div>
+            <label for="edit-org-document" class="mb-1 block text-sm font-medium text-slate-700">CPF/CNPJ (opcional)</label>
+            <input id="edit-org-document" v-model="editForm.document" type="text" maxlength="18" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500" />
+          </div>
+          <div>
+            <label for="edit-org-email" class="mb-1 block text-sm font-medium text-slate-700">E-mail (opcional)</label>
+            <input id="edit-org-email" v-model="editForm.email" type="text" maxlength="254" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500" />
+          </div>
+          <div>
+            <label for="edit-org-phone" class="mb-1 block text-sm font-medium text-slate-700">Telefone (opcional)</label>
+            <input id="edit-org-phone" v-model="editForm.phone" type="text" maxlength="30" class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500" />
+          </div>
+
+          <p v-if="editError" role="alert" class="text-sm text-red-600">{{ editError }}</p>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <button type="button" class="rounded-md px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" @click="closeEdit">
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              :disabled="isEditing"
+              class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {{ isEditing ? 'Salvando…' : 'Salvar' }}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
 
     <!-- Modal redefinir senha do MESTRE -->

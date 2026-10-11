@@ -10,6 +10,7 @@ import * as bcrypt from 'bcrypt';
 import { Page, PageQueryDto, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
+import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { ResetMestrePasswordDto } from './dto/reset-mestre-password.dto';
 import { BCRYPT_ROUNDS, isForbiddenPassword, normalizeEmail } from '../../../shared/security/password-policy';
 import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
@@ -75,6 +76,44 @@ export class OrganizationsService {
       ...organization,
       mestres: memberships.map((m) => ({ id: m.user.id, name: m.user.name, email: m.user.email, status: m.status })),
     };
+  }
+
+  /**
+   * Edita name/document/email/phone do grupo (slug imutável, não existe no DTO). `null` limpa
+   * document/email/phone. Corpo sem nenhum campo => 400. Grupo inexistente => 404.
+   */
+  async update(id: number, dto: UpdateOrganizationDto): Promise<Organization> {
+    if (id > MAX_DB_ID) throw new NotFoundException(ORGANIZATION_NOT_FOUND);
+    const data: Prisma.OrganizationUpdateInput = {
+      name: dto.name?.trim(),
+      document: dto.document,
+      email: dto.email == null ? dto.email : dto.email.trim().toLowerCase(),
+      phone: dto.phone,
+    };
+    if (Object.values(data).every((value) => value === undefined)) {
+      throw new BadRequestException('Informe ao menos um campo para atualizar (name, document, email ou phone).');
+    }
+    return this.updateOrFail(id, data);
+  }
+
+  /**
+   * Desativa (INACTIVE) ou reativa (ACTIVE) o grupo. Nunca apaga dados. Idempotente. Enquanto INACTIVE,
+   * os usuários do grupo não logam e os tokens já emitidos caem na próxima requisição (JwtStrategy).
+   */
+  async setStatus(id: number, status: RecordStatus): Promise<Organization> {
+    if (id > MAX_DB_ID) throw new NotFoundException(ORGANIZATION_NOT_FOUND);
+    return this.updateOrFail(id, { status });
+  }
+
+  private async updateOrFail(id: number, data: Prisma.OrganizationUpdateInput): Promise<Organization> {
+    try {
+      return await this.prisma.organization.update({ where: { id }, data });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+        throw new NotFoundException(ORGANIZATION_NOT_FOUND);
+      }
+      throw error;
+    }
   }
 
   /**

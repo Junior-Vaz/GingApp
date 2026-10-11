@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import type { UseFormReturn } from "react-hook-form";
+import { Pencil, Plus, Trash2 } from "lucide-react";
+import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { PageHeader } from "@/components/painel/page-header";
@@ -13,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/api";
+import { useCan } from "@/lib/session";
 import { dayOnly, fmt } from "@/lib/format";
 import { NativeSelect } from "@/modules/aulas/native-select";
 import {
@@ -20,7 +23,13 @@ import {
   systems,
   useCreateLevel,
   useRegisterGraduation,
+  useRemoveGraduation,
+  useRemoveLevel,
+  useRemoveSystem,
   useStudentHistory,
+  useUpdateGraduation,
+  useUpdateLevel,
+  type GraduationLevel,
   type GraduationSystem,
   type StudentGraduation,
 } from "./graduacoes-api";
@@ -29,8 +38,11 @@ import {
   registrationSchema,
   systemSchema,
   toLevelInput,
+  toLevelUpdate,
   toRegistrationInput,
+  toRegistrationUpdate,
   toSystemInput,
+  toSystemUpdate,
   type LevelFormValues,
   type RegistrationFormValues,
   type SystemFormValues,
@@ -39,6 +51,58 @@ import {
 function ColorDot({ color }: { color: string | null }) {
   if (!color) return null;
   return <span aria-hidden className="inline-block size-3 shrink-0 rounded-full border" style={{ backgroundColor: color }} />;
+}
+
+function SystemFields({ form }: { form: UseFormReturn<SystemFormValues> }) {
+  return (
+      <>
+        <FormField control={form.control} name="name" render={({ field }) => (
+          <FormItem><FormLabel>Nome</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+        )} />
+        <FormField control={form.control} name="description" render={({ field }) => (
+          <FormItem><FormLabel>Descrição (opcional)</FormLabel><FormControl><Textarea rows={2} {...field} /></FormControl><FormMessage /></FormItem>
+        )} />
+      </>
+  );
+}
+
+function LevelFields({ form }: { form: UseFormReturn<LevelFormValues> }) {
+  return (
+      <>
+        <FormField control={form.control} name="name" render={({ field }) => (
+          <FormItem><FormLabel>Nome do nível</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+        )} />
+        <FormField control={form.control} name="order" render={({ field }) => (
+          <FormItem><FormLabel>Ordem</FormLabel><FormControl><Input type="number" min={0} {...field} /></FormControl><FormMessage /></FormItem>
+        )} />
+        <FormField control={form.control} name="color" render={({ field }) => (
+          <FormItem>
+            <FormLabel>Cor (opcional)</FormLabel>
+            <div className="flex items-center gap-2">
+              <FormControl>
+                <Input
+                  type="color"
+                  aria-label="Cor do nível"
+                  className="h-9 w-16 cursor-pointer p-1"
+                  value={field.value || "#000000"}
+                  onChange={(e) => field.onChange(e.target.value)}
+                  onBlur={field.onBlur}
+                  name={field.name}
+                  ref={field.ref}
+                />
+              </FormControl>
+              <span className="text-xs text-muted-foreground">{field.value || "Sem cor"}</span>
+              {field.value && (
+                <Button type="button" variant="ghost" size="sm" onClick={() => field.onChange("")}>
+                  Remover cor
+                </Button>
+              )}
+            </div>
+            <FormMessage />
+          </FormItem>
+        )} />
+      </>
+  );
 }
 
 export function GraduacoesPage() {
@@ -67,9 +131,19 @@ export function GraduacoesPage() {
 function SistemasTab() {
   const list = systems.useList();
   const createSystem = systems.useCreate();
+  const updateSystem = systems.useUpdate();
+  const removeSystem = useRemoveSystem();
   const createLevel = useCreateLevel();
+  const updateLevel = useUpdateLevel();
+  const removeLevel = useRemoveLevel();
+  const canEdit = useCan("graduations", "edit");
+  const canDelete = useCan("graduations", "delete");
   const [newSystem, setNewSystem] = useState(false);
   const [levelFor, setLevelFor] = useState<GraduationSystem | null>(null);
+  const [editingSystem, setEditingSystem] = useState<GraduationSystem | null>(null);
+  const [removingSystem, setRemovingSystem] = useState<GraduationSystem | null>(null);
+  const [editingLevel, setEditingLevel] = useState<GraduationLevel | null>(null);
+  const [removingLevel, setRemovingLevel] = useState<GraduationLevel | null>(null);
 
   function renderBody() {
     if (list.isLoading) {
@@ -111,9 +185,26 @@ function SistemasTab() {
                   </CardTitle>
                   {system.description && <CardDescription className="mt-1">{system.description}</CardDescription>}
                 </div>
-                <Button variant="outline" size="sm" onClick={() => setLevelFor(system)} aria-label={`Adicionar nível em ${system.name}`}>
-                  <Plus /> Adicionar nível
-                </Button>
+                <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                  <Button variant="outline" size="sm" onClick={() => setLevelFor(system)} aria-label={`Adicionar nível em ${system.name}`}>
+                    <Plus /> Adicionar nível
+                  </Button>
+                  {canEdit && (
+                    <Button variant="ghost" size="sm" onClick={() => setEditingSystem(system)} aria-label={`Editar sistema ${system.name}`}>
+                      <Pencil /> Editar
+                    </Button>
+                  )}
+                  {canEdit && !system.isActive && (
+                    <Button variant="ghost" size="sm" onClick={() => updateSystem.mutate({ id: system.id, data: { isActive: true } })} aria-label={`Reativar sistema ${system.name}`}>
+                      Reativar
+                    </Button>
+                  )}
+                  {canDelete && system.isActive && (
+                    <Button variant="ghost" size="sm" onClick={() => setRemovingSystem(system)} aria-label={`Remover sistema ${system.name}`}>
+                      <Trash2 /> Remover
+                    </Button>
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 {levels.length === 0 ? (
@@ -124,6 +215,16 @@ function SistemasTab() {
                       <li key={level.id} className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium">
                         <ColorDot color={level.color} />
                         {level.order}. {level.name}
+                        {canEdit && (
+                          <button type="button" className="text-muted-foreground hover:text-foreground" aria-label={`Editar nível ${level.name}`} onClick={() => setEditingLevel(level)}>
+                            <Pencil className="size-3" aria-hidden />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button type="button" className="text-muted-foreground hover:text-destructive" aria-label={`Remover nível ${level.name}`} onClick={() => setRemovingLevel(level)}>
+                            <Trash2 className="size-3" aria-hidden />
+                          </button>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -151,16 +252,7 @@ function SistemasTab() {
         defaultValues={{ name: "", description: "" }}
         onSubmit={(values) => createSystem.mutateAsync(toSystemInput(values))}
       >
-        {(form) => (
-          <>
-            <FormField control={form.control} name="name" render={({ field }) => (
-              <FormItem><FormLabel>Nome</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-            )} />
-            <FormField control={form.control} name="description" render={({ field }) => (
-              <FormItem><FormLabel>Descrição (opcional)</FormLabel><FormControl><Textarea rows={2} {...field} /></FormControl><FormMessage /></FormItem>
-            )} />
-          </>
-        )}
+        {(form) => <SystemFields form={form} />}
       </FormDialog>
 
       <FormDialog<LevelFormValues>
@@ -171,44 +263,94 @@ function SistemasTab() {
         defaultValues={{ name: "", order: String(levelFor?.levels.length ?? 0), color: "" }}
         onSubmit={(values) => createLevel.mutateAsync({ systemId: levelFor!.id, data: toLevelInput(values) })}
       >
-        {(form) => (
-          <>
-            <FormField control={form.control} name="name" render={({ field }) => (
-              <FormItem><FormLabel>Nome do nível</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-            )} />
-            <FormField control={form.control} name="order" render={({ field }) => (
-              <FormItem><FormLabel>Ordem</FormLabel><FormControl><Input type="number" min={0} {...field} /></FormControl><FormMessage /></FormItem>
-            )} />
-            <FormField control={form.control} name="color" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Cor (opcional)</FormLabel>
-                <div className="flex items-center gap-2">
-                  <FormControl>
-                    <Input
-                      type="color"
-                      aria-label="Cor do nível"
-                      className="h-9 w-16 cursor-pointer p-1"
-                      value={field.value || "#000000"}
-                      onChange={(e) => field.onChange(e.target.value)}
-                      onBlur={field.onBlur}
-                      name={field.name}
-                      ref={field.ref}
-                    />
-                  </FormControl>
-                  <span className="text-xs text-muted-foreground">{field.value || "Sem cor"}</span>
-                  {field.value && (
-                    <Button type="button" variant="ghost" size="sm" onClick={() => field.onChange("")}>
-                      Remover cor
-                    </Button>
-                  )}
-                </div>
-                <FormMessage />
-              </FormItem>
-            )} />
-          </>
-        )}
+        {(form) => <LevelFields form={form} />}
       </FormDialog>
+
+      <FormDialog<SystemFormValues>
+        open={editingSystem !== null}
+        onOpenChange={(open) => !open && setEditingSystem(null)}
+        title="Editar sistema de graduação"
+        schema={systemSchema}
+        defaultValues={{ name: editingSystem?.name ?? "", description: editingSystem?.description ?? "" }}
+        onSubmit={(values) => updateSystem.mutateAsync({ id: editingSystem!.id, data: toSystemUpdate(values) })}
+      >
+        {(form) => <SystemFields form={form} />}
+      </FormDialog>
+
+      <FormDialog<LevelFormValues>
+        open={editingLevel !== null}
+        onOpenChange={(open) => !open && setEditingLevel(null)}
+        title={editingLevel ? `Editar nível ${editingLevel.name}` : "Editar nível"}
+        schema={levelSchema}
+        defaultValues={{
+          name: editingLevel?.name ?? "",
+          order: String(editingLevel?.order ?? 0),
+          color: editingLevel?.color ?? "",
+        }}
+        onSubmit={(values) => updateLevel.mutateAsync({ id: editingLevel!.id, data: toLevelUpdate(values) })}
+      >
+        {(form) => <LevelFields form={form} />}
+      </FormDialog>
+
+      <ConfirmDialog
+        open={removingSystem !== null}
+        onOpenChange={(o) => !o && setRemovingSystem(null)}
+        title="Remover sistema de graduação?"
+        description={
+          removingSystem
+            ? `"${removingSystem.name}" e seus níveis serão apagados. Se algum aluno já foi graduado nele, o sistema apenas fica inativo e o histórico é preservado.`
+            : undefined
+        }
+        confirmLabel="Remover"
+        onConfirm={() => removeSystem.mutateAsync(removingSystem!.id)}
+      />
+
+      <ConfirmDialog
+        open={removingLevel !== null}
+        onOpenChange={(o) => !o && setRemovingLevel(null)}
+        title="Remover nível?"
+        description={
+          removingLevel
+            ? `O nível "${removingLevel.name}" será apagado. Níveis já concedidos a alunos não podem ser removidos.`
+            : undefined
+        }
+        confirmLabel="Remover"
+        onConfirm={() => removeLevel.mutateAsync(removingLevel!.id)}
+      />
     </>
+  );
+}
+
+function RegistrationFields({
+  form,
+  options,
+}: {
+  form: UseFormReturn<RegistrationFormValues>;
+  options: { id: number; label: string }[];
+}) {
+  return (
+      <>
+        <FormField control={form.control} name="graduationLevelId" render={({ field }) => (
+          <FormItem>
+            <FormLabel>Nível alcançado</FormLabel>
+            <FormControl>
+              <NativeSelect {...field}>
+                <option value="">Selecione…</option>
+                {options.map((o) => (
+                  <option key={o.id} value={o.id}>{o.label}</option>
+                ))}
+              </NativeSelect>
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )} />
+        <FormField control={form.control} name="graduatedAt" render={({ field }) => (
+          <FormItem><FormLabel>Data</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
+        )} />
+        <FormField control={form.control} name="notes" render={({ field }) => (
+          <FormItem><FormLabel>Observação (opcional)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
+        )} />
+      </>
   );
 }
 
@@ -218,10 +360,21 @@ function AlunosTab() {
   const selectedId = student?.id; // undefined = nenhum aluno
   const history = useStudentHistory(selectedId);
   const register = useRegisterGraduation(selectedId);
+  const updateGraduation = useUpdateGraduation(selectedId);
+  const removeGraduation = useRemoveGraduation(selectedId);
+  const canEdit = useCan("graduations", "edit");
+  const canDelete = useCan("graduations", "delete");
   const [registering, setRegistering] = useState(false);
+  const [editing, setEditing] = useState<StudentGraduation | null>(null);
+  const [removing, setRemoving] = useState<StudentGraduation | null>(null);
 
   const options = levelOptions(systemList.data);
   const systemName = (systemId: number) => systemList.data?.find((s) => s.id === systemId)?.name ?? "—";
+  // Na edição, o nível atual segue selecionável mesmo que o sistema dele esteja inativo.
+  const editOptions =
+    editing && !options.some((o) => o.id === editing.graduationLevelId)
+      ? [...options, { id: editing.graduationLevelId, label: `${systemName(editing.graduationLevel.graduationSystemId)} — ${editing.graduationLevel.name}`, color: editing.graduationLevel.color }]
+      : options;
 
   const columns: Column<StudentGraduation>[] = [
     {
@@ -271,6 +424,24 @@ function AlunosTab() {
           searchText={(g) => `${g.graduationLevel.name} ${systemName(g.graduationLevel.graduationSystemId)} ${g.notes ?? ""}`}
           searchPlaceholder="Buscar no histórico…"
           emptyMessage="Este aluno ainda não tem graduações registradas."
+          rowActions={
+            canEdit || canDelete
+              ? (g) => (
+                  <>
+                    {canEdit && (
+                      <Button variant="ghost" size="sm" onClick={() => setEditing(g)} aria-label={`Editar graduação ${g.graduationLevel.name}`}>
+                        Editar
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button variant="ghost" size="sm" onClick={() => setRemoving(g)} aria-label={`Remover graduação ${g.graduationLevel.name}`}>
+                        Remover
+                      </Button>
+                    )}
+                  </>
+                )
+              : undefined
+          }
         />
       )}
 
@@ -283,31 +454,37 @@ function AlunosTab() {
         defaultValues={{ graduationLevelId: "", graduatedAt: "", notes: "" }}
         onSubmit={(values) => register.mutateAsync(toRegistrationInput(values))}
       >
-        {(form) => (
-          <>
-            <FormField control={form.control} name="graduationLevelId" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Nível alcançado</FormLabel>
-                <FormControl>
-                  <NativeSelect {...field}>
-                    <option value="">Selecione…</option>
-                    {options.map((o) => (
-                      <option key={o.id} value={o.id}>{o.label}</option>
-                    ))}
-                  </NativeSelect>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )} />
-            <FormField control={form.control} name="graduatedAt" render={({ field }) => (
-              <FormItem><FormLabel>Data</FormLabel><FormControl><Input type="date" {...field} /></FormControl><FormMessage /></FormItem>
-            )} />
-            <FormField control={form.control} name="notes" render={({ field }) => (
-              <FormItem><FormLabel>Observação (opcional)</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-            )} />
-          </>
-        )}
+        {(form) => <RegistrationFields form={form} options={options} />}
       </FormDialog>
+
+      <FormDialog<RegistrationFormValues>
+        open={editing !== null}
+        onOpenChange={(open) => !open && setEditing(null)}
+        title="Editar graduação"
+        description={student?.name ?? "Corrija os dados abaixo."}
+        schema={registrationSchema}
+        defaultValues={{
+          graduationLevelId: editing ? String(editing.graduationLevelId) : "",
+          graduatedAt: editing ? editing.graduatedAt.slice(0, 10) : "",
+          notes: editing?.notes ?? "",
+        }}
+        onSubmit={(values) => updateGraduation.mutateAsync({ id: editing!.id, data: toRegistrationUpdate(values) })}
+      >
+        {(form) => <RegistrationFields form={form} options={editOptions} />}
+      </FormDialog>
+
+      <ConfirmDialog
+        open={removing !== null}
+        onOpenChange={(o) => !o && setRemoving(null)}
+        title="Remover graduação?"
+        description={
+          removing
+            ? `O registro de "${removing.graduationLevel.name}" (${fmt(dayOnly(removing.graduatedAt), "dd/MM/yyyy")}) será apagado do histórico do aluno. Use apenas para um lançamento feito por engano.`
+            : undefined
+        }
+        confirmLabel="Remover"
+        onConfirm={() => removeGraduation.mutateAsync(removing!.id)}
+      />
     </>
   );
 }

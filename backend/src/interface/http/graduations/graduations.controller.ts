@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
@@ -7,6 +7,9 @@ import { GraduationsService } from './graduations.service';
 import { CreateGraduationSystemDto } from './dto/create-graduation-system.dto';
 import { CreateGraduationLevelDto } from './dto/create-graduation-level.dto';
 import { CreateStudentGraduationDto } from './dto/create-student-graduation.dto';
+import { UpdateGraduationSystemDto } from './dto/update-graduation-system.dto';
+import { UpdateGraduationLevelDto } from './dto/update-graduation-level.dto';
+import { UpdateStudentGraduationDto } from './dto/update-student-graduation.dto';
 
 @Controller('graduations')
 export class GraduationsController {
@@ -30,6 +33,22 @@ export class GraduationsController {
     return this.graduationsService.createSystem(organizationId, dto);
   }
 
+  @Patch('systems/:systemId')
+  @CanAccess('graduations', 'edit')
+  updateSystem(
+    @CurrentOrganization() organizationId: number,
+    @Param('systemId', ParseIntPipe) systemId: number,
+    @Body() dto: UpdateGraduationSystemDto,
+  ) {
+    return this.graduationsService.updateSystem(organizationId, systemId, dto);
+  }
+
+  @Delete('systems/:systemId')
+  @CanAccess('graduations', 'delete')
+  removeSystem(@CurrentOrganization() organizationId: number, @Param('systemId', ParseIntPipe) systemId: number) {
+    return this.graduationsService.removeSystem(organizationId, systemId);
+  }
+
   @Post('systems/:systemId/levels')
   @CanAccess('graduations', 'create')
   createLevel(
@@ -38,6 +57,22 @@ export class GraduationsController {
     @Body() dto: CreateGraduationLevelDto,
   ) {
     return this.graduationsService.createLevel(organizationId, systemId, dto);
+  }
+
+  @Patch('levels/:levelId')
+  @CanAccess('graduations', 'edit')
+  updateLevel(
+    @CurrentOrganization() organizationId: number,
+    @Param('levelId', ParseIntPipe) levelId: number,
+    @Body() dto: UpdateGraduationLevelDto,
+  ) {
+    return this.graduationsService.updateLevel(organizationId, levelId, dto);
+  }
+
+  @Delete('levels/:levelId')
+  @CanAccess('graduations', 'delete')
+  removeLevel(@CurrentOrganization() organizationId: number, @Param('levelId', ParseIntPipe) levelId: number) {
+    return this.graduationsService.removeLevel(organizationId, levelId);
   }
 
   /**
@@ -63,5 +98,26 @@ export class GraduationsController {
     @Body() dto: CreateStudentGraduationDto,
   ) {
     return this.graduationsService.createStudentGraduation(organizationId, studentId, dto);
+  }
+
+  @Patch('students/:studentId/:graduationId')
+  @CanAccess('graduations', 'edit')
+  updateStudentGraduation(
+    @CurrentOrganization() organizationId: number,
+    @Param('studentId', ParseIntPipe) studentId: number,
+    @Param('graduationId', ParseIntPipe) graduationId: number,
+    @Body() dto: UpdateStudentGraduationDto,
+  ) {
+    return this.graduationsService.updateStudentGraduation(organizationId, studentId, graduationId, dto);
+  }
+
+  @Delete('students/:studentId/:graduationId')
+  @CanAccess('graduations', 'delete')
+  removeStudentGraduation(
+    @CurrentOrganization() organizationId: number,
+    @Param('studentId', ParseIntPipe) studentId: number,
+    @Param('graduationId', ParseIntPipe) graduationId: number,
+  ) {
+    return this.graduationsService.removeStudentGraduation(organizationId, studentId, graduationId);
   }
 }

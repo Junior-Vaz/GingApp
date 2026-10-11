@@ -30,7 +30,9 @@ export interface StudentGraduation {
 
 export interface SystemInput {
   name: string;
-  description?: string | undefined;
+  /** `null` limpa a descrição (só no PATCH). */
+  description?: string | null | undefined;
+  isActive?: boolean | undefined;
 }
 
 export interface LevelInput {
@@ -45,13 +47,62 @@ export interface RegistrationInput {
   notes?: string | undefined;
 }
 
-/**
- * GET/POST /graduations/systems. O backend só expõe listar e criar (sem PATCH/DELETE de sistema
- * ou nível), então a UI também só lista e cria.
- */
+export interface LevelUpdate {
+  name?: string;
+  order?: number;
+  color?: string | null;
+}
+
+export interface RegistrationUpdate {
+  graduationLevelId?: number;
+  graduatedAt?: string;
+  notes?: string | null;
+}
+
+/** GET/POST/PATCH /graduations/systems (a remoção tem hook próprio: o backend inativa ou apaga). */
 export const systems = createCrud<GraduationSystem, SystemInput>("/graduations/systems", {
   created: "Sistema de graduação criado.",
+  updated: "Sistema de graduação atualizado.",
 });
+
+/** DELETE /graduations/systems/:id — com graduações concedidas o backend só inativa (isActive=false). */
+export function useRemoveSystem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) =>
+      api.delete<{ id: number; deleted?: boolean; isActive?: boolean }>(`/graduations/systems/${id}`),
+    onSuccess: (result) => {
+      void queryClient.invalidateQueries({ queryKey: systems.rootKey });
+      toast.success(result?.deleted ? "Sistema removido." : "Sistema inativado. O histórico dos alunos foi preservado.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível remover o sistema."),
+  });
+}
+
+export function useUpdateLevel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: LevelUpdate }) =>
+      api.patch<GraduationLevel>(`/graduations/levels/${id}`, data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: systems.rootKey });
+      toast.success("Nível atualizado.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível atualizar o nível."),
+  });
+}
+
+export function useRemoveLevel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/graduations/levels/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: systems.rootKey });
+      toast.success("Nível removido.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível remover o nível."),
+  });
+}
 
 export function useCreateLevel() {
   const queryClient = useQueryClient();
@@ -86,6 +137,31 @@ export function useRegisterGraduation(studentId: number | undefined) {
       toast.success("Graduação registrada.");
     },
     onError: (error) => notifyError(error, "Não foi possível registrar a graduação."),
+  });
+}
+
+export function useUpdateGraduation(studentId: number | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: number; data: RegistrationUpdate }) =>
+      api.patch<StudentGraduation>(`/graduations/students/${studentId}/${id}`, data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: historyKey(studentId) });
+      toast.success("Graduação atualizada.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível atualizar a graduação."),
+  });
+}
+
+export function useRemoveGraduation(studentId: number | undefined) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.delete(`/graduations/students/${studentId}/${id}`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: historyKey(studentId) });
+      toast.success("Graduação removida.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível remover a graduação."),
   });
 }
 

@@ -2930,3 +2930,52 @@ barato).
    "\"Sedgwick Ave\", \"Segoe Script\", cursive"`, `fontStyle: "normal"`, `fontWeight: "400"`;
    `document.fonts` confirma a face normal/400 com `status: "loaded"`. Visualmente, "Olá, Ana"
    numa manuscrita mais informal/despojada que a Fraunces anterior.
+
+### 10.37 Auditoria backend × frontends (admin, painel, app) e correções
+
+**Data:** 2026-10-10/11 · **Status:** ✅ concluído (commits `844a14b`, `e5df4cd` + fase 3 abaixo).
+Pedido do owner: "no admin não to conseguindo criar um grupo assim como diversos endpoints não ta
+funcionando, preciso de auditoria completa". Três agentes (Sonnet) auditaram admin, painel e app contra o
+backend real (HTTP + navegador): ~160 chamadas, **0 divergências de contrato**, nenhum bloqueante.
+
+#### O que NÃO foi reproduzido
+- "Criar grupo" falha em produção: **não reproduzido** em desenvolvimento (37 `POST /organizations` = 201,
+  fluxo "Novo grupo" no navegador OK). Hipóteses para produção (NÃO verificadas): limite global de 60
+  req/min por IP (429 aleatório; corrigido, ver abaixo), imagens `:latest` antigas no servidor,
+  `RolePermission` vazio (503), `TRUST_PROXY` errado. Se persistir, precisa da mensagem exata do erro.
+
+#### Fase 1 (`844a14b`)
+1. **ALTO — sem matrícula aluno↔turma** (API nem tela): frequência vinha vazia para turma/aluno criados
+   pelo painel. Solução: `GET/POST/DELETE /classes/:id/students` (POST idempotente, DELETE = INACTIVE) +
+   dialog "Alunos da turma" no painel.
+2. Inscrição em evento duplicava; convidado não cancelava. Solução: idempotência por `studentId`; convidado
+   grava `userId` e o próprio pode cancelar.
+3. JWT continuava válido após inativar o professor. Solução: `JwtStrategy` exige vínculo ACTIVE.
+4. Inteiro fora de INT4 → 500. Solução: `PrismaRangeFilter` global → 400.
+5. `GET /organizations` cortava em 50. Solução: `limit/offset/q` + `X-Total-Count`.
+6. Throttle global 60→600/min por IP (`GLOBAL_THROTTLE_LIMIT`).
+- Não deu certo de primeira: e2e completo teve 5 falhas — eram **resíduos das auditorias no banco de dev**
+  (comunicados `[audit…]`, graduações na aluna 1, professores inativos); limpei só esses ids e os 2 specs
+  passaram (39/39). Lição: agentes de auditoria sujam o banco compartilhado; limpar antes do gate.
+
+#### Fase 2 (`e5df4cd`)
+Senha forte em `POST /teachers`; horário de turma HH:mm; `expiresAt` futuro em avisos da plataforma;
+`@Max(INT4)`; mensagens de login em português; mensagens do mestre sem prefixo duplicado; admin (dica
+Dev@12345 só em DEV, 429/400 legíveis, lista de grupos com aviso de total, plano limpa limites com `null`);
+app (calendário sem N+1, `scope`, recados com limite e aviso, invalida calendário); `VITE_API_URL` padrão
+`/api` no `docker-compose.prod.yml`. Gate: backend 50 unit + 455 e2e, admin 100, painel 324, app 78.
+- Achado: `admin` já tinha teste quebrado no HEAD (`<img src="/logo.png">` do commit de identidade visual,
+  68 testes rodando em vez de 94) → `transformAssetUrls:false` em `vitest.config.ts`.
+
+#### Fase 3
+Editar/desativar/reativar grupo (`PATCH /organizations/:id`, `POST :id/deactivate|reactivate`; grupo inativo
+perde login e token); `GET /subscriptions?organizationId=`; senha forte na equipe PLATFORM; graduações
+`PATCH/DELETE` (sistema, nível, graduação do aluno; sistema com histórico só inativa; nível concedido e
+graduação com certificado = 409) + ações no painel.
+
+#### Pendências (numeradas)
+1. `npm audit` backend: `bcrypt` 5→6 (major; resolve `tar`/`node-pre-gyp`) e `prisma`/`@prisma/config`/
+   `deepmerge-ts`; admin `source-map-js`. Painel e app: 0. Risco em runtime provavelmente baixo (instalação/CLI).
+2. Nível e graduação sem status no schema (hoje 409/hard delete) — inativar exige migration.
+3. Índice `lower(email)`, rodas legadas sem organização, AuditLog, 2FA, seletor de dependente (responsável
+   com 2+ filhos), `RolePermission`/imagens em produção a conferir no servidor.

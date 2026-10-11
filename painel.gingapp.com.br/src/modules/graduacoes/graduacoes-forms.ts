@@ -1,5 +1,11 @@
 import { z } from "zod";
-import type { LevelInput, RegistrationInput, SystemInput } from "./graduacoes-api";
+import type {
+  LevelInput,
+  LevelUpdate,
+  RegistrationInput,
+  RegistrationUpdate,
+  SystemInput,
+} from "./graduacoes-api";
 
 // Espelha os DTOs do backend: sistema (name >= 2), nível (name >= 1, order inteiro >= 0, color string).
 export const systemSchema = z.object({
@@ -37,4 +43,22 @@ export const toRegistrationInput = (v: RegistrationFormValues): RegistrationInpu
   graduationLevelId: Number(v.graduationLevelId),
   graduatedAt: v.graduatedAt,
   notes: v.notes.trim() || undefined,
+});
+
+// PATCH: campos opcionais vazios viram `null` (limpam a coluna no backend), não `undefined`.
+export const toSystemUpdate = (v: SystemFormValues): SystemInput => ({
+  name: v.name.trim(),
+  description: v.description.trim() || null,
+});
+
+export const toLevelUpdate = (v: LevelFormValues): LevelUpdate => ({
+  name: v.name.trim(),
+  order: Number(v.order),
+  color: v.color || null,
+});
+
+export const toRegistrationUpdate = (v: RegistrationFormValues): RegistrationUpdate => ({
+  graduationLevelId: Number(v.graduationLevelId),
+  graduatedAt: v.graduatedAt,
+  notes: v.notes.trim() || null,
 });

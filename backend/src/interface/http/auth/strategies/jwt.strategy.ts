@@ -44,7 +44,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // perde o acesso na hora, sem esperar o token expirar).
     if (payload.organizationId != null) {
       const membership = await this.prisma.organizationUser.findFirst({
-        where: { userId: user.id, organizationId: payload.organizationId, status: 'ACTIVE' },
+        where: {
+          userId: user.id,
+          organizationId: payload.organizationId,
+          status: 'ACTIVE',
+          organization: { status: 'ACTIVE' }, // grupo desativado pela plataforma: o token cai na hora
+        },
         select: { id: true },
       });
       if (!membership) {

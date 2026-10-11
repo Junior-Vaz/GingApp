@@ -192,18 +192,22 @@ describe('Platform team — acesso, listagem e criação (e2e)', () => {
     assert.equal(await prisma.user.count({ where: { userType: 'MEMBER', email: MESTRE_EMAIL } }), 1);
   });
 
-  it('validação da criação => 400 (senha < 10, nome/e-mail ausentes ou inválidos, campo extra)', async () => {
+  it('validação da criação => 400 (senha < 12 ou Dev@12345, nome/e-mail ausentes ou inválidos, campo extra)', async () => {
     const email = `e2e-team-invalid-${Date.now()}@${TEAM_DOMAIN}`;
     const ok = { name: 'Valido', email, password: 'SenhaForte#2026' };
     await call('post', '', superToken).send({ ...ok, password: '123456789' }).expect(400); // 9 caracteres
+    await call('post', '', superToken).send({ ...ok, password: '1234567890' }).expect(400); // 10: antes passava
+    await call('post', '', superToken).send({ ...ok, password: '12345678901' }).expect(400); // 11
+    await call('post', '', superToken).send({ ...ok, password: 'Dev@12345' }).expect(400); // senha padrão
+    await call('post', '', superToken).send({ ...ok, password: 'xxDEV@12345xx' }).expect(400); // embutida, qualquer caixa
     await call('post', '', superToken).send({ ...ok, password: 'x'.repeat(73) }).expect(400);
     await call('post', '', superToken).send({ email, password: ok.password }).expect(400);
     await call('post', '', superToken).send({ ...ok, email: 'nao-e-email' }).expect(400);
     await call('post', '', superToken).send({ ...ok, userType: 'MEMBER' }).expect(400);
     await call('post', '', superToken).send({ ...ok, isSuperAdmin: 'sim' }).expect(400);
     assert.equal(await prisma.user.count({ where: { email } }), 0);
-    // com exatamente 10 caracteres passa
-    const edge = await call('post', '', superToken).send({ ...ok, password: '1234567890' }).expect(201);
+    // com exatamente 12 caracteres passa (mínimo da política SSOT)
+    const edge = await call('post', '', superToken).send({ ...ok, password: '123456789012' }).expect(201);
     apiCreatedIds.push(edge.body.id);
   });
 });

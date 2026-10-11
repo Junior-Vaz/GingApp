@@ -51,7 +51,8 @@ export class AuthService {
     }
 
     const memberships = await this.prisma.organizationUser.findMany({
-      where: { userId: user.id, status: 'ACTIVE' },
+      // Grupo INACTIVE (desativado pela plataforma) não conta: sem vínculo utilizável => 401 genérico.
+      where: { userId: user.id, status: 'ACTIVE', organization: { status: 'ACTIVE' } },
       include: { organization: true },
     });
 
@@ -150,7 +151,12 @@ export class AuthService {
     if (user.userType === UserType.MEMBER) {
       const membership = actor.organizationId
         ? await this.prisma.organizationUser.findFirst({
-            where: { userId: user.id, organizationId: actor.organizationId, status: 'ACTIVE' },
+            where: {
+              userId: user.id,
+              organizationId: actor.organizationId,
+              status: 'ACTIVE',
+              organization: { status: 'ACTIVE' },
+            },
           })
         : null;
       if (!membership) {
