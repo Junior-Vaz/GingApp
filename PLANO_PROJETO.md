@@ -1823,7 +1823,7 @@ pendência à parte por ser uma feature distinta (calendário público, não Pas
     cidade/estado/tipo/data.
 54. `PerfilView.vue` só mostra/publica o Passaporte do **primeiro** aluno vinculado
     (`students[0]`) — mesma simplificação já registrada em `JornadaView.vue` desde a fundação
-    (TODO: seletor de dependente quando um responsável tiver mais de um filho no grupo).
+    (RESOLVIDO no app React: `StudentSwitcher` em app-shell.tsx + `useMyStudent`/`useStudentScope`, escolha persistida por usuário em localStorage; testes em src/test/dependents.test.tsx. As views Vue legadas citadas aqui não existem mais.)
 55. Sem endpoint/rota para o responsável **revogar** consentimento já dado
     (`consentPublicProfile: true → false`) separado de despublicar o Passaporte em si — hoje só dá
     pra desativar consentimento chamando `PATCH /passport/guardian-consent` diretamente (sem UI),
@@ -2979,3 +2979,21 @@ graduação com certificado = 409) + ações no painel.
 2. Nível e graduação sem status no schema (hoje 409/hard delete) — inativar exige migration.
 3. Índice `lower(email)`, rodas legadas sem organização, AuditLog, 2FA, seletor de dependente (responsável
    com 2+ filhos), `RolePermission`/imagens em produção a conferir no servidor.
+
+#### Fase 4 — dependências, índice, modo de teste rápido
+- **npm audit:** admin 1→0 (`npm audit fix` sem force). Backend 6→3: `bcrypt` 5.1.1→6.0.0 (API igual: só
+  `hash/compare/getRounds`; hash `$2b$10$` gerado no bcrypt 5 compara OK no 6 — teste permanente
+  `backend/test/bcrypt-compat.spec.ts`) eliminou a crítica (`tar`). **Sem correção:** `prisma`/`@prisma/config`/
+  `deepmerge-ts` (fixado em 7.1.5 pelo `@prisma/config@6.19.3`; corrige só com Prisma 7/8 ou `overrides`);
+  é CLI de dev/migrate, não roda na API. NÃO validado: `npm ci` do bcrypt 6 em Alpine (sem docker local).
+- **Índice** `User_email_lower_idx` em `lower("email")` (migration `20261011211037_add_user_email_lower_index`,
+  não-unique), porque `email-lookup.ts` busca por `lower("email") = $1`.
+- **Rodas sem organização:** investigado, sem bug de isolamento (rodas públicas por desenho; `organizationId`
+  nulo nunca bate no `findOwned`); 0 nulos no banco de dev. Nada feito.
+- **Seletor de dependente do app:** já existia (`StudentSwitcher`); a pendência 54 estava desatualizada.
+- **Testes mais rápidos:** `npm run test:quick [-- filtro…]` (backend) = e2e sem checagem de tipos
+  (ts-node transpile-only), sem migrate/seed e sem o spec de bootstrap: **181 s vs ~434 s**, 474 testes.
+  Medido: o tempo dos testes em si é ~45 s (+96 s do bootstrap); o resto era type-check do ts-node. A suíte
+  completa (`npm run test:e2e`) segue como gate antes de release; tipos são cobertos por `npm run build`.
+  Processo: durante o desenvolvimento rodar só os specs tocados (`test:quick -- classes`), a rápida antes de
+  commitar e a completa só antes de release.
