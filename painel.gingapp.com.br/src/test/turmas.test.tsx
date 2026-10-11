@@ -63,22 +63,23 @@ afterEach(() => {
 
 describe("schema de turmas", () => {
   it("valida nome e monta payload (weekday 0 é válido)", () => {
-    const v = { name: "Ab", unitId: "", weekday: "0", startTime: "", endTime: "", description: "", status: "ACTIVE" as const };
+    const v = { name: "Ab", unitId: "", teacherUserId: "", weekday: "0", startTime: "", endTime: "", description: "", status: "ACTIVE" as const };
     expect(classSchema.safeParse(v).success).toBe(true);
     expect(classSchema.safeParse({ ...v, name: "A" }).success).toBe(false);
-    expect(classToPayload(v)).toMatchObject({ name: "Ab", weekday: 0, unitId: undefined, startTime: undefined });
+    expect(classToPayload(v)).toMatchObject({ name: "Ab", weekday: 0, unitId: undefined, startTime: undefined, teacherUserId: undefined });
+    expect(classToPayload({ ...v, teacherUserId: "42" })).toMatchObject({ teacherUserId: 42 });
     expect(scheduleLabel({ startTime: null, endTime: null })).toBe("—");
     expect(scheduleLabel({ startTime: "18:00", endTime: null })).toBe("18:00 - —");
   });
   it("classToUpdatePayload manda null nos opcionais esvaziados (nome/status nunca); weekday 0 permanece 0", () => {
-    const empty = { name: " Ab ", unitId: "", weekday: "", startTime: "", endTime: "", description: " ", status: "ACTIVE" as const };
+    const empty = { name: " Ab ", unitId: "", teacherUserId: "", weekday: "", startTime: "", endTime: "", description: " ", status: "ACTIVE" as const };
     expect(classToUpdatePayload(empty)).toEqual({
-      name: "Ab", unitId: null, weekday: null, startTime: null, endTime: null, description: null, status: "ACTIVE",
+      name: "Ab", unitId: null, teacherUserId: null, weekday: null, startTime: null, endTime: null, description: null, status: "ACTIVE",
     });
-    expect(classToUpdatePayload({ ...empty, weekday: "0", unitId: "7" })).toMatchObject({ weekday: 0, unitId: 7 });
+    expect(classToUpdatePayload({ ...empty, weekday: "0", unitId: "7", teacherUserId: "9" })).toMatchObject({ weekday: 0, unitId: 7, teacherUserId: 9 });
     // criação continua omitindo vazios e sem status
     const created = classToCreatePayload(empty);
-    expect(created).toEqual({ name: "Ab", unitId: undefined, weekday: undefined, startTime: undefined, endTime: undefined, description: undefined });
+    expect(created).toEqual({ name: "Ab", unitId: undefined, teacherUserId: undefined, weekday: undefined, startTime: undefined, endTime: undefined, description: undefined });
     expect(created).not.toHaveProperty("status");
   });
 });
@@ -303,7 +304,7 @@ describe("TurmasPage", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     const body = calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>;
     expect(body).toEqual({
-      name: "Infantil", unitId: null, weekday: null, startTime: null, endTime: null, description: null, status: "ACTIVE",
+      name: "Infantil", unitId: null, teacherUserId: null, weekday: null, startTime: null, endTime: null, description: null, status: "ACTIVE",
     });
   });
 

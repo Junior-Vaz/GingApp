@@ -145,6 +145,9 @@ describe("guard de rotas", () => {
     }
     expect(actions.map((a) => roleCan("PROFESSOR", "teachers", a))).toEqual([true, false, false, false]);
     expect(actions.map((a) => roleCan("PROFESSOR", "finance", a))).toEqual([false, false, false, false]);
+    // unidades (E02): MESTRE tudo; PROFESSOR só view (espelha o override `units` de permission-matrix.ts)
+    for (const a of actions) expect(roleCan("MESTRE", "units", a)).toBe(true);
+    expect(actions.map((a) => roleCan("PROFESSOR", "units", a))).toEqual([true, false, false, false]);
     // sem sessão / papéis do app: nega (falha fechada)
     for (const role of [undefined, "ALUNO", "RESPONSAVEL"] as const) expect(roleCan(role, "students", "view")).toBe(false);
   });

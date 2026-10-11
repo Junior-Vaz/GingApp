@@ -1,6 +1,10 @@
+import { z } from "zod";
+import { BR_UFS } from "@/lib/br-ufs";
 import { createCrud } from "@/lib/crud";
 
-/** Contrato de GET /units (backend: UnitsService.findAll - somente leitura, paginado: limit/offset/q no nome). */
+export type UnitStatus = "ACTIVE" | "INACTIVE";
+
+/** Contrato de GET /units (backend: UnitsService - paginado: limit/offset/q no nome + status). */
 export interface Unit {
   id: number;
   organizationId: number;
@@ -9,11 +13,89 @@ export interface Unit {
   city: string | null;
   state: string | null;
   isMain: boolean;
-  status: "ACTIVE" | "INACTIVE";
+  status: UnitStatus;
 }
 
-/** Só leitura: o backend não tem POST/PATCH/DELETE de unidades (use apenas `usePage`). */
-export const units = createCrud<Unit>("/units");
+/**
+ * Corpo de POST /units (CreateUnitDto: name, address, city, state, isMain - sem status) e de PATCH
+ * /units/:id (UpdateUnitDto: os mesmos + status; `null` limpa endereço/cidade/UF).
+ */
+export interface UnitInput {
+  name?: string | undefined;
+  address?: string | null | undefined;
+  city?: string | null | undefined;
+  state?: string | null | undefined;
+  isMain?: boolean | undefined;
+  status?: UnitStatus | undefined;
+}
+
+export const UNIT_STATUS_LABEL: Record<UnitStatus, string> = { ACTIVE: "Ativa", INACTIVE: "Inativa" };
+
+/** CRUD de /units: DELETE só INATIVA (nunca apaga); reativar é PATCH { status: "ACTIVE" }. */
+export const units = createCrud<Unit, UnitInput>("/units", {
+  created: "Unidade criada.",
+  updated: "Unidade atualizada.",
+  removed: "Unidade inativada.",
+});
 
 export const locationOf = (unit: Unit): string =>
   [unit.city, unit.state].filter(Boolean).join(" / ") || "-";
+
+export const unitSchema = z.object({
+  name: z.string().trim().min(2, "Informe o nome da unidade (mínimo 2 letras)."),
+  address: z.string().trim().max(200, "O endereço pode ter no máximo 200 caracteres."),
+  city: z.string().trim().max(100, "A cidade pode ter no máximo 100 caracteres."),
+  state: z.string().refine((v) => v === "" || (BR_UFS as readonly string[]).includes(v), "Escolha uma UF válida."),
+  isMain: z.boolean(),
+  status: z.enum(["ACTIVE", "INACTIVE"]),
+});
+export type UnitFormValues = z.infer<typeof unitSchema>;
+
+export const emptyUnitForm: UnitFormValues = {
+  name: "",
+  address: "",
+  city: "",
+  state: "",
+  isMain: false,
+  status: "ACTIVE",
+};
+
+export function unitToForm(unit: Unit): UnitFormValues {
+  return {
+    name: unit.name,
+    address: unit.address ?? "",
+    city: unit.city ?? "",
+    state: unit.state ?? "",
+    isMain: unit.isMain,
+    status: unit.status,
+  };
+}
+
+/** CRIAR: campos vazios omitidos; sem `status` (CreateUnitDto não tem - forbidNonWhitelisted devolve 400). */
+export function unitToCreatePayload(values: UnitFormValues): UnitInput {
+  return {
+    name: values.name.trim(),
+    address: values.address.trim() || undefined,
+    city: values.city.trim() || undefined,
+    state: values.state || undefined,
+    isMain: values.isMain,
+  };
+}
+
+/**
+ * EDITAR (PATCH): opcionais esvaziados vão como `null` (o backend limpa a coluna). `isMain` só é enviado
+ * quando MUDA para true (virar matriz): reenviar `false` na matriz atual é 409 ("defina OUTRA unidade como
+ * matriz") e a troca de matriz é sempre "marcar a nova". `status` só quando mudou (reativar passa pelo
+ * limite do plano; inativar passa pelas travas de matriz/única ativa).
+ */
+export function unitToUpdatePayload(values: UnitFormValues, original: Unit): UnitInput {
+  const payload: UnitInput = {
+    name: values.name.trim(),
+    address: values.address.trim() || null,
+    city: values.city.trim() || null,
+    state: values.state || null,
+  };
+  if (values.isMain && !original.isMain) payload.isMain = true;
+  if (values.status !== original.status) payload.status = values.status;
+  return payload;
+}

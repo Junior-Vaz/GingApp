@@ -33,6 +33,7 @@ export const PERMISSION_RESOURCES: readonly string[] = [
   'teachers',
   'dashboard',
   'certificates',
+  'units',
 ];
 
 // Menor privilégio (LGPD): ALUNO/RESPONSAVEL NÃO têm nenhum recurso administrativo por padrão.
@@ -77,6 +78,14 @@ const RESOURCE_OVERRIDES: Partial<
   events: MEMBER_VISIBLE,
   announcements: MEMBER_VISIBLE,
   rodas: MEMBER_VISIBLE,
+  // Unidades (matriz/filiais): CRUD só do MESTRE (padrão da matriz). PROFESSOR só enxerga
+  // (pickers e a lista de unidades); ALUNO/RESPONSAVEL também só enxergam (nome/endereço
+  // institucional da unidade, sem dado pessoal — GET /units já era acessível a eles antes do RBAC).
+  units: {
+    [OrgRole.PROFESSOR]: MEMBER_VIEW_ONLY,
+    [OrgRole.ALUNO]: MEMBER_VIEW_ONLY,
+    [OrgRole.RESPONSAVEL]: MEMBER_VIEW_ONLY,
+  },
   teachers: {
     [OrgRole.PROFESSOR]: {
       view: true,

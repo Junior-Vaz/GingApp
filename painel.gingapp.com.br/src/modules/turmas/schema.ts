@@ -10,16 +10,19 @@ export interface ClassItem {
   weekday: number | null;
   startTime: string | null;
   endTime: string | null;
+  /** Professor responsável: User.id de um membro ativo MESTRE/PROFESSOR do grupo. */
+  teacherUserId: number | null;
   status: ClassStatus;
 }
 
 /**
  * Corpo aceito por POST /classes e PATCH /classes/:id (CreateClassDto / UpdateClassDto).
- * No PATCH, `null` LIMPA unitId/description/weekday/startTime/endTime; `name` e `status` nunca vão `null` (400).
+ * No PATCH, `null` LIMPA unitId/description/weekday/startTime/endTime/teacherUserId; `name` e `status` nunca vão `null` (400).
  */
 export interface ClassInput {
   name: string;
   unitId?: number | null | undefined;
+  teacherUserId?: number | null | undefined;
   description?: string | null | undefined;
   weekday?: number | null | undefined;
   startTime?: string | null | undefined;
@@ -42,6 +45,7 @@ export const WEEKDAY_LABEL: Record<number, string> = {
 export const classSchema = z.object({
   name: z.string().trim().min(2, "Informe o nome da turma (mínimo 2 letras)."),
   unitId: z.string(),
+  teacherUserId: z.string(),
   weekday: z.string(),
   startTime: z.string(),
   endTime: z.string(),
@@ -53,6 +57,7 @@ export type ClassFormValues = z.infer<typeof classSchema>;
 export const emptyClassForm: ClassFormValues = {
   name: "",
   unitId: "",
+  teacherUserId: "",
   weekday: "",
   startTime: "",
   endTime: "",
@@ -64,6 +69,7 @@ export function classToForm(c: ClassItem): ClassFormValues {
   return {
     name: c.name,
     unitId: c.unitId ? String(c.unitId) : "",
+    teacherUserId: c.teacherUserId ? String(c.teacherUserId) : "",
     weekday: c.weekday !== null && c.weekday !== undefined ? String(c.weekday) : "",
     startTime: c.startTime ?? "",
     endTime: c.endTime ?? "",
@@ -77,6 +83,7 @@ export function classToPayload(values: ClassFormValues): ClassInput {
   return {
     name: values.name.trim(),
     unitId: values.unitId ? Number(values.unitId) : undefined,
+    teacherUserId: values.teacherUserId ? Number(values.teacherUserId) : undefined,
     weekday: values.weekday !== "" ? Number(values.weekday) : undefined,
     startTime: values.startTime || undefined,
     endTime: values.endTime || undefined,
@@ -93,6 +100,7 @@ export function classToUpdatePayload(values: ClassFormValues): ClassInput {
   return {
     name: values.name.trim(),
     unitId: values.unitId ? Number(values.unitId) : null,
+    teacherUserId: values.teacherUserId ? Number(values.teacherUserId) : null,
     weekday: values.weekday !== "" ? Number(values.weekday) : null,
     startTime: values.startTime || null,
     endTime: values.endTime || null,

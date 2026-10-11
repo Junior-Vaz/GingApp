@@ -17,11 +17,14 @@ import { PageQueryDto, sendPage } from '../../../shared/pagination/pagination';
 import { Throttle } from '@nestjs/throttler';
 import { RecordStatus, UserType } from '@prisma/client';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
+import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
+import { MestreOnlyGuard } from '../../../shared/guards/mestre-only.guard';
 import { PlatformOnlyGuard } from '../../../shared/guards/platform-only.guard';
 import { SuperAdminGuard } from '../../../shared/guards/super-admin.guard';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
+import { UpdateOwnOrganizationDto } from './dto/update-own-organization.dto';
 import { ResetMestrePasswordDto } from './dto/reset-mestre-password.dto';
 import { OrganizationsService } from './organizations.service';
 
@@ -42,6 +45,9 @@ export const MESTRE_RESET_THROTTLE_LIMIT = Number(process.env.MESTRE_RESET_THROT
  * GET /organizations/:id é só da equipe PLATFORM (PlatformOnlyGuard, a mesma condição do ramo PLATFORM
  * do GET /organizations): a organização + os MESTREs. POST :orgId/members/:userId/reset-password é do
  * super admin ativo: redefine a senha de um MESTRE do grupo e revoga as sessões dele.
+ *
+ * PATCH /organizations/me é do MESTRE do grupo (MestreOnlyGuard): edita o PRÓPRIO grupo (perfil institucional
+ * incluso; slug e status imutáveis). Não confundir com o PATCH /organizations/:id abaixo, que é da equipe.
  *
  * PATCH /organizations/:id (name, document, email, phone; slug imutável) e POST :id/deactivate|reactivate
  * são do super admin ativo. Desativar NUNCA apaga dados: só marca o grupo INACTIVE, e os usuários dele
@@ -72,6 +78,16 @@ export class OrganizationsController {
   @Throttle({ default: { limit: ORG_CREATE_THROTTLE_LIMIT, ttl: 60_000 } })
   create(@Body() dto: CreateOrganizationDto) {
     return this.organizationsService.createGroup(dto);
+  }
+
+  /**
+   * O MESTRE edita o PRÓPRIO grupo (organização do token): nome, documento, e-mail, telefone e perfil
+   * institucional. Slug e status NÃO são editáveis aqui. Declarada ANTES de `:id` para "me" não cair no ParseIntPipe.
+   */
+  @Patch('me')
+  @UseGuards(MestreOnlyGuard)
+  updateOwn(@CurrentOrganization() organizationId: number, @Body() dto: UpdateOwnOrganizationDto) {
+    return this.organizationsService.updateOwn(organizationId, dto);
   }
 
   @Get(':id')

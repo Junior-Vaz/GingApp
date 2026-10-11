@@ -18,6 +18,8 @@ export interface AuthUser {
   organizationId: number;
   organizationSlug: string;
   role: OrgRole;
+  /** Senha definida pelo Mestre/Professor (conta criada ou senha redefinida): a troca é obrigatória no primeiro acesso. */
+  mustChangePassword?: boolean;
 }
 
 type Listener = () => void;
@@ -73,8 +75,16 @@ export function saveSession(token: string, user: AuthUser): void {
  */
 export function replaceToken(token: string): void {
   const store = storage();
-  if (!store || store.getItem(USER_STORAGE_KEY) === null) return;
+  const rawUser = store?.getItem(USER_STORAGE_KEY) ?? null;
+  if (!store || rawUser === null) return;
   store.setItem(TOKEN_STORAGE_KEY, token);
+  // Só é chamada depois de a PRÓPRIA senha ser trocada: a troca obrigatória (mustChangePassword) está cumprida.
+  try {
+    const user = JSON.parse(rawUser) as AuthUser;
+    if (user.mustChangePassword) store.setItem(USER_STORAGE_KEY, JSON.stringify({ ...user, mustChangePassword: false }));
+  } catch {
+    // usuário guardado ilegível: getUser() já devolve null; nada a limpar
+  }
   emit();
 }
 

@@ -46,7 +46,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/certificados", label: "Certificados", icon: BadgeCheck },
   { to: "/comunicados", label: "Comunicados", icon: Megaphone },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
-  // Unidades/Configurações não têm RBAC no backend (sem @CanAccess): ficam só para o MESTRE na UI.
+  // Unidades (backend: recurso `units`, CRUD só do MESTRE) e Configurações (PATCH /organizations/me, só MESTRE):
+  // ficam só para o MESTRE no menu.
   { to: "/unidades", label: "Unidades", icon: Building2, roles: ["MESTRE"] },
   { to: "/configuracoes", label: "Configurações", icon: Settings, roles: ["MESTRE"] },
 ];

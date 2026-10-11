@@ -7,6 +7,37 @@ import { StudentsService } from '../students/students.service';
 import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
 import { isTimeOfDay, isValidTimeRange } from '../../../shared/dates/time-of-day';
+import { assertActiveTeacher } from '../../../shared/access/teacher-membership';
+import { GenerateLessonsDto } from './dto/generate-lessons.dto';
+
+const DAY_MS = 86_400_000;
+/** Maior intervalo aceito por POST /classes/:id/generate-lessons (to - from, em dias). */
+export const MAX_GENERATE_LESSONS_SPAN_DAYS = 90;
+/** Namespace do advisory lock de geração (par com o id da turma): serializa gerações concorrentes da MESMA turma. */
+export const GENERATE_LESSONS_LOCK_NS = 7106;
+
+/** "YYYY-MM-DD" -> meia-noite UTC do dia (mesma convenção das datas de aula). 400 se o dia não existe (ex.: 30/02). */
+function parseCivilDate(value: string, field: string): Date {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+    throw new BadRequestException(`${field} não é uma data válida (use YYYY-MM-DD).`);
+  }
+  return date;
+}
+
+export interface GenerateLessonsResult {
+  classId: number;
+  from: string;
+  to: string;
+  /** Quantas datas do intervalo caem no dia da semana da turma. */
+  occurrences: number;
+  /** Aulas criadas agora. */
+  created: number;
+  /** Ocorrências ignoradas porque já existe aula (qualquer status, inclusive cancelada) da turma naquela data. */
+  ignored: number;
+  createdDates: string[];
+  ignoredDates: string[];
+}
 
 /** Turmas do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
@@ -58,11 +89,15 @@ export class ClassesService {
     if (dto.unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
     }
+    if (dto.teacherUserId) {
+      await assertActiveTeacher(this.prisma, organizationId, dto.teacherUserId);
+    }
 
     return this.prisma.class.create({
       data: {
         organizationId,
         unitId: dto.unitId,
+        teacherUserId: dto.teacherUserId,
         name: dto.name,
         description: dto.description,
         weekday: dto.weekday,
@@ -86,11 +121,15 @@ export class ClassesService {
     if (dto.unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
     }
+    if (dto.teacherUserId) {
+      await assertActiveTeacher(this.prisma, organizationId, dto.teacherUserId);
+    }
 
     return this.prisma.class.update({
       where: { id },
       data: {
         unitId: dto.unitId,
+        teacherUserId: dto.teacherUserId,
         name: dto.name,
         description: dto.description,
         weekday: dto.weekday,
@@ -108,6 +147,79 @@ export class ClassesService {
   async remove(organizationId: number, id: number) {
     await this.findOne(organizationId, id);
     return this.prisma.class.update({ where: { id }, data: { status: 'INACTIVE' } });
+  }
+
+  /**
+   * Gera as aulas da turma no período: uma Lesson para cada data de [from, to] (inclusivas, datas
+   * civis UTC — mesma convenção de Lesson.date: meia-noite UTC) cujo dia da semana é o `weekday`
+   * da turma. Copia unidade, professor responsável e horário da turma.
+   * - Só turma ATIVA e com dia da semana definido; to - from <= 90 dias; from <= to.
+   * - Nunca cria antes de `from`.
+   * - Idempotente: data que já tem aula da turma (qualquer status — uma aula cancelada NÃO é
+   *   recriada) é ignorada e contada em `ignored`. Gerações concorrentes da mesma turma são
+   *   serializadas por advisory lock transacional (Lesson não tem unique por turma+data).
+   */
+  async generateLessons(organizationId: number, classId: number, dto: GenerateLessonsDto): Promise<GenerateLessonsResult> {
+    const klass = await this.findOne(organizationId, classId); // 404 se não existir ou for de outra organização
+    if (klass.status !== 'ACTIVE') {
+      throw new BadRequestException('Turma inativa: reative a turma antes de gerar aulas.');
+    }
+    if (klass.weekday === null) {
+      throw new BadRequestException('A turma não tem dia da semana definido: informe o dia para gerar aulas.');
+    }
+
+    const from = parseCivilDate(dto.from, 'from');
+    const to = parseCivilDate(dto.to, 'to');
+    if (to.getTime() < from.getTime()) {
+      throw new BadRequestException('to deve ser igual ou posterior a from.');
+    }
+    if ((to.getTime() - from.getTime()) / DAY_MS > MAX_GENERATE_LESSONS_SPAN_DAYS) {
+      throw new BadRequestException(`O período não pode passar de ${MAX_GENERATE_LESSONS_SPAN_DAYS} dias.`);
+    }
+
+    const days: string[] = [];
+    for (let t = from.getTime(); t <= to.getTime(); t += DAY_MS) {
+      const day = new Date(t);
+      if (day.getUTCDay() === klass.weekday) days.push(day.toISOString().slice(0, 10));
+    }
+
+    const base = { classId, from: dto.from, to: dto.to, occurrences: days.length };
+    if (days.length === 0) {
+      return { ...base, created: 0, ignored: 0, createdDates: [], ignoredDates: [] };
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${GENERATE_LESSONS_LOCK_NS}::int, ${classId}::int)`;
+
+      // Intervalo (e não "date IN (...)"): uma aula criada à mão com horário no timestamp também conta
+      // como existente naquele dia civil UTC.
+      const existing = await tx.lesson.findMany({
+        where: {
+          organizationId,
+          classId,
+          date: { gte: from, lte: new Date(to.getTime() + DAY_MS - 1) },
+        },
+        select: { date: true },
+      });
+      const taken = new Set(existing.map((l) => l.date.toISOString().slice(0, 10)));
+      const createdDates = days.filter((d) => !taken.has(d));
+      const ignoredDates = days.filter((d) => taken.has(d));
+
+      if (createdDates.length > 0) {
+        await tx.lesson.createMany({
+          data: createdDates.map((d) => ({
+            organizationId,
+            classId,
+            unitId: klass.unitId,
+            teacherUserId: klass.teacherUserId,
+            date: new Date(`${d}T00:00:00.000Z`),
+            startTime: klass.startTime,
+            endTime: klass.endTime,
+          })),
+        });
+      }
+      return { ...base, created: createdDates.length, ignored: ignoredDates.length, createdDates, ignoredDates };
+    });
   }
 
   /** Alunos matriculados (ativos) na turma, com os dados básicos do aluno. */

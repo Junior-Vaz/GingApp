@@ -1,8 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Lesson, OrgRole, Prisma } from '@prisma/client';
+import { Lesson, Prisma } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { civilDateRange } from '../../../shared/dates/date-range';
+import { formatCivilDateBR } from '../../../shared/dates/format-br';
+import { assertActiveTeacher } from '../../../shared/access/teacher-membership';
+import { NotificationsService, type NotificationPayload } from '../notifications/notifications.service';
+import { civilTodayStart } from '../finance/finance.service';
 import { ListLessonsQueryDto } from './dto/list-lessons-query.dto';
 import { ListMyLessonsQueryDto } from './dto/list-my-lessons-query.dto';
 import { ClassesService } from '../classes/classes.service';
@@ -11,8 +15,6 @@ import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
 
-const TEACHER_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR];
-
 /** Aulas do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
 export class LessonsService {
@@ -20,6 +22,7 @@ export class LessonsService {
     private readonly prisma: PrismaService,
     private readonly classesService: ClassesService,
     private readonly studentsService: StudentsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async findAll(organizationId: number, query: ListLessonsQueryDto = {}): Promise<Page<Lesson>> {
@@ -104,7 +107,7 @@ export class LessonsService {
   }
 
   async update(organizationId: number, id: number, dto: UpdateLessonDto) {
-    await this.findOne(organizationId, id); // 404 se não existir ou não for desta organização
+    const current = await this.findOne(organizationId, id); // 404 se não existir ou não for desta organização
 
     if (dto.classId) {
       await this.assertClassBelongsToOrganization(organizationId, dto.classId);
@@ -116,7 +119,7 @@ export class LessonsService {
       await this.assertTeacherBelongsToOrganization(organizationId, dto.teacherUserId);
     }
 
-    return this.prisma.lesson.update({
+    const updated = await this.prisma.lesson.update({
       where: { id },
       data: {
         classId: dto.classId,
@@ -129,6 +132,8 @@ export class LessonsService {
         status: dto.status,
       },
     });
+    await this.notifyLessonChange(organizationId, current, updated);
+    return updated;
   }
 
   /**
@@ -137,8 +142,62 @@ export class LessonsService {
    * status = INACTIVE (= "cancelada" para Lesson).
    */
   async remove(organizationId: number, id: number) {
-    await this.findOne(organizationId, id);
-    return this.prisma.lesson.update({ where: { id }, data: { status: 'INACTIVE' } });
+    const current = await this.findOne(organizationId, id);
+    const updated = await this.prisma.lesson.update({ where: { id }, data: { status: 'INACTIVE' } });
+    await this.notifyLessonChange(organizationId, current, updated);
+    return updated;
+  }
+
+  /**
+   * Gatilho de notificação (E09): avisa os alunos matriculados (ACTIVE) na turma da aula — e os
+   * responsáveis com login — quando a aula é CANCELADA (ACTIVE -> INACTIVE), REATIVADA
+   * (INACTIVE -> ACTIVE) ou tem DIA/HORÁRIO alterados. Não notifica:
+   * - edição que não mexe em status/dia/horário (ex.: observações, professor);
+   * - aula que continua cancelada (nada a avisar);
+   * - aula cujo dia novo já passou (dia civil de America/Sao_Paulo, mesmo "hoje" do financeiro).
+   * Falha ao notificar nunca derruba o PATCH/DELETE (NotificationsService.safely).
+   */
+  private async notifyLessonChange(organizationId: number, before: Lesson, after: Lesson): Promise<void> {
+    const cancelled = before.status === 'ACTIVE' && after.status === 'INACTIVE';
+    const reactivated = before.status === 'INACTIVE' && after.status === 'ACTIVE';
+    const rescheduled =
+      after.status === 'ACTIVE' &&
+      !reactivated &&
+      (before.date.getTime() !== after.date.getTime() ||
+        before.startTime !== after.startTime ||
+        before.endTime !== after.endTime);
+    if (!cancelled && !reactivated && !rescheduled) return;
+    if (after.date.getTime() < civilTodayStart().getTime()) return;
+
+    const klass = await this.prisma.class.findFirst({
+      where: { id: after.classId, organizationId },
+      select: { name: true },
+    });
+    const className = klass?.name ?? 'sua turma';
+    const when = `${formatCivilDateBR(after.date)}${after.startTime ? ` às ${after.startTime}` : ''}`;
+
+    let payload: NotificationPayload;
+    if (cancelled) {
+      payload = {
+        title: 'Aula cancelada',
+        body: `A aula de ${className} de ${when} foi cancelada.`,
+        type: 'LESSON_CANCELLED',
+      };
+    } else if (reactivated) {
+      payload = {
+        title: 'Aula reativada',
+        body: `A aula de ${className} de ${when} voltou a acontecer.`,
+        type: 'LESSON_CHANGED',
+      };
+    } else {
+      const was = `${formatCivilDateBR(before.date)}${before.startTime ? ` às ${before.startTime}` : ''}`;
+      payload = {
+        title: 'Aula alterada',
+        body: `A aula de ${className} marcada para ${was} foi alterada para ${when}.`,
+        type: 'LESSON_CHANGED',
+      };
+    }
+    await this.notifications.notifyClassStudents(organizationId, after.classId, payload);
   }
 
   /** Nunca confiar em classId vindo do corpo da requisição sem confirmar que pertence à
@@ -160,14 +219,9 @@ export class LessonsService {
   }
 
   /** teacherUserId não é uma FK Prisma direta para um model Teacher (não existe): é o User.id
-   * de alguém com membership (OrganizationUser) na organização com role MESTRE ou PROFESSOR
-   * (mesmo padrão de "professor" descrito em TeachersService). */
-  private async assertTeacherBelongsToOrganization(organizationId: number, teacherUserId: number): Promise<void> {
-    const membership = await this.prisma.organizationUser.findFirst({
-      where: { organizationId, userId: teacherUserId, role: { in: TEACHER_ROLES } },
-    });
-    if (!membership) {
-      throw new BadRequestException('Professor inválido para esta organização.');
-    }
+   * de um membro ATIVO da organização com role MESTRE ou PROFESSOR — SSOT em
+   * shared/access/teacher-membership.ts (a mesma regra vale para o professor responsável da turma). */
+  private assertTeacherBelongsToOrganization(organizationId: number, teacherUserId: number): Promise<void> {
+    return assertActiveTeacher(this.prisma, organizationId, teacherUserId);
   }
 }

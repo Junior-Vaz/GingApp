@@ -15,6 +15,8 @@ import { useListParams } from "@/lib/list-params";
 import { useCan } from "@/lib/session";
 import { useUnitNames } from "@/lib/unit-lookup";
 import { NativeSelect } from "@/modules/alunos/native-select";
+import { OPTIONS_LIMIT, useTeacherOptions } from "@/modules/aulas/aulas-api";
+import { GenerateLessonsDialog } from "./generate-lessons-dialog";
 import { ClassStudentsDialog } from "./students-dialog";
 import {
   CLASS_STATUS_LABEL,
@@ -45,9 +47,16 @@ export function TurmasPage() {
   const remove = classes.useRemove();
   const canDelete = useCan("classes", "delete"); // PROFESSOR: sem classes:delete (backend responde 403)
   const canView = useCan("classes", "view");
+  const canGenerate = useCan("lessons", "create"); // POST /classes/:id/generate-lessons cria aulas (lessons:create)
+  const teachers = useTeacherOptions();
+  const teacherItems = teachers.data?.items ?? [];
+  const teachersTruncated = (teachers.data?.total ?? 0) > OPTIONS_LIMIT;
+  const teacherName = (id: number | null) =>
+    id === null || id === undefined ? "—" : (teacherItems.find((t) => t.user.id === id)?.user.name ?? "—");
   const [editing, setEditing] = useState<ClassItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<ClassItem | null>(null);
   const [studentsOf, setStudentsOf] = useState<ClassItem | null>(null);
+  const [generatingOf, setGeneratingOf] = useState<ClassItem | null>(null);
 
   // Nomes só das unidades desta página (GET /units/:id por id distinto): não depende de lista com teto.
   const nameOfUnit = useUnitNames((list.items ?? []).map((c) => c.unitId));
@@ -63,6 +72,12 @@ export function TurmasPage() {
       cell: (c) => (c.weekday === null || c.weekday === undefined ? "—" : (WEEKDAY_LABEL[c.weekday] ?? "—")),
     },
     { id: "schedule", header: "Horário", sortValue: (c) => c.startTime, cell: (c) => scheduleLabel(c) },
+    {
+      id: "teacher",
+      header: "Professor",
+      sortValue: (c) => teacherName(c.teacherUserId),
+      cell: (c) => teacherName(c.teacherUserId),
+    },
     {
       id: "status",
       header: "Status",
@@ -124,6 +139,16 @@ export function TurmasPage() {
                 Alunos
               </Button>
             )}
+            {canGenerate && c.status === "ACTIVE" && c.weekday !== null && c.weekday !== undefined && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setGeneratingOf(c)}
+                aria-label={`Gerar aulas de ${c.name}`}
+              >
+                Gerar aulas
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
               Editar
             </Button>
@@ -174,6 +199,31 @@ export function TurmasPage() {
                       value={field.value ? Number(field.value) : null}
                       onChange={(u) => field.onChange(u ? String(u.id) : "")}
                     />
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="teacherUserId"
+                render={({ field }) => (
+                  <FormItem className="col-span-2">
+                    <FormLabel>Professor responsável</FormLabel>
+                    <FormControl>
+                      <NativeSelect {...field}>
+                        <option value="">—</option>
+                        {teacherItems.map((t) => (
+                          <option key={t.id} value={t.user.id}>
+                            {t.user.name}
+                          </option>
+                        ))}
+                      </NativeSelect>
+                    </FormControl>
+                    {teachersTruncated && (
+                      <p className="text-xs text-muted-foreground">
+                        Lista parcial: {OPTIONS_LIMIT} de {teachers.data?.total} professores.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}
@@ -261,6 +311,7 @@ export function TurmasPage() {
       </FormDialog>
 
       <ClassStudentsDialog turma={studentsOf} onClose={() => setStudentsOf(null)} />
+      <GenerateLessonsDialog turma={generatingOf} onClose={() => setGeneratingOf(null)} />
 
       <ConfirmDialog
         open={deleting !== null}

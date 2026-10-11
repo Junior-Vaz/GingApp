@@ -18,6 +18,8 @@ export interface Lesson {
 export interface ClassOption {
   id: number;
   name: string;
+  /** Professor responsável da turma (as aulas geradas dela herdam este professor). */
+  teacherUserId?: number | null;
 }
 
 export interface TeacherMembership {

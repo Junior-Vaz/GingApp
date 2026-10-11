@@ -9,6 +9,7 @@ import { ClassesService } from './classes.service';
 import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
 import { EnrollStudentDto } from './dto/enroll-student.dto';
+import { GenerateLessonsDto } from './dto/generate-lessons.dto';
 
 @Controller('classes')
 export class ClassesController {
@@ -50,6 +51,17 @@ export class ClassesController {
     @Body() dto: UpdateClassDto,
   ) {
     return this.classesService.update(organizationId, id, dto);
+  }
+
+  /** Gera as aulas da turma no período (idempotente). Cria Lesson => exige `lessons:create`. */
+  @Post(':id/generate-lessons')
+  @CanAccess('lessons', 'create')
+  generateLessons(
+    @CurrentOrganization() organizationId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: GenerateLessonsDto,
+  ) {
+    return this.classesService.generateLessons(organizationId, id, dto);
   }
 
   @Get(':id/students')

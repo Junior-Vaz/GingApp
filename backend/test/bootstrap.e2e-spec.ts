@@ -23,14 +23,14 @@ const SUPER_EMAIL = 'root.ops@example.test';
 const SUPER_PASSWORD = 'Boot-Strap#2026xQ';
 const SUPER_NAME = 'Ops Root';
 
-/** Oráculo INDEPENDENTE da matriz base (papel → 12 recursos na ordem abaixo; V/C/E/D ou "-").
+/** Oráculo INDEPENDENTE da matriz base (papel → 13 recursos na ordem abaixo; V/C/E/D ou "-").
  * Conferido contra a saída do seed ANTES da extração para prisma/permission-matrix.ts. */
-const RESOURCES = ['students', 'classes', 'lessons', 'attendance', 'graduations', 'finance', 'events', 'rodas', 'announcements', 'teachers', 'dashboard', 'certificates'];
+const RESOURCES = ['students', 'classes', 'lessons', 'attendance', 'graduations', 'finance', 'events', 'rodas', 'announcements', 'teachers', 'dashboard', 'certificates', 'units'];
 const ORACLE: Record<string, string[]> = {
-  MESTRE: Array(12).fill('VCED'),
-  PROFESSOR: ['VCE-', 'VCE-', 'VCE-', 'VCE-', 'VCE-', '----', 'VCE-', 'VCE-', 'VCE-', 'V---', 'VCE-', 'VCE-'],
-  ALUNO: ['----', '----', '----', '----', '----', '----', 'V---', 'V---', 'V---', '----', '----', '----'],
-  RESPONSAVEL: ['----', '----', '----', '----', '----', '----', 'V---', 'V---', 'V---', '----', '----', '----'],
+  MESTRE: Array(13).fill('VCED'),
+  PROFESSOR: ['VCE-', 'VCE-', 'VCE-', 'VCE-', 'VCE-', '----', 'VCE-', 'VCE-', 'VCE-', 'V---', 'VCE-', 'VCE-', 'V---'],
+  ALUNO: ['----', '----', '----', '----', '----', '----', 'V---', 'V---', 'V---', '----', '----', '----', 'V---'],
+  RESPONSAVEL: ['----', '----', '----', '----', '----', '----', 'V---', 'V---', 'V---', '----', '----', '----', 'V---'],
 };
 const oracleRows = Object.entries(ORACLE)
   .flatMap(([role, flags]) => flags.map((f, i) => `${role}/${RESOURCES[i]}:${f}`))
@@ -186,7 +186,8 @@ describe('Bootstrap de produção (e2e, bancos isolados)', () => {
 
     const a = await matrixOf(dbA);
     const b = await matrixOf(dbB);
-    assert.equal(a.length, 48);
+    assert.equal(a.length, oracleRows.length);
+    assert.equal(oracleRows.length, 52, '13 recursos x 4 papéis');
     assert.deepEqual(a, b, 'matriz do bootstrap difere da do seed');
     assert.deepEqual(a, oracleRows, 'matriz difere do oráculo independente');
   });
@@ -209,10 +210,11 @@ describe('Bootstrap de produção (e2e, bancos isolados)', () => {
       student: await dbA.student.count(),
       class: await dbA.class.count(),
       graduationSystem: await dbA.graduationSystem.count(),
-      state: await dbA.state.count(),
       roda: await dbA.roda.count(),
     };
     assert.deepEqual(counts, Object.fromEntries(Object.keys(counts).map((k) => [k, 0])));
+    // Única exceção: dado de REFERÊNCIA (não é "exemplo") — as 27 UFs e as cidades principais (ver testes de geografia).
+    assert.equal(await dbA.state.count(), 27);
     // sanity: o seed (B) cria sim dados de exemplo — a comparação acima não é vacuamente verdadeira
     assert.ok((await dbB.organization.count()) > 0);
     assert.ok((await dbB.user.count({ where: { email: 'owner@gingapp.com.br' } })) === 1);
@@ -253,7 +255,8 @@ describe('Bootstrap de produção (e2e, bancos isolados)', () => {
     const res = boot(urls.A, withAdmin());
     mustSucceed('bootstrap A (2x)', res);
     assert.match(res.output, /já existe .* NADA alterado/);
-    assert.match(res.output, /0 criada\(s\), 48 já existia\(m\)/);
+    assert.match(res.output, new RegExp(`0 criada\\(s\\), ${oracleRows.length} já existia\\(m\\)`));
+    assert.match(res.output, /Geografia: 0 estado\(s\) e 0 cidade\(s\) criado\(s\)/);
 
     assert.equal(await dbA.user.count(), usersBefore);
     assert.deepEqual(await matrixOf(dbA), matrixBefore);
@@ -297,6 +300,103 @@ describe('Bootstrap de produção (e2e, bancos isolados)', () => {
       await dbA.rolePermission.update({ where, data: { canDelete: false } });
     }
     assert.deepEqual(await matrixOf(dbA), oracleRows);
+  });
+
+  // ---------------------------------------------------------------- E03: geografia de referência
+  /** Oráculo INDEPENDENTE: sigla -> capital (conferido contra o IBGE, não derivado do código de produção). */
+  const CAPITALS: Record<string, string> = {
+    AC: 'Rio Branco', AL: 'Maceió', AP: 'Macapá', AM: 'Manaus', BA: 'Salvador', CE: 'Fortaleza', DF: 'Brasília',
+    ES: 'Vitória', GO: 'Goiânia', MA: 'São Luís', MT: 'Cuiabá', MS: 'Campo Grande', MG: 'Belo Horizonte', PA: 'Belém',
+    PB: 'João Pessoa', PR: 'Curitiba', PE: 'Recife', PI: 'Teresina', RJ: 'Rio de Janeiro', RN: 'Natal',
+    RS: 'Porto Alegre', RO: 'Porto Velho', RR: 'Boa Vista', SC: 'Florianópolis', SP: 'São Paulo', SE: 'Aracaju',
+    TO: 'Palmas',
+  };
+
+  it('A: bootstrap grava as 27 UFs e, em cada UF, pelo menos a capital + cidades principais — sem duplicar', async () => {
+    const states = await dbA.state.findMany({ include: { cities: true } });
+    assert.deepEqual(states.map((s) => s.uf).sort(), Object.keys(CAPITALS).sort());
+    assert.equal(states.find((s) => s.uf === 'GO')?.name, 'Goiás');
+    assert.equal(states.find((s) => s.uf === 'DF')?.name, 'Distrito Federal');
+    for (const state of states) {
+      const names = state.cities.map((c) => c.name);
+      assert.ok(names.includes(CAPITALS[state.uf]), `${state.uf}: falta a capital ${CAPITALS[state.uf]}`);
+      assert.equal(new Set(names).size, names.length, `${state.uf}: cidade duplicada`);
+    }
+    const total = states.reduce((n, s) => n + s.cities.length, 0);
+    assert.ok(total >= 150, `esperado >= 150 cidades, veio ${total}`);
+    // grandes cidades de cada região (oráculo independente)
+    const big = await dbA.city.findMany({
+      where: { name: { in: ['São Paulo', 'Rio de Janeiro', 'Salvador', 'Uberlândia', 'Campinas', 'Joinville', 'Manaus'] } },
+    });
+    assert.ok(big.length >= 7);
+  });
+
+  it('A: GET público de estados/cidades (sem token) devolve os dados do bootstrap', async () => {
+    assert.ok(app, 'o app (banco A) é criado no teste de login acima');
+    const states = await request(app!.getHttpServer()).get('/api/rodas/reference/states').expect(200);
+    assert.equal(states.body.length, 27);
+    const goias = states.body.find((s: { uf: string }) => s.uf === 'GO');
+    assert.ok(goias);
+    const cities = await request(app!.getHttpServer()).get(`/api/rodas/reference/cities?stateId=${goias.id}`).expect(200);
+    assert.ok(cities.body.length >= 10);
+    assert.ok(cities.body.some((c: { name: string }) => c.name === 'Goiânia'));
+    assert.ok(cities.body.every((c: { stateId: number }) => c.stateId === goias.id));
+    const all = await request(app!.getHttpServer()).get('/api/rodas/reference/cities').expect(200);
+    assert.ok(all.body.length >= 150);
+  });
+
+  it('A: re-executar NÃO altera o existente, NÃO duplica e só repõe o que falta', async () => {
+    const goias = await dbA.state.findUniqueOrThrow({ where: { uf: 'GO' } });
+    const anapolis = await dbA.city.findFirstOrThrow({ where: { stateId: goias.id, name: 'Anápolis' } });
+    await dbA.state.update({ where: { uf: 'GO' }, data: { name: 'Goiás (nome editado)' } });
+    await dbA.city.update({ where: { id: anapolis.id }, data: { name: 'Anápolis Editada' } });
+    const custom = await dbA.city.create({ data: { stateId: goias.id, name: 'Cidade Própria do Admin' } });
+    const sem = await dbA.city.findFirstOrThrow({ where: { stateId: goias.id, name: 'Catalão' } });
+    await dbA.city.delete({ where: { id: sem.id } });
+    const totalBefore = await dbA.city.count();
+
+    const res = boot(urls.A);
+    mustSucceed('bootstrap (reposição de geografia)', res);
+    assert.match(res.output, /Geografia: 0 estado\(s\) e 2 cidade\(s\) criado\(s\)/);
+
+    // não alterou o que o admin editou, não removeu o que ele criou
+    assert.equal((await dbA.state.findUniqueOrThrow({ where: { uf: 'GO' } })).name, 'Goiás (nome editado)');
+    assert.equal((await dbA.city.findUniqueOrThrow({ where: { id: anapolis.id } })).name, 'Anápolis Editada');
+    assert.equal((await dbA.city.findUniqueOrThrow({ where: { id: custom.id } })).name, 'Cidade Própria do Admin');
+    // repôs a que faltava (Catalão) e a renomeada (Anápolis, por nome) — duas linhas novas, nenhuma duplicata
+    assert.equal(await dbA.city.count({ where: { stateId: goias.id, name: 'Catalão' } }), 1);
+    assert.equal(await dbA.city.count({ where: { stateId: goias.id, name: 'Anápolis' } }), 1);
+    assert.equal(await dbA.city.count(), totalBefore + 2);
+    assert.equal(await dbA.state.count(), 27);
+
+    // e uma terceira execução não muda mais nada
+    const again = boot(urls.A);
+    mustSucceed('bootstrap (idempotência)', again);
+    assert.match(again.output, /Geografia: 0 estado\(s\) e 0 cidade\(s\) criado\(s\)/);
+    assert.equal(await dbA.city.count(), totalBefore + 2);
+
+    await dbA.city.delete({ where: { id: custom.id } });
+    await dbA.city.delete({ where: { id: anapolis.id } });
+    await dbA.state.update({ where: { uf: 'GO' }, data: { name: 'Goiás' } });
+  });
+
+  it('B (base com o seed de dev): bootstrap completa as UFs sem duplicar o GO/Goiânia que o seed já criou nem apagar nada', async () => {
+    const goBefore = await dbB.state.findUniqueOrThrow({ where: { uf: 'GO' } });
+    const goiania = await dbB.city.findMany({ where: { stateId: goBefore.id, name: 'Goiânia' } });
+    assert.equal(goiania.length, 1);
+    assert.ok((await dbB.state.count()) < 27, 'pré-condição: o seed de dev não cria as 27 UFs');
+    const orgsBefore = await dbB.organization.count();
+
+    mustSucceed('bootstrap na base do seed', boot(urls.B));
+
+    assert.equal(await dbB.state.count(), 27);
+    assert.deepEqual(await dbB.state.findUniqueOrThrow({ where: { uf: 'GO' } }), goBefore);
+    assert.deepEqual(
+      (await dbB.city.findMany({ where: { stateId: goBefore.id, name: 'Goiânia' } })).map((c) => c.id),
+      goiania.map((c) => c.id),
+      'Goiânia do seed não pode ser recriada',
+    );
+    assert.equal(await dbB.organization.count(), orgsBefore);
   });
 
   it('nenhuma senha (nem hash) aparece em NENHUMA saída do bootstrap', async () => {

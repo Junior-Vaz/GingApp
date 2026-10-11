@@ -1,3 +1,8 @@
+/** Redes sociais do grupo (todas opcionais; só URLs http/https). */
+export type OrganizationSocialLinks = Partial<
+  Record<"instagram" | "youtube" | "tiktok" | "facebook" | "whatsapp", string | null>
+>;
+
 /** GET /organizations devolve a propria organização do MEMBER (objeto); PLATFORM recebe lista. */
 export interface Organization {
   id: number;
@@ -8,6 +13,15 @@ export interface Organization {
   document: string | null;
   email: string | null;
   phone: string | null;
+  /** Perfil institucional (PATCH /organizations/me): ausentes em respostas antigas = não informado. */
+  logo?: string | null;
+  description?: string | null;
+  history?: string | null;
+  foundedYear?: number | null;
+  city?: string | null;
+  state?: string | null;
+  website?: string | null;
+  socialLinks?: OrganizationSocialLinks | null;
 }
 
 type SubscriptionStatus = "TRIALING" | "ACTIVE" | "PAST_DUE" | "CANCELED" | "EXPIRED";

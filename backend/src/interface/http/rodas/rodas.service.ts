@@ -5,6 +5,8 @@ import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { ListRodasQueryDto } from './dto/list-rodas-query.dto';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PermissionsService } from '../../../shared/access/permissions.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { formatInstantBR } from '../../../shared/dates/format-br';
 import { MyParticipation, redactParticipant } from '../../../shared/access/participant-privacy';
 import { CreateRodaDto } from './dto/create-roda.dto';
 import { UpdateRodaDto } from './dto/update-roda.dto';
@@ -25,6 +27,7 @@ export class RodasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Lista PÚBLICA (todas as organizações, sem filtro de tenant — regra existente): o total
@@ -119,7 +122,7 @@ export class RodasService {
   async create(organizationId: number, dto: CreateRodaDto) {
     await this.assertReferencesExist(dto);
 
-    return this.prisma.roda.create({
+    const roda = await this.prisma.roda.create({
       data: {
         organizationId,
         title: dto.title,
@@ -132,6 +135,17 @@ export class RodasService {
         imageUrl: dto.imageUrl,
       },
     });
+
+    // Gatilho de notificação (E09): roda NOVA e FUTURA avisa os membros ativos do grupo (teto de
+    // destinatários; efeito colateral SEGURO — nunca derruba a criação). Roda passada não notifica.
+    if (roda.date.getTime() > Date.now()) {
+      await this.notifications.notifyGroupMembers(organizationId, null, {
+        title: 'Nova roda',
+        body: `${roda.title} — ${formatInstantBR(roda.date)}${roda.location ? ` · ${roda.location}` : ''}`,
+        type: 'RODA',
+      });
+    }
+    return roda;
   }
 
   async update(organizationId: number, id: number, dto: UpdateRodaDto) {

@@ -11,6 +11,7 @@ import { Page, PageQueryDto, pageArgs } from '../../../shared/pagination/paginat
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
+import { UpdateOwnOrganizationDto } from './dto/update-own-organization.dto';
 import { ResetMestrePasswordDto } from './dto/reset-mestre-password.dto';
 import { BCRYPT_ROUNDS, isForbiddenPassword, normalizeEmail } from '../../../shared/security/password-policy';
 import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
@@ -20,7 +21,26 @@ import { buildSlugCandidate, slugify } from './organizations.rules';
 /** Tentativas de gerar um slug livre quando duas criações concorrentes disputam o mesmo (P2002). */
 const MAX_SLUG_ATTEMPTS = 5;
 
-const EMAIL_TAKEN = 'Já existe um usuário com este e-mail. Use outro e-mail para o MESTRE.';
+/**
+ * socialLinks (coluna Json? nullable): undefined = não mexe; null OU objeto sem nenhuma rede ({} ou só chaves
+ * null) = Prisma.DbNull (NULL de verdade — NÃO Prisma.JsonNull, que gravaria o literal JSON `null`); objeto
+ * com redes = substitui por inteiro, descartando chaves null/undefined. (Mesma regra de Student.socialLinks.)
+ */
+function toSocialLinksInput(
+  socialLinks: UpdateOwnOrganizationDto['socialLinks'],
+): Prisma.InputJsonValue | typeof Prisma.DbNull | undefined {
+  if (socialLinks === undefined) return undefined;
+  if (socialLinks === null) return Prisma.DbNull;
+  const filled = Object.fromEntries(
+    Object.entries(socialLinks).filter(([, url]) => url !== null && url !== undefined),
+  );
+  return Object.keys(filled).length > 0 ? (filled as Prisma.InputJsonValue) : Prisma.DbNull;
+}
+
+/** Nome da unidade criada junto com o grupo (o Mestre pode renomear em PATCH /units/:id). */
+export const MAIN_UNIT_NAME = 'Matriz';
+
+const EMAIL_TAKEN ='Já existe um usuário com este e-mail. Use outro e-mail para o MESTRE.';
 
 /** Resposta do POST /organizations: a organização (mesmas colunas do GET /organizations) + o MESTRE
  * sem NENHUM segredo (nunca passwordHash). */
@@ -97,6 +117,36 @@ export class OrganizationsService {
   }
 
   /**
+   * O MESTRE edita o PRÓPRIO grupo (organizationId vem do token, nunca do corpo): dados cadastrais
+   * (name/document/email/phone) + perfil institucional (description, history, foundedYear, city, state,
+   * website, logo, socialLinks). `slug`, `status` e `type` não existem no DTO (imutáveis para o Mestre).
+   * `null` limpa os campos opcionais; `socialLinks` SUBSTITUI o objeto inteiro. Corpo sem campo => 400.
+   * Devolve a organização inteira (as mesmas colunas do GET /organizations).
+   */
+  async updateOwn(organizationId: number, dto: UpdateOwnOrganizationDto): Promise<Organization> {
+    const data: Prisma.OrganizationUpdateInput = {
+      name: dto.name?.trim(),
+      document: dto.document,
+      email: dto.email == null ? dto.email : dto.email.trim().toLowerCase(),
+      phone: dto.phone,
+      description: dto.description,
+      history: dto.history,
+      foundedYear: dto.foundedYear,
+      city: dto.city,
+      state: dto.state,
+      website: dto.website,
+      logo: dto.logo,
+      socialLinks: toSocialLinksInput(dto.socialLinks),
+    };
+    if (Object.values(data).every((value) => value === undefined)) {
+      throw new BadRequestException(
+        'Informe ao menos um campo para atualizar (name, document, email, phone, description, history, foundedYear, city, state, website, logo ou socialLinks).',
+      );
+    }
+    return this.updateOrFail(organizationId, data);
+  }
+
+  /**
    * Desativa (INACTIVE) ou reativa (ACTIVE) o grupo. Nunca apaga dados. Idempotente. Enquanto INACTIVE,
    * os usuários do grupo não logam e os tokens já emitidos caem na próxima requisição (JwtStrategy).
    */
@@ -156,12 +206,13 @@ export class OrganizationsService {
   }
 
   /**
-   * Cria um GRUPO (Organization type GROUP, status ACTIVE) com o seu MESTRE, numa ÚNICA transação:
-   * Organization + User (MEMBER, e-mail em minúsculas) + OrganizationUser (role MESTRE, ACTIVE).
-   * Qualquer falha desfaz tudo — nunca sobra organização órfã nem usuário sem vínculo.
+   * Cria um GRUPO (Organization type GROUP, status ACTIVE) com o seu MESTRE e a unidade MATRIZ, numa
+   * ÚNICA transação: Organization + User (MEMBER, e-mail em minúsculas) + OrganizationUser (role MESTRE,
+   * ACTIVE) + Unit "Matriz" (isMain, ACTIVE). Qualquer falha desfaz tudo — nunca sobra organização
+   * órfã, usuário sem vínculo nem grupo sem matriz.
    *
-   * Nada além disso é criado: assinatura/plano e unidade NÃO são pré-requisito (alunos e turmas
-   * aceitam unitId vazio; StudentsService trata "sem assinatura em aberto" como "sem limite") — a
+   * Nada além disso é criado: assinatura/plano NÃO é pré-requisito (StudentsService e UnitsService tratam
+   * "sem assinatura em aberto" como "sem limite") — a
    * equipe atribui o plano depois, na tela do grupo (POST /subscriptions). O que o MESTRE precisa
    * para operar é a matriz RolePermission (seed/bootstrap): se ela não existe, falha ANTES de
    * criar qualquer coisa (503), em vez de entregar um grupo cujo MESTRE leva 403 em tudo.
@@ -216,6 +267,10 @@ export class OrganizationsService {
           });
           await tx.organizationUser.create({
             data: { organizationId: organization.id, userId: user.id, role: OrgRole.MESTRE, status: 'ACTIVE' },
+          });
+          // Todo grupo nasce com a unidade MATRIZ (o Mestre edita nome/endereço depois em /unidades).
+          await tx.unit.create({
+            data: { organizationId: organization.id, name: MAIN_UNIT_NAME, isMain: true, status: RecordStatus.ACTIVE },
           });
           return { ...organization, mestre: user };
         });

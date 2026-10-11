@@ -25,7 +25,7 @@ interface FormDialogProps<T extends FieldValues> {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
-  description?: string;
+  description?: string | undefined;
   /** Schema zod (sem transforms: entrada = saída). */
   schema: z.ZodType<T, z.ZodTypeDef, T>;
   defaultValues: DefaultValues<T>;

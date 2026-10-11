@@ -89,9 +89,15 @@ CMD ["sh", "-c", "npx prisma migrate deploy && npx ts-node prisma/bootstrap.ts"]
 #   1. prisma migrate deploy - aplica migrations pendentes (idempotente);
 #   2. prisma/bootstrap.ts   - matriz base RolePermission + primeiro super admin PLATFORM a partir de
 #      SUPER_ADMIN_EMAIL/SUPER_ADMIN_PASSWORD/SUPER_ADMIN_NAME (idempotente; nunca cria dados de exemplo);
-#   3. node dist/main.js     - a API (exec: vira o PID 1 e recebe os sinais do Docker).
+#   3. prisma/demo.ts        - SO quando DEMO_GROUP=true: cria/completa o grupo de demonstracao (slug "demo",
+#      contas @demo.gingapp.com.br; senha = DEMO_PASSWORD, validada com a mesma politica do super admin).
+#      Idempotente e restrito ao grupo demo. O demo e opcional: se falhar (ex.: senha fraca) o erro vai
+#      para o log e a API sobe do mesmo jeito. prisma/ inteiro ja e copiado para o stage "build"
+#      (COPY prisma ./prisma), entao demo.ts, demo-data.ts e o que ele importa (bootstrap.ts,
+#      permission-matrix.ts, ../src/shared/security) estao na imagem. Desligar DEMO_GROUP nao apaga dados.
+#   4. node dist/main.js     - a API (exec: vira o PID 1 e recebe os sinais do Docker).
 # Os stages "runner" (imagem enxuta) e "migrate" ficam para o docker-compose.prod.yml.
 FROM build AS server
 ENV NODE_ENV=production
 EXPOSE 3000
-CMD ["sh", "-c", "npx prisma migrate deploy && npx ts-node prisma/bootstrap.ts && exec node dist/main.js"]
+CMD ["sh", "-c", "npx prisma migrate deploy && npx ts-node prisma/bootstrap.ts && { [ \"$DEMO_GROUP\" != true ] || npx ts-node prisma/demo.ts || echo '[demo] ERRO: o grupo demo nao foi criado (veja as linhas acima); a API sobe mesmo assim.'; } && exec node dist/main.js"]

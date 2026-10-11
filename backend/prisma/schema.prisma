@@ -82,19 +82,23 @@ enum ParticipantStatus {
 // =========================================================================
 
 model User {
-  id              Int       @id @default(autoincrement())
-  email           String    @unique
-  passwordHash    String
-  name            String
-  phone           String?
-  photo           String?
-  userType        UserType  @default(MEMBER)
-  isSuperAdmin    Boolean   @default(false)
-  status          String    @default("ACTIVE")
-  twoFactorSecret String?
-  tokenValidAfter DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  id                 Int       @id @default(autoincrement())
+  email              String    @unique
+  passwordHash       String
+  name               String
+  phone              String?
+  photo              String?
+  userType           UserType  @default(MEMBER)
+  isSuperAdmin       Boolean   @default(false)
+  status             String    @default("ACTIVE")
+  twoFactorSecret    String?
+  tokenValidAfter    DateTime?
+  /// true quando a senha atual foi definida por outra pessoa (conta de aluno/responsavel criada pelo
+  /// Mestre/Professor, ou senha redefinida por ele): os frontends devem exigir a troca no proximo login.
+  /// Limpo por POST /auth/change-password.
+  mustChangePassword Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   memberships                  OrganizationUser[]
   unitAccess                   UserUnitAccess[]
@@ -105,6 +109,7 @@ model User {
   studentLink                  Student?               @relation("StudentUser")
   guardianLinks                StudentGuardian[]      @relation("StudentGuardianUser")
   taughtLessons                Lesson[]               @relation("LessonTeacher")
+  taughtClasses                Class[]                @relation("ClassTeacher")
   eventParticipations          EventParticipant[]     @relation("EventParticipantUser")
   rodaParticipations           RodaParticipant[]      @relation("RodaParticipantUser")
   publicProfile                PublicProfile?         @relation("PublicProfileUser")
@@ -247,17 +252,28 @@ model AuditLog {
 // =========================================================================
 
 model Organization {
-  id        Int              @id @default(autoincrement())
-  name      String
-  slug      String           @unique
-  type      OrganizationType @default(GROUP)
-  status    RecordStatus     @default(ACTIVE)
-  document  String?
-  email     String?
-  phone     String?
-  logo      String?
-  createdAt DateTime         @default(now())
-  updatedAt DateTime         @updatedAt
+  id          Int              @id @default(autoincrement())
+  name        String
+  slug        String           @unique
+  type        OrganizationType @default(GROUP)
+  status      RecordStatus     @default(ACTIVE)
+  document    String?
+  email       String?
+  phone       String?
+  logo        String?
+  /// Perfil institucional do grupo (projeto.txt §13), editado pelo MESTRE em PATCH /organizations/me.
+  /// description = apresentacao curta; history = historia do grupo; foundedYear = ano de fundacao;
+  /// city/state = cidade e UF-sede (texto livre, nao FK); website = site; socialLinks = redes
+  /// ({ instagram?, youtube?, tiktok?, facebook?, whatsapp? }, todas opcionais, so URLs).
+  description String?
+  history     String?
+  foundedYear Int?
+  city        String?
+  state       String?
+  website     String?
+  socialLinks Json?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
   users                 OrganizationUser[]
   units                 Unit[]
@@ -417,16 +433,22 @@ model Class {
   weekday        Int?
   startTime      String?
   endTime        String?
+  /// Professor responsavel pela turma: User.id de um membro ATIVO MESTRE/PROFESSOR do mesmo
+  /// grupo (validado no service, mesmo padrao de Lesson.teacherUserId). Copiado para as aulas
+  /// geradas por POST /classes/:id/generate-lessons.
+  teacherUserId  Int?
   status         RecordStatus @default(ACTIVE)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
   organization  Organization   @relation(fields: [organizationId], references: [id])
   unit          Unit?          @relation(fields: [unitId], references: [id])
+  teacher       User?          @relation("ClassTeacher", fields: [teacherUserId], references: [id])
   classStudents ClassStudent[]
   lessons       Lesson[]
 
   @@index([organizationId, status])
+  @@index([teacherUserId])
 }
 
 model ClassStudent {

@@ -70,6 +70,13 @@ services:
       SUPER_ADMIN_EMAIL: "${SUPER_ADMIN_EMAIL:-}"
       SUPER_ADMIN_PASSWORD: "${SUPER_ADMIN_PASSWORD:-}"
       SUPER_ADMIN_NAME: "${SUPER_ADMIN_NAME:-}"
+      # Grupo DEMO (opcional): com DEMO_GROUP=true o backend cria/completa, ao subir, o grupo de
+      # demonstracao "Grupo Axe Demo" (slug demo; contas mestre@/professor1..3@/aluno1..4@demo.gingapp.com.br,
+      # todas com a senha DEMO_PASSWORD). Idempotente e so toca no grupo demo. DEMO_PASSWORD e obrigatoria
+      # (mesma politica do super admin: 12+ caracteres, 3 de 4 classes, sem "senha"/"admin"/"gingapp").
+      # Se faltar/for fraca, o erro vai pro log e a API sobe sem o demo. Desligar (vazio/false) NAO apaga dados.
+      DEMO_GROUP: "${DEMO_GROUP:-}"
+      DEMO_PASSWORD: "${DEMO_PASSWORD:-}"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s

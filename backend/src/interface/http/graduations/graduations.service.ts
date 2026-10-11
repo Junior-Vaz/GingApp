@@ -4,6 +4,8 @@ import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { PermissionsService } from '../../../shared/access/permissions.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { StudentsService } from '../students/students.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { formatCivilDateBR } from '../../../shared/dates/format-br';
 import { CreateGraduationSystemDto } from './dto/create-graduation-system.dto';
 import { CreateGraduationLevelDto } from './dto/create-graduation-level.dto';
 import { CreateStudentGraduationDto } from './dto/create-student-graduation.dto';
@@ -17,6 +19,7 @@ export class GraduationsService {
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
     private readonly studentsService: StudentsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /** Sistemas de graduação configuráveis do grupo, com seus níveis (projeto.txt §26). */
@@ -146,7 +149,7 @@ export class GraduationsService {
     await this.assertStudentBelongsToOrganization(organizationId, studentId);
     await this.assertLevelBelongsToOrganization(organizationId, dto.graduationLevelId);
 
-    return this.prisma.studentGraduation.create({
+    const graduation = await this.prisma.studentGraduation.create({
       data: {
         organizationId,
         studentId,
@@ -156,6 +159,20 @@ export class GraduationsService {
       },
       include: { graduationLevel: true },
     });
+
+    // Gatilho de notificação (E09): avisa o aluno (login próprio) e os responsáveis com login.
+    // Efeito colateral SEGURO — falha ao notificar não desfaz nem derruba o registro da graduação.
+    const student = await this.prisma.student.findFirst({
+      where: { id: studentId, organizationId },
+      select: { name: true },
+    });
+    await this.notifications.notifyStudents(organizationId, [studentId], {
+      title: 'Nova graduação',
+      body: `${student?.name ?? 'O aluno'} recebeu a graduação "${graduation.graduationLevel.name}" em ${formatCivilDateBR(graduation.graduatedAt)}.`,
+      type: 'GRADUATION',
+    });
+
+    return graduation;
   }
 
   /** Corrige a graduação lançada (nível/data/observações). 404 se não for deste aluno/organização. */

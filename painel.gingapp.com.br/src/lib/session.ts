@@ -125,16 +125,18 @@ export type PermissionResource =
   | "rodas"
   | "announcements"
   | "teachers"
-  | "certificates";
+  | "certificates"
+  | "units";
 
 /**
  * Espelho de UX da matriz RolePermission do backend (backend/prisma/seed.ts): MESTRE pode tudo;
- * PROFESSOR = view/create/edit sem delete, exceto `teachers` (só view) e `finance` (nada). Outros
+ * PROFESSOR = view/create/edit sem delete, exceto `teachers` e `units` (só view) e `finance` (nada). Outros
  * papéis não usam o painel. O backend decide de fato (CanAccessGuard, 403) - isto só evita
  * mostrar botão que sempre falharia. Sem sessão = nega (falha fechada).
  */
 const PROFESSOR_ACTIONS: Partial<Record<PermissionResource, readonly PermissionAction[]>> = {
   teachers: ["view"],
+  units: ["view"],
   finance: [],
 };
 const PROFESSOR_DEFAULT: readonly PermissionAction[] = ["view", "create", "edit"];

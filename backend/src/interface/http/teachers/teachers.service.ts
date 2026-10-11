@@ -6,6 +6,8 @@ import { ListTeachersQueryDto } from './dto/list-teachers-query.dto';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
 import { BCRYPT_ROUNDS, normalizeEmail } from '../../../shared/security/password-policy';
+import { resetMemberPassword } from '../../../shared/security/reset-member-password';
+import { ResetMemberPasswordDto } from '../../../shared/security/reset-member-password.dto';
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
 
@@ -110,6 +112,24 @@ export class TeachersService {
     }
 
     return this.findOne(organizationId, id);
+  }
+
+  /**
+   * O MESTRE redefine a senha de um PROFESSOR do próprio grupo (E05 mínimo): senha provisória pela mesma
+   * política da senha do MESTRE, sessões do professor revogadas (tokenValidAfter) e troca obrigatória no
+   * próximo login (mustChangePassword). `id` é o da membership. Recusa: MESTRE como alvo (403 — a senha de um
+   * Mestre é do super admin) e conta que também pertence a outro grupo (409, ver resetMemberPassword).
+   */
+  async resetPassword(organizationId: number, id: number, dto: ResetMemberPasswordDto): Promise<void> {
+    const membership = await this.findOne(organizationId, id); // 404 se não existir ou for de outro grupo
+    await resetMemberPassword(this.prisma, {
+      organizationId,
+      userId: membership.user.id,
+      newPassword: dto.newPassword,
+      roles: [OrgRole.PROFESSOR],
+      notFoundMessage: 'Professor não encontrado.',
+      wrongRoleMessage: 'A senha de um Mestre só pode ser redefinida pela equipe GingApp.',
+    });
   }
 
   /** Nunca apaga o User (identidade compartilhada) nem a membership — marca status =

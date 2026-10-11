@@ -11,5 +11,7 @@ export interface AuthResponse {
     organizationId?: number;
     organizationSlug?: string;
     role?: OrgRole;
+    /** Senha definida por outra pessoa (conta criada/redefinida pelo Mestre): o frontend deve exigir a troca. */
+    mustChangePassword?: boolean;
   };
 }

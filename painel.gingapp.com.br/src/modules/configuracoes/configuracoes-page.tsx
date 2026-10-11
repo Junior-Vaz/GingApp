@@ -1,14 +1,32 @@
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Pencil } from "lucide-react";
+import { toast } from "sonner";
+import { FormDialog } from "@/components/painel/form-dialog";
 import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage } from "@/lib/api";
+import { BR_UFS } from "@/lib/br-ufs";
+import { notifyError } from "@/lib/crud";
 import { useDashboard } from "@/lib/dashboard";
 import { formatCurrency, fmt, toDate } from "@/lib/format";
-
+import { useSessionUser } from "@/lib/session";
+import { NativeSelect } from "@/modules/alunos/native-select";
+import {
+  SOCIAL_NETWORKS,
+  organizationSchema,
+  organizationToForm,
+  organizationToPayload,
+  type OrganizationFormValues,
+  type OrganizationUpdateInput,
+} from "./org-schema";
 import {
   SUBSCRIPTION_LABEL,
   usagePercent,
@@ -25,6 +43,23 @@ function Field({ label, value }: { label: string; value: string | null | undefin
   );
 }
 
+function LinkField({ label, href }: { label: string; href: string | null | undefined }) {
+  return (
+    <div>
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd className="break-all text-sm font-semibold">
+        {href ? (
+          <a href={href} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-2 hover:underline">
+            {href}
+          </a>
+        ) : (
+          "-"
+        )}
+      </dd>
+    </div>
+  );
+}
+
 function ErrorCard({ error, onRetry }: { error: unknown; onRetry: () => void }) {
   return (
     <Card className="items-center gap-3 p-6 text-center" role="alert">
@@ -36,35 +71,267 @@ function ErrorCard({ error, onRetry }: { error: unknown; onRetry: () => void }) 
   );
 }
 
+const ORG_KEY = ["organizations", "own"] as const;
+
 function OrganizationCard() {
+  const queryClient = useQueryClient();
+  // PATCH /organizations/me é exclusivo do MESTRE do grupo (backend: MestreOnlyGuard); os demais só leem.
+  const canEdit = useSessionUser()?.role === "MESTRE";
+  const [editing, setEditing] = useState(false);
   const org = useQuery({
-    queryKey: ["organizations", "own"],
+    queryKey: ORG_KEY,
     queryFn: async () => {
       const data = await api.get<Organization | Organization[] | null>("/organizations");
       return Array.isArray(data) ? (data[0] ?? null) : data;
     },
   });
+  const save = useMutation({
+    mutationFn: (data: OrganizationUpdateInput) => api.patch<Organization>("/organizations/me", data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ORG_KEY });
+      toast.success("Dados do grupo atualizados.");
+    },
+    onError: (error) => notifyError(error),
+  });
+
   if (org.error) return <ErrorCard error={org.error} onRetry={() => void org.refetch()} />;
+  const data = org.data;
+  const location = data ? [data.city, data.state].filter(Boolean).join(" / ") : "";
+
   return (
     <Card className="gap-4 p-5" data-testid="org-card">
-      <h2 className="text-lg font-bold">Dados do grupo</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-lg font-bold">Dados do grupo</h2>
+        {canEdit && data && (
+          <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
+            <Pencil /> Editar dados do grupo
+          </Button>
+        )}
+      </div>
       {org.isLoading ? (
         <Skeleton className="h-20 w-full" />
-      ) : org.data ? (
-        <dl className="grid gap-4 sm:grid-cols-2">
-          <Field label="Nome" value={org.data.name} />
-          <Field label="Identificador (slug)" value={org.data.slug} />
-          <Field label="Documento (CNPJ/CPF)" value={org.data.document} />
-          <Field label="E-mail" value={org.data.email} />
-          <Field label="Telefone" value={org.data.phone} />
-          <Field label="Situação" value={org.data.status === "ACTIVE" ? "Ativo" : org.data.status} />
-        </dl>
+      ) : data ? (
+        <>
+          <dl className="grid gap-4 sm:grid-cols-2">
+            <Field label="Nome" value={data.name} />
+            <Field label="Identificador (slug)" value={data.slug} />
+            <Field label="Documento (CNPJ/CPF)" value={data.document} />
+            <Field label="E-mail" value={data.email} />
+            <Field label="Telefone" value={data.phone} />
+            <Field label="Situação" value={data.status === "ACTIVE" ? "Ativo" : data.status} />
+            <Field label="Ano de fundação" value={data.foundedYear ? String(data.foundedYear) : null} />
+            <Field label="Cidade / UF" value={location} />
+            <LinkField label="Site" href={data.website} />
+            <LinkField label="Logomarca" href={data.logo} />
+            {SOCIAL_NETWORKS.map(({ key, label }) => (
+              <LinkField key={key} label={label} href={data.socialLinks?.[key]} />
+            ))}
+          </dl>
+          <dl className="grid gap-4">
+            <Field label="Apresentação" value={data.description} />
+            <div>
+              <dt className="text-xs font-medium text-muted-foreground">História</dt>
+              <dd className="whitespace-pre-line text-sm">{data.history || "-"}</dd>
+            </div>
+          </dl>
+        </>
       ) : (
         <p className="text-sm text-muted-foreground">Organização não encontrada.</p>
       )}
       <p className="text-xs text-muted-foreground">
-        A edição dos dados do grupo ainda não esta disponível na API. Fale com a equipe GingApp.
+        {canEdit
+          ? "O identificador (slug) e a situação do grupo só podem ser alterados pela equipe GingApp."
+          : "Somente o Mestre do grupo pode editar estes dados."}
       </p>
+
+      {data && canEdit && (
+        <FormDialog<OrganizationFormValues>
+          as="sheet"
+          open={editing}
+          onOpenChange={setEditing}
+          title="Editar dados do grupo"
+          description="Estes dados aparecem no perfil do grupo. Campos vazios são removidos."
+          schema={organizationSchema}
+          defaultValues={organizationToForm(data)}
+          onSubmit={(values) => save.mutateAsync(organizationToPayload(values))}
+        >
+          {(form) => (
+            <>
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nome do grupo</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="document"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Documento (CNPJ/CPF)</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={form.control}
+                  name="email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>E-mail</FormLabel>
+                      <FormControl>
+                        <Input type="email" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="phone"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Telefone</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Apresentação</FormLabel>
+                    <FormControl>
+                      <Textarea rows={3} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="history"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>História do grupo</FormLabel>
+                    <FormControl>
+                      <Textarea rows={5} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="grid grid-cols-3 gap-3">
+                <FormField
+                  control={form.control}
+                  name="foundedYear"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Ano de fundação</FormLabel>
+                      <FormControl>
+                        <Input inputMode="numeric" placeholder="1998" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="city"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Cidade</FormLabel>
+                      <FormControl>
+                        <Input {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="state"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>UF</FormLabel>
+                      <FormControl>
+                        <NativeSelect {...field}>
+                          <option value="">—</option>
+                          {BR_UFS.map((uf) => (
+                            <option key={uf} value={uf}>
+                              {uf}
+                            </option>
+                          ))}
+                        </NativeSelect>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={form.control}
+                name="website"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Site</FormLabel>
+                    <FormControl>
+                      <Input placeholder="https://" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="logo"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Logomarca (link da imagem)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="https://" {...field} />
+                    </FormControl>
+                    <FormDescription>O envio de arquivos ainda não existe: informe o link de uma imagem já publicada.</FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              {SOCIAL_NETWORKS.map(({ key, label }) => (
+                <FormField
+                  key={key}
+                  control={form.control}
+                  name={key}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{label}</FormLabel>
+                      <FormControl>
+                        <Input placeholder="https://" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ))}
+            </>
+          )}
+        </FormDialog>
+      )}
     </Card>
   );
 }

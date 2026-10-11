@@ -21,6 +21,11 @@ export class UpdateClassDto {
   @IsString()
   description?: string | null;
 
+  /** Professor responsável (null remove). Validado no service: membro ATIVO MESTRE/PROFESSOR do grupo. */
+  @IsOptional()
+  @IsInt()
+  teacherUserId?: number | null;
+
   @IsOptional()
   @IsInt()
   @Min(0)

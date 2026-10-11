@@ -3,7 +3,7 @@
 Fluxo: **push na `master` → GitHub Actions builda e publica as imagens no Docker Hub → o Easypanel baixa o `:latest`.** (Este servidor não alcança `github.com`/`ghcr.io`; alcança `registry-1.docker.io`.) Dois arquivos:
 
 - `docker-compose.easypanel.yml` – cole **inteiro** no serviço Compose do Easypanel.
-- `.env.easypanel.example` – as variáveis: `POSTGRES_PASSWORD`, `JWT_SECRET`, `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`, `SUPER_ADMIN_NAME`, `DOCKERHUB_USERNAME` e `COMPOSE_PARALLEL_LIMIT=1`.
+- `.env.easypanel.example` – as variáveis: `POSTGRES_PASSWORD`, `JWT_SECRET`, `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`, `SUPER_ADMIN_NAME`, `DOCKERHUB_USERNAME` e `COMPOSE_PARALLEL_LIMIT=1` (mais, opcionais, `DEMO_GROUP` e `DEMO_PASSWORD` — seção 5).
 
 O compose sobe `postgres` (alias `gingapp-db`) + `backend` (alias `gingapp-api`) + `painel` + `app` + `admin`. **O backend aplica as migrations e cria o super admin ao subir** (como o GestorPrint; não há serviço/imagem `migrate` separado). O Postgres roda dentro do compose, com volume `gingapp_pgdata`.
 
@@ -49,7 +49,18 @@ O compose sobe `postgres` (alias `gingapp-db`) + `backend` (alias `gingapp-api`)
 2. Entre em `https://admin.seudominio.com.br` com o e-mail/senha do super admin e **troque a senha** (Equipe → Redefinir senha).
 3. Crie o primeiro grupo e o MESTRE pelo admin ("Novo grupo"); depois entre no painel.
 
-## 5. Problemas conhecidos
+## 5. Grupo demo (opcional)
+
+Um grupo de demonstração completo ("Grupo Axé Demo", slug `demo`), só com dados fictícios, para mostrar o sistema.
+
+- **Ligar:** no Environment do serviço Compose defina `DEMO_GROUP=true` e `DEMO_PASSWORD=<senha forte>` (a senha de **todas** as contas demo; mesma política do super admin: 12–72 caracteres, 3 de 4 classes, sem `senha`, `admin`, `gingapp`, `dev@12345`) e faça **Deploy**. O backend cria o grupo ao subir (alguns segundos a mais no boot). Sem `DEMO_PASSWORD`, ou com senha fraca, o demo **não** é criado e a API sobe normalmente: o motivo aparece no log do backend (`[demo] ERRO: ...`).
+- **O que é criado:** 3 unidades (Matriz Goiânia, Filiais Anápolis e Brasília), 30 alunos (crianças e adolescentes com responsável, adultos, 4 inativos), 6 turmas com matrículas, aulas dos últimos 2 meses e das próximas 2 semanas com frequência, cordas e histórico de graduações, mensalidades (pagas, pendentes e em atraso) e despesas, eventos, rodas, comunicados, notificações, certificados e Passaportes públicos. Plano `PROFISSIONAL` (criado se não existir) e assinatura ativa por 1 ano. Datas sempre relativas ao dia do deploy.
+- **Contas** (login no `painel.` e no `app.`, senha = `DEMO_PASSWORD`): `mestre@demo.gingapp.com.br` (MESTRE), `professor1@`, `professor2@`, `professor3@` (PROFESSOR), `aluno1@`, `aluno2@`, `aluno3@` (ALUNO) e `aluno4@` (RESPONSAVEL com 2 dependentes, mostra o seletor de aluno no app) — todas `@demo.gingapp.com.br`.
+- **Reexecução:** a cada deploy o demo é só **completado** (nada duplica, nada existente é sobrescrito); a senha das contas demo acompanha `DEMO_PASSWORD` e, com o tempo, entram as aulas, mensalidades e eventos novos. Nunca toca em outro grupo (recusa o slug `demo` se ele já for de outro grupo).
+- **Desligar:** apague `DEMO_GROUP`/`DEMO_PASSWORD` (ou `DEMO_GROUP=false`) e faça Deploy. **Isso NÃO apaga os dados do demo** — o grupo e as contas continuam existindo; para tirá-lo do ar desative o grupo no admin (Grupos → desativar).
+- **Local:** `npm run seed:demo` em `backend/` (sem `DEMO_PASSWORD` e fora de produção usa a senha padrão de desenvolvimento `Demo@Capoeira2026!`).
+
+## 6. Problemas conhecidos
 
 - **`TLS handshake timeout` / timeout em `ghcr.io` ou `github.com`:** neste servidor o GitHub está bloqueado; as imagens vêm do Docker Hub. Se o compose ainda tiver `ghcr.io/...`, atualize para `docker-compose.easypanel.yml`.
 - **`unauthorized` / `denied` no Docker Hub:** repositório privado sem login no host — torne público (passo 1.4).
@@ -59,6 +70,6 @@ O compose sobe `postgres` (alias `gingapp-db`) + `backend` (alias `gingapp-api`)
 - **`/api/...` dá 502 num front:** o backend não está de pé (veja o log dele).
 - **Backend reiniciando em loop:** leia o log dele; causas comuns: senha do super admin fraca, `EMAIL` sem `PASSWORD`, ou `POSTGRES_PASSWORD` diferente da gravada no volume.
 
-## 6. O que este repositório não cobre
+## 7. O que este repositório não cobre
 
 Backup automatizado do Postgres (manual: `docker exec <container-postgres> pg_dump -U gingapp -d gingapp -Fc > backup.dump` e copie para fora do servidor — o banco é um volume do próprio servidor), monitoramento/alertas, 2FA, logs centralizados e rotação de segredos. Os testes (lint, unitários, e2e) ficam em `.github/workflows/tests.yml`, em pull request ou manualmente, e não bloqueiam o deploy.

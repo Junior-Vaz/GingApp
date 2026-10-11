@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { ClassesModule } from '../classes/classes.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { StudentsModule } from '../students/students.module';
 import { LessonsController } from './lessons.controller';
 import { LessonsService } from './lessons.service';
 
 @Module({
-  imports: [ClassesModule, StudentsModule],
+  imports: [ClassesModule, StudentsModule, NotificationsModule],
   controllers: [LessonsController],
   providers: [LessonsService],
   exports: [LessonsService],

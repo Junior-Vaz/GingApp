@@ -4,6 +4,8 @@ import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { ListEventsQueryDto } from './dto/list-events-query.dto';
 import { StudentsService } from '../students/students.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { formatInstantBR } from '../../../shared/dates/format-br';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { MyParticipation, redactParticipant } from '../../../shared/access/participant-privacy';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -22,6 +24,7 @@ export class EventsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -150,7 +153,7 @@ export class EventsService {
     }
     await this.assertLocationReferencesExist(dto);
 
-    return this.prisma.event.create({
+    const event = await this.prisma.event.create({
       data: {
         organizationId,
         unitId: dto.unitId,
@@ -165,6 +168,19 @@ export class EventsService {
         imageUrl: dto.imageUrl,
       },
     });
+
+    // Gatilho de notificação (E09): evento NOVO e FUTURO avisa os membros ativos do grupo (da unidade,
+    // quando o evento é de uma unidade) — mesmo público-alvo do comunicado, com teto de destinatários.
+    // Efeito colateral SEGURO: falha ao notificar nunca derruba a criação. Eventos já passados
+    // (cadastro de histórico) não notificam.
+    if (event.date.getTime() > Date.now()) {
+      await this.notifications.notifyGroupMembers(organizationId, event.unitId, {
+        title: 'Novo evento',
+        body: `${event.title} — ${formatInstantBR(event.date)}${event.location ? ` · ${event.location}` : ''}`,
+        type: 'EVENT',
+      });
+    }
+    return event;
   }
 
   async update(organizationId: number, id: number, dto: UpdateEventDto) {

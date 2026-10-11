@@ -14,6 +14,11 @@ export class CreateClassDto {
   @IsString()
   description?: string;
 
+  /** Professor responsável: User.id de um membro ATIVO MESTRE/PROFESSOR do grupo (validado no service). */
+  @IsOptional()
+  @IsInt()
+  teacherUserId?: number;
+
   @IsOptional()
   @IsInt()
   @Min(0)

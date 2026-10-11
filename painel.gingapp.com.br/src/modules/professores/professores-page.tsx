@@ -1,5 +1,8 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { KeyRound, Plus } from "lucide-react";
+import { useMutation } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { ResetPasswordDialog } from "@/components/painel/account-dialogs";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
@@ -8,7 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { createCrud } from "@/lib/crud";
+import { api } from "@/lib/api";
+import { createCrud, notifyError } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
 import { useCan } from "@/lib/session";
 import { NativeSelect } from "@/modules/alunos/native-select";
@@ -45,6 +49,14 @@ export function ProfessoresPage() {
   const canDelete = useCan("teachers", "delete");
   const [editing, setEditing] = useState<Teacher | "new" | null>(null);
   const [deleting, setDeleting] = useState<Teacher | null>(null);
+  const [resetting, setResetting] = useState<Teacher | null>(null);
+  // POST /teachers/:id/reset-password (204): só o Mestre (teachers:edit) e só para PROFESSOR do próprio grupo.
+  const resetPassword = useMutation({
+    mutationFn: ({ id, newPassword }: { id: number; newPassword: string }) =>
+      api.post<void>(`/teachers/${id}/reset-password`, { newPassword }),
+    onSuccess: () => toast.success("Senha redefinida. As sessões abertas do professor foram encerradas."),
+    onError: (error) => notifyError(error),
+  });
 
   const columns: Column<Teacher>[] = [
     { id: "name", header: "Nome", sortValue: (t) => t.user.name, cell: (t) => <span className="font-medium">{t.user.name}</span> },
@@ -126,6 +138,11 @@ export function ProfessoresPage() {
                   {canEdit && (
                     <Button variant="ghost" size="sm" onClick={() => setEditing(t)}>
                       Editar
+                    </Button>
+                  )}
+                  {canEdit && t.role === "PROFESSOR" && t.status === "ACTIVE" && (
+                    <Button variant="ghost" size="sm" onClick={() => setResetting(t)} aria-label={`Redefinir senha de ${t.user.name}`}>
+                      <KeyRound /> Redefinir senha
                     </Button>
                   )}
                   {canDelete && t.status === "ACTIVE" && (
@@ -243,6 +260,18 @@ export function ProfessoresPage() {
           </>
         )}
       </FormDialog>
+
+      <ResetPasswordDialog
+        open={resetting !== null}
+        onOpenChange={(open) => !open && setResetting(null)}
+        title="Redefinir senha do professor"
+        description={
+          resetting
+            ? `Defina uma senha provisória para ${resetting.user.name}. As sessões abertas dele serão encerradas e ele deverá trocar a senha no próximo acesso.`
+            : undefined
+        }
+        onSubmit={(newPassword) => resetPassword.mutateAsync({ id: resetting!.id, newPassword })}
+      />
 
       <ConfirmDialog
         open={deleting !== null}

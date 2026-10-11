@@ -9,6 +9,9 @@
 //      20261009020000_restrict_professor_finance e 20261009030000_restrict_member_roles_least_privilege),
 //      cujos valores são idênticos aos da matriz — por isso, numa base nova,
 //      `migrate deploy` + bootstrap produz a MESMA matriz que `migrate deploy` + seed.
+//   1b. Geografia de referência: as 27 UFs (State) e as capitais + principais cidades de cada UF
+//      (City, prisma/br-locations.ts) que ainda não existem — upsert idempotente por sigla (uf) e por
+//      (estado, nome sem acento/caixa); linhas existentes NUNCA são alteradas nem duplicadas.
 //   2. Primeiro usuário PLATFORM super admin, a partir de variáveis de ambiente:
 //        SUPER_ADMIN_EMAIL     e-mail de login (gravado em minúsculas; login usa /api/auth/platform-login)
 //        SUPER_ADMIN_PASSWORD  senha: 12..72 bytes UTF-8 (o bcrypt ignora o que passa de 72 bytes),
@@ -51,6 +54,8 @@ import {
   passwordByteLength,
 } from '../src/shared/security/password-policy';
 import { findUserIdsByEmail } from '../src/shared/security/email-lookup';
+import { BR_STATES } from '../src/shared/geo/br-states';
+import { CITIES_BY_UF, normalizeName } from './br-locations';
 import { buildPermissionMatrix, PermissionRow } from './permission-matrix';
 
 /** Mínimo para a conta mais poderosa do sistema (a API de equipe aceita 10; aqui é mais estrito).
@@ -97,6 +102,10 @@ export interface SuperAdminConfig {
 
 export interface BootstrapResult {
   permissionsCreated: number;
+  /** Estados (State) criados nesta execução (0 quando as 27 UFs já existiam). */
+  statesCreated: number;
+  /** Cidades (City) criadas nesta execução (0 quando todas as da lista de referência já existiam). */
+  citiesCreated: number;
   permissionsDivergent: string[];
   superAdmin: 'created' | 'exists' | 'skipped';
   activeSuperAdmins: number;
@@ -191,6 +200,58 @@ export function readSuperAdminConfig(env: Env): SuperAdminConfig | null {
 const key = (row: Pick<PermissionRow, 'role' | 'resource'>) =>
   `${row.role}/${row.resource}`;
 
+const REFERENCE_CITY_COUNT = Object.values(CITIES_BY_UF).reduce(
+  (total, cities) => total + cities.length,
+  0,
+);
+
+/**
+ * Garante as 27 UFs (State) e as cidades de referência (City) — idempotente e NÃO destrutivo:
+ *  - State: identificado pela sigla (`uf`, única); só cria as ausentes, nunca altera nome/linha existente.
+ *  - City: identificada por (estado, nome normalizado — sem acento/caixa); só cria as ausentes, de modo que
+ *    "Goiânia" já existente (ex.: do seed de dev) não é duplicada nem alterada.
+ * Roda dentro da transação do bootstrap, sob o advisory lock (sem corrida entre execuções).
+ */
+async function ensureGeography(
+  tx: Pick<PrismaClient, 'state' | 'city'>,
+): Promise<{ statesCreated: number; citiesCreated: number }> {
+  const knownUfs = new Set(
+    (await tx.state.findMany({ select: { uf: true } })).map((s) => s.uf.toUpperCase()),
+  );
+  const missingStates = BR_STATES.filter((s) => !knownUfs.has(s.uf));
+  const { count: statesCreated } = missingStates.length
+    ? await tx.state.createMany({
+        data: missingStates.map((s) => ({ uf: s.uf, name: s.name })),
+        skipDuplicates: true,
+      })
+    : { count: 0 };
+
+  const states = await tx.state.findMany({ select: { id: true, uf: true } });
+  const idByUf = new Map(states.map((s) => [s.uf.toUpperCase(), s.id]));
+  const existingCities = await tx.city.findMany({
+    where: { stateId: { in: states.map((s) => s.id) } },
+    select: { stateId: true, name: true },
+  });
+  const seen = new Set(
+    existingCities.map((c) => `${c.stateId}|${normalizeName(c.name)}`),
+  );
+  const missingCities: Array<{ stateId: number; name: string }> = [];
+  for (const [uf, names] of Object.entries(CITIES_BY_UF)) {
+    const stateId = idByUf.get(uf);
+    if (stateId === undefined) continue;
+    for (const name of names) {
+      const id = `${stateId}|${normalizeName(name)}`;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      missingCities.push({ stateId, name });
+    }
+  }
+  const { count: citiesCreated } = missingCities.length
+    ? await tx.city.createMany({ data: missingCities })
+    : { count: 0 };
+  return { statesCreated, citiesCreated };
+}
+
 /**
  * Aplica a matriz base e cria o primeiro super admin. Valida TUDO antes da primeira escrita;
  * escreve numa única transação (tudo ou nada).
@@ -233,6 +294,9 @@ export async function runBootstrap(
               skipDuplicates: true,
             })
           : { count: 0 };
+
+        // 1b. Geografia de referência (State/City): só cria o que falta, NUNCA altera linhas existentes.
+        const { statesCreated, citiesCreated } = await ensureGeography(tx);
 
         // 2. Super admin.
         let superAdmin: BootstrapResult['superAdmin'] = 'skipped';
@@ -295,6 +359,8 @@ export async function runBootstrap(
         });
         return {
           permissionsCreated,
+          statesCreated,
+          citiesCreated,
           permissionsDivergent: divergent,
           superAdmin,
           activeSuperAdmins,
@@ -319,6 +385,10 @@ export async function runBootstrap(
   log.info(
     `RolePermission: ${matrix.length} linhas na matriz base; ${result.permissionsCreated} criada(s), ` +
       `${matrix.length - result.permissionsCreated} já existia(m).`,
+  );
+  log.info(
+    `Geografia: ${result.statesCreated} estado(s) e ${result.citiesCreated} cidade(s) criado(s) ` +
+      `(referência: ${BR_STATES.length} UFs e ${REFERENCE_CITY_COUNT} cidades; o que já existia não foi alterado).`,
   );
   if (result.permissionsDivergent.length > 0) {
     log.warn(

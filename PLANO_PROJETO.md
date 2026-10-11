@@ -2997,3 +2997,38 @@ graduação com certificado = 409) + ações no painel.
   completa (`npm run test:e2e`) segue como gate antes de release; tipos são cobertos por `npm run build`.
   Processo: durante o desenvolvimento rodar só os specs tocados (`test:quick -- classes`), a rápida antes de
   commitar e a completa só antes de release.
+
+### 10.38 Onda 1 de completude do sistema (inventário de 48 lacunas)
+
+**Data:** 2026-10-11/12 · **Status:** ✅ concluído. Owner: "criar unidades diz 'somente consulta'… quero o sistema pronto em
+todas as partes". Inventário em scratchpad `gaps.md`: **48 lacunas** (11 essenciais, 23 importantes, 14 desejáveis).
+
+#### Causa-raiz de produção encontrada antes (cb41837)
+O admin dava 404 em `/api/*` porque o nginx resolvia `backend` para o backend de OUTRO projeto do Easypanel (rede
+compartilhada). Prova: `/api/health` sem `"database":"up"`. Solução: aliases únicos `gingapp-api`/`gingapp-db`.
+
+#### Entregue (E01–E06, E09, demo)
+- **E01** contas de aluno/responsável (`POST /students/:id/account`, CRUD `/students/:id/guardians`, troca obrigatória de senha no app).
+- **E05 mínimo** reset de senha de professor/aluno/responsável pelo MESTRE (revoga sessões).
+- **E02** CRUD de Unidades (matriz única, `Plan.maxUnits` aplicado, grupo novo nasce com Matriz, recurso `units` na matriz RBAC).
+- **E03** 27 UFs + 495 cidades no bootstrap (idempotente). Faltam ~5.075 cidades (acrescentar em `prisma/br-locations.ts`).
+- **E04** `PATCH /organizations/me` (MESTRE edita o próprio grupo; campos novos de perfil).
+- **E06** professor responsável por turma + `POST /classes/:id/generate-lessons` (idempotente, ≤90 dias, advisory lock).
+- **E09** notificações automáticas (aula cancelada/alterada, graduação, evento/roda novos, mensalidade vencida via `POST /finance/mark-overdue`).
+- **Grupo demo** (`prisma/demo.ts`, `DEMO_GROUP=true` + `DEMO_PASSWORD`): 30 alunos, 3 unidades, aulas, financeiro, eventos etc.
+- Gate: backend 52 unit + 611 e2e, admin 109, painel 392, app 82.
+
+#### O que NÃO deu certo e a solução
+- Agentes em paralelo sujaram o banco de dev (nome da org do seed, unidades de teste, senha do professor do seed, lançamento marcado
+  OVERDUE por engano) → cada um reverteu o seu; specs passaram a fazer snapshot/limpeza no `after()`.
+- `auth-password.e2e-spec` falhava no `after()` (`Unit_organizationId_fkey`) porque `createGroup` agora cria a Matriz → limpeza apaga
+  as unidades antes da organização. O resumo do `node --test` mostrava 0 falhas mesmo assim (falha de hook): olhar os `not ok`.
+- Git Bash falhou com erro de fork em chamadas longas → usar PowerShell.
+
+#### Pendências (numeradas)
+1. Painel/admin não forçam troca da senha provisória; a flag `mustChangePassword` não é imposta no servidor (JwtStrategy).
+2. Inativar aluno não bloqueia o login dele; `Student.userId` é único (aluno em 2 grupos exige mudança de schema).
+3. Job diário de `markOverdueAndNotify` (sem `@nestjs/schedule`); "esqueci a senha" por e-mail (precisa de SMTP).
+4. Inativar unidade com alunos/turmas ativos não é bloqueado.
+5. E07 cobrança de mensalidade ponta a ponta, E08 permissão por unidade, E10 termos/LGPD, E11 backup — próximas ondas.
+6. Importantes: upload de imagens (volume local), CSV, relatórios reais, AuditLog, admin em português, refresh token, Web Push.

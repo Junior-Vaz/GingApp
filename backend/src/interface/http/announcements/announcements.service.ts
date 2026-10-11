@@ -1,10 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrgRole, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PermissionsService } from '../../../shared/access/permissions.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { StudentsService } from '../students/students.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { ListAnnouncementsQueryDto } from './dto/list-announcements-query.dto';
 import { CreateAnnouncementDto } from './dto/create-announcement.dto';
 import { UpdateAnnouncementDto } from './dto/update-announcement.dto';
@@ -26,6 +27,7 @@ export class AnnouncementsService {
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
     private readonly studentsService: StudentsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -146,7 +148,12 @@ export class AnnouncementsService {
       },
     });
 
-    await this.notifyAudience(organizationId, dto.unitId ?? null, announcement.title, announcement.body);
+    // Público-alvo e gravação em lote: SSOT em NotificationsService (unitId nulo = todo membro ativo).
+    await this.notifications.notifyAudience(organizationId, dto.unitId ?? null, {
+      title: announcement.title,
+      body: announcement.body,
+      type: 'ANNOUNCEMENT',
+    });
 
     return announcement;
   }
@@ -182,63 +189,5 @@ export class AnnouncementsService {
     if (!unit) {
       throw new BadRequestException('Unidade inválida para esta organização.');
     }
-  }
-
-  /**
-   * Monta o público-alvo e cria uma Notification por usuário.
-   * - unitId nulo: todo membro ativo da organização (qualquer papel).
-   * - unitId preenchido: MESTRE (sempre, vê tudo), professores com acesso àquela unidade,
-   *   alunos daquela unidade e os responsáveis vinculados a eles.
-   */
-  private async notifyAudience(
-    organizationId: number,
-    unitId: number | null,
-    title: string,
-    body: string,
-  ): Promise<void> {
-    const userIds = new Set<number>();
-
-    if (unitId === null) {
-      const members = await this.prisma.organizationUser.findMany({
-        where: { organizationId, status: 'ACTIVE' },
-        select: { userId: true },
-      });
-      members.forEach((m) => userIds.add(m.userId));
-    } else {
-      const [mestres, unitAccess, students, guardians] = await Promise.all([
-        this.prisma.organizationUser.findMany({
-          where: { organizationId, status: 'ACTIVE', role: OrgRole.MESTRE },
-          select: { userId: true },
-        }),
-        this.prisma.userUnitAccess.findMany({
-          where: { organizationId, unitId },
-          select: { userId: true },
-        }),
-        this.prisma.student.findMany({
-          where: { organizationId, unitId, userId: { not: null } },
-          select: { userId: true },
-        }),
-        this.prisma.studentGuardian.findMany({
-          where: { organizationId, userId: { not: null }, student: { unitId } },
-          select: { userId: true },
-        }),
-      ]);
-      mestres.forEach((m) => userIds.add(m.userId));
-      unitAccess.forEach((u) => userIds.add(u.userId));
-      students.forEach((s) => s.userId && userIds.add(s.userId));
-      guardians.forEach((g) => g.userId && userIds.add(g.userId));
-    }
-
-    if (userIds.size === 0) return;
-
-    await this.prisma.notification.createMany({
-      data: Array.from(userIds).map((userId) => ({
-        organizationId,
-        userId,
-        title,
-        body,
-        type: 'ANNOUNCEMENT',
-      })),
-    });
   }
 }

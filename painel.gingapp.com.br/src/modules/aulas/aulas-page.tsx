@@ -45,15 +45,21 @@ export function AulasPage() {
   const teachersTruncated = (teachers.data?.total ?? 0) > OPTIONS_LIMIT;
 
   const className = (id: number) => classItems.find((c) => c.id === id)?.name ?? "—";
-  const teacherName = (id: number | null) =>
+  const nameOfTeacher = (id: number | null | undefined) =>
     id ? (teacherItems.find((t) => t.user.id === id)?.user.name ?? "—") : "—";
+  /** Professor da aula; sem professor próprio, mostra o responsável da turma (rótulo "(turma)"). */
+  const teacherName = (l: Lesson) => {
+    if (l.teacherUserId) return nameOfTeacher(l.teacherUserId);
+    const fromClass = classItems.find((c) => c.id === l.classId)?.teacherUserId;
+    return fromClass ? `${nameOfTeacher(fromClass)} (turma)` : "—";
+  };
   const hasFilters = Object.values(lp.filters).some(Boolean);
 
   const columns: Column<Lesson>[] = [
     { id: "class", header: "Turma", sortValue: (l) => className(l.classId), cell: (l) => <span className="font-medium">{className(l.classId)}</span> },
     { id: "date", header: "Data", sortValue: (l) => isoDay(l.date), cell: (l) => fmt(dayOnly(l.date), "dd/MM/yyyy") },
     { id: "time", header: "Horário", cell: (l) => timeRange(l) },
-    { id: "teacher", header: "Professor", sortValue: (l) => teacherName(l.teacherUserId), cell: (l) => teacherName(l.teacherUserId) },
+    { id: "teacher", header: "Professor", sortValue: (l) => teacherName(l), cell: (l) => teacherName(l) },
     {
       id: "status",
       header: "Status",

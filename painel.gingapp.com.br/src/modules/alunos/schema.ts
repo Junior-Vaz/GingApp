@@ -5,6 +5,8 @@ export type StudentStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "FORMER";
 export interface Student {
   id: number;
   unitId: number | null;
+  /** Login do aluno (User), quando já tem acesso ao aplicativo. */
+  userId?: number | null;
   name: string;
   birthDate: string | null;
   document: string | null;
@@ -102,7 +104,7 @@ export function studentToUpdatePayload(values: StudentFormValues): StudentInput 
   };
 }
 
-/** Menor de 18 anos pela data de nascimento (só informativo: o backend ainda não modela responsável/consentimento). */
+/** Menor de 18 anos pela data de nascimento (só informativo; os responsáveis são geridos em "Responsáveis"). */
 export function isMinor(birthDate: string | null, today: Date = new Date()): boolean {
   if (!birthDate) return false;
   const [y, m, d] = birthDate.slice(0, 10).split("-").map(Number);

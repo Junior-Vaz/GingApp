@@ -249,9 +249,13 @@ describe('POST /organizations — criar grupo + MESTRE (e2e)', () => {
       assert.equal(memberships[0].role, 'MESTRE');
       assert.equal(memberships[0].status, 'ACTIVE');
 
-      // Nada além do estritamente necessário: sem assinatura nem unidade pré-criadas.
+      // Nada além do estritamente necessário: sem assinatura; só a unidade MATRIZ (E02) nasce com o grupo.
       assert.equal(await prisma.subscription.count({ where: { organizationId: org.id } }), 0);
-      assert.equal(await prisma.unit.count({ where: { organizationId: org.id } }), 0);
+      const units = await prisma.unit.findMany({ where: { organizationId: org.id } });
+      assert.equal(units.length, 1);
+      assert.equal(units[0].name, 'Matriz');
+      assert.equal(units[0].isMain, true);
+      assert.equal(units[0].status, 'ACTIVE');
     });
 
     it('resposta = organização (mesmas colunas do GET /organizations) + mestre {id,name,email}, sem segredo', async () => {

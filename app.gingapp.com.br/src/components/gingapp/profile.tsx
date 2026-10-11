@@ -208,6 +208,11 @@ export function ProfilePage() {
               </p>
             )
           )}
+          {user?.mustChangePassword && (
+            <p role="alert" className="mt-4 rounded-md border border-primary/40 bg-primary/10 p-3 text-sm" data-testid="must-change-password">
+              Sua senha foi definida pelo seu mestre ou professor. Crie uma senha nova abaixo para continuar usando o aplicativo.
+            </p>
+          )}
           <ChangePasswordSection />
           <Button variant="outline" className="mt-6" onClick={handleLogout}>
             <LogOut />

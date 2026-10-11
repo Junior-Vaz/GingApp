@@ -219,6 +219,8 @@ describe('Senha: change-password, reset de MESTRE, login normalizado e GET /orga
     const allOrgs = [...new Set(orgIds)];
     await prisma.organizationUser.deleteMany({ where: { OR: [{ userId: { in: allUsers } }, { organizationId: { in: allOrgs } }] } });
     await prisma.user.deleteMany({ where: { id: { in: allUsers } } });
+    // createGroup agora cria a unidade Matriz: ela referencia a organização (FK), apaga antes.
+    await prisma.unit.deleteMany({ where: { organizationId: { in: allOrgs } } });
     await prisma.organization.deleteMany({ where: { id: { in: allOrgs } } });
     for (const cleanup of cleanups) await cleanup();
     await prisma.$disconnect();

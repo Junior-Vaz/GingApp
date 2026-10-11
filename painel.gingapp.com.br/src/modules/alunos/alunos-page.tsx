@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { KeyRound, Plus, Users } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
@@ -14,7 +14,9 @@ import { useListParams } from "@/lib/list-params";
 import { useCan } from "@/lib/session";
 import { dayOnly, fmt } from "@/lib/format";
 import { useUnitNames } from "@/lib/unit-lookup";
+import { AcessoAlunoDialog } from "./acesso-aluno-dialog";
 import { NativeSelect } from "./native-select";
+import { ResponsaveisDialog } from "./responsaveis-dialog";
 import {
   STUDENT_STATUS_LABEL,
   emptyStudentForm,
@@ -42,8 +44,11 @@ export function AlunosPage() {
   const update = students.useUpdate();
   const remove = students.useRemove();
   const canDelete = useCan("students", "delete"); // PROFESSOR: sem students:delete (backend responde 403)
+  const canEdit = useCan("students", "edit"); // acesso do aluno e responsáveis exigem students:edit
   const [editing, setEditing] = useState<Student | "new" | null>(null);
   const [deleting, setDeleting] = useState<Student | null>(null);
+  const [accessOf, setAccessOf] = useState<Student | null>(null);
+  const [guardiansOf, setGuardiansOf] = useState<Student | null>(null);
 
   // Nomes só das unidades desta página (GET /units/:id por id distinto): não depende de lista com teto.
   const nameOfUnit = useUnitNames((list.items ?? []).map((s) => s.unitId));
@@ -73,6 +78,12 @@ export function AlunosPage() {
       cell: (s) => (s.birthDate ? fmt(dayOnly(s.birthDate), "dd/MM/yyyy") : "—"),
     },
     { id: "contact", header: "Contato", cell: (s) => s.phone || s.email || "—" },
+    {
+      id: "access",
+      header: "Acesso",
+      sortValue: (s) => (s.userId ? 1 : 0),
+      cell: (s) => <Badge variant={s.userId ? "default" : "secondary"}>{s.userId ? "Com acesso" : "Sem acesso"}</Badge>,
+    },
     {
       id: "status",
       header: "Status",
@@ -133,6 +144,16 @@ export function AlunosPage() {
             <Button variant="ghost" size="sm" onClick={() => setEditing(s)}>
               Editar
             </Button>
+            {canEdit && (
+              <>
+                <Button variant="ghost" size="sm" onClick={() => setAccessOf(s)} aria-label={`Acesso de ${s.name}`}>
+                  <KeyRound /> Acesso
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setGuardiansOf(s)} aria-label={`Responsáveis de ${s.name}`}>
+                  <Users /> Responsáveis
+                </Button>
+              </>
+            )}
             {canDelete && s.status !== "INACTIVE" && (
               <Button variant="ghost" size="sm" onClick={() => setDeleting(s)}>
                 Inativar
@@ -260,6 +281,9 @@ export function AlunosPage() {
           </>
         )}
       </FormDialog>
+
+      <AcessoAlunoDialog student={accessOf} onClose={() => setAccessOf(null)} />
+      <ResponsaveisDialog student={guardiansOf} onClose={() => setGuardiansOf(null)} />
 
       <ConfirmDialog
         open={deleting !== null}

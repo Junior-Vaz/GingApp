@@ -94,6 +94,7 @@ export class AuthService {
         organizationId: membership.organizationId,
         organizationSlug: membership.organization.slug,
         role: membership.role,
+        mustChangePassword: user.mustChangePassword,
       },
     };
   }
@@ -179,7 +180,7 @@ export class AuthService {
     const tokenValidAfter = revocationCutoff();
     const { count } = await this.prisma.user.updateMany({
       where: { id: user.id, passwordHash: user.passwordHash, status: 'ACTIVE' },
-      data: { passwordHash, tokenValidAfter },
+      data: { passwordHash, tokenValidAfter, mustChangePassword: false },
     });
     if (count !== 1) {
       throw new ConflictException('A senha foi alterada em outra sessão. Tente novamente.');
