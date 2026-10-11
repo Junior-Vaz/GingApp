@@ -1,3 +1,4 @@
+import { IsFutureDate } from '../../../../shared/dates/future-date';
 import { IsDateString, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class CreatePlatformAnnouncementDto {
@@ -20,5 +21,6 @@ export class CreatePlatformAnnouncementDto {
 
   @IsOptional()
   @IsDateString()
+  @IsFutureDate()
   expiresAt?: string;
 }

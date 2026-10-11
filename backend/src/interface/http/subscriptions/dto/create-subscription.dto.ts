@@ -1,10 +1,12 @@
-import { IsIn, IsInt, IsOptional } from 'class-validator';
+import { IsIn, IsInt, IsOptional, Max } from 'class-validator';
 
 export class CreateSubscriptionDto {
   @IsInt()
+  @Max(2147483647)
   organizationId!: number;
 
   @IsInt()
+  @Max(2147483647)
   planId!: number;
 
   /** Assinatura criada manualmente pela equipe PLATFORM já nasce ACTIVE por padrão — o fluxo

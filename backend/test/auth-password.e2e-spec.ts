@@ -825,7 +825,7 @@ describe('Senha: change-password, reset de MESTRE, login normalizado e GET /orga
       const created = await request(server())
         .post('/api/teachers')
         .set('Authorization', `Bearer ${token}`)
-        .send({ name: 'Professor Novo', email: typed, password: 'senha-simples-1', role: 'PROFESSOR' })
+        .send({ name: 'Professor Novo', email: typed, password: 'Senha-Forte-2026x', role: 'PROFESSOR' })
         .expect(201);
       assert.equal(created.body.user.email, typed.toLowerCase());
       userIds.push(created.body.user.id);
@@ -834,10 +834,10 @@ describe('Senha: change-password, reset de MESTRE, login normalizado e GET /orga
       const dup = await request(server())
         .post('/api/teachers')
         .set('Authorization', `Bearer ${token}`)
-        .send({ name: 'Outro', email: typed.toUpperCase().replace('@E2E-AUTH-PWD.LOCAL', '@e2e-auth-pwd.local'), password: 'senha-simples-1', role: 'PROFESSOR' });
+        .send({ name: 'Outro', email: typed.toUpperCase().replace('@E2E-AUTH-PWD.LOCAL', '@e2e-auth-pwd.local'), password: 'Senha-Forte-2026x', role: 'PROFESSOR' });
       assert.equal(dup.status, 400);
       assert.equal(dup.body.message, 'E-mail já cadastrado.');
-      await request(server()).post('/api/auth/login').send({ email: typed, password: 'senha-simples-1' }).expect(200);
+      await request(server()).post('/api/auth/login').send({ email: typed, password: 'Senha-Forte-2026x' }).expect(200);
     });
   });
 

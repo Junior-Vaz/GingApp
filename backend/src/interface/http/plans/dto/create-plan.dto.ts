@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 
 export class CreatePlanDto {
   @IsString()
@@ -11,6 +11,7 @@ export class CreatePlanDto {
 
   @IsInt()
   @Min(0)
+  @Max(2147483647)
   priceCents!: number;
 
   @IsOptional()
@@ -20,11 +21,13 @@ export class CreatePlanDto {
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(2147483647)
   maxUnits?: number;
 
   @IsOptional()
   @IsInt()
   @Min(1)
+  @Max(2147483647)
   maxStudents?: number;
 
   @IsOptional()

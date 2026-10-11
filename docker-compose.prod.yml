@@ -93,7 +93,7 @@ services:
       context: ./painel.gingapp.com.br
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
+        VITE_API_URL: ${VITE_API_URL:-/api}
         # Origem do app do aluno: o QR de certificados do painel abre /verificar/:code nele.
         VITE_APP_URL: ${VITE_APP_URL:-http://localhost:8082}
     restart: unless-stopped
@@ -107,7 +107,7 @@ services:
       context: ./app.gingapp.com.br
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
+        VITE_API_URL: ${VITE_API_URL:-/api}
     restart: unless-stopped
     ports:
       - "8082:80"
@@ -119,7 +119,7 @@ services:
       context: ./admin.gingapp.com.br
       dockerfile: Dockerfile
       args:
-        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000/api}
+        VITE_API_URL: ${VITE_API_URL:-/api}
     restart: unless-stopped
     ports:
       - "8083:80"

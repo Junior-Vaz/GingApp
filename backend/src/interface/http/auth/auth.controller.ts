@@ -1,9 +1,10 @@
-import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Post, Req, UseFilters, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
 import { Request } from 'express';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { Public } from '../../../shared/decorators/public.decorator';
+import { JoinedValidationMessageFilter } from '../../../shared/filters/joined-validation-message.filter';
 import { UserThrottlerGuard } from '../../../shared/guards/user-throttler.guard';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { AuthResponse } from './auth-response.interface';
@@ -30,6 +31,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @UseFilters(JoinedValidationMessageFilter)
   @Throttle(LOGIN_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @Post('login')
@@ -38,6 +40,7 @@ export class AuthController {
   }
 
   @Public()
+  @UseFilters(JoinedValidationMessageFilter)
   @Throttle(LOGIN_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @Post('platform-login')

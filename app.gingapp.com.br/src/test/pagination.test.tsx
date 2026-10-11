@@ -545,4 +545,57 @@ describe("Participação em eventos/rodas: contagem e 'inscrito' vêm da listage
     expect(participantCalls().map((u) => u.pathname)).toEqual(["/rodas/3/participants"]);
     expect(bodyButton(/Cancelar participação/)).toBeTruthy(); // userId 7 = eu
   });
+  it("/calendar com participantsCount/myParticipation: ZERO /participants mesmo ao abrir os detalhes; cancelar usa o id do resumo e refaz /calendar", async () => {
+    login();
+    let mine: { id: number; studentId: number | null; status: string } | null = { id: 55, studentId: null, status: "CONFIRMED" };
+    let count = 3;
+    const writes: string[] = [];
+    mockApi((url) => {
+      const method = (vi.mocked(fetch).mock.calls.at(-1)?.[1] as RequestInit | undefined)?.method ?? "GET";
+      if (url.pathname === "/calendar") {
+        return {
+          body: [{
+            id: 9, source: "RODA", type: "RODA", title: "Roda 9", description: null, date: "2026-12-01T00:00:00.000Z",
+            location: null, imageUrl: null, state: null, city: null, participantsCount: count, myParticipation: mine,
+          }],
+          total: 1,
+        };
+      }
+      if (url.pathname === "/rodas/9/participants/55" && method === "DELETE") {
+        writes.push(`DELETE ${url.pathname}`);
+        mine = null;
+        count -= 1;
+        return { body: undefined };
+      }
+      if (url.pathname === "/students/me") return { body: [] };
+      if (url.pathname === "/rodas/reference/states") return { body: [] };
+      return undefined;
+    });
+    render(<DiscoveryPage mode="rodas" />);
+    await waitFor(() => expect(text()).toContain("3 na roda"));
+    await clickButton(/Confirmado/);
+    await waitFor(() => expect(bodyButton(/Cancelar participação/)).toBeTruthy());
+    const before = callsTo("/calendar").length;
+    await clickBody(/Cancelar participação/);
+    await waitFor(() => expect(text()).toContain("2 na roda"));
+    expect(writes).toEqual(["DELETE /rodas/9/participants/55"]);
+    expect(callsTo("/calendar").length).toBeGreaterThan(before);
+    expect(vi.mocked(fetch).mock.calls.filter(([u, init]) => /\/participants/.test(String(u)) && ((init as RequestInit | undefined)?.method ?? "GET") === "GET")).toHaveLength(0);
+  });
+});
+
+describe("Recados do grupo: limit explícito e aviso quando há mais que o carregado", () => {
+  it("pede /announcements?limit=50 e avisa 'Mostrando 2 de 120 recados do grupo' se X-Total-Count > itens", async () => {
+    const notice = (id: number) => ({ id, unitId: null, title: `Aviso ${id}`, body: "x", publishedAt: null, isActive: true, createdAt: "2026-10-01T10:00:00.000Z" });
+    mockApi((url) => {
+      if (url.pathname === "/announcements") return { body: [notice(1), notice(2)], total: 120 };
+      if (url.pathname === "/notifications/unread-count") return { body: { count: 0 } };
+      if (url.pathname === "/students/me") return { body: [] };
+      if (url.pathname === "/passport/me") return { body: null };
+      return undefined;
+    });
+    render(<NotificationsPage />);
+    await waitFor(() => expect(text()).toContain("Mostrando 2 de 120 recados do grupo"));
+    expect(callsTo("/announcements")[0]!.searchParams.get("limit")).toBe("50");
+  });
 });

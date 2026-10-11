@@ -90,8 +90,8 @@ async function submitForm(): Promise<void> {
     code: form.code.trim().toUpperCase(),
     priceCents: Math.round(Number(form.price || 0) * 100),
     billingPeriod: form.billingPeriod,
-    maxUnits: form.maxUnits ? Number(form.maxUnits) : undefined,
-    maxStudents: form.maxStudents ? Number(form.maxStudents) : undefined,
+    maxUnits: form.maxUnits ? Number(form.maxUnits) : form.id ? null : undefined,
+    maxStudents: form.maxStudents ? Number(form.maxStudents) : form.id ? null : undefined,
   }
 
   try {

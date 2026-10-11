@@ -165,6 +165,10 @@ export interface CalendarItem {
   imageUrl: string | null;
   state: { id: number; name: string; uf: string } | null;
   city: { id: number; name: string } | null;
+  /** Total de inscrições (agregado no servidor). Ausente em backend antigo. */
+  participantsCount?: number;
+  /** Inscrição do usuário do token (null = anônimo/não inscrito). Ausente em backend antigo. */
+  myParticipation?: MyParticipation | null;
 }
 
 /**
@@ -232,8 +236,8 @@ export interface Encounter {
   image: string;
   description: string | null;
   /**
-   * Resumo de participação vindo da própria listagem (GET /events). `undefined` = a fonte (GET /calendar)
-   * não traz esse resumo: o card só consulta /participants quando o usuário abre os detalhes.
+   * Resumo de participação vindo da própria listagem (GET /events ou GET /calendar). `undefined` = backend
+   * antigo sem esse resumo: o card só consulta /participants quando o usuário abre os detalhes.
    */
   participantsCount?: number;
   myParticipation?: MyParticipation | null;
@@ -252,6 +256,10 @@ export function fromCalendar(item: CalendarItem): Encounter {
     city: [item.city?.name, item.state?.uf].filter(Boolean).join(", ") || null,
     image: item.imageUrl ?? (item.source === "RODA" ? rodaImage : communityImage),
     description: item.description,
+    // Backend antigo (sem o resumo) => campos ausentes => o card cai no fluxo sob demanda.
+    ...(item.participantsCount === undefined
+      ? {}
+      : { participantsCount: item.participantsCount, myParticipation: item.myParticipation ?? null }),
   };
 }
 
@@ -530,8 +538,11 @@ export function useFinanceSummary() {
 export const useEvents = (enabled = true) =>
   usePagedList<EventDto>(["events"], "/events", { from: todayParam(), order: "asc" }, { enabled });
 
+/** Valores aceitos por GET /calendar?scope= (o backend responde 400 para qualquer outro). */
+export type CalendarScope = "today" | "week" | "month";
+
 export interface CalendarFilters {
-  scope?: string;
+  scope?: CalendarScope;
   stateId?: string;
   cityId?: string;
   type?: string;
@@ -556,12 +567,21 @@ export const useCities = (stateId: string) =>
     staleTime: Infinity,
   });
 
-export const useAnnouncements = () =>
-  useQuery({
+/** Recados do grupo: limit explícito (50) e `total` do X-Total-Count para avisar se houver mais do que o carregado. */
+export const ANNOUNCEMENTS_LIMIT = 50;
+
+export function useAnnouncements() {
+  const query = useQuery({
     queryKey: ["announcements"],
-    queryFn: () => api.get<Announcement[]>("/announcements"),
+    queryFn: () => api.getPage<Announcement>(withQuery("/announcements", { limit: ANNOUNCEMENTS_LIMIT })),
     ...noRetry,
   });
+  return {
+    ...query,
+    data: query.data?.items,
+    total: query.data?.total ?? null,
+  };
+}
 
 /** Notificações do usuário, paginadas (mais recentes primeiro). */
 export const useNotifications = () => usePagedList<NotificationDto>(["notifications", "list"], "/notifications");
@@ -581,7 +601,7 @@ const participantsPath = (source: "RODA" | "EVENTO", id: number) =>
 /**
  * Lista de participantes de UM encontro — nunca uma por card (era o N+1: 52 chamadas e 109 respostas 429
  * numa página). Só roda sob demanda (`enabled`): fontes sem resumo (GET /calendar) ao abrir os detalhes.
- * Itens com `participantsCount`/`myParticipation` (GET /events) não precisam dela.
+ * Itens com `participantsCount`/`myParticipation` (GET /events, GET /calendar) não precisam dela.
  */
 export function useParticipants(source: "RODA" | "EVENTO", id: number, enabled = true) {
   return useQuery({
@@ -631,6 +651,8 @@ export function useToggleParticipation(source: "RODA" | "EVENTO", id: number) {
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ["participants", source, id] }),
         source === "EVENTO" ? queryClient.invalidateQueries({ queryKey: ["events"] }) : undefined,
+        // GET /calendar também traz contagem + minha inscrição por item.
+        queryClient.invalidateQueries({ queryKey: ["calendar"] }),
         source === "RODA" ? queryClient.invalidateQueries({ queryKey: ["passport"] }) : undefined,
       ]),
   });

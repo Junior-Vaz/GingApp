@@ -3,7 +3,7 @@ import vue from '@vitejs/plugin-vue'
 import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue({ template: { transformAssetUrls: false } })],
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],

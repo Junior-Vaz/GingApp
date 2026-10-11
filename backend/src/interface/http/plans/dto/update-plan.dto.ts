@@ -1,6 +1,7 @@
-import { IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsObject, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 
-/** Todos os campos opcionais (update parcial) — mesmo padrão de UpdateStudentDto: sem
+/** `maxUnits`/`maxStudents` aceitam `null` para REMOVER o limite (ilimitado); quando não nulos: inteiro >= 1.
+ * Todos os campos opcionais (update parcial) — mesmo padrão de UpdateStudentDto: sem
  * @nestjs/mapped-types só para isso, validadores repetidos de CreatePlanDto. */
 export class UpdatePlanDto {
   @IsOptional()
@@ -16,6 +17,7 @@ export class UpdatePlanDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  @Max(2147483647)
   priceCents?: number;
 
   @IsOptional()
@@ -25,12 +27,14 @@ export class UpdatePlanDto {
   @IsOptional()
   @IsInt()
   @Min(1)
-  maxUnits?: number;
+  @Max(2147483647)
+  maxUnits?: number | null;
 
   @IsOptional()
   @IsInt()
   @Min(1)
-  maxStudents?: number;
+  @Max(2147483647)
+  maxStudents?: number | null;
 
   @IsOptional()
   @IsObject()

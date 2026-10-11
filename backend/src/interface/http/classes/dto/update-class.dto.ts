@@ -1,5 +1,6 @@
 import { RecordStatus } from '@prisma/client';
 import { IsEnum, IsInt, IsOptional, IsString, Max, Min, MinLength, ValidateIf } from 'class-validator';
+import { IsAfterTimeOf, IsTimeOfDay } from '../../../../shared/dates/time-of-day';
 
 /**
  * Update parcial. `null` LIMPA as colunas nulláveis (unitId, description, weekday, startTime,
@@ -27,11 +28,12 @@ export class UpdateClassDto {
   weekday?: number | null;
 
   @IsOptional()
-  @IsString()
+  @IsTimeOfDay()
   startTime?: string | null;
 
   @IsOptional()
-  @IsString()
+  @IsTimeOfDay()
+  @IsAfterTimeOf('startTime')
   endTime?: string | null;
 
   @ValidateIf((_, v) => v !== undefined)

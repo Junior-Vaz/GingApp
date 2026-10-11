@@ -44,14 +44,23 @@ describe('Inteiro fora de INT4 => 400 (e2e)', () => {
     type: 'MENSALIDADE',
   });
 
-  it('POST /finance com amountCents 99999999999 => 400 e nada gravado', async () => {
+  it('POST /finance com amountCents 99999999999 => 400 (agora barrado já no DTO por @Max) e nada gravado', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/finance')
       .set('Authorization', `Bearer ${mestreToken}`)
       .send(finBody(99999999999));
     assert.equal(res.status, 400, JSON.stringify(res.body));
-    assert.equal(res.body.message, 'Valor numérico fora do intervalo permitido.');
+    assert.ok(JSON.stringify(res.body.message).includes('amountCents must not be greater than'), JSON.stringify(res.body));
     assert.equal(await prisma.financialRecord.count({ where: { description: { contains: tag } } }), 0);
+  });
+
+  it('POST /classes com unitId 99999999999 (campo sem @Max no DTO) => 400 pelo PrismaRangeFilter', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/api/classes')
+      .set('Authorization', `Bearer ${mestreToken}`)
+      .send({ name: `${tag} turma`, unitId: 99999999999 });
+    assert.equal(res.status, 400, JSON.stringify(res.body));
+    assert.equal(res.body.message, 'Valor numérico fora do intervalo permitido.');
   });
 
   it('controle: valor dentro do range continua 201 (o filtro não engole o caminho feliz)', async () => {

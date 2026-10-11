@@ -12,14 +12,14 @@ import { normalizeEmail } from '../../../../shared/security/password-policy';
 export class LoginDto {
   /** Normalizado antes de validar: " Mestre@X.com " loga como "mestre@x.com" (e-mails são gravados em minúsculas). */
   @Transform(({ value }) => (typeof value === 'string' ? normalizeEmail(value) : value))
-  @IsEmail()
+  @IsEmail({}, { message: 'Informe um e-mail válido.' })
   email!: string;
 
-  @IsString()
-  @MinLength(6)
+  @IsString({ message: 'Informe a senha.' })
+  @MinLength(6, { message: 'A senha deve ter no mínimo 6 caracteres.' })
   password!: string;
 
   @IsOptional()
-  @IsString()
+  @IsString({ message: 'O grupo (organizationSlug) deve ser um texto.' })
   organizationSlug?: string;
 }

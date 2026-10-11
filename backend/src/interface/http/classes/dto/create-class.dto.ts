@@ -1,4 +1,5 @@
 import { IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { IsAfterTimeOf, IsTimeOfDay } from '../../../../shared/dates/time-of-day';
 
 export class CreateClassDto {
   @IsString()
@@ -20,10 +21,11 @@ export class CreateClassDto {
   weekday?: number;
 
   @IsOptional()
-  @IsString()
+  @IsTimeOfDay()
   startTime?: string;
 
   @IsOptional()
-  @IsString()
+  @IsTimeOfDay()
+  @IsAfterTimeOf('startTime')
   endTime?: string;
 }

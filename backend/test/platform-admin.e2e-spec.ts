@@ -226,13 +226,18 @@ describe('Feature Overrides & Platform Announcements (e2e)', () => {
     });
 
     it('um aviso expirado não aparece em mine', async () => {
-      const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      // expiresAt no passado é recusado na criação (400); o aviso "que já expirou" nasce com
+      // expiração futura e é expirado direto no banco.
       const res = await request(app.getHttpServer())
         .post('/api/platform-announcements')
         .set('Authorization', `Bearer ${platformToken}`)
-        .send({ title: '[e2e] Já expirou', body: 'xx', expiresAt: past })
+        .send({ title: '[e2e] Já expirou', body: 'xx', expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString() })
         .expect(201);
       createdAnnouncementIds.push(res.body.id);
+      await prisma.platformAnnouncement.update({
+        where: { id: res.body.id },
+        data: { expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      });
 
       const mine = await request(app.getHttpServer())
         .get('/api/platform-announcements/mine')

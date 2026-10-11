@@ -6,6 +6,7 @@ import { ListClassesQueryDto } from './dto/list-classes-query.dto';
 import { StudentsService } from '../students/students.service';
 import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
+import { isTimeOfDay, isValidTimeRange } from '../../../shared/dates/time-of-day';
 
 /** Turmas do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
@@ -72,7 +73,15 @@ export class ClassesService {
   }
 
   async update(organizationId: number, id: number, dto: UpdateClassDto) {
-    await this.findOne(organizationId, id); // 404 se não existir ou não for desta organização
+    const current = await this.findOne(organizationId, id); // 404 se não existir ou não for desta organização
+
+    // Update parcial: se só um dos horários vem no payload, compara com o valor já gravado
+    // (o DTO só consegue comparar quando os dois vêm juntos). null limpa o campo -> sem comparação.
+    const start = dto.startTime === undefined ? current.startTime : dto.startTime;
+    const end = dto.endTime === undefined ? current.endTime : dto.endTime;
+    if (start && end && isTimeOfDay(start) && isTimeOfDay(end) && !isValidTimeRange(start, end)) {
+      throw new BadRequestException('endTime deve ser posterior a startTime.');
+    }
 
     if (dto.unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);

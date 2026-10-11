@@ -4,12 +4,15 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
 import { createTestApp } from './utils/test-app';
-import { DEV_PASSWORD, MESTRE_EMAIL, loginAs } from './utils/list-helpers';
+import { MESTRE_EMAIL, loginAs } from './utils/list-helpers';
 
 /**
  * jwt.strategy: token com organizationId cuja membership ficou INACTIVE passa a dar 401 na hora
  * (professor removido por DELETE /teachers/:id perde o acesso sem esperar o token expirar).
  */
+/** Senha forte (professor criado via API segue a política de 12+ caracteres). */
+const PROF_PASSWORD = 'Prof@Forte2026x';
+
 describe('JWT: membership inativa derruba o token (e2e)', () => {
   let app: INestApplication;
   const prisma = new PrismaClient();
@@ -34,13 +37,14 @@ describe('JWT: membership inativa derruba o token (e2e)', () => {
     const created = await request(app.getHttpServer())
       .post('/api/teachers')
       .set('Authorization', `Bearer ${mestreToken}`)
-      .send({ name: '[e2e-jwt] Professor', email, password: DEV_PASSWORD, role: OrgRole.PROFESSOR })
+      .send({ name: '[e2e-jwt] Professor', email, password: PROF_PASSWORD, role: OrgRole.PROFESSOR })
       .expect(201);
     membershipIds.push(created.body.id);
     const membership = await prisma.organizationUser.findUniqueOrThrow({ where: { id: created.body.id } });
     userIds.push(membership.userId);
 
-    const { token } = await loginAs(app, email);
+    const login = await request(app.getHttpServer()).post('/api/auth/login').send({ email, password: PROF_PASSWORD }).expect(200);
+    const token: string = login.body.accessToken;
     await request(app.getHttpServer()).get('/api/events').set('Authorization', `Bearer ${token}`).expect(200);
 
     await request(app.getHttpServer())

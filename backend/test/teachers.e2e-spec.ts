@@ -15,6 +15,8 @@ import { createTestApp } from './utils/test-app';
  * (membership antes do user, por causa da FK).
  */
 const DEV_PASSWORD = 'Dev@12345';
+/** Senha forte (política de 12+ caracteres, sem a senha padrão de dev) para professores criados via API. */
+const TEACHER_PASSWORD = 'Prof@Forte2026x';
 const MESTRE_EMAIL = 'mestre@gingabrasil.com.br';
 const ALUNO_EMAIL = 'aluno@gingabrasil.com.br';
 
@@ -58,7 +60,7 @@ describe('Teachers CRUD (e2e)', () => {
     const res = await request(app.getHttpServer())
       .post('/api/teachers')
       .set('Authorization', `Bearer ${mestreToken}`)
-      .send({ name: '[e2e-teachers] Professor Novo', email, password: 'Dev@12345', role: OrgRole.PROFESSOR })
+      .send({ name: '[e2e-teachers] Professor Novo', email, password: TEACHER_PASSWORD, role: OrgRole.PROFESSOR })
       .expect(201);
 
     createdMembershipIds.push(res.body.id);
@@ -87,7 +89,7 @@ describe('Teachers CRUD (e2e)', () => {
       .send({
         name: '[e2e-teachers] Duplicado',
         email: ALUNO_EMAIL, // já existe no seed (com outro role/uso)
-        password: 'Dev@12345',
+        password: TEACHER_PASSWORD,
         role: OrgRole.PROFESSOR,
       })
       .expect(400);
@@ -103,7 +105,7 @@ describe('Teachers CRUD (e2e)', () => {
     const created = await request(app.getHttpServer())
       .post('/api/teachers')
       .set('Authorization', `Bearer ${mestreToken}`)
-      .send({ name: '[e2e-teachers] Para Editar', email, password: 'Dev@12345', role: OrgRole.PROFESSOR })
+      .send({ name: '[e2e-teachers] Para Editar', email, password: TEACHER_PASSWORD, role: OrgRole.PROFESSOR })
       .expect(201);
     createdMembershipIds.push(created.body.id);
     createdUserIds.push(created.body.user.id);
@@ -123,7 +125,7 @@ describe('Teachers CRUD (e2e)', () => {
     const created = await request(app.getHttpServer())
       .post('/api/teachers')
       .set('Authorization', `Bearer ${mestreToken}`)
-      .send({ name: '[e2e-teachers] Para Remover', email, password: 'Dev@12345', role: OrgRole.PROFESSOR })
+      .send({ name: '[e2e-teachers] Para Remover', email, password: TEACHER_PASSWORD, role: OrgRole.PROFESSOR })
       .expect(201);
     createdMembershipIds.push(created.body.id);
     const userId = created.body.user.id;
@@ -151,7 +153,7 @@ describe('Teachers CRUD (e2e)', () => {
       .send({
         name: '[e2e-teachers] Não Deveria Existir',
         email: `nao-deveria-existir-${Date.now()}@e2e-teachers-test.local`,
-        password: 'Dev@12345',
+        password: TEACHER_PASSWORD,
         role: OrgRole.PROFESSOR,
       })
       .expect(403);

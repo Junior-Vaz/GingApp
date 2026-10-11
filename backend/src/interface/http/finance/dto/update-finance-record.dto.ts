@@ -1,5 +1,5 @@
 import { FinancialStatus } from '@prisma/client';
-import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Min, ValidateIf } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, Max, Min, ValidateIf } from 'class-validator';
 
 /** Todos os campos opcionais (update parcial) — sem @nestjs/mapped-types por consistência com
  * UpdateStudentDto; os validadores são os mesmos de CreateFinanceRecordDto, mais status/paidAt.
@@ -15,6 +15,7 @@ export class UpdateFinanceRecordDto {
   @ValidateIf((_, v) => v !== undefined)
   @IsInt()
   @Min(1)
+  @Max(2147483647)
   amountCents?: number;
 
   @ValidateIf((_, v) => v !== undefined)
@@ -23,10 +24,12 @@ export class UpdateFinanceRecordDto {
 
   @IsOptional()
   @IsInt()
+  @Max(2147483647)
   studentId?: number | null;
 
   @IsOptional()
   @IsInt()
+  @Max(2147483647)
   unitId?: number | null;
 
   @IsOptional()

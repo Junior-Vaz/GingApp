@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional } from 'class-validator';
+import { IsIn, IsInt, IsOptional, Max } from 'class-validator';
 
 /** Update administrativo: trocar de plano (upgrade/downgrade) e/ou forçar um status (ex.:
  * marcar PAST_DUE manualmente após falha de cobrança). Cancelamento tem endpoint próprio
@@ -6,6 +6,7 @@ import { IsIn, IsInt, IsOptional } from 'class-validator';
 export class UpdateSubscriptionDto {
   @IsOptional()
   @IsInt()
+  @Max(2147483647)
   planId?: number;
 
   @IsOptional()

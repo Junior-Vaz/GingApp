@@ -479,6 +479,11 @@ export function NotificationsPage() {
               </article>
             ))}
           </div>
+          {announcements.total !== null && announcements.total > (announcements.data?.length ?? 0) && (
+            <p className="text-xs text-muted-foreground py-2" role="status">
+              Mostrando {announcements.data?.length ?? 0} de {announcements.total} recados do grupo.
+            </p>
+          )}
         </>
       )}
     </>

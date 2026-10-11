@@ -1,6 +1,5 @@
 import { Transform, Type } from 'class-transformer';
 import {
-  IsByteLength,
   IsEmail,
   IsObject,
   IsOptional,
@@ -10,6 +9,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { IsNewPassword } from '../../../../shared/security/new-password.decorator';
 import { NEW_PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES } from '../../../../shared/security/password-policy';
 
 /** Política de senha inicial do MESTRE: 12..72 (72 = limite do bcrypt, que ignora o excedente).
@@ -29,23 +29,18 @@ const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? val
 export class CreateMestreDto {
   @Transform(trim)
   @IsString()
-  @MinLength(2, { message: 'mestre.name deve ter no mínimo 2 caracteres.' })
+  @MinLength(2, { message: 'name deve ter no mínimo 2 caracteres.' })
   @MaxLength(120)
   name!: string;
 
   @Transform(trim)
-  @IsEmail({}, { message: 'mestre.email deve ser um e-mail válido.' })
+  @IsEmail({}, { message: 'email deve ser um e-mail válido.' })
   @MaxLength(254)
   email!: string;
 
-  /** NÃO é aparado (espaços podem fazer parte da senha) e NUNCA é devolvido nem logado. */
-  @IsString()
-  @MinLength(MESTRE_PASSWORD_MIN_LENGTH, {
-    message: `mestre.password deve ter no mínimo ${MESTRE_PASSWORD_MIN_LENGTH} caracteres.`,
-  })
-  @IsByteLength(0, MESTRE_PASSWORD_MAX_BYTES, {
-    message: `mestre.password deve ter no máximo ${MESTRE_PASSWORD_MAX_BYTES} caracteres (bytes UTF-8).`,
-  })
+  /** NÃO é aparado (espaços podem fazer parte da senha) e NUNCA é devolvido nem logado.
+   * Política SSOT (@IsNewPassword). */
+  @IsNewPassword()
   password!: string;
 }
 

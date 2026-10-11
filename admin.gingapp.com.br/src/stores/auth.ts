@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
+import { apiErrorText } from '@/utils/errors'
 
 /**
  * Chave de armazenamento do token no localStorage.
@@ -57,7 +58,11 @@ export const useAuthStore = defineStore('auth', () => {
     const data = await response.json().catch(() => null)
 
     if (!response.ok) {
-      const message = (data as { message?: string } | null)?.message ?? 'Não foi possível entrar.'
+      // 400 = corpo fora do formato (validação em inglês do class-validator): texto fixo em português.
+      const message =
+        response.status === 400
+          ? 'Informe um e-mail válido e a senha.'
+          : apiErrorText(response.status, data, 'Não foi possível entrar.')
       throw new Error(message)
     }
 

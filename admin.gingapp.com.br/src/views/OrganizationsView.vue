@@ -39,6 +39,8 @@ const authStore = useAuthStore()
 const organizations = ref<Organization[]>([])
 const isLoading = ref(false)
 const listError = ref('')
+const totalOrganizations = ref(0)
+const LIST_LIMIT = 200
 
 const isModalOpen = ref(false)
 const isSubmitting = ref(false)
@@ -72,7 +74,9 @@ async function loadOrganizations(): Promise<void> {
   isLoading.value = true
   listError.value = ''
   try {
-    organizations.value = await api.get<Organization[]>('/organizations')
+    const page = await api.getPage<Organization>('/organizations', { limit: LIST_LIMIT })
+    organizations.value = page.items
+    totalOrganizations.value = page.total
   } catch (error) {
     listError.value = errorMessage(error, 'Não foi possível carregar as organizações.')
   } finally {
@@ -177,6 +181,14 @@ onMounted(() => {
     </p>
 
     <p v-if="listError" role="alert" class="mt-4 text-sm text-red-600">{{ listError }}</p>
+
+    <p
+      v-if="totalOrganizations > organizations.length"
+      data-testid="list-truncated"
+      class="mt-4 text-sm text-slate-500"
+    >
+      Mostrando {{ organizations.length }} de {{ totalOrganizations }} grupos
+    </p>
 
     <div class="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white">
       <table class="w-full text-left text-sm">

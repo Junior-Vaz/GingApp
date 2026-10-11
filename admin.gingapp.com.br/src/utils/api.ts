@@ -1,4 +1,5 @@
 import { AUTH_TOKEN_KEY, AUTH_USER_KEY } from '@/stores/auth'
+import { apiErrorText } from '@/utils/errors'
 
 const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000/api'
 
@@ -10,17 +11,6 @@ export class ApiError extends Error {
     this.name = 'ApiError'
     this.status = status
   }
-}
-
-/** Mensagem do Nest: string, ou array de strings (class-validator) unido por espaço. */
-function extractMessage(body: unknown): string | null {
-  const message = (body as { message?: unknown } | null)?.message
-  if (typeof message === 'string' && message.trim()) return message
-  if (Array.isArray(message)) {
-    const joined = message.filter((m): m is string => typeof m === 'string').join(' ')
-    return joined || null
-  }
-  return null
 }
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
@@ -66,7 +56,7 @@ async function requestRaw<T>(path: string, options: RequestOptions = {}): Promis
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null)
-    throw new ApiError(extractMessage(errorBody) ?? `Erro na requisição (${response.status}).`, response.status)
+    throw new ApiError(apiErrorText(response.status, errorBody), response.status)
   }
 
   // Corpo vazio pode vir com 204 OU com 200/201 (endpoint que não devolve nada) — `.json()`

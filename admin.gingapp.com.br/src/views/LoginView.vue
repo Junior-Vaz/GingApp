@@ -10,6 +10,7 @@ const email = ref('')
 const password = ref('')
 const isSubmitting = ref(false)
 const errorMessage = ref('')
+const isDev = import.meta.env.DEV
 
 async function handleSubmit(): Promise<void> {
   errorMessage.value = ''
@@ -34,7 +35,7 @@ async function handleSubmit(): Promise<void> {
         <p class="mt-1 text-sm text-slate-500">SaaS Admin — equipe interna</p>
       </div>
 
-      <p class="mb-4 text-center text-xs text-slate-400">
+      <p v-if="isDev" data-testid="dev-hint" class="mb-4 text-center text-xs text-slate-400">
         Dev: owner@gingapp.com.br / Dev@12345 (seed de desenvolvimento)
       </p>
 
