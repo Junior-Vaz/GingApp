@@ -9,6 +9,7 @@ import { logout } from "@/lib/auth";
 import { buildProfilePayload, passportActions } from "@/lib/derive";
 import { dayOnly, fmt, initials, passportUrl } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
+import { imageSrc } from "@/lib/uploads";
 import {
   useGraduations,
   useMyStudent,
@@ -18,6 +19,7 @@ import {
   type Student,
 } from "@/lib/queries";
 import { ChangePasswordSection } from "./change-password";
+import { ImageUploadControl } from "./image-upload";
 import { MyDataSection } from "./legal";
 import { QrDialog } from "./journey";
 import { PageHeading, StateMessage } from "./shared";
@@ -42,7 +44,7 @@ function Avatar({ photo, name, size = 36 }: { photo?: string | null | undefined;
   if (photo && !failed) {
     return (
       <img
-        src={photo}
+        src={imageSrc(photo)}
         alt=""
         width={size}
         height={size}
@@ -104,14 +106,16 @@ export function ProfileForm({ student }: { student: Student }) {
 
   return (
     <form onSubmit={submit}>
-      <p className="text-xs text-muted-foreground">Para remover foto, capa ou uma rede, deixe o campo vazio (ou use “Remover”) e salve.</p>
+      <p className="text-xs text-muted-foreground">Envie uma imagem (JPEG, PNG ou WebP até 5 MB) ou cole o link. Para remover foto, capa ou uma rede, deixe o campo vazio (ou use “Remover”) e salve.</p>
       <label className="field-label" htmlFor="photo">
         Foto (URL)
       </label>
+      <ImageUploadControl label="foto" value={form.photo} onChange={set("photo")} />
       <UrlField id="photo" label="foto" value={form.photo} onChange={set("photo")} placeholder="https://..." />
       <label className="field-label" htmlFor="coverPhoto">
         Foto de capa (URL)
       </label>
+      <ImageUploadControl label="foto de capa" shape="wide" value={form.coverPhoto} onChange={set("coverPhoto")} />
       <UrlField id="coverPhoto" label="foto de capa" value={form.coverPhoto} onChange={set("coverPhoto")} placeholder="https://..." />
       {SOCIAL_FIELDS.map((field) => (
         <div key={field.key}>
@@ -176,7 +180,7 @@ export function ProfilePage() {
       <div className="profile-layout">
         <div>
           {own?.coverPhoto && (
-            <img src={own.coverPhoto} alt="" className="mb-5 h-36 w-full rounded-lg object-cover" />
+            <img src={imageSrc(own.coverPhoto)} alt="" className="mb-5 h-36 w-full rounded-lg object-cover" />
           )}
           <div className="profile-identity">
             <Avatar photo={own?.photo} name={user?.name} size={64} />

@@ -8,6 +8,8 @@ import {
 import { Prisma, RecordStatus, Unit } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { isRestricted, UnitScopeService } from '../../../shared/access/unit-scope';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
@@ -37,6 +39,7 @@ export class UnitsService {
     private readonly prisma: PrismaService,
     private readonly subscriptionsService: SubscriptionsService,
     private readonly unitScope: UnitScopeService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -69,7 +72,7 @@ export class UnitsService {
 
   async create(organizationId: number, dto: CreateUnitDto): Promise<Unit> {
     const maxUnits = await this.unitLimit(organizationId);
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       await this.lockOrganization(tx, organizationId);
       await this.assertWithinLimit(tx, organizationId, maxUnits);
 
@@ -89,6 +92,14 @@ export class UnitsService {
         },
       });
     });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.UNIT_CREATE,
+      entity: AuditEntity.UNIT,
+      entityId: created.id,
+      meta: { name: created.name, isMain: created.isMain },
+    });
+    return created;
   }
 
   async update(organizationId: number, id: number, dto: UpdateUnitDto): Promise<Unit> {
@@ -103,7 +114,20 @@ export class UnitsService {
     if (Object.values(data).every((value) => value === undefined)) {
       throw new BadRequestException('Informe ao menos um campo para atualizar (name, address, city, state, isMain ou status).');
     }
-    return this.apply(organizationId, id, dto);
+    const updated = await this.apply(organizationId, id, dto);
+    await this.audit.record({
+      organizationId,
+      action: dto.status === 'INACTIVE' ? AuditAction.UNIT_INACTIVATE : AuditAction.UNIT_UPDATE,
+      entity: AuditEntity.UNIT,
+      entityId: id,
+      meta: {
+        fields: Object.entries(data)
+          .filter(([, value]) => value !== undefined)
+          .map(([key]) => key),
+        status: updated.status,
+      },
+    });
+    return updated;
   }
 
   /**
@@ -111,7 +135,14 @@ export class UnitsService {
    * Idempotente: já inativa devolve a unidade como está. As travas de matriz/única ativa valem aqui também.
    */
   async remove(organizationId: number, id: number): Promise<Unit> {
-    return this.apply(organizationId, id, { status: RecordStatus.INACTIVE });
+    const updated = await this.apply(organizationId, id, { status: RecordStatus.INACTIVE });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.UNIT_INACTIVATE,
+      entity: AuditEntity.UNIT,
+      entityId: id,
+    });
+    return updated;
   }
 
   private async apply(organizationId: number, id: number, dto: UpdateUnitDto): Promise<Unit> {

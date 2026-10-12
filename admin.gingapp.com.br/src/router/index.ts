@@ -5,6 +5,8 @@ declare module 'vue-router' {
   interface RouteMeta {
     requiresAuth?: boolean
     navLabel?: string
+    /** Título da aba do navegador quando a rota não tem navLabel. */
+    title?: string
   }
 }
 
@@ -13,6 +15,18 @@ export const routes: RouteRecordRaw[] = [
     path: '/login',
     name: 'login',
     component: () => import('@/views/LoginView.vue'),
+    meta: { requiresAuth: false, title: 'Entrar' },
+  },
+  {
+    path: '/esqueci-senha',
+    name: 'forgot-password',
+    component: () => import('@/views/ForgotPasswordView.vue'),
+    meta: { requiresAuth: false },
+  },
+  {
+    path: '/redefinir-senha',
+    name: 'reset-password',
+    component: () => import('@/views/ResetPasswordView.vue'),
     meta: { requiresAuth: false },
   },
   {
@@ -20,14 +34,14 @@ export const routes: RouteRecordRaw[] = [
     name: 'terms',
     component: () => import('@/views/LegalView.vue'),
     props: { type: 'terms' },
-    meta: { requiresAuth: false },
+    meta: { requiresAuth: false, title: 'Termos de Uso' },
   },
   {
     path: '/privacidade',
     name: 'privacy',
     component: () => import('@/views/LegalView.vue'),
     props: { type: 'privacy' },
-    meta: { requiresAuth: false },
+    meta: { requiresAuth: false, title: 'Política de Privacidade' },
   },
   {
     path: '/',
@@ -37,43 +51,49 @@ export const routes: RouteRecordRaw[] = [
     path: '/dashboard',
     name: 'dashboard',
     component: () => import('@/views/DashboardView.vue'),
-    meta: { requiresAuth: true, navLabel: 'Dashboard' },
+    meta: { requiresAuth: true, navLabel: 'Painel' },
   },
   {
     path: '/organizations',
     name: 'organizations',
     component: () => import('@/views/OrganizationsView.vue'),
-    meta: { requiresAuth: true, navLabel: 'Organizations' },
+    meta: { requiresAuth: true, navLabel: 'Grupos' },
   },
   {
     path: '/organizations/:id',
     name: 'organization-detail',
     component: () => import('@/views/OrganizationDetailView.vue'),
-    meta: { requiresAuth: true },
+    meta: { requiresAuth: true, title: 'Grupo' },
   },
   {
     path: '/plans',
     name: 'plans',
     component: () => import('@/views/PlansView.vue'),
-    meta: { requiresAuth: true, navLabel: 'Plans' },
+    meta: { requiresAuth: true, navLabel: 'Planos' },
   },
   {
     path: '/team',
     name: 'team',
     component: () => import('@/views/TeamView.vue'),
-    meta: { requiresAuth: true, navLabel: 'Team' },
+    meta: { requiresAuth: true, navLabel: 'Equipe' },
   },
   {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue'),
-    meta: { requiresAuth: true, navLabel: 'Settings' },
+    meta: { requiresAuth: true, navLabel: 'Configurações' },
   },
   {
     path: '/announcements',
     name: 'announcements',
     component: () => import('@/views/AnnouncementsView.vue'),
-    meta: { requiresAuth: true, navLabel: 'Announcements' },
+    meta: { requiresAuth: true, navLabel: 'Avisos' },
+  },
+  {
+    path: '/audit',
+    name: 'audit',
+    component: () => import('@/views/AuditView.vue'),
+    meta: { requiresAuth: true, navLabel: 'Auditoria' },
   },
   {
     path: '/:pathMatch(.*)*',
@@ -104,6 +124,12 @@ router.beforeEach((to) => {
   }
 
   return true
+})
+
+/** Título da aba: "<tela> · Admin GingApp" (só texto exibido; nomes e caminhos das rotas não mudam). */
+router.afterEach((to) => {
+  const page = to.meta.navLabel ?? to.meta.title
+  document.title = page ? `${page} · Admin GingApp` : 'Admin GingApp'
 })
 
 export default router

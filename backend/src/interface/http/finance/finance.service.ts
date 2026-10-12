@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { FinancialRecord, FinancialStatus, Prisma } from '@prisma/client';
 import { LimitOffsetQueryDto, Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { StudentsService } from '../students/students.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
@@ -75,6 +77,7 @@ export class FinanceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -82,11 +85,12 @@ export class FinanceService {
    * organização). O filtro `status` é o EFETIVO: PENDING só com vencimento >= hoje; OVERDUE =
    * status OVERDUE gravado OU PENDING vencido (mesma regra do painel).
    */
-  private buildWhere(
+  buildWhere(
     organizationId: number,
     query: ListFinanceQueryDto,
     today: Date,
   ): Prisma.FinancialRecordWhereInput {
+    // Público: a exportação CSV (finance-export.service.ts) usa este MESMO where (filtros iguais aos da tela).
     const and: Prisma.FinancialRecordWhereInput[] = [];
 
     if (query.status === FinancialStatus.PENDING) {
@@ -143,7 +147,7 @@ export class FinanceService {
 
   /** Agregação única (gestão e "meu financeiro") sobre um `where` já escopado. */
   private async aggregate(where: Prisma.FinancialRecordWhereInput, today: Date): Promise<FinanceSummary> {
-    const [byStatus, pendingLate] = await Promise.all([
+    const [byStatus, pendingLate, paidReceived, paidLegacy] = await Promise.all([
       this.prisma.financialRecord.groupBy({
         by: ['status'],
         where,
@@ -154,6 +158,16 @@ export class FinanceService {
         where: { AND: [where, { status: FinancialStatus.PENDING, dueDate: { lt: today } }] },
         _sum: { amountCents: true },
         _count: { _all: true },
+      }),
+      // "Recebido" = valor EFETIVAMENTE pago (paidCents da baixa); lancamentos pagos sem paidCents (anteriores a baixa
+      // rapida, ou marcados PAID pelo PATCH) caem no valor do lancamento (amountCents).
+      this.prisma.financialRecord.aggregate({
+        where: { AND: [where, { status: FinancialStatus.PAID, paidCents: { not: null } }] },
+        _sum: { paidCents: true },
+      }),
+      this.prisma.financialRecord.aggregate({
+        where: { AND: [where, { status: FinancialStatus.PAID, paidCents: null }] },
+        _sum: { amountCents: true },
       }),
     ]);
 
@@ -168,7 +182,7 @@ export class FinanceService {
     const lateN = pendingLate._count._all;
 
     const out: FinanceSummary = {
-      paid: paid.cents,
+      paid: (paidReceived._sum.paidCents ?? 0) + (paidLegacy._sum.amountCents ?? 0),
       pending: pending.cents - lateCents,
       overdue: overdue.cents + lateCents,
       count: 0,
@@ -298,7 +312,7 @@ export class FinanceService {
   }
 
   async update(organizationId: number, id: number, dto: UpdateFinanceRecordDto) {
-    await this.findOne(organizationId, id); // 404 se não existir ou não for desta organização
+    const before = await this.findOne(organizationId, id); // 404 se não existir ou não for desta organização
 
     if (dto.studentId) {
       await this.assertStudentBelongsToOrganization(organizationId, dto.studentId);
@@ -322,7 +336,7 @@ export class FinanceService {
     // Sair de PAID (PENDING/OVERDUE) também limpa a forma de pagamento e o valor pago da baixa (E07), como o paidAt.
     const leavingPaid = dto.status === 'PENDING' || dto.status === 'OVERDUE';
 
-    return this.prisma.financialRecord.update({
+    const updated = await this.prisma.financialRecord.update({
       where: { id },
       data: {
         studentId: dto.studentId,
@@ -336,6 +350,22 @@ export class FinanceService {
         ...(leavingPaid ? { paymentMethod: null, paidCents: null } : {}),
       },
     });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.FINANCE_UPDATE,
+      entity: AuditEntity.FINANCE,
+      entityId: id,
+      meta: {
+        fields: Object.entries(dto)
+          .filter(([, value]) => value !== undefined)
+          .map(([key]) => key),
+        statusBefore: before.status,
+        statusAfter: updated.status,
+        amountBefore: before.amountCents,
+        amountAfter: updated.amountCents,
+      },
+    });
+    return updated;
   }
 
   /**
@@ -345,8 +375,16 @@ export class FinanceService {
    * "registro financeiro inativo" com sentido de negócio aqui.
    */
   async remove(organizationId: number, id: number) {
-    await this.findOne(organizationId, id);
-    return this.prisma.financialRecord.delete({ where: { id } });
+    const record = await this.findOne(organizationId, id);
+    const deleted = await this.prisma.financialRecord.delete({ where: { id } });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.FINANCE_DELETE,
+      entity: AuditEntity.FINANCE,
+      entityId: id,
+      meta: { amountCents: record.amountCents, status: record.status, studentId: record.studentId },
+    });
+    return deleted;
   }
 
   /** Nunca confiar em studentId vindo do corpo da requisição sem confirmar que pertence à

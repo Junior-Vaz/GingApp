@@ -16,6 +16,9 @@ async function bootstrap(): Promise<void> {
   }
 
   app.setGlobalPrefix('api');
+  // Corpo JSON: o padrão do Express (100 KB) não comporta a importação de alunos (até 500 linhas de CSV em
+  // POST /students/import, ~100 KB). 1 MB cobre com folga e continua barrando payloads abusivos.
+  app.useBodyParser('json', { limit: '1mb' });
   // Em produção CORS_ORIGINS é obrigatório (falha o boot); em dev vazio = qualquer origem.
   // exposedHeaders: o navegador só deixa o JS ler X-Total-Count (paginação) se for exposto aqui.
   app.enableCors({

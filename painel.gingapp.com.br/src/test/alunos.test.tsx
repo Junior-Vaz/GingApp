@@ -85,7 +85,7 @@ describe("schema de alunos", () => {
   it("studentToUpdatePayload manda null nos opcionais esvaziados (nome/status nunca)", () => {
     const empty = { name: " Ab ", unitId: "", birthDate: "", document: " ", phone: "", email: "", status: "ACTIVE" as const };
     expect(studentToUpdatePayload(empty)).toEqual({
-      name: "Ab", unitId: null, birthDate: null, document: null, phone: null, email: null, status: "ACTIVE",
+      name: "Ab", unitId: null, birthDate: null, document: null, phone: null, email: null, photo: null, status: "ACTIVE",
     });
     expect(studentToUpdatePayload({ ...empty, unitId: "7", phone: "11" })).toMatchObject({ unitId: 7, phone: "11" });
   });

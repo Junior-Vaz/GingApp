@@ -16,6 +16,8 @@ export const guardianSchema = z
       .trim()
       .refine((v) => v === "" || z.string().email().safeParse(v).success, "E-mail inválido."),
     createAccount: z.boolean(),
+    /** Convite por e-mail (só com createAccount): a pessoa define a própria senha; nenhuma senha provisória. */
+    sendInvite: z.boolean(),
     password: z.string(),
     confirmPassword: z.string(),
   })
@@ -24,6 +26,7 @@ export const guardianSchema = z
     if (values.email.trim() === "") {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["email"], message: "Informe o e-mail para criar o acesso." });
     }
+    if (values.sendInvite) return;
     const issue = values.password === "" ? null : provisionalPasswordIssue(values.password);
     if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["password"], message: issue });
     if (values.confirmPassword !== values.password) {
@@ -38,6 +41,7 @@ export const emptyGuardianForm: GuardianFormValues = {
   phone: "",
   email: "",
   createAccount: false,
+  sendInvite: false,
   password: "",
   confirmPassword: "",
 };
@@ -52,7 +56,7 @@ export function guardianToForm(guardian: Guardian): GuardianFormValues {
   };
 }
 
-/** CRIAR (POST): campos vazios são omitidos; senha só vai junto com createAccount. */
+/** CRIAR (POST): campos vazios são omitidos; senha só vai junto com createAccount (e NÃO com convite por e-mail). */
 export function guardianToPayload(values: GuardianFormValues): GuardianInput {
   return {
     name: values.name.trim(),
@@ -60,7 +64,8 @@ export function guardianToPayload(values: GuardianFormValues): GuardianInput {
     phone: values.phone.trim() || undefined,
     email: values.email.trim() || undefined,
     createAccount: values.createAccount ? true : undefined,
-    password: values.createAccount && values.password !== "" ? values.password : undefined,
+    password: values.createAccount && !values.sendInvite && values.password !== "" ? values.password : undefined,
+    sendInvite: values.createAccount && values.sendInvite ? true : undefined,
   };
 }
 

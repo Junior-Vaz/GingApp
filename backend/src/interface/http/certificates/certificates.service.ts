@@ -4,10 +4,21 @@ import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { UnitScopeService, unitScopeFilter } from '../../../shared/access/unit-scope';
+import { PermissionsService } from '../../../shared/access/permissions.service';
+import { frontendBaseUrl } from '../../../shared/mail/mail.config';
+import { renderCertificatePdf } from './certificate-pdf';
 import { ListCertificatesQueryDto } from './dto/list-certificates-query.dto';
 import { StudentsService } from '../students/students.service';
 import { CreateCertificateDto } from './dto/create-certificate.dto';
 import { UpdateCertificateDto } from './dto/update-certificate.dto';
+
+const CERTIFICATE_NOT_FOUND = 'Certificado não encontrado.';
+
+const PDF_INCLUDE = {
+  student: { select: { name: true } },
+  organization: { select: { name: true } },
+  studentGraduation: { select: { graduationLevel: { select: { name: true } } } },
+} satisfies Prisma.CertificateInclude;
 
 /**
  * Certificados (projeto.txt §52, Jornada do Capoeirista — PLANO_PROJETO.md §10.15). Cada
@@ -25,6 +36,7 @@ export class CertificatesService {
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
     private readonly unitScope: UnitScopeService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   /** Antes SEM limite; agora paginado (padrão 50, igual aos demais módulos) — `limit`/`offset` e
@@ -92,6 +104,54 @@ export class CertificatesService {
       include: { student: { select: { id: true, name: true } } },
       orderBy: { id: 'desc' },
     });
+  }
+
+  /**
+   * PDF do certificado (GET /certificates/:id/pdf). Mesmo escopo da leitura: quem tem `certificates:view` na matriz
+   * (Mestre/Professor) baixa os do grupo (com o escopo de unidade do professor); ALUNO/RESPONSAVEL só os próprios/
+   * dependentes. Qualquer outro caso (inclusive certificado de outro grupo) = 404.
+   */
+  async buildPdf(organizationId: number, id: number, user: AuthenticatedUser): Promise<{ filename: string; buffer: Buffer }> {
+    let certificate;
+    if (await this.permissions.can(user, 'certificates', 'view')) {
+      const scope = await this.unitScope.resolve(user, organizationId);
+      certificate = await this.prisma.certificate.findFirst({
+        where: { id, organizationId, student: unitScopeFilter(scope) },
+        include: PDF_INCLUDE,
+      });
+    } else {
+      const myStudents = await this.studentsService.findMine(organizationId, user.id);
+      certificate = await this.prisma.certificate.findFirst({
+        where: { id, organizationId, studentId: { in: myStudents.map((s) => s.id) } },
+        include: PDF_INCLUDE,
+      });
+    }
+    if (!certificate) throw new NotFoundException(CERTIFICATE_NOT_FOUND);
+    return this.render(certificate, true);
+  }
+
+  /** PDF público pelo código de verificação (QR). Só o que a verificação pública já expõe (sem graduação). */
+  async buildPublicPdf(verificationCode: string): Promise<{ filename: string; buffer: Buffer }> {
+    const certificate = await this.prisma.certificate.findUnique({ where: { verificationCode }, include: PDF_INCLUDE });
+    if (!certificate) throw new NotFoundException(CERTIFICATE_NOT_FOUND);
+    return this.render(certificate, false);
+  }
+
+  private async render(
+    certificate: Prisma.CertificateGetPayload<{ include: typeof PDF_INCLUDE }>,
+    withGraduation: boolean,
+  ): Promise<{ filename: string; buffer: Buffer }> {
+    const appUrl = frontendBaseUrl('APP');
+    const buffer = await renderCertificatePdf({
+      organizationName: certificate.organization.name,
+      studentName: certificate.student.name,
+      title: certificate.title,
+      graduationName: withGraduation ? (certificate.studentGraduation?.graduationLevel.name ?? null) : null,
+      issuedAt: certificate.issuedAt ?? certificate.createdAt,
+      verificationCode: certificate.verificationCode,
+      verificationUrl: appUrl ? `${appUrl}/verificar/${certificate.verificationCode}` : null,
+    });
+    return { filename: `certificado-${certificate.verificationCode}.pdf`, buffer };
   }
 
   /** Verificação pública (sem autenticação) pelo código do QR Code — retorna só o mínimo

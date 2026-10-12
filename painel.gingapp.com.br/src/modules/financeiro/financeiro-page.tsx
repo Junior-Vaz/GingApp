@@ -2,6 +2,7 @@ import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Clock, AlertTriangle, CalendarPlus } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
+import { ExportCsvButton } from "@/components/painel/export-csv-button";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
@@ -283,6 +284,11 @@ export function FinanceiroPage() {
                     Limpar
                   </Button>
                 )}
+                <ExportCsvButton
+                  path="/finance/export.csv"
+                  filename="financeiro-lancamentos"
+                  params={{ ...filters, q: lp.params["q"] }}
+                />
               </div>
             }
             rowActions={(r) => (

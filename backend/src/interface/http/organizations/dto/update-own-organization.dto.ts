@@ -16,6 +16,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { BR_UFS } from '../../../../shared/geo/br-states';
+import { IsImageRef } from '../../../../shared/uploads/image-ref';
 import { DOCUMENT_PATTERN, PHONE_PATTERN, trim } from './create-organization.dto';
 
 /** URL absoluta http(s) — vira <a href>/<img src> no painel e no app: nunca "javascript:" nem relativa. */
@@ -135,10 +136,10 @@ export class UpdateOwnOrganizationDto {
   @MaxLength(300)
   website?: string | null;
 
-  /** URL da logomarca (ainda não há upload: o grupo informa o link de uma imagem já hospedada). */
+  /** URL da logomarca: o caminho devolvido por POST /uploads (/api/uploads/<arquivo>) ou uma URL http(s) completa. */
   @IsOptional()
   @Transform(trimOrNull)
-  @IsUrl(HTTP_URL, { message: URL_MESSAGE('logo') })
+  @IsImageRef()
   @MaxLength(500)
   logo?: string | null;
 

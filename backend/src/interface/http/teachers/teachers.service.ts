@@ -4,6 +4,8 @@ import * as bcrypt from 'bcrypt';
 import { pageArgs } from '../../../shared/pagination/pagination';
 import { ListTeachersQueryDto } from './dto/list-teachers-query.dto';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
 import { BCRYPT_ROUNDS, normalizeEmail } from '../../../shared/security/password-policy';
 import { resetMemberPassword } from '../../../shared/security/reset-member-password';
@@ -28,7 +30,10 @@ const TEACHER_SELECT = {
  */
 @Injectable()
 export class TeachersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async findAll(organizationId: number, query: ListTeachersQueryDto = {}) {
     // organizationId e o filtro de papel (MESTRE/PROFESSOR) sempre no where, em findMany e count.
@@ -119,6 +124,13 @@ export class TeachersService {
         await tx.userUnitAccess.createMany({ data: unitIds.map((unitId) => ({ organizationId, userId, unitId })) });
       }
     });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.TEACHER_UNITS_UPDATE,
+      entity: AuditEntity.TEACHER,
+      entityId: id,
+      meta: { userId, unitIds },
+    });
     return { unitIds };
   }
 
@@ -144,6 +156,13 @@ export class TeachersService {
       });
     });
 
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.TEACHER_CREATE,
+      entity: AuditEntity.TEACHER,
+      entityId: membership.id,
+      meta: { role: membership.role, userId: membership.user.id },
+    });
     return membership;
   }
 
@@ -164,6 +183,17 @@ export class TeachersService {
       });
     }
 
+    await this.audit.record({
+      organizationId,
+      action: dto.status === 'INACTIVE' ? AuditAction.TEACHER_INACTIVATE : AuditAction.TEACHER_UPDATE,
+      entity: AuditEntity.TEACHER,
+      entityId: id,
+      meta: {
+        fields: Object.entries(dto)
+          .filter(([, value]) => value !== undefined)
+          .map(([key]) => key),
+      },
+    });
     return this.findOne(organizationId, id);
   }
 
@@ -183,16 +213,30 @@ export class TeachersService {
       notFoundMessage: 'Professor não encontrado.',
       wrongRoleMessage: 'A senha de um Mestre só pode ser redefinida pela equipe GingApp.',
     });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.MEMBER_PASSWORD_RESET,
+      entity: AuditEntity.TEACHER,
+      entityId: id,
+      meta: { userId: membership.user.id, kind: 'PROFESSOR' },
+    });
   }
 
   /** Nunca apaga o User (identidade compartilhada) nem a membership — marca status =
    * INACTIVE, mesmo padrão de "remoção" usado em Students (preserva histórico/auditoria). */
   async remove(organizationId: number, id: number) {
     await this.findOne(organizationId, id);
-    return this.prisma.organizationUser.update({
+    const updated = await this.prisma.organizationUser.update({
       where: { id },
       data: { status: 'INACTIVE' },
       select: TEACHER_SELECT,
     });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.TEACHER_INACTIVATE,
+      entity: AuditEntity.TEACHER,
+      entityId: id,
+    });
+    return updated;
   }
 }

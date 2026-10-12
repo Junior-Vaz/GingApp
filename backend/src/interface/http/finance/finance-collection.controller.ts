@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Post, Put, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
+import { RequireFeature } from '../../../shared/decorators/require-feature.decorator';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { GenerateMonthlyDto } from './dto/generate-monthly.dto';
@@ -15,6 +16,7 @@ import { FinanceCollectionService } from './finance-collection.service';
  * `controllers` do módulo — senão `GET /finance/billing` e `/finance/delinquents` cairiam em `GET /finance/:id`
  * (ParseIntPipe => 400).
  */
+@RequireFeature('finance')
 @Controller('finance')
 export class FinanceCollectionController {
   constructor(private readonly collection: FinanceCollectionService) {}

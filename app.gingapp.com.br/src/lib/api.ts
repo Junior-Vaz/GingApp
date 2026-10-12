@@ -35,6 +35,23 @@ interface RequestOptions {
 /** Nome do header com o total de registros que casam com o filtro (listagens paginadas). */
 const TOTAL_COUNT_HEADER = "X-Total-Count";
 
+/** Erro de resposta nao-ok: trata o 401 (sessao expirada) e devolve o ApiError com a mensagem do servidor. */
+async function failure(
+  response: Response,
+  path: string,
+  tokenUsed: string | null,
+  options: RequestOptions,
+): Promise<ApiError> {
+  const body = await response.json().catch(() => null);
+  // 401 de uma chamada feita com um token que JÁ FOI TROCADO (troca de senha enquanto ela estava em
+  // voo) é obsoleto: a sessão atual é outra e válida - não pode ser derrubada por ele.
+  if (response.status === 401 && !options.skipAuthRedirect && getToken() === tokenUsed) {
+    clearSession();
+    unauthorizedHandler?.();
+  }
+  return new ApiError(extractMessage(body) ?? `Erro ${response.status} ao chamar ${path}`, response.status);
+}
+
 async function requestRaw<T>(
   path: string,
   init: RequestInit = {},
@@ -50,25 +67,24 @@ async function requestRaw<T>(
     },
   });
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    // 401 de uma chamada feita com um token que JÁ FOI TROCADO (troca de senha enquanto ela estava em
-    // voo) é obsoleto: a sessão atual é outra e válida - não pode ser derrubada por ele.
-    if (response.status === 401 && !options.skipAuthRedirect && getToken() === token) {
-      clearSession();
-      unauthorizedHandler?.();
-    }
-    throw new ApiError(
-      extractMessage(body) ?? `Erro ${response.status} ao chamar ${path}`,
-      response.status,
-    );
-  }
+  if (!response.ok) throw await failure(response, path, token, options);
 
   // Corpo vazio pode vir com 204 OU 200/201 - .text() primeiro é seguro para os dois casos.
   const text = await response.text();
   const header = response.headers.get(TOTAL_COUNT_HEADER);
   const total = header !== null && header.trim() !== "" && Number.isFinite(Number(header)) ? Number(header) : null;
   return { data: (text ? JSON.parse(text) : undefined) as T, total };
+}
+
+/** GET autenticado de um arquivo (ex.: PDF): devolve o corpo como Blob; erros seguem o mesmo contrato do JSON. */
+async function requestBlob(path: string, options: RequestOptions = {}): Promise<Blob> {
+  const token = getToken();
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "GET",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!response.ok) throw await failure(response, path, token, options);
+  return response.blob();
 }
 
 async function request<T>(path: string, init: RequestInit = {}, options: RequestOptions = {}): Promise<T> {
@@ -95,6 +111,20 @@ export const api = {
   /** GET de um corpo (objeto) que também traz o total no header X-Total-Count (ex.: /attendance/me). */
   getWithTotal: <T>(path: string, options?: RequestOptions) =>
     requestRaw<T>(path, { method: "GET" }, options),
+  /** GET autenticado de um arquivo binário (PDF etc.) como Blob. */
+  getBlob: (path: string, options?: RequestOptions) => requestBlob(path, options),
+  /** POST multipart (upload de arquivo): sem Content-Type manual - o navegador define o boundary. */
+  postForm: async <T>(path: string, form: FormData, options: RequestOptions = {}): Promise<T> => {
+    const token = getToken();
+    const response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      body: form,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw await failure(response, path, token, options);
+    const text = await response.text();
+    return (text ? JSON.parse(text) : undefined) as T;
+  },
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>(path, { method: "POST", ...jsonBody(body) }, options),
   patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>

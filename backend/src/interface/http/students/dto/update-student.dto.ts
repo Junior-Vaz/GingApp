@@ -1,5 +1,6 @@
 import { StudentStatus } from '@prisma/client';
 import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
+import { IsImageRef } from '../../../../shared/uploads/image-ref';
 
 /**
  * Update parcial. Semantica de PATCH: campo ausente = nao mexe; `null` = LIMPA a coluna (so nos
@@ -35,7 +36,7 @@ export class UpdateStudentDto {
   email?: string | null;
 
   @IsOptional()
-  @IsString()
+  @IsImageRef()
   photo?: string | null;
 
   @ValidateIf((_, v) => v !== undefined)

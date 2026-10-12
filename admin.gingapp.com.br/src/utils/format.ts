@@ -32,3 +32,15 @@ export function formatBRL(cents: number): string {
 export function formatInt(value: number): string {
   return value.toLocaleString('pt-BR')
 }
+
+/** Rótulo em português do tipo de organização (valor da API inalterado: GROUP, SYSTEM). */
+export function organizationTypeLabel(type: string): string {
+  const labels: Record<string, string> = { GROUP: 'Grupo', SYSTEM: 'Sistema' }
+  return labels[type] ?? type
+}
+
+/** Rótulo em português do status de uma organização/vínculo (valor da API inalterado). */
+export function entityStatusLabel(status: string): string {
+  const labels: Record<string, string> = { ACTIVE: 'Ativo', INACTIVE: 'Inativo' }
+  return labels[status] ?? status
+}

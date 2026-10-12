@@ -24,4 +24,9 @@
     border: 0; box-shadow: none; background: #fff; color: #000; padding: 24px;
   }
   .no-print { display: none !important; }
+  /* Relatórios: com a página aberta (.report-printable), só o relatório sai na impressão. */
+  body:has(.report-printable) * { visibility: hidden !important; }
+  body:has(.report-printable) .report-printable,
+  body:has(.report-printable) .report-printable * { visibility: visible !important; }
+  body:has(.report-printable) .report-printable { position: absolute; left: 0; top: 0; width: 100%; margin: 0; background: #fff; color: #000; padding: 16px; }
 }

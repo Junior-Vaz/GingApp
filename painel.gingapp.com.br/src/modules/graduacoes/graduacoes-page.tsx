@@ -3,6 +3,7 @@ import type { UseFormReturn } from "react-hook-form";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
+import { ExportRowsButton } from "@/components/painel/export-csv-button";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { PageHeader } from "@/components/painel/page-header";
 import { StudentPicker, type StudentOption } from "@/components/painel/student-picker";
@@ -404,9 +405,25 @@ function AlunosTab() {
         <div className="w-full max-w-sm">
           <StudentPicker value={selectedId ?? null} onChange={setStudent} />
         </div>
-        <Button disabled={!selectedId} onClick={() => setRegistering(true)}>
-          Registrar graduação
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <ExportRowsButton
+            filename="graduacoes-aluno"
+            disabled={!selectedId || !history.data || history.data.length === 0}
+            build={() => ({
+              headers: ["Aluno", "Nível", "Sistema", "Data", "Observação"],
+              rows: (history.data ?? []).map((g) => [
+                student?.name ?? "",
+                g.graduationLevel.name,
+                systemName(g.graduationLevel.graduationSystemId),
+                fmt(dayOnly(g.graduatedAt), "dd/MM/yyyy"),
+                g.notes ?? "",
+              ]),
+            })}
+          />
+          <Button disabled={!selectedId} onClick={() => setRegistering(true)}>
+            Registrar graduação
+          </Button>
+        </div>
       </div>
 
       {!selectedId ? (

@@ -82,6 +82,26 @@ services:
       # TERMS_ENFORCEMENT=true: o servidor tambem barra (403) quem nao aceitou a versao vigente dos Termos/Politica.
       # Padrao false: so o frontend exige o aceite.
       TERMS_ENFORCEMENT: "${TERMS_ENFORCEMENT:-false}"
+      # E-mail transacional (OPCIONAL): "Esqueci minha senha" e convite de aluno/responsavel por e-mail. Sem SMTP_HOST
+      # (e remetente) o recurso fica DESLIGADO e nada muda (botao "Esqueci a senha" nao aparece; GET /auth/capabilities
+      # devolve passwordResetByEmail=false). SMTP_SECURE=true = TLS direto (porta 465); vazio/false = STARTTLS (587).
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      SMTP_SECURE: "${SMTP_SECURE:-}"
+      # Origens publicas dos frontends, usadas nos LINKS dos e-mails (/redefinir-senha?token=...) e no QR do certificado PDF.
+      APP_URL: "${APP_URL:-https://app.gingapp.com.br}"
+      PAINEL_URL: "${PAINEL_URL:-https://painel.gingapp.com.br}"
+      ADMIN_URL: "${ADMIN_URL:-https://admin.gingapp.com.br}"
+      # Imagens enviadas (POST /uploads): gravadas em disco, sem servico externo (S3/R2). UPLOADS_DIR e o diretorio
+      # dentro do container (volume gingapp_uploads, sobrevive a redeploy); UPLOAD_ORG_QUOTA_MB = cota de imagens
+      # por grupo (padrao 1024; 0 = sem limite). Limite por arquivo: 5 MB (fixo no codigo).
+      UPLOADS_DIR: "/app/uploads"
+      UPLOAD_ORG_QUOTA_MB: "${UPLOAD_ORG_QUOTA_MB:-1024}"
+    volumes:
+      - gingapp_uploads:/app/uploads
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
@@ -117,6 +137,8 @@ services:
       BACKUP_INTERVAL_HOURS: "${BACKUP_INTERVAL_HOURS:-24}"
     volumes:
       - gingapp_backups:/backups
+      # Imagens enviadas (somente leitura): entram no backup como gingapp-uploads-*.tgz junto de cada dump.
+      - gingapp_uploads:/uploads:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -134,6 +156,16 @@ services:
             mv "$${file}.tmp" "$${file}"
             echo "[backup] ok: $${file} ($$(wc -c < "$${file}") bytes)"
             find /backups -maxdepth 1 -name 'gingapp-*.dump' -mtime +"$${BACKUP_KEEP_DAYS}" -print -delete
+            # imagens enviadas (POST /uploads): tar.gz do volume gingapp_uploads, mesma retencao; falha aqui so avisa
+            upl="/backups/gingapp-uploads-$${stamp}.tgz"
+            if tar czf "$${upl}.tmp" -C /uploads . 2>/dev/null && [ -s "$${upl}.tmp" ]; then
+              mv "$${upl}.tmp" "$${upl}"
+              echo "[backup] ok: $${upl} ($$(wc -c < "$${upl}") bytes)"
+              find /backups -maxdepth 1 -name 'gingapp-uploads-*.tgz' -mtime +"$${BACKUP_KEEP_DAYS}" -print -delete
+            else
+              echo "[backup] AVISO: backup das imagens falhou em $${stamp} (o dump do banco esta ok)"
+              rm -f "$${upl}.tmp"
+            fi
           else
             echo "[backup] FALHOU em $${stamp}; dumps anteriores mantidos"
             rm -f "$${file}.tmp"
@@ -168,6 +200,7 @@ services:
 volumes:
   gingapp_pgdata:
   gingapp_backups:
+  gingapp_uploads:
 
 networks:
   gingapp:

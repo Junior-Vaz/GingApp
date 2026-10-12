@@ -3072,3 +3072,42 @@ Pendências: (a) `/events/:id/participants` POST por professor restrito não con
 3. Tela de pedidos de exclusÃ£o (LGPD) no admin; copiar dumps para fora do servidor e alerta de falha do backup; `restore.sh verify` em staging.
 4. RevisÃ£o jurÃ­dica dos textos; admin sem "Meus dados".
 5. Ainda do inventÃ¡rio: upload de imagens, CSV, relatÃ³rios reais, AuditLog (admin), admin em portuguÃªs, refresh token, Web Push, e-mail/esqueci a senha (SMTP), comunidade pÃºblica, eventos/rodas/comunicados mais ricos, certificado em PDF.
+
+### 10.40 Upload de imagens em disco, sem servico externo (item I01 do inventario)
+
+Estado: CONCLUIDO (sem commit). Backend + painel + app; testes: backend e2e `uploads.e2e-spec.ts` (7), vitest 3 (painel) + 2 (app).
+
+O que foi feito
+1. Backend: `POST /api/uploads` (multipart, campo `file`, autenticado, MEMBER) -> grava em disco (`UPLOADS_DIR`, padrao `./uploads`; no Docker `/app/uploads`, volume `gingapp_uploads`). Tipo checado por MAGIC BYTES (JPEG/PNG/WebP; SVG/HTML/texto => 415), limite 5 MB (413), `sharp` reprocessa (rotacao EXIF aplicada, EXIF/GPS removidos, maior lado <= 1600 px, saida WebP). Nome = uuid, nunca o do cliente. Tabela `Upload` (migration `add_uploads`: organizationId, userId, filename unico, mimeType, sizeBytes). Cota por grupo `UPLOAD_ORG_QUOTA_MB` (padrao 1024; 0 = sem limite) e rate limit 20/min por usuario e por IP (`UPLOAD_THROTTLE_LIMIT`).
+2. `GET /api/uploads/:file` publico: so aceita o formato exato `<uuid>.(webp|jpg|png)` (path traversal impossivel), `Cache-Control: public, max-age=31536000, immutable`, `X-Content-Type-Options: nosniff`, CSP `default-src 'none'; sandbox`; sem listagem (GET /uploads = 404).
+3. Validador compartilhado `IsImageRef` (shared/uploads/image-ref.ts): campos de imagem aceitam `/api/uploads/<uuid>.<ext>` OU URL http(s) completa. Aplicado em Student.photo (create/update), PATCH /students/me/profile (photo, coverPhoto), Organization.logo, Event.imageUrl, Roda.imageUrl.
+4. Painel: `ImageUploader`/`ImageUploadField` (components/painel/image-upload-field.tsx) com envio, pre-visualizacao, Remover e URL manual opcional; usado em Aluno (campo Foto, novo), Configuracoes (Logomarca), Eventos e Rodas (capa). `lib/uploads.ts` (validacao no cliente, `imageSrc` prefixa a origem da API em dev).
+5. App: `ImageUploadControl` (components/gingapp/image-upload.tsx) na tela Perfil (foto e capa), mantendo o campo de URL e o "Remover".
+6. Infra: Dockerfile (runner sem `--omit=optional` para o binario nativo do sharp; pasta /app/uploads), compose easypanel + prod (volume), `.env.easypanel.example`, `docs/EASYPANEL.md` (secao 11) e backup diario tambem gera `gingapp-uploads-*.tgz`.
+
+O que NAO deu certo / decisoes
+1. Imagens substituidas ou removidas na tela NAO sao apagadas do disco (ficam orfas e contam na cota). Pendencia: job de limpeza.
+2. Se o binario do sharp faltar na plataforma, o backend grava SEM reprocessar (log de aviso) - nao ocorre no Windows de dev (sharp 0.34.5 ok) e o lock traz o pacote musl para o Docker; a imagem Docker NAO foi buildada nem testada aqui (so `docker compose config` do easypanel foi validado).
+3. Sem varredura de virus e sem CDN: o nginx dos fronts repassa /api (client_max_body_size 10m ja cobre os 5 MB).
+
+### 10.41 Onda 3 de completude (upload, CSV/relatÃ³rios, auditoria, senha por e-mail, PDF)
+
+**Data:** 2026-10-12 Â· **Status:** âœ… concluÃ­do. Gate: backend 98 unit + 745 e2e (`test:quick`) + 14 (bootstrap), admin 120, painel 432, app 97.
+
+- **Upload de imagens** (sem serviÃ§o externo): `POST /uploads` (magic bytes, 5 MB, sharp â†’ WebP â‰¤1600px, sem EXIF), volume `gingapp_uploads`, cota por grupo; foto do aluno, logo, capa de eventos/rodas, perfil no app. Backup inclui `.tgz` das imagens.
+- **CSV/relatÃ³rios:** `POST /students/import` (dryRun, â‰¤500 linhas, idempotente), exportaÃ§Ãµes CSV (`;`, BOM, anti-injeÃ§Ã£o de fÃ³rmula), pÃ¡gina RelatÃ³rios com dados reais (presenÃ§a, financeiro, alunos, graduaÃ§Ãµes).
+- **Auditoria:** `AuditService.record` (SSOT, nunca lanÃ§a, filtra segredos), `GET /audit-logs` (plataforma) e `/audit-logs/me-group` (MESTRE), telas no admin e no painel; `FeatureGuard` (`@RequireFeature`) faz `Plan.features`/override bloquear `finance` e `certificates`; "Recebido" usa `paidCents`.
+- **Senha por e-mail** (SMTP opcional, desligado por padrÃ£o): esqueci/redefinir senha, convite por e-mail; **certificado em PDF** (pdfkit + QR).
+
+#### O que NÃƒO deu certo e a soluÃ§Ã£o
+- `npm run test:quick -- --smoke` rodava a suÃ­te inteira: o npm 11 engole a flag â†’ aceita a palavra `smoke` (`npm run test:quick -- smoke` = 6 specs, 74 testes, 32 s).
+- `demo-seed` falhou por envelhecimento (janela deslizante mantÃ©m o histÃ³rico; o teste assumia â‰¤61 dias) â†’ teste ajustado (sÃ³ limite superior fixo + janela recente coberta).
+- Falhas intermitentes em specs de outros mÃ³dulos durante as rodadas dos agentes eram concorrÃªncia no mesmo banco de dev; no gate Ãºnico (sem agentes rodando) ficaram 0.
+- Texto do PDF nÃ£o foi validado por nenhum agente (sem leitor de PDF); revisÃ£o visual feita pelo owner.
+
+#### PendÃªncias (numeradas)
+1. Imagens Ã³rfÃ£s (substituÃ­das/removidas) continuam em disco e contam na cota â†’ job de limpeza; `sharp` no Alpine e o `tar` do backup de uploads nÃ£o foram provados (sem Docker local).
+2. Auditoria sÃ³ nas aÃ§Ãµes jÃ¡ chamadas (sem interceptor global); faltam turma, graduaÃ§Ã£o, certificado, comunicados; sem retenÃ§Ã£o/purga.
+3. `PlatformSetting` e chaves de feature alÃ©m de `finance`/`certificates` continuam sem efeito; `User.twoFactorSecret` sem uso (2FA).
+4. SMTP real e o fluxo de e-mail ponta a ponta no navegador nÃ£o testados; restore das imagens Ã© manual.
+5. Ainda do inventÃ¡rio: web push, comunidade pÃºblica, eventos/rodas/comunicados mais ricos, check-in por QR, billing real da assinatura, cadastro self-service de grupo, refresh token, observabilidade/CI bloqueante.

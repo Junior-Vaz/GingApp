@@ -1,5 +1,6 @@
 import { StudentStatus } from '@prisma/client';
 import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsImageRef } from '../../../../shared/uploads/image-ref';
 
 export class CreateStudentDto {
   @IsString()
@@ -27,7 +28,7 @@ export class CreateStudentDto {
   email?: string;
 
   @IsOptional()
-  @IsString()
+  @IsImageRef()
   photo?: string;
 
   @IsOptional()

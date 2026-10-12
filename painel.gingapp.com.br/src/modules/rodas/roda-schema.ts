@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   fromLocalInput,
   idToField,
-  isHttpUrl,
+  isImageRef,
   nullableId,
   nullableText,
   optionalId,
@@ -21,7 +21,7 @@ export const rodaSchema = z.object({
   imageUrl: z
     .string()
     .trim()
-    .refine((value) => value === "" || isHttpUrl(value), "Informe uma URL válida (http/https)."),
+    .refine((value) => value === "" || isImageRef(value), "Informe uma URL válida (http/https)."),
 });
 
 export type RodaFormValues = z.infer<typeof rodaSchema>;

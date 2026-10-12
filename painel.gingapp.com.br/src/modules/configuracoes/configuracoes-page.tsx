@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { FormDialog } from "@/components/painel/form-dialog";
+import { ImageUploadField } from "@/components/painel/image-upload-field";
 import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,7 @@ import { notifyError } from "@/lib/crud";
 import { useDashboard } from "@/lib/dashboard";
 import { formatCurrency, fmt, toDate } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
+import { imageSrc } from "@/lib/uploads";
 import { NativeSelect } from "@/modules/alunos/native-select";
 import {
   SOCIAL_NETWORKS,
@@ -122,7 +124,7 @@ function OrganizationCard() {
             <Field label="Ano de fundação" value={data.foundedYear ? String(data.foundedYear) : null} />
             <Field label="Cidade / UF" value={location} />
             <LinkField label="Site" href={data.website} />
-            <LinkField label="Logomarca" href={data.logo} />
+            <LinkField label="Logomarca" href={imageSrc(data.logo)} />
             {SOCIAL_NETWORKS.map(({ key, label }) => (
               <LinkField key={key} label={label} href={data.socialLinks?.[key]} />
             ))}
@@ -304,19 +306,12 @@ function OrganizationCard() {
                   </FormItem>
                 )}
               />
-              <FormField
-                control={form.control}
+              <ImageUploadField<OrganizationFormValues>
                 name="logo"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Logomarca (link da imagem)</FormLabel>
-                    <FormControl>
-                      <Input placeholder="https://" {...field} />
-                    </FormControl>
-                    <FormDescription>O envio de arquivos ainda não existe: informe o link de uma imagem já publicada.</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                label="Logomarca"
+                shape="square"
+                previewAlt="Logomarca do grupo"
+                description="Envie a logomarca (JPEG, PNG ou WebP até 5 MB) ou cole o link de uma imagem já publicada."
               />
               <FormField
                 control={form.control}

@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional } from 'class-validator';
+import { IsBoolean, IsEmail, IsOptional } from 'class-validator';
 import { IsNewPassword } from '../../../../shared/security/new-password.decorator';
 
 /**
@@ -15,4 +15,12 @@ export class CreateStudentAccountDto {
   @IsOptional()
   @IsNewPassword()
   password?: string;
+
+  /**
+   * Convite por e-mail (opcional; só com SMTP ativo): em vez de senha provisória, a pessoa recebe um link para
+   * definir a PRÓPRIA senha. Não combina com `password`. O fluxo padrão (senha provisória) segue inalterado.
+   */
+  @IsOptional()
+  @IsBoolean()
+  sendInvite?: boolean;
 }

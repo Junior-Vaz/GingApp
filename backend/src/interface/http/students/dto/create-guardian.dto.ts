@@ -36,4 +36,9 @@ export class CreateGuardianDto {
   @IsOptional()
   @IsNewPassword()
   password?: string;
+
+  /** Convite por e-mail (só com SMTP ativo): o responsável define a PRÓPRIA senha pelo link; não informe `password`. */
+  @IsOptional()
+  @IsBoolean()
+  sendInvite?: boolean;
 }

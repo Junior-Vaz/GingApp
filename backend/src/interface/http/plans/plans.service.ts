@@ -1,6 +1,8 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { CreatePlanDto } from './dto/create-plan.dto';
 import { UpdatePlanDto } from './dto/update-plan.dto';
 
@@ -12,7 +14,10 @@ import { UpdatePlanDto } from './dto/update-plan.dto';
  */
 @Injectable()
 export class PlansService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   findAll() {
     return this.prisma.plan.findMany({ orderBy: { priceCents: 'asc' } });
@@ -29,7 +34,7 @@ export class PlansService {
   async create(dto: CreatePlanDto) {
     await this.assertCodeAvailable(dto.code);
 
-    return this.prisma.plan.create({
+    const created = await this.prisma.plan.create({
       data: {
         name: dto.name,
         code: dto.code,
@@ -41,6 +46,14 @@ export class PlansService {
         isActive: dto.isActive ?? true,
       },
     });
+    await this.audit.record({
+      organizationId: null,
+      action: AuditAction.PLAN_CREATE,
+      entity: AuditEntity.PLAN,
+      entityId: created.id,
+      meta: { code: created.code, priceCents: created.priceCents },
+    });
+    return created;
   }
 
   async update(id: number, dto: UpdatePlanDto) {
@@ -49,7 +62,7 @@ export class PlansService {
       await this.assertCodeAvailable(dto.code, id);
     }
 
-    return this.prisma.plan.update({
+    const updated = await this.prisma.plan.update({
       where: { id },
       data: {
         name: dto.name,
@@ -62,11 +75,31 @@ export class PlansService {
         isActive: dto.isActive,
       },
     });
+    await this.audit.record({
+      organizationId: null,
+      action: AuditAction.PLAN_UPDATE,
+      entity: AuditEntity.PLAN,
+      entityId: id,
+      meta: {
+        fields: Object.entries(dto)
+          .filter(([, value]) => value !== undefined)
+          .map(([key]) => key),
+      },
+    });
+    return updated;
   }
 
   async deactivate(id: number) {
     await this.findOne(id);
-    return this.prisma.plan.update({ where: { id }, data: { isActive: false } });
+    const updated = await this.prisma.plan.update({ where: { id }, data: { isActive: false } });
+    await this.audit.record({
+      organizationId: null,
+      action: AuditAction.PLAN_DELETE,
+      entity: AuditEntity.PLAN,
+      entityId: id,
+      meta: { softDelete: true },
+    });
+    return updated;
   }
 
   private async assertCodeAvailable(code: string, ignoreId?: number) {

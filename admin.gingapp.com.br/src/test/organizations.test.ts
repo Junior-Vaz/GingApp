@@ -53,7 +53,7 @@ describe('OrganizationsView — lista e permissão do botão', () => {
     const { wrapper } = await mountView(OrganizationsView)
     expect(calls[0].path).toBe('/organizations')
     expect(wrapper.get('[data-testid="org-2"]').text()).toContain('Grupo Dois')
-    expect(wrapper.get('[data-testid="org-1"]').text()).toContain('INACTIVE')
+    expect(wrapper.get('[data-testid="org-1"]').text()).toContain('Inativo')
   })
 
   it('super admin ativo vê "+ Novo grupo" e não vê o aviso de somente leitura', async () => {

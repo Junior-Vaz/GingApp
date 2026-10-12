@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { FinancialStatus, Prisma, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { GenerateMonthlyDto } from './dto/generate-monthly.dto';
 import { ListDelinquentsQueryDto } from './dto/list-delinquents-query.dto';
@@ -85,7 +87,10 @@ export interface ReceiptDto {
  */
 @Injectable()
 export class FinanceCollectionService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   // ---------------------------------------------------------------------------------------------
   // Cobrança por aluno (StudentBilling)
@@ -220,6 +225,13 @@ export class FinanceCollectionService {
       created += result.count;
     }
 
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.FINANCE_GENERATE_MONTHLY,
+      entity: AuditEntity.FINANCE,
+      entityId: dto.month,
+      meta: { month: dto.month, created, ignored: billings.length - created, unitId: dto.unitId ?? null },
+    });
     return {
       month: dto.month,
       created,
@@ -255,6 +267,18 @@ export class FinanceCollectionService {
       },
     });
     if (result.count === 0) throw new ConflictException('O lançamento mudou de situação; recarregue a lista.');
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.FINANCE_PAY,
+      entity: AuditEntity.FINANCE,
+      entityId: id,
+      meta: {
+        amountCents: record.amountCents,
+        paidCents: dto.paidCents ?? record.amountCents,
+        paymentMethod: dto.paymentMethod ?? null,
+        studentId: record.studentId,
+      },
+    });
     return this.findRecord(organizationId, id);
   }
 
@@ -267,6 +291,13 @@ export class FinanceCollectionService {
       data: { status: FinancialStatus.PENDING, paidAt: null, paymentMethod: null, paidCents: null },
     });
     if (result.count === 0) throw new ConflictException('O lançamento mudou de situação; recarregue a lista.');
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.FINANCE_REFUND,
+      entity: AuditEntity.FINANCE,
+      entityId: id,
+      meta: { paidCents: record.paidCents ?? record.amountCents, studentId: record.studentId },
+    });
     return this.findRecord(organizationId, id);
   }
 
@@ -280,6 +311,13 @@ export class FinanceCollectionService {
       data: { status: FinancialStatus.CANCELLED },
     });
     if (result.count === 0) throw new ConflictException('O lançamento mudou de situação; recarregue a lista.');
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.FINANCE_CANCEL,
+      entity: AuditEntity.FINANCE,
+      entityId: id,
+      meta: { amountCents: record.amountCents, studentId: record.studentId, previousStatus: record.status },
+    });
     return this.findRecord(organizationId, id);
   }
 

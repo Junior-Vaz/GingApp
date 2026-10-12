@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, PlatformSetting } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { ListPlatformSettingsQueryDto } from './dto/list-platform-settings-query.dto';
 import { UpsertPlatformSettingDto } from './dto/upsert-platform-setting.dto';
 
@@ -24,7 +26,8 @@ export interface PlatformSettingView {
 /**
  * Configurações globais da plataforma (model PlatformSetting: key única, value Json, isSecret).
  *
- * ATENÇÃO — NADA NO SISTEMA LÊ ESTAS CONFIGURAÇÕES AINDA: este módulo é só o cadastro/edição
+ * ATENÇÃO — NADA NO SISTEMA LÊ ESTAS CONFIGURAÇÕES AINDA (auditado: nenhum código de negócio consulta
+ * PlatformSetting; o e-mail transacional lê SMTP_* do ambiente): este módulo é só o cadastro/edição
  * (CRUD) para a tela do admin. Nenhum outro módulo (billing, auth, notificações...) consome
  * PlatformSetting; quem for usar uma chave deve lê-la direto do banco/service no momento em que
  * for implementado. Não foi inventado nenhum consumidor nem nenhuma lista de chaves "oficiais".
@@ -35,7 +38,10 @@ export interface PlatformSettingView {
  */
 @Injectable()
 export class PlatformSettingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async findAll(query: ListPlatformSettingsQueryDto = {}): Promise<Page<PlatformSettingView>> {
     const where: Prisma.PlatformSettingWhereInput = {};
@@ -66,6 +72,14 @@ export class PlatformSettingsService {
       create: { key, value, isSecret: dto.isSecret ?? false, updatedByUserId },
       update: { value, isSecret: dto.isSecret, updatedByUserId },
     });
+    // So a CHAVE e se e segredo: o valor (que pode ser segredo) nunca vai para a trilha.
+    await this.audit.record({
+      organizationId: null,
+      action: AuditAction.PLATFORM_SETTING_SET,
+      entity: AuditEntity.PLATFORM_SETTING,
+      entityId: key,
+      meta: { isSecret: setting.isSecret },
+    });
     return toView(setting);
   }
 
@@ -73,6 +87,12 @@ export class PlatformSettingsService {
     assertValidKey(key);
     const { count } = await this.prisma.platformSetting.deleteMany({ where: { key } });
     if (count === 0) throw new NotFoundException('Configuração não encontrada.');
+    await this.audit.record({
+      organizationId: null,
+      action: AuditAction.PLATFORM_SETTING_DELETE,
+      entity: AuditEntity.PLATFORM_SETTING,
+      entityId: key,
+    });
     return { key, deleted: true };
   }
 }

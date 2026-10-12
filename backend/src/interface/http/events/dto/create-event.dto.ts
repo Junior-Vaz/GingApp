@@ -1,5 +1,6 @@
-import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, IsUrl, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 import { EVENT_TYPES } from './event-type';
+import { IsImageRef } from '../../../../shared/uploads/image-ref';
 
 export class CreateEventDto {
   @IsString()
@@ -38,6 +39,6 @@ export class CreateEventDto {
   cityId?: number;
 
   @IsOptional()
-  @IsUrl()
+  @IsImageRef()
   imageUrl?: string;
 }

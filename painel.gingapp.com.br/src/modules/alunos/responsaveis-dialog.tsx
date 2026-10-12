@@ -18,7 +18,8 @@ import {
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { errorMessage } from "@/lib/api";
-import { PROVISIONAL_PASSWORD_HINT } from "@/lib/provisional-password";
+import { useAuthCapabilities } from "@/lib/password-reset";
+import { INVITE_CHECKBOX_LABEL, INVITE_HINT, PROVISIONAL_PASSWORD_HINT } from "@/lib/provisional-password";
 import { useGuardians, useStudentAccessMutations, type Guardian } from "./acesso-api";
 import {
   emptyGuardianForm,
@@ -44,6 +45,8 @@ export function ResponsaveisDialog({ student, onClose }: { student: Student | nu
   const [resetFor, setResetFor] = useState<Guardian | null>(null);
 
   const isNew = editing === "new";
+  // E-mail ligado no servidor: habilita o convite por e-mail (consulta só ao abrir o formulário de novo responsável).
+  const { passwordResetByEmail } = useAuthCapabilities(isNew);
   const guardians = query.data ?? [];
 
   return (
@@ -200,7 +203,24 @@ export function ResponsaveisDialog({ student, onClose }: { student: Student | nu
                     </FormItem>
                   )}
                 />
-                {form.watch("createAccount") && (
+                {form.watch("createAccount") && passwordResetByEmail && (
+                  <FormField
+                    control={form.control}
+                    name="sendInvite"
+                    render={({ field }) => (
+                      <FormItem>
+                        <div className="flex items-center gap-2">
+                          <FormControl>
+                            <Checkbox checked={field.value} onCheckedChange={(checked) => field.onChange(checked === true)} />
+                          </FormControl>
+                          <FormLabel className="cursor-pointer">{INVITE_CHECKBOX_LABEL}</FormLabel>
+                        </div>
+                        {field.value && <FormDescription>{INVITE_HINT}</FormDescription>}
+                      </FormItem>
+                    )}
+                  />
+                )}
+                {form.watch("createAccount") && !(passwordResetByEmail && form.watch("sendInvite")) && (
                   <>
                     <FormField
                       control={form.control}

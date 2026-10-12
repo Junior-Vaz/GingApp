@@ -14,6 +14,7 @@ import {
   BarChart3,
   Building2,
   Settings,
+  History,
   type LucideIcon,
 } from "lucide-react";
 import type { OrgRole } from "@/lib/session";
@@ -50,6 +51,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // ficam só para o MESTRE no menu.
   { to: "/unidades", label: "Unidades", icon: Building2, roles: ["MESTRE"] },
   { to: "/configuracoes", label: "Configurações", icon: Settings, roles: ["MESTRE"] },
+  // Atividade do grupo (GET /audit-logs/me-group): trilha de auditoria do próprio grupo, só o MESTRE.
+  { to: "/atividade", label: "Atividade do grupo", icon: History, roles: ["MESTRE"] },
 ];
 
 /** Mensagem mostrada quando um papel do painel abre uma rota que não é dele (ex.: PROFESSOR em /financeiro). */

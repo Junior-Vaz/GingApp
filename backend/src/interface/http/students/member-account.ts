@@ -1,6 +1,8 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { OrgRole, Prisma, UserType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { randomBytes } from 'node:crypto';
+import { PasswordResetService } from '../../../shared/security/password-reset.service';
 import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
 import { BCRYPT_ROUNDS, normalizeEmail } from '../../../shared/security/password-policy';
 
@@ -20,6 +22,18 @@ export interface ProvisionMemberUserInput {
   password?: string;
   /** Papel do vínculo NOVO no grupo (um vínculo já existente mantém o papel que tem). */
   role: OrgRole;
+  /** true = convite por e-mail: ignora `password` e cria o User com senha aleatória (a pessoa define a sua pelo link). */
+  invite?: boolean;
+}
+
+export const INVITE_DISABLED_MESSAGE = 'O envio de convite por e-mail não está habilitado neste ambiente.';
+export const INVITE_WITH_PASSWORD_MESSAGE = 'Não informe senha provisória junto com o convite por e-mail.';
+
+/** Valida o pedido de convite (400 se e-mail desligado ou se veio senha junto). Sem `sendInvite` não faz nada. */
+export function assertInviteRequest(passwordReset: PasswordResetService, sendInvite?: boolean, password?: string): void {
+  if (!sendInvite) return;
+  if (!passwordReset.isEnabled()) throw new BadRequestException(INVITE_DISABLED_MESSAGE);
+  if (password !== undefined) throw new BadRequestException(INVITE_WITH_PASSWORD_MESSAGE);
 }
 
 export interface ProvisionedMemberUser {
@@ -72,8 +86,11 @@ export async function provisionMemberUser(
     return { userId: user.id, created: false };
   }
 
-  if (!input.password) throw new BadRequestException(PASSWORD_REQUIRED_MESSAGE);
-  const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
+  // Convite por e-mail: a senha inicial é aleatória e NUNCA conhecida por ninguém; a pessoa define a própria pelo
+  // link enviado (mustChangePassword fica false: a troca obrigatória é só da senha provisória definida por outrem).
+  const secret = input.invite ? randomBytes(32).toString('base64url') : input.password;
+  if (!secret) throw new BadRequestException(PASSWORD_REQUIRED_MESSAGE);
+  const passwordHash = await bcrypt.hash(secret, BCRYPT_ROUNDS);
   const user = await tx.user.create({
     data: {
       email,
@@ -82,7 +99,7 @@ export async function provisionMemberUser(
       phone: input.phone ?? null,
       userType: UserType.MEMBER,
       status: 'ACTIVE',
-      mustChangePassword: true,
+      mustChangePassword: !input.invite,
     },
     select: { id: true },
   });

@@ -43,6 +43,7 @@ import { DEV_PASSWORD, loginAs } from './utils/list-helpers';
  */
 const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/health', 'pública, sem dado pessoal'],
+  ['/api/auth/capabilities', 'pública: só { passwordResetByEmail: boolean } (e-mail transacional ligado?), sem dado pessoal'],
   ['/api/legal', 'pública: versão vigente dos textos legais (E10), sem dado pessoal'],
   ['/api/legal/terms', 'pública: Termos de Uso (texto estático versionado no repositório)'],
   ['/api/legal/privacy', 'pública: Política de Privacidade (texto estático versionado no repositório)'],

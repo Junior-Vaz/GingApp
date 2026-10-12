@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import { IsObject, IsOptional, IsUrl, ValidateNested } from 'class-validator';
+import { IsImageRef } from '../../../../shared/uploads/image-ref';
 
 /**
  * Redes sociais do praticante — conjunto fixo de plataformas (não é um JSON livre de chave
@@ -42,11 +43,11 @@ class SocialLinksDto {
  */
 export class UpdateMyProfileDto {
   @IsOptional()
-  @IsUrl()
+  @IsImageRef()
   photo?: string | null;
 
   @IsOptional()
-  @IsUrl()
+  @IsImageRef()
   coverPhoto?: string | null;
 
   /** `null` ou `{}` (sem nenhuma rede) => coluna volta a NULL; objeto com redes => substitui por inteiro. */

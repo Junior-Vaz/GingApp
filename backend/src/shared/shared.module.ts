@@ -2,8 +2,12 @@ import { Global, Module } from '@nestjs/common';
 import { PrismaService } from './prisma/prisma.service';
 import { PermissionsService } from './access/permissions.service';
 import { UnitScopeService } from './access/unit-scope';
+import { AuditService } from './audit/audit.service';
+import { FeatureAccessService } from './features/feature-access.service';
 import { BILLING_GATEWAY_SERVICE } from './billing/billing-gateway.interface';
 import { StubBillingGatewayService } from './billing/stub-billing-gateway.service';
+import { MAIL_TRANSPORT, MailService } from './mail/mail.service';
+import { PasswordResetService } from './security/password-reset.service';
 
 /**
  * Módulo global (padrão GestorPrint): disponibiliza o PrismaService para todos os módulos
@@ -21,8 +25,24 @@ import { StubBillingGatewayService } from './billing/stub-billing-gateway.servic
     PrismaService,
     PermissionsService,
     UnitScopeService,
+    AuditService,
+    FeatureAccessService,
     { provide: BILLING_GATEWAY_SERVICE, useClass: StubBillingGatewayService },
+    // E-mail transacional opcional (SMTP_* — ver shared/mail). MAIL_TRANSPORT = null em produção; os testes
+    // sobrescrevem com um stub em memória (nenhum e-mail real).
+    { provide: MAIL_TRANSPORT, useFactory: () => null },
+    MailService,
+    PasswordResetService,
   ],
-  exports: [PrismaService, PermissionsService, UnitScopeService, BILLING_GATEWAY_SERVICE],
+  exports: [
+    PrismaService,
+    PermissionsService,
+    UnitScopeService,
+    AuditService,
+    FeatureAccessService,
+    BILLING_GATEWAY_SERVICE,
+    MailService,
+    PasswordResetService,
+  ],
 })
 export class SharedModule {}

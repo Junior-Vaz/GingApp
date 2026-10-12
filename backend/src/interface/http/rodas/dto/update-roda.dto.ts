@@ -1,4 +1,5 @@
-import { IsDateString, IsInt, IsOptional, IsString, IsUrl, MinLength, ValidateIf } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
+import { IsImageRef } from '../../../../shared/uploads/image-ref';
 
 /** Limpar campo: `null` grava NULL nas colunas NULLÁVEIS (description, location, stateId, cityId,
  * communityId, imageUrl). As OBRIGATÓRIAS (title, date) usam `@ValidateIf(v !== undefined)`:
@@ -34,6 +35,6 @@ export class UpdateRodaDto {
   communityId?: number | null;
 
   @IsOptional()
-  @IsUrl()
+  @IsImageRef()
   imageUrl?: string | null;
 }

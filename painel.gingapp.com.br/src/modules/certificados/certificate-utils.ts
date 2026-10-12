@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { api } from "@/lib/api";
 import { dayOnly, fmt, verificationUrl } from "@/lib/format";
 
 /** Contrato real de GET /certificates (Certificate + student {id,name}). */
@@ -82,4 +83,21 @@ export function toEditPayload(v: EditValues) {
     ...(v.issuedAt ? { issuedAt: v.issuedAt } : {}),
     fileUrl: v.fileUrl.trim() || null,
   };
+}
+/** Nome do arquivo baixado: certificado-<codigo de verificacao ou id>.pdf. */
+export const certificatePdfFileName = (c: Pick<Certificate, "id" | "verificationCode">): string =>
+  `certificado-${c.verificationCode || c.id}.pdf`;
+
+/** GET /certificates/:id/pdf (autenticado, blob) e dispara o download no navegador. Erros sobem como ApiError. */
+export async function downloadCertificatePdf(c: Pick<Certificate, "id" | "verificationCode">): Promise<void> {
+  const blob = await api.getBlob(`/certificates/${c.id}/pdf`);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = certificatePdfFileName(c);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoga depois: alguns navegadores iniciam o download de forma assíncrona.
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }

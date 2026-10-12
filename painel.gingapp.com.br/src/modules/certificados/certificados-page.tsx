@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import { toast } from "sonner";
-import { Copy, ExternalLink } from "lucide-react";
+import { Copy, Download, ExternalLink } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
@@ -17,11 +17,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { errorMessage } from "@/lib/api";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
 import { useCan } from "@/lib/session";
 import {
   certificateLink,
+  downloadCertificatePdf,
   certificateToEdit,
   editSchema,
   emptyCertificateFilters,
@@ -72,6 +74,7 @@ export function CertificadosPage() {
   const [editing, setEditing] = useState<Certificate | null>(null);
   const [deleting, setDeleting] = useState<Certificate | null>(null);
   const [viewing, setViewing] = useState<Certificate | null>(null);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   const { filters } = lp;
   const hasFilter = !!(filters.studentId || filters.from || filters.to);
@@ -84,6 +87,19 @@ export function CertificadosPage() {
       toast.error("Não foi possível copiar o link.");
     }
   }
+
+  async function downloadPdf(c: Certificate) {
+    setDownloadingId(c.id);
+    try {
+      await downloadCertificatePdf(c);
+    } catch (error) {
+      toast.error(errorMessage(error, "Não foi possível baixar o PDF do certificado."));
+    } finally {
+      setDownloadingId(null);
+    }
+  }
+
+  const pdfLabel = (c: Certificate) => (downloadingId === c.id ? "Baixando…" : "Baixar PDF");
 
   const columns: Column<Certificate>[] = [
     { id: "student", header: "Aluno", sortValue: (c) => c.student.name, cell: (c) => <span className="font-medium">{c.student.name}</span> },
@@ -154,6 +170,9 @@ export function CertificadosPage() {
           <>
             <Button variant="ghost" size="sm" onClick={() => setViewing(c)}>
               Verificação
+            </Button>
+            <Button variant="ghost" size="sm" disabled={downloadingId === c.id} onClick={() => void downloadPdf(c)}>
+              {pdfLabel(c)}
             </Button>
             <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
               Editar
@@ -312,6 +331,14 @@ export function CertificadosPage() {
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={() => void copyLink(viewing.verificationCode)}>
                   <Copy /> Copiar link
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={downloadingId === viewing.id}
+                  onClick={() => void downloadPdf(viewing)}
+                >
+                  <Download /> {pdfLabel(viewing)}
                 </Button>
                 <Button variant="outline" size="sm" asChild>
                   <a href={certificateLink(viewing.verificationCode)} target="_blank" rel="noreferrer">

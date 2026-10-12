@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CheckCheck, UserX } from "lucide-react";
+import { ExportCsvButton } from "@/components/painel/export-csv-button";
 import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -178,7 +179,17 @@ export function FrequenciaPage() {
 
   return (
     <>
-      <PageHeader title="Frequência" description="Registre a chamada de uma aula." />
+      <PageHeader
+        title="Frequência"
+        description="Registre a chamada de uma aula. O CSV traz a frequência por aluno na turma e no período filtrados (sem datas: últimos 30 dias)."
+        actions={
+          <ExportCsvButton
+            path="/reports/attendance/export.csv"
+            filename="frequencia"
+            params={{ classId: classFilter, from, to }}
+          />
+        }
+      />
 
       <div className="mb-4 grid gap-3 rounded-lg border bg-card p-4 sm:grid-cols-2 lg:grid-cols-4">
         <div className="space-y-1.5">

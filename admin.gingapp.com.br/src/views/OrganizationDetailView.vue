@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api, ApiError } from '@/utils/api'
 import { takeFlash } from '@/utils/flash'
+import { organizationTypeLabel } from '@/utils/format'
 import {
   NEW_PASSWORD_MIN_LENGTH,
   PASSWORD_MAX_BYTES,
@@ -156,7 +157,7 @@ async function loadAll(): Promise<void> {
     subscription.value = subscriptions[0] ?? null
     selectedPlanId.value = subscription.value ? String(subscription.value.planId) : ''
   } catch (error) {
-    loadError.value = error instanceof ApiError ? error.message : 'Não foi possível carregar a organização.'
+    loadError.value = error instanceof ApiError ? error.message : 'Não foi possível carregar o grupo.'
   } finally {
     isLoading.value = false
   }
@@ -165,7 +166,7 @@ async function loadAll(): Promise<void> {
 async function saveOverride(): Promise<void> {
   overrideError.value = ''
   if (!overrideForm.featureKey.trim()) {
-    overrideError.value = 'Informe a chave da feature.'
+    overrideError.value = 'Informe a chave do recurso.'
     return
   }
 
@@ -179,7 +180,7 @@ async function saveOverride(): Promise<void> {
     Object.assign(overrideForm, { featureKey: '', enabled: true, note: '' })
     await loadAll()
   } catch (error) {
-    overrideError.value = error instanceof ApiError ? error.message : 'Não foi possível salvar o override.'
+    overrideError.value = error instanceof ApiError ? error.message : 'Não foi possível salvar a exceção.'
   } finally {
     isSavingOverride.value = false
   }
@@ -192,19 +193,19 @@ async function toggleOverride(override: FeatureOverride): Promise<void> {
     })
     await loadAll()
   } catch (error) {
-    overrideError.value = error instanceof ApiError ? error.message : 'Não foi possível atualizar o override.'
+    overrideError.value = error instanceof ApiError ? error.message : 'Não foi possível atualizar a exceção.'
   }
 }
 
 async function removeOverride(override: FeatureOverride): Promise<void> {
-  if (!confirm(`Remover o override de "${override.featureKey}"? Volta ao comportamento padrão do plano.`)) {
+  if (!confirm(`Remover a exceção de "${override.featureKey}"? Volta ao comportamento padrão do plano.`)) {
     return
   }
   try {
     await api.delete(`/organizations/${organizationId}/feature-overrides/${override.id}`)
     await loadAll()
   } catch (error) {
-    overrideError.value = error instanceof ApiError ? error.message : 'Não foi possível remover o override.'
+    overrideError.value = error instanceof ApiError ? error.message : 'Não foi possível remover a exceção.'
   }
 }
 
@@ -232,7 +233,7 @@ async function assignPlan(): Promise<void> {
 
 async function cancelSubscription(): Promise<void> {
   if (!subscription.value) return
-  if (!confirm('Cancelar a assinatura desta organização? O plano deixa de ser aplicado imediatamente.')) {
+  if (!confirm('Cancelar a assinatura deste grupo? O plano deixa de ser aplicado imediatamente.')) {
     return
   }
 
@@ -382,13 +383,13 @@ onMounted(() => {
 <template>
   <div>
     <RouterLink to="/organizations" class="text-sm font-medium text-slate-500 hover:text-slate-900">
-      &larr; Organizations
+      &larr; Grupos
     </RouterLink>
 
     <h1 class="mt-2 text-2xl font-semibold tracking-tight text-slate-900">
-      {{ organization?.name ?? `Organization #${organizationId}` }}
+      {{ organization?.name ?? `Grupo #${organizationId}` }}
     </h1>
-    <p v-if="organization" class="mt-1 text-sm text-slate-500">{{ organization.slug }} · {{ organization.type }}</p>
+    <p v-if="organization" class="mt-1 text-sm text-slate-500">{{ organization.slug }} · {{ organizationTypeLabel(organization.type) }}</p>
 
     <div v-if="organization" class="mt-3 flex flex-wrap items-center gap-3" data-testid="org-header">
       <span
@@ -536,7 +537,7 @@ onMounted(() => {
     </div>
 
     <div v-if="!isLoading" class="mt-6 rounded-xl border border-slate-200 bg-white p-6">
-      <h2 class="text-lg font-semibold text-slate-900">Feature overrides</h2>
+      <h2 class="text-lg font-semibold text-slate-900">Exceções de recursos</h2>
       <p class="mt-1 text-sm text-slate-500">
         Exceções pontuais fora da régua do plano (ex.: liberar algo em cortesia, desativar para suporte).
       </p>
@@ -567,11 +568,11 @@ onMounted(() => {
           </div>
         </div>
       </div>
-      <p v-else class="mt-4 text-sm text-slate-400">Nenhum override para esta organização.</p>
+      <p v-else class="mt-4 text-sm text-slate-400">Nenhuma exceção para este grupo.</p>
 
       <form class="mt-5 flex flex-wrap items-end gap-3 border-t border-slate-100 pt-5" @submit.prevent="saveOverride">
         <div class="min-w-[200px]">
-          <label class="mb-1 block text-sm font-medium text-slate-700">Chave da feature</label>
+          <label class="mb-1 block text-sm font-medium text-slate-700">Chave do recurso</label>
           <input
             v-model="overrideForm.featureKey"
             type="text"
@@ -597,7 +598,7 @@ onMounted(() => {
           :disabled="isSavingOverride"
           class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {{ isSavingOverride ? 'Salvando…' : '+ Adicionar override' }}
+          {{ isSavingOverride ? 'Salvando…' : '+ Adicionar exceção' }}
         </button>
       </form>
 

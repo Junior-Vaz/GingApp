@@ -351,8 +351,11 @@ describe('Grupo demo (prisma/demo.ts) (e2e)', () => {
     it('aulas/frequência: janela relativa a hoje, passadas e futuras; ~75% de presença; chamada só em aula passada', async () => {
       const lessons = await prisma.lesson.findMany({ where: { organizationId: orgId }, include: { attendances: true, class: true } });
       const now = Date.now();
-      assert.ok(lessons.every((l) => l.date.getTime() >= now - 61 * DAY && l.date.getTime() <= now + 15 * DAY));
+      // O demo é uma janela deslizante que MANTÉM o histórico (re-executar só acrescenta): o limite inferior
+      // cresce com o tempo, então só o superior é fixo; a janela recente precisa estar coberta.
+      assert.ok(lessons.every((l) => l.date.getTime() <= now + 15 * DAY));
       assert.ok(lessons.some((l) => l.date.getTime() > now) && lessons.some((l) => l.date.getTime() < now - 30 * DAY));
+      assert.ok(lessons.some((l) => l.date.getTime() >= now - 14 * DAY && l.date.getTime() < now), 'sem aulas passadas recentes');
       for (const l of lessons) {
         assert.equal(l.date.getUTCDay(), l.class.weekday, 'aula no dia da semana da turma');
         if (l.date.getTime() >= now - DAY) assert.equal(l.attendances.length, 0, 'sem chamada em aula de hoje/futura');

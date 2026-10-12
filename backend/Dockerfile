@@ -39,7 +39,9 @@ FROM ${NODE_IMAGE} AS prod-deps
 WORKDIR /app
 RUN apk add --no-cache python3 make g++
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --omit=optional
+# SEM --omit=optional: o sharp (reprocessa as imagens de POST /uploads) traz o binario nativo (musl) como
+# optionalDependency; omitir deixaria o upload sem redimensionar/limpar EXIF.
+RUN npm ci --omit=dev
 
 # ---------- runner: imagem final enxuta ----------
 FROM ${NODE_IMAGE} AS runner
@@ -56,6 +58,11 @@ COPY --from=build /app/node_modules/@prisma/client ./node_modules/@prisma/client
 COPY --from=build /app/dist ./dist
 COPY prisma/schema.prisma ./prisma/schema.prisma
 COPY package.json ./
+
+# Imagens enviadas (POST /uploads) ficam em /app/uploads (volume gingapp_uploads no compose). Criada e entregue ao
+# usuario nestjs aqui: um volume nomeado novo herda este dono.
+RUN mkdir -p /app/uploads && chown nestjs:nodejs /app/uploads
+ENV UPLOADS_DIR=/app/uploads
 
 USER nestjs
 
@@ -99,5 +106,8 @@ CMD ["sh", "-c", "npx prisma migrate deploy && npx ts-node prisma/bootstrap.ts"]
 # Os stages "runner" (imagem enxuta) e "migrate" ficam para o docker-compose.prod.yml.
 FROM build AS server
 ENV NODE_ENV=production
+# Imagens enviadas (POST /uploads): o compose monta o volume gingapp_uploads aqui (UPLOADS_DIR=/app/uploads).
+RUN mkdir -p /app/uploads
+ENV UPLOADS_DIR=/app/uploads
 EXPOSE 3000
 CMD ["sh", "-c", "npx prisma migrate deploy && npx ts-node prisma/bootstrap.ts && { [ \"$DEMO_GROUP\" != true ] || npx ts-node prisma/demo.ts || echo '[demo] ERRO: o grupo demo nao foi criado (veja as linhas acima); a API sobe mesmo assim.'; } && exec node dist/main.js"]

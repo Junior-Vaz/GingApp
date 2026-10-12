@@ -32,6 +32,22 @@ interface RequestOptions {
   skipAuthRedirect?: boolean;
 }
 
+async function throwApiError(
+  response: Response,
+  path: string,
+  token: string | null,
+  options: RequestOptions,
+): Promise<never> {
+  const body = await response.json().catch(() => null);
+  // 401 de uma chamada feita com um token que JÁ FOI TROCADO (troca de senha enquanto ela estava em
+  // voo) é obsoleto: a sessão atual é outra e válida - não pode ser derrubada por ele.
+  if (response.status === 401 && !options.skipAuthRedirect && getToken() === token) {
+    clearSession();
+    unauthorizedHandler?.();
+  }
+  throw new ApiError(extractMessage(body) ?? `Erro ${response.status} ao chamar ${path}`, response.status);
+}
+
 async function requestRaw<T>(
   path: string,
   init: RequestInit = {},
@@ -47,19 +63,7 @@ async function requestRaw<T>(
     },
   });
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => null);
-    // 401 de uma chamada feita com um token que JÁ FOI TROCADO (troca de senha enquanto ela estava em
-    // voo) é obsoleto: a sessão atual é outra e válida - não pode ser derrubada por ele.
-    if (response.status === 401 && !options.skipAuthRedirect && getToken() === token) {
-      clearSession();
-      unauthorizedHandler?.();
-    }
-    throw new ApiError(
-      extractMessage(body) ?? `Erro ${response.status} ao chamar ${path}`,
-      response.status,
-    );
-  }
+  if (!response.ok) await throwApiError(response, path, token, options);
 
   // Corpo vazio pode vir com 204 OU 200/201 - .text() primeiro é seguro para os dois casos.
   const text = await response.text();
@@ -112,6 +116,28 @@ export const api = {
   },
   get: <T>(path: string, options?: RequestOptions) =>
     request<T>(path, { method: "GET" }, options),
+  /** GET autenticado de um arquivo binário (ex.: PDF). Erros seguem o mesmo contrato de `ApiError`. */
+  getBlob: async (path: string, options: RequestOptions = {}): Promise<Blob> => {
+    const token = getToken();
+    const response = await fetch(`${API_URL}${path}`, {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) await throwApiError(response, path, token, options);
+    return response.blob();
+  },
+  /** POST multipart (upload de arquivo): sem Content-Type manual - o navegador define o boundary. */
+  postForm: async <T>(path: string, form: FormData, options: RequestOptions = {}): Promise<T> => {
+    const token = getToken();
+    const response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      body: form,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) await throwApiError(response, path, token, options);
+    const text = await response.text();
+    return (text ? JSON.parse(text) : undefined) as T;
+  },
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>(path, { method: "POST", ...jsonBody(body) }, options),
   patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>

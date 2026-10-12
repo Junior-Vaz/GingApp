@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -11,6 +11,7 @@ import { Card } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { login, safeRedirect } from "@/lib/auth";
+import { useAuthCapabilities } from "@/lib/password-reset";
 
 const loginSchema = z.object({
   email: z.string().min(1, "Informe o e-mail.").email("E-mail inválido."),
@@ -21,6 +22,8 @@ type LoginValues = z.infer<typeof loginSchema>;
 
 export function LoginPage({ redirect }: { redirect?: string | undefined }) {
   const navigate = useNavigate();
+  // Link "Esqueci minha senha" só com e-mail ligado no servidor (consulta com erro = oculto).
+  const { passwordResetByEmail } = useAuthCapabilities();
   const [needsSlug, setNeedsSlug] = useState(false);
   const [error, setError] = useState("");
   const form = useForm<LoginValues>({
@@ -104,6 +107,11 @@ export function LoginPage({ redirect }: { redirect?: string | undefined }) {
                 <LogIn />
                 {form.formState.isSubmitting ? "Entrando…" : "Entrar"}
               </Button>
+              {passwordResetByEmail && (
+                <Link to="/esqueci-senha" className="text-center text-sm underline">
+                  Esqueci minha senha
+                </Link>
+              )}
               {!needsSlug && (
                 <button
                   type="button"

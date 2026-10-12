@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { Award } from "lucide-react";
+import { Award, Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { errorMessage } from "@/lib/api";
+import { downloadCertificatePdf } from "@/lib/certificate-pdf";
 import { dayOnly, fmt, readableIconColor, softenColor, verificationUrl } from "@/lib/format";
 import {
   useAttendance,
@@ -73,6 +74,38 @@ export function QrDialog({
         </Button>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** "Baixar PDF" de um certificado: busca autenticada do arquivo, com estado de carregando e erro na própria linha. */
+function CertificatePdfButton({ certificate }: { certificate: Certificate }) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  async function download() {
+    setLoading(true);
+    setError("");
+    try {
+      await downloadCertificatePdf(certificate.id);
+    } catch (err) {
+      setError(errorMessage(err, "Não foi possível baixar o PDF. Verifique sua conexão."));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button variant="outline" size="sm" onClick={download} disabled={loading}>
+        {loading ? <Loader2 className="animate-spin" /> : <Download />}
+        {loading ? "Baixando…" : "Baixar PDF"}
+      </Button>
+      {error && (
+        <p className="max-w-48 text-right text-xs text-destructive" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -180,7 +213,7 @@ export function JourneyPage() {
             ) : (
               <div className="flex flex-col gap-4">
                 {(certificates.data ?? []).map((item) => (
-                  <div key={item.id} className="flex items-center justify-between gap-4">
+                  <div key={item.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
                     <div className="flex gap-3 items-center">
                       <Award className="text-primary" />
                       <div>
@@ -190,9 +223,12 @@ export function JourneyPage() {
                         </p>
                       </div>
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => setCertificate(item)}>
-                      QR Code
-                    </Button>
+                    <div className="flex items-start gap-2">
+                      <CertificatePdfButton certificate={item} />
+                      <Button variant="outline" size="sm" onClick={() => setCertificate(item)}>
+                        QR Code
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>

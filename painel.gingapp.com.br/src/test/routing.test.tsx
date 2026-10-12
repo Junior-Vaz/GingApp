@@ -152,8 +152,8 @@ describe("guard de rotas", () => {
     for (const role of [undefined, "ALUNO", "RESPONSAVEL"] as const) expect(roleCan(role, "students", "view")).toBe(false);
   });
 
-  it("todas as 15 rotas do menu existem na árvore", async () => {
-    expect(NAV_ITEMS).toHaveLength(15);
+  it("todas as 16 rotas do menu existem na árvore", async () => {
+    expect(NAV_ITEMS).toHaveLength(16);
     saveSession("t", makeUser("MESTRE"));
     for (const item of NAV_ITEMS) {
       const router = makeRouter(item.to);
@@ -164,15 +164,17 @@ describe("guard de rotas", () => {
 });
 
 describe("menu por papel", () => {
-  it("MESTRE vê 15 itens (com Financeiro); PROFESSOR não vê Financeiro/Unidades/Configurações", () => {
+  it("MESTRE vê 16 itens (com Financeiro e Atividade do grupo); PROFESSOR não vê Financeiro/Unidades/Configurações/Atividade", () => {
     const mestre = navItemsFor("MESTRE").map((i) => i.label);
-    expect(mestre).toHaveLength(15);
+    expect(mestre).toHaveLength(16);
     expect(mestre).toContain("Financeiro");
+    expect(mestre).toContain("Atividade do grupo");
     const labels = navItemsFor("PROFESSOR").map((i) => i.label);
     expect(labels).toHaveLength(12);
     expect(labels).not.toContain("Financeiro");
     expect(labels).not.toContain("Unidades");
     expect(labels).not.toContain("Configurações");
+    expect(labels).not.toContain("Atividade do grupo");
     expect(labels).toContain("Dashboard");
     expect(navItemsFor(undefined).map((i) => i.label)).not.toContain("Financeiro");
   });

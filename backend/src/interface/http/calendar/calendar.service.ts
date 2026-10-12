@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { MyParticipation } from '../../../shared/access/participant-privacy';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { isRestricted, UnitScopeService } from '../../../shared/access/unit-scope';
 import { EventsService } from '../events/events.service';
 import { RodasService } from '../rodas/rodas.service';
 
@@ -50,6 +52,7 @@ export class CalendarService {
     private readonly prisma: PrismaService,
     private readonly rodasService: RodasService,
     private readonly eventsService: EventsService,
+    private readonly unitScope: UnitScopeService,
   ) {}
 
   /**
@@ -75,7 +78,16 @@ export class CalendarService {
     const orderBy = [{ date: 'asc' as const }, { id: 'asc' as const }];
 
     const rodaWhere = { date: { gte: from, lte: to }, stateId: filters.stateId, cityId: filters.cityId };
-    const eventWhere = { isPublic: true, ...rodaWhere, type: eventType };
+    const eventWhere: Prisma.EventWhereInput = { isPublic: true, ...rodaWhere, type: eventType };
+
+    // Escopo por unidade (E08): o PROFESSOR restrito nao ve, neste feed, os eventos do PROPRIO grupo de unidades fora do
+    // escopo dele (evento sem unidade = grupo inteiro continua visivel). Eventos publicos de OUTROS grupos nao mudam.
+    if (requester?.organizationId !== undefined) {
+      const scope = await this.unitScope.resolve(requester, requester.organizationId);
+      if (isRestricted(scope)) {
+        eventWhere.NOT = { organizationId: requester.organizationId, unitId: { not: null, notIn: scope } };
+      }
+    }
 
     const [rodas, events, rodaTotal, eventTotal] = await Promise.all([
       includeRodas

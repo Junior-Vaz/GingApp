@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, Student } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import {
   assertUnitUpdate,
@@ -22,6 +24,7 @@ export class StudentsService {
     private readonly prisma: PrismaService,
     private readonly subscriptionsService: SubscriptionsService,
     private readonly unitScope: UnitScopeService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -30,6 +33,24 @@ export class StudentsService {
    * e para a contagem (X-Total-Count).
    */
   async findAll(organizationId: number, query: ListStudentsQueryDto = {}, user?: AuthenticatedUser): Promise<Page<Student>> {
+    const where = await this.listWhere(organizationId, query, user);
+
+    const [items, total] = await Promise.all([
+      this.prisma.student.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.student.count({ where }),
+    ]);
+    return { items, total };
+  }
+
+  /**
+   * `where` ÚNICO (SSOT) da lista de alunos: usado por GET /students e pela exportação CSV
+   * (GET /students/export.csv), para a planilha ter exatamente as linhas que o filtro da tela mostra.
+   */
+  async listWhere(
+    organizationId: number,
+    query: Pick<ListStudentsQueryDto, 'status' | 'unitId' | 'q'> = {},
+    user?: AuthenticatedUser,
+  ): Promise<Prisma.StudentWhereInput> {
     const where: Prisma.StudentWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
     // AND (e não spread de unitId): o filtro ?unitId= da query se COMBINA com o escopo, nunca o amplia.
     where.AND = [unitScopeFilter(await this.unitScope.resolve(user, organizationId))];
@@ -41,12 +62,7 @@ export class StudentsService {
         [field]: { contains: q, mode: 'insensitive' as const },
       }));
     }
-
-    const [items, total] = await Promise.all([
-      this.prisma.student.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
-      this.prisma.student.count({ where }),
-    ]);
-    return { items, total };
+    return where;
   }
 
   /**
@@ -174,7 +190,7 @@ export class StudentsService {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
     }
 
-    return this.prisma.student.update({
+    const updated = await this.prisma.student.update({
       where: { id },
       data: {
         unitId: dto.unitId,
@@ -189,6 +205,17 @@ export class StudentsService {
         joinedAt: dto.joinedAt === null ? null : dto.joinedAt ? new Date(dto.joinedAt) : undefined,
       },
     });
+    // Inativar pelo PATCH (status) conta como inativacao; demais edicoes nao sao sensiveis o bastante para a trilha.
+    if (dto.status === 'INACTIVE') {
+      await this.audit.record({
+        organizationId,
+        action: AuditAction.STUDENT_INACTIVATE,
+        entity: AuditEntity.STUDENT,
+        entityId: id,
+        meta: { via: 'update' },
+      });
+    }
+    return updated;
   }
 
   /**
@@ -197,7 +224,15 @@ export class StudentsService {
    */
   async remove(organizationId: number, id: number, user?: AuthenticatedUser) {
     await this.findOne(organizationId, id, user);
-    return this.prisma.student.update({ where: { id }, data: { status: 'INACTIVE' } });
+    const updated = await this.prisma.student.update({ where: { id }, data: { status: 'INACTIVE' } });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.STUDENT_INACTIVATE,
+      entity: AuditEntity.STUDENT,
+      entityId: id,
+      meta: { via: 'delete' },
+    });
+    return updated;
   }
 
   /** Nunca confiar em unitId vindo do corpo da requisição sem confirmar que pertence à

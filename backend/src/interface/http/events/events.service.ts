@@ -14,6 +14,7 @@ import {
   groupWideOrUnitFilter,
   resolveWriteUnit,
   UnitScopeService,
+  unitScopeFilter,
 } from '../../../shared/access/unit-scope';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
@@ -304,8 +305,11 @@ export class EventsService {
     }
 
     if (hasStudent) {
+      // Escopo por unidade (E08): professor restrito so inscreve aluno das suas unidades (ou sem unidade) — aluno de
+      // outra unidade recebe o MESMO 400 de aluno inexistente/de outro grupo (nao vaza existencia). Mestre/aluno: sem filtro.
+      const scope = await this.unitScope.resolve(requester, organizationId);
       const student = await this.prisma.student.findFirst({
-        where: { id: dto.studentId, organizationId },
+        where: { id: dto.studentId, organizationId, ...unitScopeFilter(scope) },
       });
       if (!student) {
         throw new BadRequestException('Aluno inválido para esta organização.');

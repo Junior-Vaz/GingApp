@@ -23,3 +23,6 @@ yarn-error.log*
 
 # misc
 *.tsbuildinfo
+
+# imagens enviadas (POST /uploads) em dev
+/uploads

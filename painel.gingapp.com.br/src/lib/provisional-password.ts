@@ -44,8 +44,11 @@ export const createAccountSchema = z
       .refine((v) => z.string().email().safeParse(v).success, "E-mail inválido."),
     password: z.string(),
     confirmPassword: z.string(),
+    /** Convite por e-mail: a pessoa define a própria senha pelo link; nenhuma senha provisória é pedida/enviada. */
+    sendInvite: z.boolean().optional(),
   })
   .superRefine((values, ctx) => {
+    if (values.sendInvite) return;
     const issue = values.password === "" ? null : provisionalPasswordIssue(values.password);
     if (issue) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["password"], message: issue });
     if (values.confirmPassword !== values.password) {
@@ -54,6 +57,20 @@ export const createAccountSchema = z
   });
 export type CreateAccountValues = z.infer<typeof createAccountSchema>;
 
-export function createAccountPayload(values: CreateAccountValues): { email: string; password?: string } {
-  return values.password === "" ? { email: values.email.trim() } : { email: values.email.trim(), password: values.password };
+export interface CreateAccountPayload {
+  email: string;
+  password?: string;
+  sendInvite?: true;
 }
+
+export function createAccountPayload(values: CreateAccountValues): CreateAccountPayload {
+  const email = values.email.trim();
+  if (values.sendInvite) return { email, sendInvite: true };
+  return values.password === "" ? { email } : { email, password: values.password };
+}
+
+export const INVITE_CHECKBOX_LABEL = "Enviar convite por e-mail (a pessoa define a própria senha)";
+export const INVITE_HINT = "A pessoa receberá um e-mail com um link para criar a própria senha. Nenhuma senha provisória é necessária.";
+export const INVITE_FAILED_MESSAGE =
+  "Acesso criado, mas o e-mail não pôde ser enviado; use 'Esqueci minha senha' ou defina uma senha provisória.";
+export const INVITE_SENT_MESSAGE = "Convite enviado por e-mail.";

@@ -1,10 +1,14 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { OrgRole } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { resetMemberPassword } from '../../../shared/security/reset-member-password';
 import { ResetMemberPasswordDto } from '../../../shared/security/reset-member-password.dto';
 import { CreateStudentAccountDto } from './dto/create-student-account.dto';
+import { PasswordResetService } from '../../../shared/security/password-reset.service';
 import {
+  assertInviteRequest,
   EMAIL_REQUIRED_MESSAGE,
   EMAIL_UNAVAILABLE_MESSAGE,
   isUniqueViolation,
@@ -32,6 +36,8 @@ export interface StudentAccountResult {
   /** true = o e-mail já era usuário do sistema e foi apenas vinculado (senha dele intocada). */
   linkedExistingUser: boolean;
   account: MemberAccountView;
+  /** true = e-mail de convite enviado (sendInvite + SMTP ativo + usuário novo). false = sem convite ou falha no envio. */
+  inviteSent: boolean;
 }
 
 /**
@@ -41,7 +47,16 @@ export interface StudentAccountResult {
  */
 @Injectable()
 export class StudentAccessService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly passwordReset: PasswordResetService,
+    private readonly audit: AuditService,
+  ) {}
+
+  private async groupName(organizationId: number): Promise<string> {
+    const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
+    return org?.name ?? 'GingApp';
+  }
 
   /** Login do aluno (ou `hasAccount: false`). */
   async getAccount(organizationId: number, studentId: number): Promise<{ hasAccount: boolean; account?: MemberAccountView }> {
@@ -53,6 +68,7 @@ export class StudentAccessService {
   async createAccount(organizationId: number, studentId: number, dto: CreateStudentAccountDto): Promise<StudentAccountResult> {
     const student = await this.requireStudent(organizationId, studentId);
     if (student.userId !== null) throw new ConflictException(ALREADY_HAS_ACCOUNT);
+    assertInviteRequest(this.passwordReset, dto.sendInvite, dto.password);
 
     const email = dto.email ?? student.email;
     if (!email) throw new BadRequestException(EMAIL_REQUIRED_MESSAGE);
@@ -67,6 +83,7 @@ export class StudentAccessService {
           phone: student.phone,
           password: dto.password,
           role: OrgRole.ALUNO,
+          invite: dto.sendInvite,
         });
         // Student.userId é único: este usuário não pode já ser (ou ser ao mesmo tempo) outro aluno.
         if ((await tx.student.count({ where: { userId: provisioned.userId } })) > 0) {
@@ -85,11 +102,23 @@ export class StudentAccessService {
       throw error;
     }
 
-    return {
-      studentId,
-      linkedExistingUser: !result.created,
-      account: await this.loadAccount(organizationId, result.userId),
-    };
+    const account = await this.loadAccount(organizationId, result.userId);
+    // Convite só para User NOVO (quem já era usuário mantém a própria senha e não precisa de link).
+    const inviteSent =
+      !!dto.sendInvite && result.created
+        ? await this.passwordReset.sendInvite(
+            { id: result.userId, email: account.email, name: account.name },
+            await this.groupName(organizationId),
+          )
+        : false;
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.STUDENT_ACCOUNT_CREATE,
+      entity: AuditEntity.STUDENT,
+      entityId: studentId,
+      meta: { userId: result.userId, linkedExistingUser: !result.created, inviteSent },
+    });
+    return { studentId, linkedExistingUser: !result.created, account, inviteSent };
   }
 
   /** Mestre/Professor redefine a senha do aluno (senha provisória) e revoga as sessões dele. */
@@ -103,6 +132,13 @@ export class StudentAccessService {
       roles: [OrgRole.ALUNO, OrgRole.RESPONSAVEL],
       notFoundMessage: STUDENT_NOT_FOUND,
       wrongRoleMessage: 'Esta conta pertence à equipe do grupo; a senha é redefinida em Professores.',
+    });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.MEMBER_PASSWORD_RESET,
+      entity: AuditEntity.STUDENT,
+      entityId: studentId,
+      meta: { userId: student.userId, kind: 'ALUNO' },
     });
   }
 

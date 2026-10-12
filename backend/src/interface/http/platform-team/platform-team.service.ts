@@ -10,6 +10,8 @@ import { isActiveSuperAdmin } from '../../../shared/access/super-admin';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { BCRYPT_ROUNDS, normalizeEmail } from '../../../shared/security/password-policy';
 import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
 import { revocationCutoff } from '../../../shared/security/token-revocation';
@@ -48,12 +50,16 @@ export type PlatformTeamMember = Prisma.UserGetPayload<{ select: typeof PUBLIC_S
  *     reativá-lo depois não ressuscite tokens antigos.
  *  5. A senha só existe em memória para gerar o hash bcrypt; nunca é logada nem devolvida.
  *
+ * Toda escrita (criar/alterar/desativar/reativar/revogar sessões/reset de senha) grava o AuditLog (AuditService).
  * FORA DE ESCOPO (lacuna conhecida): 2FA (User.twoFactorSecret existe no schema, mas não há
- * fluxo de ativação/verificação) e trilha de auditoria (AuditLog) destas operações.
+ * fluxo de ativação/verificação).
  */
 @Injectable()
 export class PlatformTeamService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   async findAll(query: ListPlatformTeamQueryDto = {}): Promise<Page<PlatformTeamMember>> {
     const where: Prisma.UserWhereInput = { userType: UserType.PLATFORM };
@@ -83,7 +89,7 @@ export class PlatformTeamService {
 
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
     try {
-      return await this.prisma.user.create({
+      const created = await this.prisma.user.create({
         data: {
           name: dto.name.trim(),
           email,
@@ -95,6 +101,14 @@ export class PlatformTeamService {
         },
         select: PUBLIC_SELECT,
       });
+      await this.audit.record({
+        organizationId: null,
+        action: AuditAction.PLATFORM_USER_CREATE,
+        entity: AuditEntity.PLATFORM_USER,
+        entityId: created.id,
+        meta: { isSuperAdmin: created.isSuperAdmin },
+      });
+      return created;
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
         throw new ConflictException('Já existe um usuário com este e-mail.');
@@ -106,7 +120,7 @@ export class PlatformTeamService {
   async update(actor: AuthenticatedUser, id: number, dto: UpdatePlatformUserDto): Promise<PlatformTeamMember> {
     this.assertSuperAdmin(actor);
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // Trava todos os super admins ativos (ordem fixa por id => sem deadlock entre transações).
       const locked = await tx.$queryRaw<Array<{ id: number }>>(
         Prisma.sql`SELECT "id" FROM "User"
@@ -147,6 +161,25 @@ export class PlatformTeamService {
         select: PUBLIC_SELECT,
       });
     });
+    await this.audit.record({
+      organizationId: null,
+      action:
+        dto.status === 'INACTIVE'
+          ? AuditAction.PLATFORM_USER_DEACTIVATE
+          : dto.status === 'ACTIVE'
+            ? AuditAction.PLATFORM_USER_REACTIVATE
+            : AuditAction.PLATFORM_USER_UPDATE,
+      entity: AuditEntity.PLATFORM_USER,
+      entityId: id,
+      meta: {
+        fields: Object.entries(dto)
+          .filter(([, value]) => value !== undefined)
+          .map(([key]) => key),
+        isSuperAdmin: result.isSuperAdmin,
+        status: result.status,
+      },
+    });
+    return result;
   }
 
   /** tokenValidAfter = agora: o JwtStrategy recusa todo token emitido antes disso. Permitido no
@@ -154,11 +187,18 @@ export class PlatformTeamService {
   async revokeSessions(actor: AuthenticatedUser, id: number): Promise<PlatformTeamMember> {
     this.assertSuperAdmin(actor);
     await this.findTargetOrFail(id);
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data: { tokenValidAfter: revocationCutoff() },
       select: PUBLIC_SELECT,
     });
+    await this.audit.record({
+      organizationId: null,
+      action: AuditAction.PLATFORM_USER_SESSIONS_REVOKE,
+      entity: AuditEntity.PLATFORM_USER,
+      entityId: id,
+    });
+    return updated;
   }
 
   /** Novo hash + revogação de sessões. Permitido no próprio usuário (um super admin pode
@@ -171,11 +211,19 @@ export class PlatformTeamService {
     this.assertSuperAdmin(actor);
     await this.findTargetOrFail(id);
     const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
-    return this.prisma.user.update({
+    const updated = await this.prisma.user.update({
       where: { id },
       data: { passwordHash, tokenValidAfter: revocationCutoff() },
       select: PUBLIC_SELECT,
     });
+    await this.audit.record({
+      organizationId: null,
+      action: AuditAction.PASSWORD_RESET,
+      entity: AuditEntity.PLATFORM_USER,
+      entityId: id,
+      meta: { role: 'PLATFORM' },
+    });
+    return updated;
   }
 
   private assertSuperAdmin(actor: AuthenticatedUser): void {

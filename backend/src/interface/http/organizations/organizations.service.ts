@@ -9,6 +9,8 @@ import { Organization, OrganizationType, OrgRole, Prisma, RecordStatus, UserType
 import * as bcrypt from 'bcrypt';
 import { Page, PageQueryDto, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateOrganizationDto } from './dto/update-organization.dto';
 import { UpdateOwnOrganizationDto } from './dto/update-own-organization.dto';
@@ -37,6 +39,13 @@ function toSocialLinksInput(
   return Object.keys(filled).length > 0 ? (filled as Prisma.InputJsonValue) : Prisma.DbNull;
 }
 
+/** Nomes dos campos presentes no UpdateInput (so os nomes entram na auditoria, nunca os valores). */
+function changedFields(data: Prisma.OrganizationUpdateInput): string[] {
+  return Object.entries(data)
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key);
+}
+
 /** Nome da unidade criada junto com o grupo (o Mestre pode renomear em PATCH /units/:id). */
 export const MAIN_UNIT_NAME = 'Matriz';
 
@@ -63,7 +72,10 @@ const MAX_DB_ID = 2_147_483_647;
 
 @Injectable()
 export class OrganizationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   /** Equipe PLATFORM (ou super admin) enxerga todas as organizações — uso do admin.gingapp.com.br. */
   async findAllForPlatform(query: PageQueryDto = {}): Promise<Page<Organization>> {
@@ -113,7 +125,15 @@ export class OrganizationsService {
     if (Object.values(data).every((value) => value === undefined)) {
       throw new BadRequestException('Informe ao menos um campo para atualizar (name, document, email ou phone).');
     }
-    return this.updateOrFail(id, data);
+    const updated = await this.updateOrFail(id, data);
+    await this.audit.record({
+      organizationId: id,
+      action: AuditAction.ORGANIZATION_UPDATE,
+      entity: AuditEntity.ORGANIZATION,
+      entityId: id,
+      meta: { fields: changedFields(data), by: 'platform' },
+    });
+    return updated;
   }
 
   /**
@@ -144,7 +164,15 @@ export class OrganizationsService {
         'Informe ao menos um campo para atualizar (name, document, email, phone, description, history, foundedYear, city, state, website, logo, paymentInstructions ou socialLinks).',
       );
     }
-    return this.updateOrFail(organizationId, data);
+    const updated = await this.updateOrFail(organizationId, data);
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.ORGANIZATION_UPDATE,
+      entity: AuditEntity.ORGANIZATION,
+      entityId: organizationId,
+      meta: { fields: changedFields(data), by: 'mestre' },
+    });
+    return updated;
   }
 
   /**
@@ -153,7 +181,14 @@ export class OrganizationsService {
    */
   async setStatus(id: number, status: RecordStatus): Promise<Organization> {
     if (id > MAX_DB_ID) throw new NotFoundException(ORGANIZATION_NOT_FOUND);
-    return this.updateOrFail(id, { status });
+    const updated = await this.updateOrFail(id, { status });
+    await this.audit.record({
+      organizationId: id,
+      action: status === RecordStatus.INACTIVE ? AuditAction.ORGANIZATION_DEACTIVATE : AuditAction.ORGANIZATION_REACTIVATE,
+      entity: AuditEntity.ORGANIZATION,
+      entityId: id,
+    });
+    return updated;
   }
 
   private async updateOrFail(id: number, data: Prisma.OrganizationUpdateInput): Promise<Organization> {
@@ -189,6 +224,13 @@ export class OrganizationsService {
       data: { passwordHash, tokenValidAfter: revocationCutoff() },
     });
     if (count !== 1) throw new NotFoundException(MESTRE_NOT_FOUND);
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.PASSWORD_RESET,
+      entity: AuditEntity.USER,
+      entityId: target.userId,
+      meta: { role: 'MESTRE' },
+    });
   }
 
   private async findActiveMestre(organizationId: number, userId: number): Promise<{ userId: number }> {
@@ -244,7 +286,7 @@ export class OrganizationsService {
     for (let attempt = 1; attempt <= MAX_SLUG_ATTEMPTS; attempt++) {
       const slug = explicitSlug ?? (await this.pickFreeSlug(dto.name));
       try {
-        return await this.prisma.$transaction(async (tx) => {
+        const created = await this.prisma.$transaction(async (tx) => {
           const organization = await tx.organization.create({
             data: {
               name: dto.name.trim(),
@@ -275,6 +317,14 @@ export class OrganizationsService {
           });
           return { ...organization, mestre: user };
         });
+        await this.audit.record({
+          organizationId: created.id,
+          action: AuditAction.ORGANIZATION_CREATE,
+          entity: AuditEntity.ORGANIZATION,
+          entityId: created.id,
+          meta: { slug: created.slug, mestreUserId: created.mestre.id },
+        });
+        return created;
       } catch (error) {
         if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
 

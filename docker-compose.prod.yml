@@ -82,6 +82,10 @@ services:
       # Nº de proxies reversos na frente do backend (1 = nginx/Caddy). Vazio = não confiar em
       # X-Forwarded-For. Sem isto atrás de proxy, PLATFORM_ALLOWED_IPS e o throttling veem o IP do proxy.
       TRUST_PROXY: ${TRUST_PROXY:-}
+      # Imagens enviadas (POST /uploads): em disco, no volume abaixo.
+      UPLOADS_DIR: "/app/uploads"
+    volumes:
+      - gingapp_prod_uploads:/app/uploads
     ports:
       - "3000:3000"
     depends_on:
@@ -128,3 +132,4 @@ services:
 
 volumes:
   gingapp_prod_pgdata:
+  gingapp_prod_uploads:

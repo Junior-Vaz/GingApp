@@ -11,10 +11,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as EsqueciSenhaRouteImport } from './routes/esqueci-senha'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PrivacidadeRouteImport } from './routes/privacidade'
+import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as TermosRouteImport } from './routes/termos'
 import { Route as AppAlunosRouteImport } from './routes/_app.alunos'
+import { Route as AppAtividadeRouteImport } from './routes/_app.atividade'
 import { Route as AppAulasRouteImport } from './routes/_app.aulas'
 import { Route as AppCertificadosRouteImport } from './routes/_app.certificados'
 import { Route as AppComunicadosRouteImport } from './routes/_app.comunicados'
@@ -39,6 +42,11 @@ const AppRoute = AppRouteImport.update({
   id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EsqueciSenhaRoute = EsqueciSenhaRouteImport.update({
+  id: '/esqueci-senha',
+  path: '/esqueci-senha',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -49,6 +57,11 @@ const PrivacidadeRoute = PrivacidadeRouteImport.update({
   path: '/privacidade',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RedefinirSenhaRoute = RedefinirSenhaRouteImport.update({
+  id: '/redefinir-senha',
+  path: '/redefinir-senha',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TermosRoute = TermosRouteImport.update({
   id: '/termos',
   path: '/termos',
@@ -57,6 +70,11 @@ const TermosRoute = TermosRouteImport.update({
 const AppAlunosRoute = AppAlunosRouteImport.update({
   id: '/alunos',
   path: '/alunos',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAtividadeRoute = AppAtividadeRouteImport.update({
+  id: '/atividade',
+  path: '/atividade',
   getParentRoute: () => AppRoute,
 } as any)
 const AppAulasRoute = AppAulasRouteImport.update({
@@ -132,10 +150,13 @@ const AppUnidadesRoute = AppUnidadesRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/esqueci-senha': typeof EsqueciSenhaRoute
   '/login': typeof LoginRoute
   '/privacidade': typeof PrivacidadeRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
   '/alunos': typeof AppAlunosRoute
+  '/atividade': typeof AppAtividadeRoute
   '/aulas': typeof AppAulasRoute
   '/certificados': typeof AppCertificadosRoute
   '/comunicados': typeof AppComunicadosRoute
@@ -153,10 +174,13 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/esqueci-senha': typeof EsqueciSenhaRoute
   '/login': typeof LoginRoute
   '/privacidade': typeof PrivacidadeRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
   '/alunos': typeof AppAlunosRoute
+  '/atividade': typeof AppAtividadeRoute
   '/aulas': typeof AppAulasRoute
   '/certificados': typeof AppCertificadosRoute
   '/comunicados': typeof AppComunicadosRoute
@@ -176,10 +200,13 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/esqueci-senha': typeof EsqueciSenhaRoute
   '/login': typeof LoginRoute
   '/privacidade': typeof PrivacidadeRoute
+  '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
   '/_app/alunos': typeof AppAlunosRoute
+  '/_app/atividade': typeof AppAtividadeRoute
   '/_app/aulas': typeof AppAulasRoute
   '/_app/certificados': typeof AppCertificadosRoute
   '/_app/comunicados': typeof AppComunicadosRoute
@@ -199,10 +226,13 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/esqueci-senha'
     | '/login'
     | '/privacidade'
+    | '/redefinir-senha'
     | '/termos'
     | '/alunos'
+    | '/atividade'
     | '/aulas'
     | '/certificados'
     | '/comunicados'
@@ -220,10 +250,13 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/esqueci-senha'
     | '/login'
     | '/privacidade'
+    | '/redefinir-senha'
     | '/termos'
     | '/alunos'
+    | '/atividade'
     | '/aulas'
     | '/certificados'
     | '/comunicados'
@@ -242,10 +275,13 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/_app'
+    | '/esqueci-senha'
     | '/login'
     | '/privacidade'
+    | '/redefinir-senha'
     | '/termos'
     | '/_app/alunos'
+    | '/_app/atividade'
     | '/_app/aulas'
     | '/_app/certificados'
     | '/_app/comunicados'
@@ -265,8 +301,10 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  EsqueciSenhaRoute: typeof EsqueciSenhaRoute
   LoginRoute: typeof LoginRoute
   PrivacidadeRoute: typeof PrivacidadeRoute
+  RedefinirSenhaRoute: typeof RedefinirSenhaRoute
   TermosRoute: typeof TermosRoute
 }
 
@@ -286,6 +324,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/esqueci-senha': {
+      id: '/esqueci-senha'
+      path: '/esqueci-senha'
+      fullPath: '/esqueci-senha'
+      preLoaderRoute: typeof EsqueciSenhaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -300,6 +345,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PrivacidadeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/redefinir-senha': {
+      id: '/redefinir-senha'
+      path: '/redefinir-senha'
+      fullPath: '/redefinir-senha'
+      preLoaderRoute: typeof RedefinirSenhaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/termos': {
       id: '/termos'
       path: '/termos'
@@ -312,6 +364,13 @@ declare module '@tanstack/react-router' {
       path: '/alunos'
       fullPath: '/alunos'
       preLoaderRoute: typeof AppAlunosRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/atividade': {
+      id: '/_app/atividade'
+      path: '/atividade'
+      fullPath: '/atividade'
+      preLoaderRoute: typeof AppAtividadeRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/aulas': {
@@ -417,6 +476,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAlunosRoute: typeof AppAlunosRoute
+  AppAtividadeRoute: typeof AppAtividadeRoute
   AppAulasRoute: typeof AppAulasRoute
   AppCertificadosRoute: typeof AppCertificadosRoute
   AppComunicadosRoute: typeof AppComunicadosRoute
@@ -435,6 +495,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAlunosRoute: AppAlunosRoute,
+  AppAtividadeRoute: AppAtividadeRoute,
   AppAulasRoute: AppAulasRoute,
   AppCertificadosRoute: AppCertificadosRoute,
   AppComunicadosRoute: AppComunicadosRoute,
@@ -456,8 +517,10 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  EsqueciSenhaRoute: EsqueciSenhaRoute,
   LoginRoute: LoginRoute,
   PrivacidadeRoute: PrivacidadeRoute,
+  RedefinirSenhaRoute: RedefinirSenhaRoute,
   TermosRoute: TermosRoute,
 }
 export const routeTree = rootRouteImport

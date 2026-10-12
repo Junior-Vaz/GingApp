@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { BR_UFS } from "@/lib/br-ufs";
+import { isUploadPath } from "@/lib/uploads";
 import type { Organization, OrganizationSocialLinks } from "./plan";
 
 /** Mesmos padrões do backend (create-organization.dto.ts) - o servidor continua sendo a validação de verdade. */
@@ -37,7 +38,13 @@ export const organizationSchema = z.object({
   city: z.string().trim().max(100, "A cidade pode ter no máximo 100 caracteres."),
   state: z.string().refine((v) => v === "" || (BR_UFS as readonly string[]).includes(v), "Escolha uma UF válida."),
   website: url("Site"),
-  logo: url("Logomarca"),
+  logo: optional(
+    z
+      .string()
+      .trim()
+      .max(500, "Logomarca: no máximo 500 caracteres.")
+      .refine((v) => HTTP_URL.test(v) || isUploadPath(v), "Logomarca: informe um link completo (https://...) ou envie uma imagem."),
+  ),
   paymentInstructions: z.string().trim().max(2000, "Como pagar: no máximo 2000 caracteres."),
   instagram: url("Instagram"),
   youtube: url("YouTube"),

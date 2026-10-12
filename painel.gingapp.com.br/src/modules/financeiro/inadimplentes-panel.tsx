@@ -1,5 +1,6 @@
 import { BellRing } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
+import { ExportCsvButton } from "@/components/painel/export-csv-button";
 import { UnitPicker } from "@/components/painel/unit-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -125,6 +126,11 @@ export function InadimplentesPanel({ onViewRecords }: { onViewRecords: (studentI
               Limpar
             </Button>
           )}
+          <ExportCsvButton
+            path="/finance/delinquents/export.csv"
+            filename="financeiro-inadimplentes"
+            params={{ ...filters, q: lp.query.trim() }}
+          />
           <Button variant="outline" size="sm" disabled={markOverdue.isPending} onClick={() => markOverdue.mutate()}>
             <BellRing /> Avisar atrasados
           </Button>

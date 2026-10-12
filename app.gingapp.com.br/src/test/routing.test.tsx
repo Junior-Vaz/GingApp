@@ -33,10 +33,17 @@ describe("guard de rotas", () => {
   });
 
   it("páginas públicas de verificação não exigem login", async () => {
-    for (const path of ["/verificar/ABC", "/verificar-passaporte/XYZ"]) {
+    for (const path of ["/verificar/ABC", "/verificar-passaporte/XYZ", "/esqueci-senha"]) {
       const router = makeRouter(path);
       await router.load();
       expect(router.state.location.pathname).toBe(path);
     }
+  });
+
+  it("redefinição de senha é pública: /redefinir-senha?token=... não redireciona para o login", async () => {
+    const router = makeRouter("/redefinir-senha?token=abc");
+    await router.load();
+    expect(router.state.location.pathname).toBe("/redefinir-senha");
+    expect(router.state.location.search).toMatchObject({ token: "abc" });
   });
 });

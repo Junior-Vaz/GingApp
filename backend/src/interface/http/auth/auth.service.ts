@@ -8,6 +8,8 @@ import { JwtService } from '@nestjs/jwt';
 import { User, UserType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { AuthenticatedUser, JwtPayload } from '../../../shared/interfaces/jwt-payload.interface';
 import { isMembershipBlockedByInactiveStudent } from '../../../shared/access/inactive-student-access';
 import { buildTermsStatus } from '../../../shared/legal/legal-documents';
@@ -33,6 +35,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -44,11 +47,10 @@ export class AuthService {
    */
   async login(dto: LoginDto): Promise<AuthResponse> {
     const candidates = await this.findUsersByEmail(dto.email);
-    const user = await this.findPasswordMatch(
-      candidates.filter((u) => u.userType === UserType.MEMBER && u.status === 'ACTIVE'),
-      dto.password,
-    );
+    const eligible = candidates.filter((u) => u.userType === UserType.MEMBER && u.status === 'ACTIVE');
+    const user = await this.findPasswordMatch(eligible, dto.password);
     if (!user) {
+      await this.auditLoginFailure('member', dto.email, eligible[0], eligible.length > 0 ? 'BAD_PASSWORD' : 'UNKNOWN_USER');
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
@@ -64,6 +66,7 @@ export class AuthService {
     }
 
     if (memberships.length === 0) {
+      await this.auditLoginFailure('member', dto.email, user, 'NO_ACTIVE_MEMBERSHIP');
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
 
@@ -76,10 +79,20 @@ export class AuthService {
       }
       const found = memberships.find((m) => m.organization.slug === dto.organizationSlug);
       if (!found) {
+        await this.auditLoginFailure('member', dto.email, user, 'UNKNOWN_ORGANIZATION');
         throw new UnauthorizedException(INVALID_CREDENTIALS);
       }
       membership = found;
     }
+
+    await this.audit.record({
+      organizationId: membership.organizationId,
+      userId: user.id,
+      action: AuditAction.LOGIN_SUCCESS,
+      entity: AuditEntity.USER,
+      entityId: user.id,
+      meta: { scope: 'member', role: membership.role },
+    });
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -110,15 +123,22 @@ export class AuthService {
   /** Login exclusivo da equipe interna GingApp (userType = 'PLATFORM'). */
   async platformLogin(dto: PlatformLoginDto): Promise<AuthResponse> {
     const candidates = await this.findUsersByEmail(dto.email);
-    const user = await this.findPasswordMatch(
-      candidates.filter(
-        (u) => u.status === 'ACTIVE' && (u.userType === UserType.PLATFORM || u.isSuperAdmin),
-      ),
-      dto.password,
+    const eligible = candidates.filter(
+      (u) => u.status === 'ACTIVE' && (u.userType === UserType.PLATFORM || u.isSuperAdmin),
     );
+    const user = await this.findPasswordMatch(eligible, dto.password);
     if (!user) {
+      await this.auditLoginFailure('platform', dto.email, eligible[0], eligible.length > 0 ? 'BAD_PASSWORD' : 'UNKNOWN_USER');
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
+    await this.audit.record({
+      organizationId: null,
+      userId: user.id,
+      action: AuditAction.LOGIN_SUCCESS,
+      entity: AuditEntity.USER,
+      entityId: user.id,
+      meta: { scope: 'platform' },
+    });
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -196,6 +216,15 @@ export class AuthService {
       throw new ConflictException('A senha foi alterada em outra sessão. Tente novamente.');
     }
 
+    await this.audit.record({
+      organizationId: actor.organizationId ?? null,
+      userId: user.id,
+      action: AuditAction.PASSWORD_CHANGE,
+      entity: AuditEntity.USER,
+      entityId: user.id,
+      meta: { self: true },
+    });
+
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -204,6 +233,48 @@ export class AuthService {
       ...membershipPayload,
     };
     return { accessToken: await this.signAccessToken(payload, tokenValidAfter) };
+  }
+
+  /**
+   * Falha de login na trilha de auditoria: SEM senha, so o motivo e a CONTAGEM de falhas recentes (ultimos
+   * 15 min) do usuario. Usuario identificado (e-mail existe): autor = ele, grupo = o unico vinculo ativo dele (se
+   * houver um so). E-mail desconhecido: sem autor; guarda so o e-mail digitado (e so se parecer e-mail, para nao
+   * gravar uma senha digitada no campo errado).
+   */
+  private async auditLoginFailure(
+    scope: 'member' | 'platform',
+    rawEmail: string,
+    user: User | undefined,
+    reason: string,
+  ): Promise<void> {
+    try {
+      let organizationId: number | null = null;
+      let recentFailures = 1;
+      if (user) {
+        const since = new Date(Date.now() - 15 * 60 * 1000);
+        recentFailures =
+          1 + (await this.prisma.auditLog.count({ where: { userId: user.id, action: AuditAction.LOGIN_FAILURE, createdAt: { gte: since } } }));
+        if (scope === 'member') {
+          const memberships = await this.prisma.organizationUser.findMany({
+            where: { userId: user.id, status: 'ACTIVE' },
+            select: { organizationId: true },
+            take: 2,
+          });
+          if (memberships.length === 1) organizationId = memberships[0].organizationId;
+        }
+      }
+      const typed = rawEmail.trim().toLowerCase();
+      await this.audit.record({
+        organizationId,
+        userId: user?.id ?? null,
+        action: AuditAction.LOGIN_FAILURE,
+        entity: AuditEntity.USER,
+        entityId: user?.id ?? null,
+        meta: { scope, reason, recentFailures, ...(!user && typed.includes('@') ? { email: typed.slice(0, 120) } : {}) },
+      });
+    } catch {
+      // Auditoria nunca pode mudar a resposta do login (AuditService.record ja nao lanca; o count acima sim poderia).
+    }
   }
 
   /**

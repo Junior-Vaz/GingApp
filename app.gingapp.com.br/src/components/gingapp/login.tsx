@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { AlertCircle, CalendarCheck, Eye, EyeOff, Loader2, LogIn, Lock, Mail, Medal, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { login } from "@/lib/auth";
+import { usePasswordResetEnabled } from "@/lib/password-reset";
 import { LegalLinks } from "./legal";
 import rodaImage from "@/assets/capoeira-roda.jpg";
 
@@ -21,6 +22,7 @@ export function LoginPage({ redirect }: { redirect?: string | undefined }) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const resetByEmail = usePasswordResetEnabled();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -171,9 +173,17 @@ export function LoginPage({ redirect }: { redirect?: string | undefined }) {
             )}
           </form>
 
-          <p className="mt-8 text-center text-xs text-muted-foreground">
-            Esqueceu a senha? Peça ao mestre ou à coordenação do seu grupo para redefinir.
-          </p>
+          {resetByEmail ? (
+            <p className="mt-8 text-center text-sm">
+              <Link to="/esqueci-senha" className="underline" data-testid="forgot-link">
+                Esqueci minha senha
+              </Link>
+            </p>
+          ) : (
+            <p className="mt-8 text-center text-xs text-muted-foreground">
+              Esqueceu a senha? Peça ao mestre ou à coordenação do seu grupo para redefinir.
+            </p>
+          )}
           <LegalLinks />
         </div>
       </main>

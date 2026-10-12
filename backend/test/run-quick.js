@@ -13,7 +13,8 @@ const dir = __dirname;
 // para rodar a cada alteração; o `test:quick` completo e o `test:e2e` ficam para antes do commit/release.
 const SMOKE = ['auth.e2e', 'rbac', 'multi-tenant', 'students.e2e', 'classes.e2e'];
 const args = process.argv.slice(2);
-const smoke = args.includes('--smoke');
+// `smoke` (sem traços): o npm 11 engole `-- --smoke` e a suíte inteira rodava; a palavra simples chega ao script.
+const smoke = args.includes('--smoke') || args.includes('smoke');
 const filters = smoke ? SMOKE : args;
 let specs = readdirSync(dir).filter((f) => f.endsWith('.e2e-spec.ts'));
 if (filters.length > 0) {

@@ -14,7 +14,7 @@ import {
   type ChangePasswordValues,
 } from "@/lib/password";
 
-function PasswordField({
+export function PasswordField({
   id,
   label,
   value,

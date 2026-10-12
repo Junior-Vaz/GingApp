@@ -1,11 +1,14 @@
 import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
+import { OPEN_SUBSCRIPTION_STATUSES } from '../../../shared/features/feature-access.service';
 import { BILLING_GATEWAY_SERVICE, BillingGatewayService } from '../../../shared/billing/billing-gateway.interface';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 
-const OPEN_STATUSES: SubscriptionStatus[] = ['TRIALING', 'ACTIVE', 'PAST_DUE'];
+const OPEN_STATUSES: SubscriptionStatus[] = OPEN_SUBSCRIPTION_STATUSES;
 
 /**
  * Assinaturas (organização ↔ plano) — PLANO_PROJETO.md §10.13. Gerido pela equipe PLATFORM
@@ -22,6 +25,7 @@ export class SubscriptionsService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(BILLING_GATEWAY_SERVICE) private readonly gateway: BillingGatewayService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Todas as assinaturas (plataforma) ou, com `organizationId`, só as daquele grupo (mais recente primeiro). */
@@ -111,6 +115,13 @@ export class SubscriptionsService {
     });
 
     await this.logEvent(subscription.id, 'CREATED', { planCode: plan.code, status });
+    await this.audit.record({
+      organizationId: organization.id,
+      action: AuditAction.SUBSCRIPTION_CREATE,
+      entity: AuditEntity.SUBSCRIPTION,
+      entityId: subscription.id,
+      meta: { planCode: plan.code, status },
+    });
     return subscription;
   }
 
@@ -134,6 +145,16 @@ export class SubscriptionsService {
       before: { planId: current.planId, status: current.status },
       after: { planId: updated.planId, status: updated.status },
     });
+    await this.audit.record({
+      organizationId: updated.organizationId,
+      action: AuditAction.SUBSCRIPTION_UPDATE,
+      entity: AuditEntity.SUBSCRIPTION,
+      entityId: id,
+      meta: {
+        before: { planId: current.planId, status: current.status },
+        after: { planId: updated.planId, status: updated.status },
+      },
+    });
     return updated;
   }
 
@@ -154,6 +175,13 @@ export class SubscriptionsService {
     });
 
     await this.logEvent(id, 'CANCELED', { previousStatus: current.status });
+    await this.audit.record({
+      organizationId: canceled.organizationId,
+      action: AuditAction.SUBSCRIPTION_CANCEL,
+      entity: AuditEntity.SUBSCRIPTION,
+      entityId: id,
+      meta: { previousStatus: current.status },
+    });
     return canceled;
   }
 

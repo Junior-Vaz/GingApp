@@ -12,6 +12,9 @@ export function fromLocalInput(value: string): string {
   return new Date(value).toISOString();
 }
 
+/** Valor aceito num campo de imagem: URL http(s) OU o caminho `/api/uploads/<arquivo>` devolvido pelo envio. */
+export { isImageRef } from "@/lib/uploads";
+
 export function isHttpUrl(value: string): boolean {
   try {
     const url = new URL(value);

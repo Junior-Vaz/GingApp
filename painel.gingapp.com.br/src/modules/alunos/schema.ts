@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isImageRef } from "@/lib/uploads";
 import { billingFieldsError } from "@/modules/financeiro/collection";
 
 export type StudentStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "FORMER";
@@ -13,6 +14,8 @@ export interface Student {
   document: string | null;
   phone: string | null;
   email: string | null;
+  /** Foto: caminho `/api/uploads/<arquivo>` (envio pelo painel/app) ou URL http(s). */
+  photo?: string | null;
   status: StudentStatus;
   joinedAt: string | null;
 }
@@ -20,7 +23,7 @@ export interface Student {
 /**
  * Corpo aceito por POST /students e PATCH /students/:id (CreateStudentDto / UpdateStudentDto).
  * No PATCH, ausente (`undefined`) = não mexe e `null` = LIMPA a coluna; só `name` e `status`
- * (obrigatórias) não aceitam `null`. `photo` existe no backend mas o painel ainda não tem campo.
+ * (obrigatórias) não aceitam `null`. `photo` = caminho de /uploads ou URL http(s).
  */
 export interface StudentInput {
   name: string;
@@ -52,6 +55,11 @@ export const studentSchema = z
       .trim()
       .refine((v) => v === "" || z.string().email().safeParse(v).success, "E-mail inválido."),
     status: z.enum(["ACTIVE", "INACTIVE", "SUSPENDED", "FORMER"]),
+    photo: z
+      .string()
+      .trim()
+      .refine((v) => v === "" || isImageRef(v), "Informe uma URL válida (http/https) ou envie uma imagem.")
+      .optional(),
     /** Cobrança mensal (E07; só quem tem finance:edit vê os campos): valor em reais e dia 1..31, juntos ou ambos vazios. */
     monthlyFee: z.string().optional(),
     dueDay: z.string().optional(),
@@ -70,6 +78,7 @@ export const emptyStudentForm: StudentFormValues = {
   phone: "",
   email: "",
   status: "ACTIVE",
+  photo: "",
   monthlyFee: "",
   dueDay: "",
 };
@@ -83,6 +92,7 @@ export function studentToForm(student: Student): StudentFormValues {
     phone: student.phone ?? "",
     email: student.email ?? "",
     status: student.status,
+    photo: student.photo ?? "",
   };
 }
 
@@ -95,6 +105,7 @@ export function studentToPayload(values: StudentFormValues): StudentInput {
     document: values.document.trim() || undefined,
     phone: values.phone.trim() || undefined,
     email: values.email.trim() || undefined,
+    photo: (values.photo ?? "").trim() || undefined,
     status: values.status,
   };
 }
@@ -111,6 +122,7 @@ export function studentToUpdatePayload(values: StudentFormValues): StudentInput 
     document: values.document.trim() || null,
     phone: values.phone.trim() || null,
     email: values.email.trim() || null,
+    photo: (values.photo ?? "").trim() || null,
     status: values.status,
   };
 }

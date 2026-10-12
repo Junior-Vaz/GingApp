@@ -28,7 +28,15 @@ import { AuthService } from './auth.service';
 import { AcceptTermsDto } from './dto/accept-terms.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { DeleteRequestDto } from './dto/delete-request.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import { EmailThrottlerGuard } from '../../../shared/guards/email-throttler.guard';
+import {
+  FORGOT_ACCEPTED_MESSAGE,
+  PasswordResetService,
+  RESET_DONE_MESSAGE,
+} from '../../../shared/security/password-reset.service';
 import { PlatformLoginDto } from './dto/platform-login.dto';
 
 // Configurável via env para permitir um limite mais alto em testes e2e (que fazem vários
@@ -44,9 +52,15 @@ const CHANGE_PASSWORD_THROTTLE = { default: { limit: CHANGE_PASSWORD_THROTTLE_LI
 // Exportar os proprios dados / pedir exclusao sao acoes raras e mais caras que uma consulta: 10/min por IP.
 const EXPORT_THROTTLE = { default: { limit: 10, ttl: 60_000 } };
 
+// "Esqueci a senha" (envia e-mail) e consumo do token: limites estritos por IP (5/min e 10/min). Configuráveis por
+// env só para os e2e. Por e-mail: EmailThrottlerGuard (3 a cada 10 min).
+const FORGOT_THROTTLE = { default: { limit: Number(process.env.FORGOT_THROTTLE_LIMIT ?? 5), ttl: 60_000 } };
+const RESET_THROTTLE = { default: { limit: Number(process.env.RESET_THROTTLE_LIMIT ?? 10), ttl: 60_000 } };
+
 @Controller('auth')
 export class AuthController {
   constructor(
+    private readonly passwordReset: PasswordResetService,
     private readonly authService: AuthService,
     private readonly accountService: AccountService,
     private readonly exportService: AccountExportService,
@@ -70,6 +84,39 @@ export class AuthController {
   platformLogin(@Body() dto: PlatformLoginDto, @Req() req: Request): Promise<AuthResponse> {
     this.assertIpAllowed(req);
     return this.authService.platformLogin(dto);
+  }
+
+  /** O frontend só mostra "Esqueci minha senha" quando o e-mail transacional (SMTP_*) está habilitado. */
+  @Public()
+  @Get('capabilities')
+  capabilities(): { passwordResetByEmail: boolean } {
+    return { passwordResetByEmail: this.passwordReset.isEnabled() };
+  }
+
+  /**
+   * "Esqueci a senha" (E05): responde SEMPRE 202 com a mesma mensagem, exista ou não o e-mail (o envio roda
+   * em segundo plano). Sem SMTP configurado: 503 claro. Limite por IP (@Throttle) E por e-mail (EmailThrottlerGuard).
+   */
+  @Public()
+  @UseFilters(JoinedValidationMessageFilter)
+  @UseGuards(EmailThrottlerGuard)
+  @Throttle(FORGOT_THROTTLE)
+  @HttpCode(HttpStatus.ACCEPTED)
+  @Post('forgot-password')
+  forgotPassword(@Body() dto: ForgotPasswordDto): { message: string } {
+    this.passwordReset.requestReset(dto.email, dto.organizationSlug);
+    return { message: FORGOT_ACCEPTED_MESSAGE };
+  }
+
+  /** Consome o token do e-mail e grava a senha nova (revoga sessões, zera mustChangePassword). */
+  @Public()
+  @UseFilters(JoinedValidationMessageFilter)
+  @Throttle(RESET_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() dto: ResetPasswordDto): Promise<{ message: string }> {
+    await this.passwordReset.resetPassword(dto.token, dto.newPassword);
+    return { message: RESET_DONE_MESSAGE };
   }
 
   /**

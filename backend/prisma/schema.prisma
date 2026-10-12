@@ -130,8 +130,29 @@ model User {
   publicProfile                PublicProfile?         @relation("PublicProfileUser")
   updatedPlatformSettings      PlatformSetting[]      @relation("PlatformSettingUpdatedBy")
   dataDeletionRequests         DataDeletionRequest[]  @relation("DataDeletionRequestUser")
+  passwordResetTokens          PasswordResetToken[]   @relation("PasswordResetTokenUser")
+  uploads                      Upload[]               @relation("UploadUser")
 
   @@index([userType])
+}
+
+/// Token de uso unico para definir/redefinir a senha por e-mail (E05): "esqueci a senha" (purpose RESET, 1 h)
+/// e convite de aluno/responsavel (purpose INVITE, 72 h). O token em claro so existe no link enviado por
+/// e-mail; aqui fica apenas o SHA-256 (tokenHash). Um pedido novo invalida os anteriores (usedAt).
+model PasswordResetToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique
+  /// RESET | INVITE
+  purpose   String    @default("RESET")
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation("PasswordResetTokenUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+  @@index([expiresAt])
 }
 
 /// Pedido do titular para excluir/anonimizar os proprios dados (LGPD art. 18, E10). POST /auth/me/delete-request
@@ -340,8 +361,29 @@ model Organization {
   publicProfiles        PublicProfile[]
   certificates          Certificate[]
   rodas                 Roda[]
+  uploads               Upload[]
 
   @@index([status])
+}
+
+/// Imagem enviada por POST /uploads (foto de aluno, logo do grupo, capa de evento/roda, perfil no app).
+/// O arquivo fica em disco (UPLOADS_DIR, volume Docker gingapp_uploads) com nome aleatorio (uuid) em
+/// `filename`; esta linha guarda a que grupo/usuario ele pertence e o tamanho (cota por grupo).
+model Upload {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  userId         Int
+  /// Nome do arquivo em disco (uuid + extensao): o mesmo que aparece na URL /api/uploads/<filename>.
+  filename       String   @unique
+  mimeType       String
+  sizeBytes      Int
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  user         User         @relation("UploadUser", fields: [userId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([userId])
 }
 
 model OrganizationUser {

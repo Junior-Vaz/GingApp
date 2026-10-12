@@ -11,6 +11,16 @@ process.env.ORG_CREATE_THROTTLE_LIMIT = '100';
 // rate limit por conta própria (limite rebaixado).
 process.env.CHANGE_PASSWORD_THROTTLE_LIMIT = '100';
 process.env.MESTRE_RESET_THROTTLE_LIMIT = '100';
+// "Esqueci a senha" (E05): limites por IP e por e-mail altos; password-reset.e2e-spec.ts prova o rate limit
+// por conta própria (FORGOT_EMAIL_THROTTLE_LIMIT é lido a cada pedido). URLs dos frontends para os links dos e-mails.
+process.env.FORGOT_THROTTLE_LIMIT = '1000';
+process.env.RESET_THROTTLE_LIMIT = '1000';
+process.env.FORGOT_EMAIL_THROTTLE_LIMIT = '1000';
+process.env.APP_URL = 'https://app.e2e.test';
+process.env.PAINEL_URL = 'https://painel.e2e.test';
+process.env.ADMIN_URL = 'https://admin.e2e.test';
+// Nunca SMTP real nos testes (o e-mail só liga quando o spec injeta o transporte em memória).
+process.env.SMTP_HOST = '';
 // Sem o job diario de mensalidade vencida (@nestjs/schedule) nos testes: nenhum timer/cron e registrado
 // (AppModule so inclui ScheduleModule/JobsModule quando OVERDUE_CRON != 'false'). O job e testado a parte
 // em test/overdue-cron.spec.ts (registro do cron e execucao direta, sem esperar o relogio).

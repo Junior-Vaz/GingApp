@@ -1,4 +1,6 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
+import { auditContextMiddleware } from './shared/audit/audit-context';
+import { AuditModule } from './interface/http/audit/audit.module';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { PrismaRangeFilter } from './shared/filters/prisma-range.filter';
@@ -6,11 +8,13 @@ import { ThrottlerGuard, ThrottlerModule, seconds } from '@nestjs/throttler';
 import { SharedModule } from './shared/shared.module';
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { CanAccessGuard } from './shared/guards/can-access.guard';
+import { FeatureGuard } from './shared/guards/feature.guard';
 
 import { AuthModule } from './interface/http/auth/auth.module';
 import { HealthModule } from './interface/http/health/health.module';
 import { OrganizationsModule } from './interface/http/organizations/organizations.module';
 import { DashboardModule } from './interface/http/dashboard/dashboard.module';
+import { ReportsModule } from './interface/http/reports/reports.module';
 import { UnitsModule } from './interface/http/units/units.module';
 import { StudentsModule } from './interface/http/students/students.module';
 import { TeachersModule } from './interface/http/teachers/teachers.module';
@@ -34,6 +38,7 @@ import { PlatformDashboardModule } from './interface/http/platform-dashboard/pla
 import { PlatformSettingsModule } from './interface/http/platform-settings/platform-settings.module';
 import { PlatformTeamModule } from './interface/http/platform-team/platform-team.module';
 import { LegalModule } from './interface/http/legal/legal.module';
+import { UploadsModule } from './interface/http/uploads/uploads.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { JobsModule } from './jobs/jobs.module';
 import { isOverdueCronEnabled } from './jobs/overdue-cron.service';
@@ -55,6 +60,7 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     HealthModule,
     OrganizationsModule,
     DashboardModule,
+    ReportsModule,
     UnitsModule,
     StudentsModule,
     TeachersModule,
@@ -78,6 +84,8 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     PlatformSettingsModule,
     PlatformTeamModule,
     LegalModule,
+    UploadsModule,
+    AuditModule,
 
     // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador
     // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.
@@ -91,6 +99,13 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     // CanAccessGuard global: roda depois do JwtAuthGuard. So' entra em acao em rotas
     // marcadas com @CanAccess(resource, action) — as demais passam direto.
     { provide: APP_GUARD, useClass: CanAccessGuard },
+    // FeatureGuard global: so age em rotas marcadas com @RequireFeature(key) (recurso desligado no plano/grupo => 403).
+    { provide: APP_GUARD, useClass: FeatureGuard },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  /** Contexto da requisicao (IP + usuario) para a trilha de auditoria (shared/audit/audit-context.ts). */
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(auditContextMiddleware).forRoutes('*path');
+  }
+}

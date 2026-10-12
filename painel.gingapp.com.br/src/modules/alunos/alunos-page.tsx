@@ -1,8 +1,10 @@
 import { useState } from "react";
-import { KeyRound, Plus, Users } from "lucide-react";
+import { KeyRound, Plus, Upload, Users } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
+import { ImageUploadField } from "@/components/painel/image-upload-field";
+import { ExportCsvButton } from "@/components/painel/export-csv-button";
 import { PageHeader } from "@/components/painel/page-header";
 import { UnitPicker } from "@/components/painel/unit-picker";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +15,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { createCrud, notifyError } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
-import { useCan } from "@/lib/session";
+import { useCan, useSessionUser } from "@/lib/session";
 import { dayOnly, fmt, formatCurrency } from "@/lib/format";
 import { useUnitNames } from "@/lib/unit-lookup";
 import {
@@ -25,6 +27,7 @@ import {
 } from "@/modules/financeiro/collection";
 import { BILLING_KEY, useStudentBillings } from "@/modules/financeiro/finance-api";
 import { AcessoAlunoDialog } from "./acesso-aluno-dialog";
+import { ImportarAlunosDialog } from "./importar-alunos-dialog";
 import { NativeSelect } from "./native-select";
 import { ResponsaveisDialog } from "./responsaveis-dialog";
 import {
@@ -63,6 +66,9 @@ export function AlunosPage() {
   const [deleting, setDeleting] = useState<Student | null>(null);
   const [accessOf, setAccessOf] = useState<Student | null>(null);
   const [guardiansOf, setGuardiansOf] = useState<Student | null>(null);
+  const [importing, setImporting] = useState(false);
+  // Importação em massa é só do Mestre (backend: POST /students/import exige o MESTRE).
+  const isMestre = useSessionUser()?.role === "MESTRE";
 
   // Nomes só das unidades desta página (GET /units/:id por id distinto): não depende de lista com teto.
   const nameOfUnit = useUnitNames((list.items ?? []).map((s) => s.unitId));
@@ -130,9 +136,21 @@ export function AlunosPage() {
         title="Alunos"
         description="Cadastro de alunos do grupo."
         actions={
-          <Button onClick={() => setEditing("new")}>
-            <Plus /> Novo aluno
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {isMestre && (
+              <Button variant="outline" onClick={() => setImporting(true)}>
+                <Upload /> Importar
+              </Button>
+            )}
+            <ExportCsvButton
+              path="/students/export.csv"
+              filename="alunos"
+              params={{ status: lp.filters.status, unitId: lp.filters.unitId, q: lp.query.trim() }}
+            />
+            <Button onClick={() => setEditing("new")}>
+              <Plus /> Novo aluno
+            </Button>
+          </div>
         }
       />
       <DataTable
@@ -235,6 +253,13 @@ export function AlunosPage() {
                   <FormMessage />
                 </FormItem>
               )}
+            />
+            <ImageUploadField<StudentFormValues>
+              name="photo"
+              label="Foto (URL)"
+              shape="square"
+              previewAlt="Foto do aluno"
+              description="Opcional. Envie uma foto (JPEG, PNG ou WebP até 5 MB) ou cole o link de uma imagem."
             />
             <FormField
               control={form.control}
@@ -357,6 +382,7 @@ export function AlunosPage() {
         )}
       </FormDialog>
 
+      {isMestre && <ImportarAlunosDialog open={importing} onOpenChange={setImporting} />}
       <AcessoAlunoDialog student={accessOf} onClose={() => setAccessOf(null)} />
       <ResponsaveisDialog student={guardiansOf} onClose={() => setGuardiansOf(null)} />
 

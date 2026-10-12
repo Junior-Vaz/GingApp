@@ -199,7 +199,7 @@ onBeforeUnmount(() => {
   <div>
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Settings</h1>
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Configurações</h1>
         <p class="mt-1 text-sm text-slate-500">Configurações globais da plataforma.</p>
       </div>
       <button

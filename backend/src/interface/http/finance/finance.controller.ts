@@ -4,6 +4,7 @@ import { sendPage } from '../../../shared/pagination/pagination';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
+import { RequireFeature } from '../../../shared/decorators/require-feature.decorator';
 import { FinanceService } from './finance.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
 import { UpdateFinanceRecordDto } from './dto/update-finance-record.dto';
@@ -11,6 +12,7 @@ import { ListFinanceQueryDto } from './dto/list-finance-query.dto';
 import { ListMyFinanceQueryDto } from './dto/list-my-finance-query.dto';
 import { MyFinanceSummaryQueryDto } from './dto/my-finance-summary-query.dto';
 
+@RequireFeature('finance')
 @Controller('finance')
 export class FinanceController {
   constructor(private readonly financeService: FinanceService) {}

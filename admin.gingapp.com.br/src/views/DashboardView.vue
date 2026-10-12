@@ -51,7 +51,7 @@ async function load(): Promise<void> {
   try {
     data.value = await api.get<PlatformDashboard>('/platform-dashboard')
   } catch (error) {
-    loadError.value = errorMessage(error, 'Não foi possível carregar o dashboard.')
+    loadError.value = errorMessage(error, 'Não foi possível carregar o painel.')
   } finally {
     isLoading.value = false
   }
@@ -66,7 +66,7 @@ onMounted(() => {
   <div>
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Dashboard</h1>
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Painel</h1>
         <p class="mt-1 text-sm text-slate-500">Visão geral da plataforma GingApp.</p>
       </div>
       <button

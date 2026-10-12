@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api, errorMessage } from '@/utils/api'
 import { setFlash } from '@/utils/flash'
+import { entityStatusLabel, organizationTypeLabel } from '@/utils/format'
 import { NEW_PASSWORD_MIN_LENGTH as PASSWORD_MIN, PASSWORD_MAX_BYTES, passwordProblem } from '@/utils/password'
 
 interface Organization {
@@ -78,7 +79,7 @@ async function loadOrganizations(): Promise<void> {
     organizations.value = page.items
     totalOrganizations.value = page.total
   } catch (error) {
-    listError.value = errorMessage(error, 'Não foi possível carregar as organizações.')
+    listError.value = errorMessage(error, 'Não foi possível carregar os grupos.')
   } finally {
     isLoading.value = false
   }
@@ -158,7 +159,7 @@ onMounted(() => {
   <div>
     <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Organizations</h1>
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Grupos</h1>
         <p class="mt-1 text-sm text-slate-500">Grupos de capoeira cadastrados na plataforma.</p>
       </div>
       <button
@@ -206,18 +207,18 @@ onMounted(() => {
             <td colspan="5" class="px-4 py-8 text-center text-slate-400">Carregando…</td>
           </tr>
           <tr v-else-if="organizations.length === 0">
-            <td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhuma organização cadastrada ainda.</td>
+            <td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhum grupo cadastrado ainda.</td>
           </tr>
           <tr v-for="org in organizations" v-else :key="org.id" class="hover:bg-slate-50" :data-testid="`org-${org.id}`">
             <td class="px-4 py-3 font-medium text-slate-900">{{ org.name }}</td>
             <td class="px-4 py-3 text-slate-600">{{ org.slug }}</td>
-            <td class="px-4 py-3 text-slate-600">{{ org.type }}</td>
+            <td class="px-4 py-3 text-slate-600">{{ organizationTypeLabel(org.type) }}</td>
             <td class="px-4 py-3">
               <span
                 class="rounded-full px-2 py-0.5 text-xs font-medium"
                 :class="org.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'"
               >
-                {{ org.status }}
+                {{ entityStatusLabel(org.status) }}
               </span>
             </td>
             <td class="px-4 py-3 text-right">

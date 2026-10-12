@@ -90,3 +90,36 @@ export function passwordErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof SessionRenewError) return error.message
   return errorMessage(error, fallback)
 }
+
+/** Resposta neutra: igual exista ou não o e-mail (o backend responde 202 sempre igual - sem enumeração de contas). */
+export const FORGOT_PASSWORD_NEUTRAL_MESSAGE =
+  'Se o e-mail estiver cadastrado, enviaremos um link para redefinir a senha.'
+export const RESET_PASSWORD_SUCCESS = 'Senha redefinida com sucesso. Entre com a nova senha.'
+export const RESET_LINK_MISSING = 'Link inválido ou incompleto. Solicite um novo link de redefinição.'
+const FORGOT_UNAVAILABLE = 'A recuperação de senha por e-mail não está disponível no momento.'
+
+/** GET /auth/capabilities (público): a recuperação por e-mail só aparece quando o backend a habilita. Erro = desligada. */
+export async function fetchPasswordResetByEmail(): Promise<boolean> {
+  try {
+    const data = await api.get<{ passwordResetByEmail?: unknown } | undefined>('/auth/capabilities', { skipAuth: true })
+    return data?.passwordResetByEmail === true
+  } catch {
+    return false
+  }
+}
+
+/** POST /auth/forgot-password (público). O resultado não revela se o e-mail existe. */
+export async function requestPasswordReset(email: string): Promise<void> {
+  await api.post('/auth/forgot-password', { email }, { skipAuth: true })
+}
+
+/** POST /auth/reset-password (público). 400 = link inválido/expirado ou senha fora da política. */
+export async function resetPasswordWithToken(token: string, newPassword: string): Promise<void> {
+  await api.post('/auth/reset-password', { token, newPassword }, { skipAuth: true })
+}
+
+/** Mensagem do pedido de link: 503 (e-mail desligado) e 429 viram textos amigáveis. */
+export function forgotPasswordErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.status === 503) return FORGOT_UNAVAILABLE
+  return passwordErrorMessage(error, 'Não foi possível enviar o pedido. Tente novamente.')
+}

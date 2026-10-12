@@ -1,4 +1,5 @@
-import { IsDateString, IsInt, IsOptional, IsString, IsUrl, MinLength } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsImageRef } from '../../../../shared/uploads/image-ref';
 
 export class CreateRodaDto {
   @IsString()
@@ -29,6 +30,6 @@ export class CreateRodaDto {
   communityId?: number;
 
   @IsOptional()
-  @IsUrl()
+  @IsImageRef()
   imageUrl?: string;
 }

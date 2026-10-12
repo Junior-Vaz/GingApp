@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { notifyError } from "@/lib/crud";
+import { INVITE_FAILED_MESSAGE, INVITE_SENT_MESSAGE, type CreateAccountPayload } from "@/lib/provisional-password";
 
 /** Login (User) de um aluno/responsável, sem nada sensível (o backend nunca devolve senha/hash). */
 export interface MemberAccount {
@@ -26,6 +27,8 @@ export interface StudentAccountResult {
   /** true = o e-mail já era usuário do sistema e foi apenas vinculado (senha dele intocada). */
   linkedExistingUser: boolean;
   account: MemberAccount;
+  /** Com sendInvite=true: o e-mail de convite foi enviado? (false = o acesso existe, mas o e-mail falhou.) */
+  inviteSent?: boolean;
 }
 
 /** Item de GET /students/:id/guardians. `consentPublicProfile` é SÓ leitura (vem do fluxo do Passaporte). */
@@ -44,6 +47,8 @@ export interface Guardian {
 export interface GuardianAccountResult {
   guardian: Guardian;
   linkedExistingUser: boolean;
+  /** Com sendInvite=true: o e-mail de convite foi enviado? */
+  inviteSent?: boolean;
 }
 
 /** Corpo de POST /students/:id/guardians (sem consentPublicProfile: o backend recusa com 400). */
@@ -54,6 +59,8 @@ export interface GuardianInput {
   email?: string | undefined;
   createAccount?: boolean | undefined;
   password?: string | undefined;
+  /** Com createAccount: convite por e-mail (a pessoa define a própria senha; `password` não é enviada). */
+  sendInvite?: boolean | undefined;
 }
 
 /** Corpo de PATCH /students/:id/guardians/:guardianId (`null` limpa relationship/phone/email). */
@@ -65,6 +72,18 @@ export interface GuardianUpdate {
 }
 
 export const LINKED_MESSAGE = "Esse e-mail já tinha cadastro: o acesso foi vinculado (a senha dele não mudou).";
+
+/**
+ * Resultado de criar acesso com convite: `true` = convite enviado; `false` = acesso criado mas o e-mail falhou
+ * (avisar); `null` = nenhum convite foi pedido (ou o e-mail já era usuário e foi só vinculado).
+ */
+function inviteOutcome(
+  result: { linkedExistingUser: boolean; inviteSent?: boolean },
+  requested: boolean | undefined,
+): boolean | null {
+  if (!requested || result.linkedExistingUser) return null;
+  return result.inviteSent === true;
+}
 
 const accountKey = (studentId: number) => ["student-access", studentId, "account"] as const;
 const guardiansKey = (studentId: number) => ["student-access", studentId, "guardians"] as const;
@@ -94,19 +113,30 @@ export function useStudentAccessMutations(studentId: number) {
     void queryClient.invalidateQueries({ queryKey: ["crud", "/students"] });
   };
   const notify =
-    <T>(success: string | ((result: T) => string)) =>
-    (result: T) => {
+    <T, V = unknown>(success: string | ((result: T, variables: V) => string)) =>
+    (result: T, variables: V) => {
       refresh();
-      toast.success(typeof success === "function" ? success(result) : success);
+      toast.success(typeof success === "function" ? success(result, variables) : success);
+    };
+  /** Como `notify`, mas com convite pedido e e-mail NÃO enviado avisa (warning) em vez de sucesso. */
+  const notifyAccess =
+    <T extends { linkedExistingUser: boolean; inviteSent?: boolean }, V extends { sendInvite?: boolean | undefined }>(
+      created: string,
+    ) =>
+    (result: T, variables: V) => {
+      refresh();
+      const invite = inviteOutcome(result, variables.sendInvite);
+      if (result.linkedExistingUser) toast.success(LINKED_MESSAGE);
+      else if (invite === false) toast.warning(INVITE_FAILED_MESSAGE, { duration: 12_000 });
+      else toast.success(invite === true ? `${created} ${INVITE_SENT_MESSAGE}` : created);
     };
   const onError = (error: unknown) => notifyError(error);
 
   const base = `/students/${studentId}`;
   return {
     createAccount: useMutation({
-      mutationFn: (payload: { email: string; password?: string }) =>
-        api.post<StudentAccountResult>(`${base}/account`, payload),
-      onSuccess: notify<StudentAccountResult>((r) => (r.linkedExistingUser ? LINKED_MESSAGE : "Acesso do aluno criado.")),
+      mutationFn: (payload: CreateAccountPayload) => api.post<StudentAccountResult>(`${base}/account`, payload),
+      onSuccess: notifyAccess<StudentAccountResult, CreateAccountPayload>("Acesso do aluno criado."),
       onError,
     }),
     resetPassword: useMutation({
@@ -116,7 +146,7 @@ export function useStudentAccessMutations(studentId: number) {
     }),
     createGuardian: useMutation({
       mutationFn: (payload: GuardianInput) => api.post<GuardianAccountResult>(`${base}/guardians`, payload),
-      onSuccess: notify<GuardianAccountResult>((r) => (r.linkedExistingUser ? LINKED_MESSAGE : "Responsável cadastrado.")),
+      onSuccess: notifyAccess<GuardianAccountResult, GuardianInput>("Responsável cadastrado."),
       onError,
     }),
     updateGuardian: useMutation({
@@ -131,11 +161,9 @@ export function useStudentAccessMutations(studentId: number) {
       onError,
     }),
     createGuardianAccount: useMutation({
-      mutationFn: ({ id, ...payload }: { id: number; email: string; password?: string }) =>
+      mutationFn: ({ id, ...payload }: { id: number } & CreateAccountPayload) =>
         api.post<GuardianAccountResult>(`${base}/guardians/${id}/account`, payload),
-      onSuccess: notify<GuardianAccountResult>((r) =>
-        r.linkedExistingUser ? LINKED_MESSAGE : "Acesso do responsável criado.",
-      ),
+      onSuccess: notifyAccess<GuardianAccountResult, { id: number } & CreateAccountPayload>("Acesso do responsável criado."),
       onError,
     }),
     resetGuardianPassword: useMutation({

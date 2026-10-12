@@ -1,12 +1,16 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { OrgRole, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { resetMemberPassword } from '../../../shared/security/reset-member-password';
 import { ResetMemberPasswordDto } from '../../../shared/security/reset-member-password.dto';
 import { CreateGuardianDto } from './dto/create-guardian.dto';
 import { CreateStudentAccountDto } from './dto/create-student-account.dto';
 import { UpdateGuardianDto } from './dto/update-guardian.dto';
+import { PasswordResetService } from '../../../shared/security/password-reset.service';
 import {
+  assertInviteRequest,
   EMAIL_REQUIRED_MESSAGE,
   EMAIL_UNAVAILABLE_MESSAGE,
   isUniqueViolation,
@@ -57,6 +61,8 @@ export interface GuardianAccountResult {
   guardian: GuardianView;
   /** true = o e-mail já era usuário do sistema e foi apenas vinculado (senha dele intocada). */
   linkedExistingUser: boolean;
+  /** true = e-mail de convite enviado (sendInvite + SMTP ativo + usuário novo). */
+  inviteSent: boolean;
 }
 
 /**
@@ -65,7 +71,11 @@ export interface GuardianAccountResult {
  */
 @Injectable()
 export class StudentGuardiansService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly passwordReset: PasswordResetService,
+    private readonly audit: AuditService,
+  ) {}
 
   async findAll(organizationId: number, studentId: number): Promise<GuardianView[]> {
     await this.requireStudent(organizationId, studentId);
@@ -83,8 +93,13 @@ export class StudentGuardiansService {
     if (!dto.createAccount && dto.password !== undefined) {
       throw new BadRequestException('A senha só pode ser informada junto com createAccount.');
     }
+    if (!dto.createAccount && dto.sendInvite) {
+      throw new BadRequestException('O convite por e-mail só pode ser pedido junto com createAccount.');
+    }
+    assertInviteRequest(this.passwordReset, dto.sendInvite, dto.password);
 
     let linkedExistingUser = false;
+    let invitedUserId: number | null = null;
     let guardianId: number;
     try {
       guardianId = await this.prisma.$transaction(async (tx) => {
@@ -97,9 +112,11 @@ export class StudentGuardiansService {
             phone: dto.phone,
             password: dto.password,
             role: OrgRole.RESPONSAVEL,
+            invite: dto.sendInvite,
           });
           linkedExistingUser = !provisioned.created;
           userId = provisioned.userId;
+          invitedUserId = dto.sendInvite && provisioned.created ? provisioned.userId : null;
           await this.assertCanBeGuardian(tx, organizationId, student, userId);
         }
         const guardian = await tx.studentGuardian.create({
@@ -121,7 +138,27 @@ export class StudentGuardiansService {
       throw error;
     }
 
-    return { guardian: await this.requireGuardianView(organizationId, studentId, guardianId), linkedExistingUser };
+    await this.audit.record({
+      organizationId,
+      action: dto.createAccount ? AuditAction.GUARDIAN_ACCOUNT_CREATE : AuditAction.GUARDIAN_CREATE,
+      entity: AuditEntity.GUARDIAN,
+      entityId: guardianId,
+      meta: { studentId, linkedExistingUser },
+    });
+    return {
+      guardian: await this.requireGuardianView(organizationId, studentId, guardianId),
+      linkedExistingUser,
+      inviteSent: await this.sendInviteTo(organizationId, invitedUserId),
+    };
+  }
+
+  /** Envia o convite ao User recém-criado (null = sem convite). Falha de envio => false (nunca lança). */
+  private async sendInviteTo(organizationId: number, userId: number | null): Promise<boolean> {
+    if (userId === null) return false;
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true, name: true } });
+    if (!user) return false;
+    const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
+    return this.passwordReset.sendInvite(user, org?.name ?? 'GingApp');
   }
 
   async update(organizationId: number, studentId: number, guardianId: number, dto: UpdateGuardianDto): Promise<GuardianView> {
@@ -160,10 +197,12 @@ export class StudentGuardiansService {
     const guardian = await this.requireGuardian(organizationId, studentId, guardianId);
     if (guardian.userId !== null) throw new ConflictException(GUARDIAN_HAS_ACCOUNT);
 
+    assertInviteRequest(this.passwordReset, dto.sendInvite, dto.password);
     const email = dto.email ?? guardian.email;
     if (!email) throw new BadRequestException(EMAIL_REQUIRED_MESSAGE);
 
     let linkedExistingUser = false;
+    let invitedUserId: number | null = null;
     try {
       await this.prisma.$transaction(async (tx) => {
         const provisioned = await provisionMemberUser(tx, {
@@ -173,8 +212,10 @@ export class StudentGuardiansService {
           phone: guardian.phone,
           password: dto.password,
           role: OrgRole.RESPONSAVEL,
+          invite: dto.sendInvite,
         });
         linkedExistingUser = !provisioned.created;
+        invitedUserId = dto.sendInvite && provisioned.created ? provisioned.userId : null;
         await this.assertCanBeGuardian(tx, organizationId, student, provisioned.userId);
         const { count } = await tx.studentGuardian.updateMany({
           where: { id: guardianId, organizationId, studentId, userId: null },
@@ -187,7 +228,18 @@ export class StudentGuardiansService {
       throw error;
     }
 
-    return { guardian: await this.requireGuardianView(organizationId, studentId, guardianId), linkedExistingUser };
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.GUARDIAN_ACCOUNT_CREATE,
+      entity: AuditEntity.GUARDIAN,
+      entityId: guardianId,
+      meta: { studentId, linkedExistingUser },
+    });
+    return {
+      guardian: await this.requireGuardianView(organizationId, studentId, guardianId),
+      linkedExistingUser,
+      inviteSent: await this.sendInviteTo(organizationId, invitedUserId),
+    };
   }
 
   async resetPassword(
@@ -205,6 +257,13 @@ export class StudentGuardiansService {
       roles: [OrgRole.RESPONSAVEL, OrgRole.ALUNO],
       notFoundMessage: GUARDIAN_NOT_FOUND,
       wrongRoleMessage: 'Esta conta pertence à equipe do grupo; a senha é redefinida em Professores.',
+    });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.MEMBER_PASSWORD_RESET,
+      entity: AuditEntity.GUARDIAN,
+      entityId: guardianId,
+      meta: { studentId, userId: guardian.userId, kind: 'RESPONSAVEL' },
     });
   }
 
