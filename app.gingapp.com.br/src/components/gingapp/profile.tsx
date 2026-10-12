@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { api, errorMessage } from "@/lib/api";
 import { logout } from "@/lib/auth";
 import { buildProfilePayload, passportActions } from "@/lib/derive";
-import { dayOnly, fmt, initials, passportUrl } from "@/lib/format";
+import { dayOnly, fmt, passportUrl } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
 import { imageSrc } from "@/lib/uploads";
 import {
   useGraduations,
+  useMyIdentity,
   useMyStudent,
   usePassport,
   useStudents,
@@ -24,6 +25,7 @@ import { MyDataSection } from "./legal";
 import { QrDialog } from "./journey";
 import { TwoFactorSection } from "./two-factor";
 import { PageHeading, StateMessage } from "./shared";
+import { Avatar } from "./avatar";
 
 const ROLE_LABEL: Record<string, string> = {
   ALUNO: "Aluno",
@@ -39,27 +41,6 @@ const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; icon: typeof Insta
   { key: "facebook", label: "Facebook", icon: Facebook, placeholder: "https://facebook.com/seu_perfil" },
   { key: "whatsapp", label: "WhatsApp", icon: MessageCircle, placeholder: "https://wa.me/5511999999999" },
 ];
-
-function Avatar({ photo, name, size = 36 }: { photo?: string | null | undefined; name?: string | null | undefined; size?: number }) {
-  const [failed, setFailed] = useState(false);
-  if (photo && !failed) {
-    return (
-      <img
-        src={imageSrc(photo)}
-        alt=""
-        width={size}
-        height={size}
-        style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover" }}
-        onError={() => setFailed(true)}
-      />
-    );
-  }
-  return (
-    <div className="avatar" style={{ width: size, height: size, fontSize: Math.round(size / 3) }}>
-      {initials(name)}
-    </div>
-  );
-}
 
 /** Campo de URL com “Remover” (só aparece preenchido): limpa o campo; o servidor limpa ao salvar. */
 function UrlField({ id, label, value, onChange, placeholder }: { id: string; label: string; value: string; onChange: (value: string) => void; placeholder: string }) {
@@ -142,6 +123,7 @@ export function ProfilePage() {
   const { student } = useMyStudent();
   const own = students.data?.find((s) => s.userId === user?.id) ?? null;
   const passport = usePassport();
+  const identity = useMyIdentity();
   const graduations = useGraduations(student?.id); // passaporte e graduação: do aluno ATIVO (seletor)
   const [qrOpen, setQrOpen] = useState(false);
 
@@ -184,7 +166,7 @@ export function ProfilePage() {
             <img src={imageSrc(own.coverPhoto)} alt="" className="mb-5 h-36 w-full rounded-lg object-cover" />
           )}
           <div className="profile-identity">
-            <Avatar photo={own?.photo} name={user?.name} size={64} />
+            <Avatar name={user?.name} src={own?.photo} size={72} groupName={identity.groupName ?? p?.organization.name} groupLogoUrl={identity.groupLogoUrl} />
             <div>
               <h2>{user?.name}</h2>
               <p>

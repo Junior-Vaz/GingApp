@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import rodaImage from "@/assets/capoeira-roda.jpg";
 import communityImage from "@/assets/capoeira-community.jpg";
 import { PageHeading, SectionHeading, EventCard, StateMessage } from "./shared";
-import { capitalize, dayOnly, fmt, initials, relativeTime, softenColor, startOfToday } from "@/lib/format";
+import { capitalize, dayOnly, fmt, relativeTime, softenColor, startOfToday } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
 import { errorMessage } from "@/lib/api";
 import {
@@ -26,8 +26,10 @@ import {
   useGraduations,
   useMyStudent,
   useNextLessons,
+  useMyIdentity,
   usePassport,
 } from "@/lib/queries";
+import { Avatar } from "./avatar";
 import { monthRange, monthStats, nextLesson, weekdayLabel } from "@/lib/derive";
 
 export function HomePage() {
@@ -38,6 +40,8 @@ export function HomePage() {
   // nenhuma estatística sai de uma lista truncada em 50.
   const attendance = useAttendance({ ...monthRange(new Date()), limit: 200 });
   const passport = usePassport();
+  const me = useMyIdentity();
+  const groupName = passport.data?.organization.name ?? me.groupName ?? "Seu grupo";
   const lessons = useNextLessons();
   const classes = useClasses();
   const calendar = useCalendar({}, { pageSize: 2 });
@@ -62,7 +66,11 @@ export function HomePage() {
 
   return (
     <>
-      <PageHeading title={`Salve, ${firstName}! ☀️`} subtitle="Cada ginga é um novo passo na sua jornada." />
+      <PageHeading
+        title={`Salve, ${firstName}! ☀️`}
+        subtitle="Cada ginga é um novo passo na sua jornada."
+        aside={<Avatar name={groupName} src={me.groupLogoUrl} size={56} className="home-group-logo" label={`Logo do grupo ${groupName}`} title={groupName} />}
+      />
       {studentError && <StateMessage tone="error">{errorMessage(studentError, "Não foi possível carregar seus dados.")}</StateMessage>}
       {!loadingStudent && !studentError && !student && <StateMessage>Nenhum aluno vinculado a esta conta.</StateMessage>}
       <section className="welcome-banner">
@@ -206,8 +214,8 @@ export function HomePage() {
               {notices.map((notice) => (
                 <article className="notice-item" key={notice.id}>
                   <div className="notice-meta">
-                    <div className="avatar">{initials(passport.data?.organization.name ?? "G")}</div>
-                    <span>{passport.data?.organization.name ?? "Seu grupo"}</span>
+                    <Avatar decorative name={groupName} src={me.groupLogoUrl} size={24} />
+                    <span>{groupName}</span>
                     <time>{relativeTime(notice.publishedAt ?? notice.createdAt)}</time>
                   </div>
                   <h3>{notice.title}</h3>

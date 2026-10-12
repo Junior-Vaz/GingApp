@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { toast } from "sonner";
 import {
   ArrowDown,
@@ -29,12 +29,11 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Switch } from "@/components/ui/switch";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ApiError, errorMessage } from "@/lib/api";
-import { dayOnly, fmt, initials, toDate } from "@/lib/format";
+import { dayOnly, fmt, toDate } from "@/lib/format";
 import {
   LEAGUES,
   formatPoints,
   leagueColor,
-  readableOn,
   useSaveRankingSettings,
   type GroupRankItem,
   type RankLevel,
@@ -42,45 +41,47 @@ import {
   type RankingMe,
   type StudentRankItem,
 } from "@/lib/ranking";
-import { imageSrc } from "@/lib/uploads";
+import { Avatar } from "./avatar";
+import { useMyIdentity } from "@/lib/queries";
 
 const cssVars = (vars: Record<string, string | number>) => vars as CSSProperties;
 
 /* ---------- Avatar, selo da liga, logo ---------- */
 
 /**
- * Avatar redondo (foto ou iniciais). Com `frame` ganha a moldura metalica do podio (ouro/prata/bronze);
- * sem ela, o ANEL na cor da liga. Foto quebrada cai nas iniciais.
+ * Avatar do ranking: o Avatar único do app com o ANEL na cor da liga (ou a moldura metálica do pódio, `frame`)
+ * e o selo redondo do grupo no canto inferior direito (por cima do anel) quando houver dado do grupo.
  */
 export function RankAvatar({
   name,
   url,
   color,
   frame,
-  className = "",
+  size,
+  badgeLetters,
+  groupName,
+  groupLogoUrl,
 }: {
   name: string;
   url: string | null;
   color: string;
   frame?: boolean;
-  className?: string;
+  size: number | string;
+  badgeLetters?: 1 | 2;
+  groupName?: string | null | undefined;
+  groupLogoUrl?: string | null | undefined;
 }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [url]);
   return (
-    <span
-      className={`${frame ? "rk-frame" : "rk-ring"} ${className}`}
-      style={cssVars({ "--lg": color, "--lg-fg": readableOn(color) })}
-      aria-hidden="true"
-    >
-      <span className="rk-avatar">
-        {url && !failed ? (
-          <img src={imageSrc(url)} alt="" loading="lazy" onError={() => setFailed(true)} />
-        ) : (
-          <span className="rk-initials">{initials(name)}</span>
-        )}
-      </span>
-    </span>
+    <Avatar
+      decorative
+      name={name}
+      src={url}
+      size={size}
+      {...(badgeLetters ? { badgeLetters } : {})}
+      {...(frame ? { frame: true } : { ringColor: color })}
+      groupName={groupName}
+      groupLogoUrl={groupLogoUrl}
+    />
   );
 }
 
@@ -90,16 +91,6 @@ export function LeagueSeal({ level, className = "" }: { level: RankLevel; classN
     <span className={`rk-seal ${className}`} style={cssVars({ "--lg": leagueColor(level) })} data-testid="rk-seal">
       <i aria-hidden="true" />
       {level.name}
-    </span>
-  );
-}
-
-function GroupLogo({ name, url }: { name: string; url: string | null }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [url]);
-  return (
-    <span className="rk-glogo" aria-hidden="true">
-      {url && !failed ? <img src={imageSrc(url)} alt="" loading="lazy" onError={() => setFailed(true)} /> : initials(name).slice(0, 1)}
     </span>
   );
 }
@@ -136,7 +127,9 @@ export interface PodiumEntry {
   name: string;
   /** Linha abaixo do nome (grupo / cidade). */
   sub: string;
-  subLogo?: ReactNode;
+  /** Grupo da pessoa (selo redondo no avatar); ausente = sem selo. */
+  groupName?: string | null;
+  groupLogoUrl?: string | null;
   imageUrl: string | null;
   color: string;
   points: number;
@@ -159,10 +152,8 @@ export function Podium({ entries }: { entries: PodiumEntry[] }) {
         if (!entry) {
           return (
             <li key={`empty-${slot}`} className={`rk-pod is-${slot} is-empty`} style={cssVars({ "--frame": FRAME[slot] ?? "#ccc" })}>
-              <span className="rk-frame rk-frame-empty" aria-hidden="true">
-                <span className="rk-avatar">
-                  <Trophy />
-                </span>
+              <span className="rk-frame-empty" aria-hidden="true">
+                <Trophy />
               </span>
               <span className="rk-pod-sub">Vaga aberta</span>
               <div className="rk-step">
@@ -180,11 +171,10 @@ export function Podium({ entries }: { entries: PodiumEntry[] }) {
             aria-label={`${MEDAL_LABEL[slot]}: ${entry.name}, ${formatPoints(entry.points)} pontos`}
           >
             {slot === 1 && <Crown className="rk-crown" aria-hidden="true" />}
-            <RankAvatar frame name={entry.name} url={entry.imageUrl} color={entry.color} />
+            <RankAvatar frame size="var(--size)" badgeLetters={2} name={entry.name} url={entry.imageUrl} color={entry.color} groupName={entry.groupName} groupLogoUrl={entry.groupLogoUrl} />
             <strong className="rk-pod-name">{entry.name}</strong>
             {entry.isMe && <span className="rk-you">{entry.meLabel ?? "Você"}</span>}
             <span className="rk-pod-sub">
-              {entry.subLogo}
               <span>{entry.sub}</span>
             </span>
             {entry.seal}
@@ -205,7 +195,8 @@ function studentPodiumEntry(item: StudentRankItem): PodiumEntry {
     rank: item.rank,
     name: item.displayName,
     sub: item.groupName,
-    subLogo: <GroupLogo name={item.groupName} url={item.groupLogoUrl} />,
+    groupName: item.groupName,
+    groupLogoUrl: item.groupLogoUrl,
     imageUrl: item.avatarUrl,
     color: leagueColor(item.level),
     points: item.points,
@@ -258,14 +249,13 @@ export function StudentRow({ item, index }: { item: StudentRankItem; index: numb
         <strong>{item.rank}</strong>
         <Delta value={item.rankDelta} />
       </div>
-      <RankAvatar name={item.displayName} url={item.avatarUrl} color={color} />
+      <RankAvatar size="var(--rk-av)" name={item.displayName} url={item.avatarUrl} color={color} groupName={item.groupName} groupLogoUrl={item.groupLogoUrl} />
       <div className="rk-who">
         <strong>
           {item.displayName}
           {item.isMe && <span className="rk-you">Você</span>}
         </strong>
         <span className="rk-group">
-          <GroupLogo name={item.groupName} url={item.groupLogoUrl} />
           <span>
             {item.groupName}
             {place ? ` · ${place}` : ""}
@@ -293,7 +283,7 @@ export function GroupRow({ item, index }: { item: GroupRankItem; index: number }
       <div className="rk-pos">
         <strong>{item.rank}</strong>
       </div>
-      <RankAvatar name={item.name} url={item.logoUrl} color="#1b5e43" />
+      <RankAvatar size="var(--rk-av)" name={item.name} url={item.logoUrl} color="#1b5e43" />
       <div className="rk-who">
         <strong>
           {item.name}
@@ -454,6 +444,7 @@ function AchievementDialog({ badge, onClose }: { badge: BadgeInfo | null; onClos
 
 export function ProgressCard({ me, onConfigure }: { me: RankingMe; onConfigure: () => void }) {
   const [badge, setBadge] = useState<BadgeInfo | null>(null);
+  const identity = useMyIdentity();
   const color = leagueColor(me.level);
   const next = me.nextLevel;
   const nextColor = next ? leagueColor(next) : color;
@@ -471,7 +462,7 @@ export function ProgressCard({ me, onConfigure }: { me: RankingMe; onConfigure: 
   return (
     <section className="rk-card rk-progress" aria-label="Seu progresso" data-testid="rk-progress" style={cssVars({ "--lg": color, "--next": nextColor })}>
       <div className="rk-me-top">
-        <RankAvatar name={me.student.displayName} url={me.student.avatarUrl} color={color} className="rk-ring-lg" />
+        <RankAvatar size={64} name={me.student.displayName} url={me.student.avatarUrl} color={color} groupName={identity.groupName} groupLogoUrl={identity.groupLogoUrl} />
         <div className="rk-me-id">
           <span className="rk-eyebrow">Seu progresso</span>
           <strong>{me.student.displayName}</strong>

@@ -128,6 +128,8 @@ export type FinanceStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELLED";
 export interface OwnOrganization {
   id: number;
   name: string;
+  /** Logo do grupo (URL http(s) ou caminho de upload `/api/uploads/...`); null = sem logo. */
+  logo?: string | null;
   paymentInstructions: string | null;
 }
 
@@ -141,6 +143,23 @@ export function useOwnOrganization() {
     },
     staleTime: 5 * 60 * 1000,
   });
+}
+
+/**
+ * Identidade visual de quem está logado: nome, FOTO (do aluno ligado à própria conta, /students/me) e o GRUPO
+ * (nome + logo, GET /organizations). Alimenta o avatar do topbar, do menu, do perfil e do ranking.
+ */
+export function useMyIdentity() {
+  const user = useSessionUser();
+  const students = useStudents();
+  const organization = useOwnOrganization();
+  const own = students.data?.find((s) => s.userId === user?.id) ?? null;
+  return {
+    name: user?.name ?? "",
+    photo: own?.photo ?? null,
+    groupName: organization.data?.name ?? null,
+    groupLogoUrl: organization.data?.logo ?? null,
+  };
 }
 
 export interface FinancialRecord {

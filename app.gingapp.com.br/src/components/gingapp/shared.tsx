@@ -13,15 +13,19 @@ import { toast } from "sonner";
 import { useEncounterParticipation, type Encounter } from "@/lib/queries";
 import { capitalize, fmt, toDate } from "@/lib/format";
 import { eventSituation } from "@/lib/event-info";
+import { imageSrc } from "@/lib/uploads";
+import communityImage from "@/assets/capoeira-community.jpg";
 import { EventFacts } from "./event-facts";
 
-export function PageHeading({ title, subtitle }: { title: string; subtitle: string }) {
+/** `aside`: elemento à direita do título (ex.: círculo com a logo do grupo na Home). */
+export function PageHeading({ title, subtitle, aside }: { title: string; subtitle: string; aside?: ReactNode }) {
   return (
     <div className="page-heading">
-      <div>
+      <div className="min-w-0">
         <h1>{title}</h1>
         <p>{subtitle}</p>
       </div>
+      {aside}
       <span className="date-label">
         <CalendarDays size={14} /> {capitalize(fmt(new Date(), "EEEE, dd 'de' MMMM"))}
       </span>
@@ -134,7 +138,17 @@ export function EventCard({ event }: { event: Encounter }) {
     <>
       <article className="event-card">
         <div className="event-image">
-          <img src={event.image} alt={event.title} width={1024} height={768} loading="lazy" />
+          <img
+            src={imageSrc(event.image)}
+            alt={event.title}
+            width={1024}
+            height={768}
+            loading="lazy"
+            onError={(e) => {
+              // capa 404/bloqueada: cai na imagem local (nunca a caixa de imagem quebrada)
+              if (!e.currentTarget.src.endsWith(communityImage)) e.currentTarget.src = communityImage;
+            }}
+          />
           <span className={`badge ${event.type === "BATIZADO" ? "badge-warm" : ""}`}>{event.typeLabel}</span>
           <div className="date-block">
             <strong>{fmt(date, "dd")}</strong>

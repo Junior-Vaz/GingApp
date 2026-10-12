@@ -4,6 +4,7 @@ import { Award, CircleAlert } from "lucide-react";
 import { api, ApiError } from "@/lib/api";
 import { dayOnly, fmt } from "@/lib/format";
 import { Brand } from "./app-shell";
+import { Avatar } from "./avatar";
 
 interface PublicCertificate {
   title: string;
@@ -107,9 +108,7 @@ export function PassportVerificationPage({ code }: { code: string }) {
         <NotFound title="Não foi possível carregar" text="Tente novamente em instantes." />
       ) : passport ? (
         <div className={cardClass}>
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-xl font-bold text-primary-foreground">
-            {passport.student.name.charAt(0)}
-          </span>
+          <Avatar name={passport.student.name} size={64} groupName={passport.organization.name} />
           <p className="text-lg font-bold">{passport.student.name}</p>
           <p className="text-sm text-muted-foreground">
             {passport.organization.name}

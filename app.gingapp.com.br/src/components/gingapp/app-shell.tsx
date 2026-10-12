@@ -14,7 +14,6 @@ import {
   MapPin,
   ChevronRight,
   Download,
-  Sprout,
   Heart,
   Menu,
   LogOut,
@@ -24,9 +23,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { logout } from "@/lib/auth";
-import { initials } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
-import { useMyStudent, usePassport, useUnreadCount } from "@/lib/queries";
+import { useMyIdentity, useMyStudent, usePassport, useUnreadCount } from "@/lib/queries";
+import { Avatar } from "./avatar";
 
 const mainNav = [
   { to: "/", label: "Início", icon: House },
@@ -96,6 +95,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const passport = usePassport();
+  const me = useMyIdentity();
   const unread = useUnreadCount().data ?? 0; // contado no banco, não pela lista de notificações
   const groupName = passport.data?.organization.name ?? user?.organizationSlug ?? "Seu grupo";
   const unitName = passport.data?.unit?.name ?? "";
@@ -136,16 +136,17 @@ export function AppShell({ children }: { children: ReactNode }) {
           {navigation(personalNav)}
         </nav>
         <div className="sidebar-bottom">
-          <div className="group-mini">
-            <div className="group-icon">
-              <Sprout size={19} />
+          <Link to="/perfil" className="group-mini no-underline" aria-label="Meu perfil">
+            <Avatar decorative name={me.name || user?.name} src={me.photo} size={38} groupName={me.groupName ?? groupName} groupLogoUrl={me.groupLogoUrl} />
+            <div className="min-w-0">
+              <strong className="truncate">{user?.name}</strong>
+              <p className="truncate">
+                {groupName}
+                {unitName ? ` · ${unitName}` : ""}
+              </p>
             </div>
-            <div>
-              <strong>{groupName}</strong>
-              {unitName && <p>{unitName}</p>}
-            </div>
-            <ChevronRight size={13} className="text-muted-foreground" />
-          </div>
+            <ChevronRight size={13} className="ml-auto flex-none text-muted-foreground" />
+          </Link>
           <Button variant="ghost" size="sm" className="w-full text-muted-foreground mt-3 text-xs" onClick={() => setInstallOpen(true)}>
             <Download size={14} /> Instalar GingApp
           </Button>
@@ -178,7 +179,7 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Menu />
             </Button>
             <Link to="/perfil" aria-label="Meu perfil">
-              <div className="avatar">{initials(user?.name)}</div>
+              <Avatar decorative name={me.name || user?.name} src={me.photo} size={36} groupName={me.groupName} groupLogoUrl={me.groupLogoUrl} />
             </Link>
           </div>
         </header>
@@ -227,6 +228,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             {groupName}
             {unitName ? ` · ${unitName}` : ""}
           </DialogDescription>
+          <Link to="/perfil" className="menu-user no-underline" onClick={() => setMenuOpen(false)}>
+            <Avatar name={me.name || user?.name} src={me.photo} size={44} groupName={me.groupName} groupLogoUrl={me.groupLogoUrl} />
+            <strong className="truncate">{user?.name}</strong>
+          </Link>
           <nav>{navigation([...mainNav, ...communityNav, ...personalNav])}</nav>
           <Button
             variant="soft"

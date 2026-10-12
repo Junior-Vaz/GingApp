@@ -264,6 +264,20 @@ describe("Ginga Rank", () => {
     expect(params.get("studentId")).toBe("11");
   });
 
+  it("avatares do pódio e da lista levam o selo redondo do grupo (iniciais quando não há logo; logo quando há)", async () => {
+    mockApi({
+      students: () =>
+        studentsPage([row(1), row(2), row(3), row(4, { groupLogoUrl: "https://cdn.example.com/logo.png", avatarUrl: "https://cdn.example.com/a.jpg" }), row(5)]),
+    });
+    await mount();
+    const podium = q('[data-testid="rk-podium"]')!;
+    expect(podium.querySelectorAll('[data-testid="avatar-group-badge"]')).toHaveLength(3);
+    const [first, second] = qa('[data-testid="rk-row"]');
+    expect(first!.querySelector('[data-testid="avatar-group-badge"] img')?.getAttribute("src")).toBe("https://cdn.example.com/logo.png");
+    expect(first!.querySelector(".gx-av-disc img")?.getAttribute("src")).toBe("https://cdn.example.com/a.jpg");
+    expect(second!.querySelector('[data-testid="avatar-group-badge"]')?.textContent).toBe("G");
+  });
+
   it("a linha do usuário na lista leva o destaque 'Você'", async () => {
     mockApi({ students: () => studentsPage([row(1), row(2), row(3), row(4, { isMe: true }), row(5)]) });
     await mount();
