@@ -9,8 +9,11 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { detectImageType } from '../../../shared/uploads/image-signature';
 import { UPLOAD_FILENAME_REGEX, UPLOAD_URL_PREFIX } from '../../../shared/uploads/image-ref';
+import { resolveUploadsDir } from '../../../shared/uploads/uploads-dir';
 
 /** Limite por arquivo (bytes recebidos). O multer corta antes de bufferizar tudo (413). */
 export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
@@ -51,11 +54,14 @@ function loadSharp(logger: Logger): SharpModule | null {
 export class UploadsService {
   private readonly logger = new Logger(UploadsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
 
   /** Diretorio de armazenamento (UPLOADS_DIR; padrao ./uploads). Lido a cada chamada: os testes trocam a env. */
   uploadsDir(): string {
-    return path.resolve(process.env.UPLOADS_DIR?.trim() || './uploads');
+    return resolveUploadsDir();
   }
 
   /** Cota por grupo em bytes (UPLOAD_ORG_QUOTA_MB; padrao 1024 MB; 0 = sem limite). */
@@ -125,6 +131,14 @@ export class UploadsService {
       await fs.unlink(fullPath).catch(() => undefined); // nao deixa arquivo orfao se o registro falhar
       throw err;
     }
+    await this.audit.record({
+      organizationId,
+      userId,
+      action: AuditAction.UPLOAD_CREATE,
+      entity: AuditEntity.UPLOAD,
+      entityId: filename,
+      meta: { sizeBytes: data.length, mimeType: contentType },
+    });
     return { url: `${UPLOAD_URL_PREFIX}${filename}`, filename, contentType, size: data.length, width, height };
   }
 

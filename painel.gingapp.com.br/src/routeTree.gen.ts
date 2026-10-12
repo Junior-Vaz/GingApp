@@ -32,6 +32,7 @@ import { Route as AppRelatoriosRouteImport } from './routes/_app.relatorios'
 import { Route as AppRodasRouteImport } from './routes/_app.rodas'
 import { Route as AppTurmasRouteImport } from './routes/_app.turmas'
 import { Route as AppUnidadesRouteImport } from './routes/_app.unidades'
+import { Route as AppCheckinKindIdRouteImport } from './routes/_app.checkin.$kind.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -147,6 +148,11 @@ const AppUnidadesRoute = AppUnidadesRouteImport.update({
   path: '/unidades',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCheckinKindIdRoute = AppCheckinKindIdRouteImport.update({
+  id: '/checkin/$kind/$id',
+  path: '/checkin/$kind/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -171,6 +177,7 @@ export interface FileRoutesByFullPath {
   '/rodas': typeof AppRodasRoute
   '/turmas': typeof AppTurmasRoute
   '/unidades': typeof AppUnidadesRoute
+  '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -195,6 +202,7 @@ export interface FileRoutesByTo {
   '/rodas': typeof AppRodasRoute
   '/turmas': typeof AppTurmasRoute
   '/unidades': typeof AppUnidadesRoute
+  '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -221,6 +229,7 @@ export interface FileRoutesById {
   '/_app/rodas': typeof AppRodasRoute
   '/_app/turmas': typeof AppTurmasRoute
   '/_app/unidades': typeof AppUnidadesRoute
+  '/_app/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -247,6 +256,7 @@ export interface FileRouteTypes {
     | '/rodas'
     | '/turmas'
     | '/unidades'
+    | '/checkin/$kind/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -271,6 +281,7 @@ export interface FileRouteTypes {
     | '/rodas'
     | '/turmas'
     | '/unidades'
+    | '/checkin/$kind/$id'
   id:
     | '__root__'
     | '/'
@@ -296,6 +307,7 @@ export interface FileRouteTypes {
     | '/_app/rodas'
     | '/_app/turmas'
     | '/_app/unidades'
+    | '/_app/checkin/$kind/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -471,6 +483,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUnidadesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/checkin/$kind/$id': {
+      id: '/_app/checkin/$kind/$id'
+      path: '/checkin/$kind/$id'
+      fullPath: '/checkin/$kind/$id'
+      preLoaderRoute: typeof AppCheckinKindIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -491,6 +510,7 @@ interface AppRouteChildren {
   AppRodasRoute: typeof AppRodasRoute
   AppTurmasRoute: typeof AppTurmasRoute
   AppUnidadesRoute: typeof AppUnidadesRoute
+  AppCheckinKindIdRoute: typeof AppCheckinKindIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -510,6 +530,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppRodasRoute: AppRodasRoute,
   AppTurmasRoute: AppTurmasRoute,
   AppUnidadesRoute: AppUnidadesRoute,
+  AppCheckinKindIdRoute: AppCheckinKindIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

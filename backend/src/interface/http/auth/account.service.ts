@@ -4,6 +4,7 @@ import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interf
 import { buildTermsStatus, LEGAL_VERSION } from '../../../shared/legal/legal-documents';
 import { TermsStatus } from '../../../shared/legal/legal-types';
 import { AuthResponse } from './auth-response.interface';
+import { TwoFactorService } from './two-factor.service';
 
 export const TERMS_VERSION_MISMATCH_CODE = 'TERMS_VERSION_MISMATCH';
 export const TERMS_VERSION_MISMATCH_MESSAGE =
@@ -25,6 +26,9 @@ export type MeResponse = AuthResponse['user'] & {
   photo: string | null;
   /** Pedido de exclusão/anonimização pendente (LGPD), se houver. */
   pendingDeletionRequest: { id: number; requestedAt: Date } | null;
+  /** 2FA TOTP ativo + quantos codigos de recuperacao ainda restam (nunca o segredo nem os hashes). */
+  twoFactorEnabled: boolean;
+  recoveryCodesRemaining: number;
 };
 
 /**
@@ -66,6 +70,7 @@ export class AccountService {
       mustChangePassword: user.mustChangePassword,
       ...buildTermsStatus(user),
       pendingDeletionRequest: pending ? { id: pending.id, requestedAt: pending.requestedAt } : null,
+      ...TwoFactorService.status(user),
     };
   }
 

@@ -379,7 +379,7 @@ describe("units.ts — schema e payloads", () => {
   const base: Unit = { id: 5, organizationId: 1, name: "Filial", address: "Rua", city: "Goiânia", state: "GO", isMain: false, status: "ACTIVE" };
 
   it("schema: nome mínimo 2, UF só das 27 siglas (ou vazio)", () => {
-    const ok = { name: "Ab", address: "", city: "", state: "", isMain: false, status: "ACTIVE" as const };
+    const ok = { name: "Ab", address: "", city: "", state: "", latitude: "", longitude: "", isMain: false, status: "ACTIVE" as const };
     expect(unitSchema.safeParse(ok).success).toBe(true);
     expect(unitSchema.safeParse({ ...ok, name: "A" }).success).toBe(false);
     expect(unitSchema.safeParse({ ...ok, state: "SP" }).success).toBe(true);
@@ -388,7 +388,7 @@ describe("units.ts — schema e payloads", () => {
   });
 
   it("criar omite vazios e nunca envia status", () => {
-    const empty = { name: " Filial ", address: " ", city: "", state: "", isMain: false, status: "ACTIVE" as const };
+    const empty = { name: " Filial ", address: " ", city: "", state: "", latitude: "", longitude: "", isMain: false, status: "ACTIVE" as const };
     expect(unitToCreatePayload(empty)).toEqual({ name: "Filial", address: undefined, city: undefined, state: undefined, isMain: false });
     expect(unitToCreatePayload(empty)).not.toHaveProperty("status");
   });

@@ -1,6 +1,20 @@
-import { IsBoolean, IsDateString, IsIn, IsInt, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
+import { EventStatus } from '@prisma/client';
+import {
+  IsBoolean,
+  IsDateString,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
 import { EVENT_TYPES } from './event-type';
 import { IsImageRef } from '../../../../shared/uploads/image-ref';
+import { IsOptionalLatitude, IsOptionalLongitude } from '../../../../shared/geo/coordinates';
 
 /** Todos os campos opcionais (update parcial) — mesmo padrão de UpdateStudentDto.
  *
@@ -26,6 +40,13 @@ export class UpdateEventDto {
   @IsString()
   location?: string | null;
 
+  /** Coordenadas (as DUAS juntas; ambas null limpam). Sem elas, mudar location/estado/cidade re-geocodifica (se houver chave). */
+  @IsOptionalLatitude()
+  latitude?: number | null;
+
+  @IsOptionalLongitude()
+  longitude?: number | null;
+
   @IsOptional()
   @IsInt()
   unitId?: number | null;
@@ -49,4 +70,27 @@ export class UpdateEventDto {
   @IsOptional()
   @IsImageRef()
   imageUrl?: string | null;
+
+  /** null = ilimitado. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(100000)
+  capacity?: number | null;
+
+  /** null/0 = gratuito. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(100000000)
+  priceCents?: number | null;
+
+  @ValidateIf((_, v) => v !== undefined)
+  @IsEnum(EventStatus)
+  status?: EventStatus;
+
+  /** null = sem prazo. */
+  @IsOptional()
+  @IsDateString()
+  registrationDeadline?: string | null;
 }

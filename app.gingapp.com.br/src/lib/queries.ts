@@ -1,6 +1,8 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { toast } from "sonner";
+import { ApiError, api, errorMessage } from "@/lib/api";
+import { pickEventInfo, type EncounterInfo, type EventInfoFields } from "@/lib/event-info";
 import { fmt, startOfToday } from "@/lib/format";
 import { getUser, setStoredStudentId, useSessionUser, useStoredStudentId } from "@/lib/session";
 import rodaImage from "@/assets/capoeira-roda.jpg";
@@ -151,7 +153,7 @@ export interface FinancialRecord {
   status: FinanceStatus;
 }
 
-export interface EventDto {
+export interface EventDto extends EventInfoFields {
   id: number;
   title: string;
   type: string;
@@ -173,7 +175,7 @@ export interface MyParticipation {
   status: string;
 }
 
-export interface CalendarItem {
+export interface CalendarItem extends EventInfoFields {
   id: number;
   source: "RODA" | "EVENTO";
   type: string;
@@ -242,7 +244,7 @@ export const TYPE_LABEL: Record<string, string> = {
   OUTRO: "Outro",
 };
 
-export interface Encounter {
+export interface Encounter extends EncounterInfo {
   key: string;
   source: "RODA" | "EVENTO";
   id: number;
@@ -279,6 +281,7 @@ export function fromCalendar(item: CalendarItem): Encounter {
     ...(item.participantsCount === undefined
       ? {}
       : { participantsCount: item.participantsCount, myParticipation: item.myParticipation ?? null }),
+    ...pickEventInfo(item),
   };
 }
 
@@ -299,6 +302,7 @@ export function fromEvent(event: EventDto): Encounter {
     ...(event.participantsCount === undefined
       ? {}
       : { participantsCount: event.participantsCount, myParticipation: event.myParticipation ?? null }),
+    ...pickEventInfo(event),
   };
 }
 
@@ -649,6 +653,75 @@ export function findMyParticipant(
 }
 
 /**
+ * SSOT do estado de participação de UM encontro (card da lista e cartão do mapa usam o mesmo): contagem,
+ * "já estou inscrito", se pode se inscrever e `join()` (inscreve/cancela com toast). Contagem e "inscrito" vêm
+ * do resumo da própria listagem quando existe (zero chamadas); sem resumo, a lista só é consultada quando
+ * `detailsOpen` (usuário abriu os detalhes). Sem aluno vinculado (inscrição como convidado, que o resumo não
+ * enxerga) também precisa da lista. O resumo traz UMA inscrição da conta: com vários dependentes só vale para
+ * o aluno ATIVO se for a dele (ou se ninguém inscreveu); se for de OUTRO dependente consulta a lista — nunca
+ * mostra "Confirmado"/cancela a inscrição do irmão.
+ */
+export function useEncounterParticipation(
+  event: Pick<Encounter, "source" | "id" | "participantsCount" | "myParticipation" | "spotsLeft">,
+  detailsOpen: boolean,
+) {
+  const [offerWaitlist, setOfferWaitlist] = useState(false);
+  const { student, isLoading: studentLoading } = useMyStudent();
+  const toggle = useToggleParticipation(event.source, event.id);
+  const myStudentId = student?.id ?? null;
+  const hasSummary = event.participantsCount !== undefined;
+  const guestMode = event.source === "EVENTO" && !studentLoading && myStudentId === null;
+  const summaryOwn = event.myParticipation ?? null;
+  const summaryFits = hasSummary && (studentLoading || summaryOwn === null || summaryOwn.studentId === myStudentId);
+  const participants = useParticipants(
+    event.source,
+    event.id,
+    (detailsOpen && (!hasSummary || guestMode)) || (hasSummary && !summaryFits),
+  );
+  const count = hasSummary ? event.participantsCount : participants.data?.length;
+  const canJoin = summaryFits ? !guestMode || participants.isSuccess : participants.isSuccess;
+  const mine = (summaryFits ? summaryOwn : null) ?? findMyParticipant(participants.data, event.source, myStudentId);
+  const joined = mine !== null;
+  // Lista de espera: a inscricao existe (`joined`) mas NAO ocupa vaga; cancelar = sair da fila.
+  const waitlisted = mine?.status === "WAITLIST";
+  // Lotado: pelo resumo da listagem (spotsLeft === 0) ou porque o servidor respondeu 409 EVENT_FULL.
+  const full = !joined && (offerWaitlist || (event.source === "EVENTO" && event.spotsLeft === 0));
+
+  async function run(joinWaitlist: boolean) {
+    try {
+      await toggle.mutateAsync({ mine, myStudentId, joinWaitlist });
+      setOfferWaitlist(false);
+      toast.success(
+        joined
+          ? waitlisted
+            ? "Você saiu da lista de espera."
+            : "Participação cancelada."
+          : joinWaitlist
+            ? "Você entrou na lista de espera. Avisaremos se abrir uma vaga."
+            : "Você está na roda! Participação confirmada.",
+      );
+    } catch (error) {
+      // Evento lotado: mostra a mensagem do servidor e passa a oferecer a fila (botao "Entrar na lista de espera").
+      if (error instanceof ApiError && error.status === 409 && error.code === "EVENT_FULL") setOfferWaitlist(true);
+      toast.error(errorMessage(error, "Não foi possível atualizar sua participação."));
+    }
+  }
+
+  return {
+    count,
+    canJoin,
+    joined,
+    waitlisted,
+    full,
+    /** Inscreve (ou cancela/sai da fila, se ja inscrito). */
+    join: () => run(false),
+    /** Entra na lista de espera de um evento lotado (POST com joinWaitlist: true). */
+    joinWaitlist: () => run(true),
+    pending: toggle.isPending,
+  };
+}
+
+/**
  * Inscrever / cancelar. O cancelamento usa o `id` da própria inscrição (`mine`), sem listar ninguém.
  * Depois invalida o que mostra a participação: a lista do encontro (fontes lazy), `["events"]` (as
  * páginas de /events trazem contagem + minha inscrição) e, nas rodas, o Passaporte (conta rodas).
@@ -656,15 +729,13 @@ export function findMyParticipant(
 export function useToggleParticipation(source: "RODA" | "EVENTO", id: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (args: { mine: MyParticipation | null; myStudentId: number | null }) => {
+    mutationFn: async (args: { mine: MyParticipation | null; myStudentId: number | null; joinWaitlist?: boolean }) => {
       const base = participantsPath(source, id);
       if (args.mine) return api.delete(`${base}/${args.mine.id}`);
       if (source === "RODA") return api.post(base);
       const user = getUser();
-      return api.post(
-        base,
-        args.myStudentId !== null ? { studentId: args.myStudentId } : { guestName: user?.name },
-      );
+      const who = args.myStudentId !== null ? { studentId: args.myStudentId } : { guestName: user?.name };
+      return api.post(base, args.joinWaitlist ? { ...who, joinWaitlist: true } : who);
     },
     onSuccess: () =>
       Promise.all([

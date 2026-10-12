@@ -16,6 +16,8 @@ import {
   unitScopeFilter,
 } from '../../../shared/access/unit-scope';
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 
 const DAY_MS = 86_400_000;
 /** Maior intervalo aceito por POST /classes/:id/generate-lessons (to - from, em dias). */
@@ -53,6 +55,7 @@ export class ClassesService {
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
     private readonly unitScope: UnitScopeService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -109,7 +112,7 @@ export class ClassesService {
       await assertActiveTeacher(this.prisma, organizationId, dto.teacherUserId);
     }
 
-    return this.prisma.class.create({
+    const created = await this.prisma.class.create({
       data: {
         organizationId,
         unitId,
@@ -121,6 +124,14 @@ export class ClassesService {
         endTime: dto.endTime,
       },
     });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.CLASS_CREATE,
+      entity: AuditEntity.CLASS,
+      entityId: created.id,
+      meta: { name: created.name, unitId: created.unitId },
+    });
+    return created;
   }
 
   async update(organizationId: number, id: number, dto: UpdateClassDto, user?: AuthenticatedUser) {
@@ -142,7 +153,7 @@ export class ClassesService {
       await assertActiveTeacher(this.prisma, organizationId, dto.teacherUserId);
     }
 
-    return this.prisma.class.update({
+    const updated = await this.prisma.class.update({
       where: { id },
       data: {
         unitId: dto.unitId,
@@ -155,6 +166,19 @@ export class ClassesService {
         status: dto.status,
       },
     });
+    await this.audit.record({
+      organizationId,
+      action: dto.status === 'INACTIVE' ? AuditAction.CLASS_INACTIVATE : AuditAction.CLASS_UPDATE,
+      entity: AuditEntity.CLASS,
+      entityId: id,
+      meta: {
+        fields: Object.entries(dto)
+          .filter(([, value]) => value !== undefined)
+          .map(([key]) => key),
+        status: updated.status,
+      },
+    });
+    return updated;
   }
 
   /**
@@ -163,7 +187,14 @@ export class ClassesService {
    */
   async remove(organizationId: number, id: number, user?: AuthenticatedUser) {
     await this.findOne(organizationId, id, user);
-    return this.prisma.class.update({ where: { id }, data: { status: 'INACTIVE' } });
+    const updated = await this.prisma.class.update({ where: { id }, data: { status: 'INACTIVE' } });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.CLASS_INACTIVATE,
+      entity: AuditEntity.CLASS,
+      entityId: id,
+    });
+    return updated;
   }
 
   /**

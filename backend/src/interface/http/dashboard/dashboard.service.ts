@@ -99,7 +99,7 @@ export class DashboardService {
         where: { organizationId, graduatedAt: { gte: thirtyDaysAgo }, student: studentScope },
       }),
       this.prisma.event.findMany({
-        where: { organizationId, date: { gte: now }, AND: [groupWideOrUnitFilter(unitScope)] },
+        where: { organizationId, date: { gte: now }, status: { in: ['PUBLISHED', 'CLOSED'] }, AND: [groupWideOrUnitFilter(unitScope)] },
         orderBy: { date: 'asc' },
         take: 5,
         select: { id: true, title: true, date: true, location: true },

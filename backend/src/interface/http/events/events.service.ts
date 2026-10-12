@@ -1,5 +1,15 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrgRole, Prisma } from '@prisma/client';
+import { EventStatus, OrgRole, ParticipantStatus, Prisma, UserType } from '@prisma/client';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
+import {
+  OCCUPYING_STATUSES,
+  assertRegistrationOpen,
+  eventFullConflict,
+  isFull,
+  occupiesSpot,
+  spotsLeft,
+} from './event-registration';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { ListEventsQueryDto } from './dto/list-events-query.dto';
@@ -16,11 +26,25 @@ import {
   UnitScopeService,
   unitScopeFilter,
 } from '../../../shared/access/unit-scope';
+import { GeocodingService } from '../../../shared/geo/geocoding.service';
+import { locationGeocodeParts } from '../../../shared/geo/location-text';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { AddEventParticipantDto } from './dto/add-event-participant.dto';
 
 const ADMIN_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR];
+
+/** Agregados de vagas anexados a cada evento listado (ver withParticipationSummary). */
+export interface EventSpotsSummary {
+  /** Total de inscricoes (qualquer status). */
+  participantsCount: number;
+  /** Vagas ocupadas: CONFIRMED + ATTENDED. */
+  confirmedCount: number;
+  /** Inscricoes na lista de espera. */
+  waitlistCount: number;
+  /** Vagas restantes (null = ilimitado). */
+  spotsLeft: number | null;
+}
 
 /**
  * Eventos do grupo — CRUD completo, sempre isolado por organizationId (PLANO_PROJETO.md
@@ -34,6 +58,8 @@ export class EventsService {
     private readonly studentsService: StudentsService,
     private readonly notifications: NotificationsService,
     private readonly unitScope: UnitScopeService,
+    private readonly geocoding: GeocodingService,
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -69,9 +95,12 @@ export class EventsService {
     // Escopo por unidade (E08, shared/access/unit-scope.ts): o PROFESSOR com unidades atribuídas só vê eventos do grupo
     // inteiro (unitId nulo) e das suas unidades; lista e contagem usam o mesmo where.
     and.push(groupWideOrUnitFilter(await this.unitScope.resolve(requester, organizationId)));
+    // Rascunho (DRAFT) so a equipe ve; ALUNO/RESPONSAVEL nunca.
+    if (requester && !this.isStaff(requester)) and.push({ status: { not: EventStatus.DRAFT } });
     const where: Prisma.EventWhereInput = {
       organizationId,
       ...(query.type ? { type: query.type } : {}),
+      ...(query.status ? { status: query.status } : {}),
       AND: and,
     };
 
@@ -99,7 +128,7 @@ export class EventsService {
     events: T[],
     requester?: AuthenticatedUser,
     organizationId?: number,
-  ): Promise<Array<T & { participantsCount: number; myParticipation: MyParticipation | null }>> {
+  ): Promise<Array<T & EventSpotsSummary & { myParticipation: MyParticipation | null }>> {
     if (events.length === 0) return [];
     const eventIds = events.map((e) => e.id);
     const orgFilter = organizationId !== undefined ? { organizationId } : {};
@@ -113,7 +142,7 @@ export class EventsService {
 
     const [counts, mine] = await Promise.all([
       this.prisma.eventParticipant.groupBy({
-        by: ['eventId'],
+        by: ['eventId', 'status'],
         where: { ...orgFilter, eventId: { in: eventIds } },
         _count: { _all: true },
       }),
@@ -126,8 +155,18 @@ export class EventsService {
         : Promise.resolve([]),
     ]);
 
-    const countByEvent = new Map(counts.map((c) => [c.eventId, c._count._all]));
+    // Agregados por evento: total (qualquer status), vagas ocupadas (CONFIRMED+ATTENDED) e fila de espera.
+    const totals = new Map<number, { total: number; occupied: number; waitlist: number }>();
+    for (const c of counts) {
+      const t = totals.get(c.eventId) ?? { total: 0, occupied: 0, waitlist: 0 };
+      t.total += c._count._all;
+      if (occupiesSpot(c.status)) t.occupied += c._count._all;
+      if (c.status === ParticipantStatus.WAITLIST) t.waitlist += c._count._all;
+      totals.set(c.eventId, t);
+    }
     return events.map((event) => {
+      const t = totals.get(event.id) ?? { total: 0, occupied: 0, waitlist: 0 };
+      const capacity = (event as { capacity?: number | null }).capacity ?? null;
       // findMine devolve o próprio aluno primeiro, depois os dependentes — mesma prioridade
       // do pickMyStudent do app.
       const own = myStudentIds
@@ -135,7 +174,10 @@ export class EventsService {
         .find((p) => p !== undefined);
       return {
         ...event,
-        participantsCount: countByEvent.get(event.id) ?? 0,
+        participantsCount: t.total,
+        confirmedCount: t.occupied,
+        waitlistCount: t.waitlist,
+        spotsLeft: spotsLeft(capacity, t.occupied),
         myParticipation: own ? { id: own.id, studentId: own.studentId, status: own.status } : null,
       };
     });
@@ -154,7 +196,13 @@ export class EventsService {
   async findOne(organizationId: number, id: number, requester?: AuthenticatedUser) {
     const scope = await this.unitScope.resolve(requester, organizationId);
     const event = await this.prisma.event.findFirst({
-      where: { id, organizationId, AND: [groupWideOrUnitFilter(scope)] },
+      where: {
+        id,
+        organizationId,
+        AND: [groupWideOrUnitFilter(scope)],
+        // Rascunho: 404 para quem nao e da equipe (mesmo erro de evento inexistente).
+        ...(requester && !this.isStaff(requester) ? { status: { not: EventStatus.DRAFT } } : {}),
+      },
     });
     if (!event) {
       throw new NotFoundException('Evento não encontrado.');
@@ -169,6 +217,9 @@ export class EventsService {
       await this.assertUnitBelongsToOrganization(organizationId, unitId);
     }
     await this.assertLocationReferencesExist(dto);
+    this.assertDeadlineBeforeStart(dto.registrationDeadline, dto.date);
+    // Coordenadas do mapa: as do corpo, ou geocodificadas a partir de location + cidade/UF (so' com chave do Google).
+    const coordinates = await this.geocoding.forCreate(dto, await locationGeocodeParts(this.prisma, dto));
 
     const event = await this.prisma.event.create({
       data: {
@@ -179,25 +230,37 @@ export class EventsService {
         description: dto.description,
         date: new Date(dto.date),
         location: dto.location,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
         isPublic: dto.isPublic ?? false,
         stateId: dto.stateId,
         cityId: dto.cityId,
         imageUrl: dto.imageUrl,
+        capacity: dto.capacity,
+        priceCents: dto.priceCents || null,
+        status: dto.status,
+        registrationDeadline: dto.registrationDeadline ? new Date(dto.registrationDeadline) : undefined,
       },
     });
 
     // Gatilho de notificação (E09): evento NOVO e FUTURO avisa os membros ativos do grupo (da unidade,
     // quando o evento é de uma unidade) — mesmo público-alvo do comunicado, com teto de destinatários.
     // Efeito colateral SEGURO: falha ao notificar nunca derruba a criação. Eventos já passados
-    // (cadastro de histórico) não notificam.
-    if (event.date.getTime() > Date.now()) {
-      await this.notifications.notifyGroupMembers(organizationId, event.unitId, {
-        title: 'Novo evento',
-        body: `${event.title} — ${formatInstantBR(event.date)}${event.location ? ` · ${event.location}` : ''}`,
-        type: 'EVENT',
-      });
-    }
+    // (cadastro de histórico) e rascunhos/cancelados não notificam (o rascunho avisa ao ser publicado).
+    if (event.status === EventStatus.PUBLISHED) await this.notifyNewEvent(organizationId, event);
     return event;
+  }
+
+  private async notifyNewEvent(
+    organizationId: number,
+    event: { title: string; date: Date; location: string | null; unitId: number | null },
+  ): Promise<void> {
+    if (event.date.getTime() <= Date.now()) return;
+    await this.notifications.notifyGroupMembers(organizationId, event.unitId, {
+      title: 'Novo evento',
+      body: `${event.title} — ${formatInstantBR(event.date)}${event.location ? ` · ${event.location}` : ''}`,
+      type: 'EVENT',
+    });
   }
 
   async update(organizationId: number, id: number, dto: UpdateEventDto, requester?: AuthenticatedUser) {
@@ -211,7 +274,26 @@ export class EventsService {
     }
     await this.assertLocationReferencesExist(dto);
 
-    return this.prisma.event.update({
+    // Coordenadas: as do corpo; senao, se o local (texto/cidade/estado) mudou, geocodifica o novo (so' com chave do Google).
+    const next = {
+      location: dto.location === undefined ? current.location : dto.location,
+      stateId: dto.stateId === undefined ? current.stateId : dto.stateId,
+      cityId: dto.cityId === undefined ? current.cityId : dto.cityId,
+    };
+    const textChanged =
+      next.location !== current.location || next.stateId !== current.stateId || next.cityId !== current.cityId;
+    const coordinates = await this.geocoding.forUpdate(
+      dto,
+      textChanged,
+      textChanged ? await locationGeocodeParts(this.prisma, next) : [],
+    );
+
+    this.assertDeadlineBeforeStart(
+      dto.registrationDeadline === undefined ? current.registrationDeadline : dto.registrationDeadline,
+      dto.date ?? current.date,
+    );
+
+    const updated = await this.prisma.event.update({
       where: { id },
       data: {
         unitId: dto.unitId,
@@ -220,11 +302,123 @@ export class EventsService {
         description: dto.description,
         date: dto.date ? new Date(dto.date) : undefined,
         location: dto.location,
+        latitude: coordinates?.latitude,
+        longitude: coordinates?.longitude,
         isPublic: dto.isPublic,
         stateId: dto.stateId,
         cityId: dto.cityId,
         imageUrl: dto.imageUrl,
+        capacity: dto.capacity,
+        // 0 e null = gratuito (guardado como NULL).
+        priceCents: dto.priceCents === undefined ? undefined : dto.priceCents || null,
+        status: dto.status,
+        registrationDeadline:
+          dto.registrationDeadline === undefined
+            ? undefined
+            : dto.registrationDeadline === null
+              ? null
+              : new Date(dto.registrationDeadline),
       },
+    });
+
+    if (dto.status === EventStatus.CANCELLED && current.status !== EventStatus.CANCELLED) {
+      await this.onEventCancelled(organizationId, updated);
+    }
+    if (current.status === EventStatus.DRAFT && updated.status === EventStatus.PUBLISHED) {
+      await this.notifyNewEvent(organizationId, updated); // rascunho publicado = evento novo para o grupo
+    }
+    // Capacidade aumentada/removida: libera a fila de espera.
+    if (dto.capacity !== undefined && updated.status !== EventStatus.CANCELLED) {
+      await this.promoteWaitlist(organizationId, id);
+    }
+    return updated;
+  }
+
+  /** O prazo de inscricao, quando informado, tem de ser anterior ou igual ao inicio do evento. */
+  private assertDeadlineBeforeStart(deadline: string | Date | null | undefined, start: string | Date): void {
+    if (!deadline) return;
+    if (new Date(deadline).getTime() > new Date(start).getTime()) {
+      throw new BadRequestException('O prazo de inscrição deve ser anterior ao início do evento.');
+    }
+  }
+
+  /**
+   * Evento cancelado: avisa (in-app, via NotificationsService) quem estava inscrito — CONFIRMED, INVITED, ATTENDED e
+   * lista de espera; recusados/cancelados nao — e grava na auditoria. Efeito colateral SEGURO (nunca derruba o PATCH).
+   */
+  private async onEventCancelled(organizationId: number, event: { id: number; title: string; date: Date }): Promise<void> {
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.EVENT_CANCEL,
+      entity: AuditEntity.EVENT,
+      entityId: event.id,
+      meta: { title: event.title },
+    });
+    await this.notifications.safely('eventCancelled', async () => {
+      const rows = await this.prisma.eventParticipant.findMany({
+        where: {
+          organizationId,
+          eventId: event.id,
+          status: { notIn: [ParticipantStatus.DECLINED, ParticipantStatus.CANCELLED] },
+        },
+        select: { studentId: true, userId: true },
+      });
+      const byStudent = await this.notifications.userIdsByStudent(
+        organizationId,
+        rows.flatMap((r) => (r.studentId ? [r.studentId] : [])),
+      );
+      const userIds = [...byStudent.values()].flat();
+      for (const r of rows) if (!r.studentId && r.userId) userIds.push(r.userId); // convidado: quem o inscreveu
+      return this.notifications.notifyUsers(organizationId, userIds, {
+        title: 'Evento cancelado',
+        body: `${event.title} — ${formatInstantBR(event.date)} foi cancelado.`,
+        type: 'EVENT_CANCELLED',
+      });
+    });
+  }
+
+  /**
+   * Promove da lista de espera (WAITLIST, ordem de chegada) enquanto houver vaga e avisa os promovidos. Chamada apos
+   * uma vaga abrir (inscricao removida/cancelada) ou a capacidade crescer. Trava a linha do evento para nao competir
+   * com inscricoes simultaneas. Efeito colateral SEGURO na notificacao.
+   */
+  private async promoteWaitlist(organizationId: number, eventId: number): Promise<void> {
+    const promoted = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Event" WHERE id = ${eventId} FOR UPDATE`;
+      const event = await tx.event.findUnique({ where: { id: eventId }, select: { capacity: true, status: true } });
+      if (!event || event.capacity == null || event.status === EventStatus.CANCELLED) return [];
+      const occupied = await tx.eventParticipant.count({
+        where: { eventId, status: { in: OCCUPYING_STATUSES } },
+      });
+      const free = event.capacity - occupied;
+      if (free <= 0) return [];
+      const next = await tx.eventParticipant.findMany({
+        where: { eventId, status: ParticipantStatus.WAITLIST },
+        orderBy: { id: 'asc' },
+        take: free,
+      });
+      if (next.length === 0) return [];
+      await tx.eventParticipant.updateMany({
+        where: { id: { in: next.map((p) => p.id) } },
+        data: { status: ParticipantStatus.CONFIRMED },
+      });
+      return next;
+    });
+    if (promoted.length === 0) return;
+    const event = await this.prisma.event.findUnique({ where: { id: eventId }, select: { title: true, date: true } });
+    if (!event) return;
+    await this.notifications.safely('waitlistPromoted', async () => {
+      const byStudent = await this.notifications.userIdsByStudent(
+        organizationId,
+        promoted.flatMap((p) => (p.studentId ? [p.studentId] : [])),
+      );
+      const userIds = [...byStudent.values()].flat();
+      for (const p of promoted) if (!p.studentId && p.userId) userIds.push(p.userId);
+      return this.notifications.notifyUsers(organizationId, userIds, {
+        title: 'Vaga liberada',
+        body: `Uma vaga abriu em ${event.title} — ${formatInstantBR(event.date)}. Sua inscrição está confirmada.`,
+        type: 'EVENT_WAITLIST_PROMOTED',
+      });
     });
   }
 
@@ -296,7 +490,8 @@ export class EventsService {
     requester: AuthenticatedUser,
     dto: AddEventParticipantDto,
   ) {
-    await this.findOne(organizationId, eventId, requester);
+    const event = await this.findOne(organizationId, eventId, requester);
+    assertRegistrationOpen(event, this.isOrgAdmin(requester)); // cancelado/encerrado/prazo => 409
 
     const hasStudent = dto.studentId != null;
     const hasGuest = !!dto.guestName;
@@ -325,36 +520,48 @@ export class EventsService {
 
     const include = { student: { select: { id: true, name: true } } };
 
-    // Idempotente: repetir a inscrição do mesmo aluno não duplica (atualiza o status, se enviado).
-    if (hasStudent) {
-      const existing = await this.prisma.eventParticipant.findFirst({
-        where: { organizationId, eventId, studentId: dto.studentId },
+    // Vagas: a decisao "cabe / vai para a fila / lotado" e a gravacao acontecem na MESMA transacao, com a linha do
+    // evento travada (FOR UPDATE) — duas inscricoes simultaneas nunca passam da capacidade.
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "Event" WHERE id = ${eventId} FOR UPDATE`;
+
+      // Idempotente: repetir a inscrição do mesmo aluno não duplica (atualiza o status, se enviado).
+      const existing = hasStudent
+        ? await tx.eventParticipant.findFirst({ where: { organizationId, eventId, studentId: dto.studentId }, include })
+        : null;
+      if (existing && (!dto.status || dto.status === existing.status)) return existing;
+
+      let target: ParticipantStatus = dto.status ?? ParticipantStatus.CONFIRMED;
+      if (occupiesSpot(target)) {
+        const occupied = await tx.eventParticipant.count({
+          where: { eventId, status: { in: OCCUPYING_STATUSES }, ...(existing ? { id: { not: existing.id } } : {}) },
+        });
+        if (isFull(event.capacity, occupied)) {
+          if (!dto.joinWaitlist) throw eventFullConflict();
+          target = ParticipantStatus.WAITLIST;
+        }
+      }
+      if (existing) {
+        return tx.eventParticipant.update({ where: { id: existing.id }, data: { status: target }, include });
+      }
+      return tx.eventParticipant.create({
+        data: {
+          organizationId,
+          eventId,
+          studentId: dto.studentId,
+          guestName: dto.guestName,
+          status: target,
+          // Guarda quem inscreveu o convidado, para ele poder cancelar a própria inscrição.
+          userId: hasGuest ? requester.id : undefined,
+        },
         include,
       });
-      if (existing) {
-        if (dto.status && dto.status !== existing.status) {
-          return this.prisma.eventParticipant.update({
-            where: { id: existing.id },
-            data: { status: dto.status },
-            include,
-          });
-        }
-        return existing;
-      }
-    }
-
-    return this.prisma.eventParticipant.create({
-      data: {
-        organizationId,
-        eventId,
-        studentId: dto.studentId,
-        guestName: dto.guestName,
-        status: dto.status,
-        // Guarda quem inscreveu o convidado, para ele poder cancelar a própria inscrição.
-        userId: hasGuest ? requester.id : undefined,
-      },
-      include,
     });
+    // Admin tirou alguem de uma vaga (ex.: CONFIRMED -> DECLINED): a fila anda.
+    if (dto.status && !occupiesSpot(dto.status) && dto.status !== ParticipantStatus.WAITLIST) {
+      await this.promoteWaitlist(organizationId, eventId);
+    }
+    return result;
   }
 
   /**
@@ -393,6 +600,8 @@ export class EventsService {
     }
 
     await this.prisma.eventParticipant.delete({ where: { id: participantId } });
+    // Liberou uma vaga: o primeiro da lista de espera e promovido (e avisado).
+    if (occupiesSpot(participant.status)) await this.promoteWaitlist(organizationId, eventId);
   }
 
   /**
@@ -426,6 +635,11 @@ export class EventsService {
 
   private isOrgAdmin(user: AuthenticatedUser): boolean {
     return !!user.role && ADMIN_ROLES.includes(user.role);
+  }
+
+  /** Equipe que ve rascunhos: MESTRE/PROFESSOR do grupo ou equipe da plataforma. */
+  private isStaff(user: AuthenticatedUser): boolean {
+    return this.isOrgAdmin(user) || user.userType === UserType.PLATFORM;
   }
 
   /** Nunca confiar em unitId vindo do corpo da requisição sem confirmar que pertence à

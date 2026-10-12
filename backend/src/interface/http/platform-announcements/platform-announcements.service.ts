@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreatePlatformAnnouncementDto } from './dto/create-platform-announcement.dto';
 import { UpdatePlatformAnnouncementDto } from './dto/update-platform-announcement.dto';
 
@@ -15,7 +16,10 @@ import { UpdatePlatformAnnouncementDto } from './dto/update-platform-announcemen
  */
 @Injectable()
 export class PlatformAnnouncementsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   findAll() {
     return this.prisma.platformAnnouncement.findMany({
@@ -116,14 +120,15 @@ export class PlatformAnnouncementsService {
 
     if (members.length === 0) return;
 
-    await this.prisma.notification.createMany({
-      data: members.map((m) => ({
+    // NotificationsService e' o SSOT de escrita em Notification (em lotes, e dispara o Web Push em segundo plano).
+    await this.notifications.createMany(
+      members.map((m) => ({
         organizationId: m.organizationId,
         userId: m.userId,
         title,
         body,
         type: 'PLATFORM_ANNOUNCEMENT',
       })),
-    });
+    );
   }
 }

@@ -17,6 +17,7 @@ import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as TermosRouteImport } from './routes/termos'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppAulasRouteImport } from './routes/_app.aulas'
+import { Route as AppCheckinRouteImport } from './routes/_app.checkin'
 import { Route as AppComunidadeRouteImport } from './routes/_app.comunidade'
 import { Route as AppEventosRouteImport } from './routes/_app.eventos'
 import { Route as AppFinanceiroRouteImport } from './routes/_app.financeiro'
@@ -65,6 +66,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppAulasRoute = AppAulasRouteImport.update({
   id: '/aulas',
   path: '/aulas',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppCheckinRoute = AppCheckinRouteImport.update({
+  id: '/checkin',
+  path: '/checkin',
   getParentRoute: () => AppRoute,
 } as any)
 const AppComunidadeRoute = AppComunidadeRouteImport.update({
@@ -126,6 +132,7 @@ export interface FileRoutesByFullPath {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
   '/aulas': typeof AppAulasRoute
+  '/checkin': typeof AppCheckinRoute
   '/comunidade': typeof AppComunidadeRoute
   '/eventos': typeof AppEventosRoute
   '/financeiro': typeof AppFinanceiroRoute
@@ -144,6 +151,7 @@ export interface FileRoutesByTo {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
   '/aulas': typeof AppAulasRoute
+  '/checkin': typeof AppCheckinRoute
   '/comunidade': typeof AppComunidadeRoute
   '/eventos': typeof AppEventosRoute
   '/financeiro': typeof AppFinanceiroRoute
@@ -165,6 +173,7 @@ export interface FileRoutesById {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
   '/_app/aulas': typeof AppAulasRoute
+  '/_app/checkin': typeof AppCheckinRoute
   '/_app/comunidade': typeof AppComunidadeRoute
   '/_app/eventos': typeof AppEventosRoute
   '/_app/financeiro': typeof AppFinanceiroRoute
@@ -187,6 +196,7 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/termos'
     | '/aulas'
+    | '/checkin'
     | '/comunidade'
     | '/eventos'
     | '/financeiro'
@@ -205,6 +215,7 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/termos'
     | '/aulas'
+    | '/checkin'
     | '/comunidade'
     | '/eventos'
     | '/financeiro'
@@ -225,6 +236,7 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/termos'
     | '/_app/aulas'
+    | '/_app/checkin'
     | '/_app/comunidade'
     | '/_app/eventos'
     | '/_app/financeiro'
@@ -307,6 +319,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAulasRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/checkin': {
+      id: '/_app/checkin'
+      path: '/checkin'
+      fullPath: '/checkin'
+      preLoaderRoute: typeof AppCheckinRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/comunidade': {
       id: '/_app/comunidade'
       path: '/comunidade'
@@ -382,6 +401,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAulasRoute: typeof AppAulasRoute
+  AppCheckinRoute: typeof AppCheckinRoute
   AppComunidadeRoute: typeof AppComunidadeRoute
   AppEventosRoute: typeof AppEventosRoute
   AppFinanceiroRoute: typeof AppFinanceiroRoute
@@ -395,6 +415,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAulasRoute: AppAulasRoute,
+  AppCheckinRoute: AppCheckinRoute,
   AppComunidadeRoute: AppComunidadeRoute,
   AppEventosRoute: AppEventosRoute,
   AppFinanceiroRoute: AppFinanceiroRoute,

@@ -72,6 +72,10 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   // '/api/subscriptions/me' SAIU da allowlist: plano/preço/ids do gateway = financeiro do grupo,
   // agora exige finance.view (só MESTRE) — ALUNO/RESPONSAVEL/PROFESSOR recebem 403.
   ['/api/calendar', 'pública: rodas + eventos isPublic, sem participantes'],
+  ['/api/map/config', 'mapa da comunidade: só { enabled, apiKey de navegador (pública), mapId, geocodingEnabled }'],
+  ['/api/map/places', 'mapa da comunidade: unidades/treinos/eventos públicos/rodas de grupos visíveis; sem pessoas (nenhum aluno, professor, e-mail ou telefone)'],
+  ['/api/push/config', 'config pública do Web Push: só { enabled, publicKey VAPID (pública) }'],
+  ['/api/push/preferences', 'preferências de aviso do PRÓPRIO usuário (escopo do token)'],
   ['/api/rodas', 'pública (comunidade): sem participantes; agregados de contagem'],
   ['/api/rodas/:id', 'pública (comunidade)'],
   ['/api/rodas/reference/states', 'dado de referência público'],

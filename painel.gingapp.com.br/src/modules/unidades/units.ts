@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { BR_UFS } from "@/lib/br-ufs";
 import { createCrud } from "@/lib/crud";
+import {
+  coordinatesCreatePayload,
+  coordinatesToForm,
+  coordinatesUpdatePayload,
+  hasHalfCoordinates,
+  latitudeField,
+  longitudeField,
+} from "@/lib/map";
 
 export type UnitStatus = "ACTIVE" | "INACTIVE";
 
@@ -12,6 +20,9 @@ export interface Unit {
   address: string | null;
   city: string | null;
   state: string | null;
+  /** Posição no mapa da comunidade (opcional). */
+  latitude?: number | null;
+  longitude?: number | null;
   isMain: boolean;
   status: UnitStatus;
 }
@@ -25,6 +36,9 @@ export interface UnitInput {
   address?: string | null | undefined;
   city?: string | null | undefined;
   state?: string | null | undefined;
+  /** Posição no mapa: o par junto; `null`/`null` limpa; omitido = não mexe (o servidor geocodifica se o endereço mudou). */
+  latitude?: number | null | undefined;
+  longitude?: number | null | undefined;
   isMain?: boolean | undefined;
   status?: UnitStatus | undefined;
 }
@@ -41,14 +55,21 @@ export const units = createCrud<Unit, UnitInput>("/units", {
 export const locationOf = (unit: Unit): string =>
   [unit.city, unit.state].filter(Boolean).join(" / ") || "-";
 
-export const unitSchema = z.object({
-  name: z.string().trim().min(2, "Informe o nome da unidade (mínimo 2 letras)."),
-  address: z.string().trim().max(200, "O endereço pode ter no máximo 200 caracteres."),
-  city: z.string().trim().max(100, "A cidade pode ter no máximo 100 caracteres."),
-  state: z.string().refine((v) => v === "" || (BR_UFS as readonly string[]).includes(v), "Escolha uma UF válida."),
-  isMain: z.boolean(),
-  status: z.enum(["ACTIVE", "INACTIVE"]),
-});
+export const unitSchema = z
+  .object({
+    name: z.string().trim().min(2, "Informe o nome da unidade (mínimo 2 letras)."),
+    address: z.string().trim().max(200, "O endereço pode ter no máximo 200 caracteres."),
+    city: z.string().trim().max(100, "A cidade pode ter no máximo 100 caracteres."),
+    state: z.string().refine((v) => v === "" || (BR_UFS as readonly string[]).includes(v), "Escolha uma UF válida."),
+    latitude: latitudeField,
+    longitude: longitudeField,
+    isMain: z.boolean(),
+    status: z.enum(["ACTIVE", "INACTIVE"]),
+  })
+  .refine((values) => !hasHalfCoordinates(values), {
+    path: ["longitude"],
+    message: "Informe a latitude e a longitude juntas (ou deixe as duas vazias).",
+  });
 export type UnitFormValues = z.infer<typeof unitSchema>;
 
 export const emptyUnitForm: UnitFormValues = {
@@ -56,6 +77,8 @@ export const emptyUnitForm: UnitFormValues = {
   address: "",
   city: "",
   state: "",
+  latitude: "",
+  longitude: "",
   isMain: false,
   status: "ACTIVE",
 };
@@ -66,6 +89,7 @@ export function unitToForm(unit: Unit): UnitFormValues {
     address: unit.address ?? "",
     city: unit.city ?? "",
     state: unit.state ?? "",
+    ...coordinatesToForm(unit),
     isMain: unit.isMain,
     status: unit.status,
   };
@@ -78,6 +102,7 @@ export function unitToCreatePayload(values: UnitFormValues): UnitInput {
     address: values.address.trim() || undefined,
     city: values.city.trim() || undefined,
     state: values.state || undefined,
+    ...coordinatesCreatePayload(values),
     isMain: values.isMain,
   };
 }
@@ -94,6 +119,8 @@ export function unitToUpdatePayload(values: UnitFormValues, original: Unit): Uni
     address: values.address.trim() || null,
     city: values.city.trim() || null,
     state: values.state || null,
+    // Só quando o usuário mudou as coordenadas: assim, trocar só o endereço faz o servidor re-geocodificar.
+    ...coordinatesUpdatePayload(values, original),
   };
   if (values.isMain && !original.isMain) payload.isMain = true;
   if (values.status !== original.status) payload.status = values.status;

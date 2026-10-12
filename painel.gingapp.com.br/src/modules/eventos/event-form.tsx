@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ImageUrlField } from "@/modules/rodas/image-field";
+import { LocationCoordinatesFields } from "@/modules/rodas/location-coordinates";
 import { LocationFields } from "@/modules/rodas/location-fields";
 import { NativeSelect } from "@/modules/rodas/native-select";
 import {
@@ -15,7 +16,14 @@ import {
   eventToForm,
   type EventFormValues,
 } from "./event-schema";
-import { EVENT_TYPE_LABEL, EVENT_TYPES, type EventItem, type EventPayload } from "./types";
+import {
+  EVENT_STATUS_LABEL,
+  EVENT_STATUSES,
+  EVENT_TYPE_LABEL,
+  EVENT_TYPES,
+  type EventItem,
+  type EventPayload,
+} from "./types";
 
 interface EventFormProps {
   /** `null` = fechado, "new" = criação, EventItem = edição. */
@@ -35,7 +43,7 @@ export function EventForm({ editing, onClose, onSubmit }: EventFormProps) {
       title={event ? "Editar evento" : "Novo evento"}
       schema={eventSchema}
       defaultValues={event ? eventToForm(event) : emptyEvent}
-      onSubmit={(values) => event ? onSubmit(buildEventUpdatePayload(values), event.id) : onSubmit(buildEventPayload(values), null)}
+      onSubmit={(values) => event ? onSubmit(buildEventUpdatePayload(values, event), event.id) : onSubmit(buildEventPayload(values), null)}
     >
       {(form) => (
         <>
@@ -86,6 +94,66 @@ export function EventForm({ editing, onClose, onSubmit }: EventFormProps) {
               )}
             />
           </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FormField
+              control={form.control}
+              name="capacity"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Vagas</FormLabel>
+                  <FormControl>
+                    <Input type="number" inputMode="numeric" min={1} step={1} placeholder="Ilimitadas" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="price"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Valor da inscrição (R$)</FormLabel>
+                  <FormControl>
+                    <Input inputMode="decimal" placeholder="Gratuito" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="status"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Situação</FormLabel>
+                  <FormControl>
+                    <NativeSelect {...field}>
+                      {EVENT_STATUSES.map((status) => (
+                        <option key={status} value={status}>
+                          {EVENT_STATUS_LABEL[status]}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="registrationDeadline"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Prazo de inscrição</FormLabel>
+                  <FormControl>
+                    <Input type="datetime-local" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
           <FormField
             control={form.control}
             name="location"
@@ -115,6 +183,7 @@ export function EventForm({ editing, onClose, onSubmit }: EventFormProps) {
             )}
           />
           <LocationFields />
+          <LocationCoordinatesFields />
           <FormField
             control={form.control}
             name="description"

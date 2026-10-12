@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { ListEventsQueryDto } from './dto/list-events-query.dto';
@@ -10,10 +10,39 @@ import { EventsService } from './events.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { AddEventParticipantDto } from './dto/add-event-participant.dto';
+import { EventCheckinSelfDto } from './dto/event-checkin-self.dto';
+import { EventsCheckinService } from './events-checkin.service';
 
 @Controller('events')
 export class EventsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(
+    private readonly eventsService: EventsService,
+    private readonly checkinService: EventsCheckinService,
+  ) {}
+
+  /** Token + QR (data URL) de check-in do evento, para a equipe exibir/imprimir. */
+  @Get(':id/checkin-token')
+  @CanAccess('events', 'edit')
+  checkinToken(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.checkinService.issueToken(organizationId, id, user);
+  }
+
+  /** O aluno (ou responsável, por um dependente) confirma a PRÓPRIA presença lendo o QR. Sem @CanAccess: self-service
+   * de qualquer membro; a autorização está no vínculo aluno/inscrição, validado no service. */
+  @Post(':id/checkin-self')
+  @HttpCode(200)
+  checkinSelf(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EventCheckinSelfDto,
+  ) {
+    return this.checkinService.checkinSelf(organizationId, id, user, dto);
+  }
 
   @Get()
   @CanAccess('events', 'view')

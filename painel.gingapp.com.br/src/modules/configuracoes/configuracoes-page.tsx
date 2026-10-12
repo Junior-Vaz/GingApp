@@ -12,6 +12,7 @@ import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessa
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { api, errorMessage } from "@/lib/api";
 import { BR_UFS } from "@/lib/br-ufs";
@@ -123,6 +124,7 @@ function OrganizationCard() {
             <Field label="Situação" value={data.status === "ACTIVE" ? "Ativo" : data.status} />
             <Field label="Ano de fundação" value={data.foundedYear ? String(data.foundedYear) : null} />
             <Field label="Cidade / UF" value={location} />
+            <Field label="Aparece no mapa da comunidade" value={data.mapVisible === false ? "Não" : "Sim"} />
             <LinkField label="Site" href={data.website} />
             <LinkField label="Logomarca" href={imageSrc(data.logo)} />
             {SOCIAL_NETWORKS.map(({ key, label }) => (
@@ -324,6 +326,24 @@ function OrganizationCard() {
                     </FormControl>
                     <FormDescription>Aparece para alunos e responsáveis na tela Financeiro do app.</FormDescription>
                     <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="mapVisible"
+                render={({ field }) => (
+                  <FormItem className="rounded-md border p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <FormLabel>Aparecer no mapa da comunidade</FormLabel>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </div>
+                    <FormDescription>
+                      Quando ligado, as unidades, os treinos, os eventos públicos e as rodas do grupo (que tenham posição no
+                      mapa) aparecem para todos no mapa da comunidade do app. Desligue para esconder o grupo.
+                    </FormDescription>
                   </FormItem>
                 )}
               />

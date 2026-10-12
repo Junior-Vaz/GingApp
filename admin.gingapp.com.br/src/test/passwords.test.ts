@@ -277,10 +277,12 @@ describe('Alterar a PRÓPRIA senha (PLATFORM) — menu do usuário', () => {
     await wrapper.get('[role="dialog"] form').trigger('submit')
     await flushPromises()
 
-    expect(calls).toHaveLength(1)
-    expect(calls[0]).toMatchObject({ method: 'POST', path: '/auth/change-password' })
-    expect(calls[0].headers.Authorization).toBe('Bearer test-token')
-    expect(calls[0].body).toEqual({ currentPassword: CURRENT, newPassword: NEW_PASSWORD }) // sem confirmação
+    // O layout também consulta GET /auth/me (estado da 2FA) ao montar: só as chamadas de escrita interessam aqui.
+    const writes = nonGet(calls)
+    expect(writes).toHaveLength(1)
+    expect(writes[0]).toMatchObject({ method: 'POST', path: '/auth/change-password' })
+    expect(writes[0].headers.Authorization).toBe('Bearer test-token')
+    expect(writes[0].body).toEqual({ currentPassword: CURRENT, newPassword: NEW_PASSWORD }) // sem confirmação
     expect(store.token).toBe('novo-token')
     expect(localStorage.getItem(AUTH_TOKEN_KEY)).toBe('novo-token')
     expect(localStorage.getItem(AUTH_USER_KEY)).toBe(userBefore)
@@ -360,7 +362,7 @@ describe('Alterar a PRÓPRIA senha (PLATFORM) — menu do usuário', () => {
     expect(alert()).toContain('padrão de desenvolvimento')
     await attempt('', NEW_PASSWORD, NEW_PASSWORD)
     expect(alert()).toContain('senha atual')
-    expect(calls).toHaveLength(0)
+    expect(nonGet(calls)).toHaveLength(0)
   })
 
   it('401 de verdade (sessão inválida) desloga', async () => {

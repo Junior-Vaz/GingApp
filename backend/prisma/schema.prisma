@@ -84,6 +84,28 @@ enum ParticipantStatus {
   DECLINED
   ATTENDED
   CANCELLED
+  /// Lista de espera de evento lotado (Event.capacity): nao ocupa vaga; o primeiro da fila (menor id) e promovido a
+  /// CONFIRMED quando uma vaga abre.
+  WAITLIST
+}
+
+/// Situacao de publicacao do evento: DRAFT (so a equipe ve), PUBLISHED (aberto), CANCELLED (cancelado: inscritos
+/// notificados, sem novas inscricoes), CLOSED (encerrado: sem novas inscricoes).
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  CANCELLED
+  CLOSED
+}
+
+/// Recorrencia de uma roda (so a roda "mae" tem; as ocorrencias geradas ficam NONE + parentRodaId):
+/// WEEKLY = todo mesmo dia da semana; MONTHLY_WEEKDAY = "toda 1a sexta" (n-esimo dia da semana do mes, derivado de
+/// Roda.date); MONTHLY_DAY = "todo dia X" (dia do mes de Roda.date, limitado ao ultimo dia dos meses curtos).
+enum RodaRecurrence {
+  NONE
+  WEEKLY
+  MONTHLY_WEEKDAY
+  MONTHLY_DAY
 }
 
 // =========================================================================
@@ -100,7 +122,15 @@ model User {
   userType             UserType  @default(MEMBER)
   isSuperAdmin         Boolean   @default(false)
   status               String    @default("ACTIVE")
+  /// 2FA TOTP (RFC 6238), opt-in. O segredo fica CIFRADO em repouso (AES-256-GCM, ver
+  /// shared/security/two-factor-crypto.ts) e nunca e' devolvido depois do setup. Enquanto
+  /// twoFactorEnabled=false o segredo e' so' um setup pendente (ainda nao confirmado com um codigo).
   twoFactorSecret      String?
+  twoFactorEnabled     Boolean   @default(false)
+  /// Hashes (HMAC-SHA256) dos codigos de recuperacao ainda NAO usados; cada um vale uma unica vez.
+  twoFactorRecoveryHashes String[] @default([])
+  /// Ultimo passo de 30 s de TOTP aceito (anti-replay: o mesmo codigo nao vale duas vezes).
+  twoFactorLastStep    Int?
   tokenValidAfter      DateTime?
   /// true quando a senha atual foi definida por outra pessoa (conta de aluno/responsavel criada pelo
   /// Mestre/Professor, ou senha redefinida por ele): os frontends devem exigir a troca no proximo login.
@@ -119,6 +149,8 @@ model User {
   unitAccess                   UserUnitAccess[]
   auditLogs                    AuditLog[]
   notifications                Notification[]
+  pushSubscriptions            PushSubscription[]
+  pushPreference               PushPreference?
   createdAnnouncements         Announcement[]         @relation("AnnouncementCreatedBy")
   createdPlatformAnnouncements PlatformAnnouncement[] @relation("PlatformAnnouncementCreatedBy")
   studentLink                  Student?               @relation("StudentUser")
@@ -333,6 +365,9 @@ model Organization {
   /// "Como pagar" (E07): texto livre (chave PIX, dados bancarios, link, orientacoes) mostrado ao aluno/
   /// responsavel no app. Editado pelo MESTRE em PATCH /organizations/me.
   paymentInstructions String?
+  /// Mapa da comunidade (GET /map/places): o MESTRE controla se o grupo (unidades, treinos, eventos publicos e
+  /// rodas organizadas por ele) aparece no mapa. Padrao true; grupo INACTIVE nunca aparece, qualquer que seja o valor.
+  mapVisible          Boolean          @default(true)
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 
@@ -354,6 +389,7 @@ model Organization {
   eventParticipants     EventParticipant[]
   announcements         Announcement[]
   notifications         Notification[]
+  pushSubscriptions     PushSubscription[]
   subscriptions         Subscription[]
   featureOverrides      OrganizationFeatureOverride[]
   auditLogs             AuditLog[]
@@ -409,6 +445,10 @@ model Unit {
   address        String?
   city           String?
   state          String?
+  /// Coordenadas para o mapa da comunidade (opcionais): informadas pelo usuario ou geocodificadas
+  /// (shared/geo/geocoding.service.ts) a partir de address/city/state quando ha chave do Google.
+  latitude       Float?
+  longitude      Float?
   isMain         Boolean      @default(false)
   status         RecordStatus @default(ACTIVE)
   createdAt      DateTime     @default(now())
@@ -424,6 +464,7 @@ model Unit {
   announcements    Announcement[]
 
   @@index([organizationId, status])
+  @@index([latitude, longitude])
 }
 
 /// Professor autorizado em multiplas unidades (matriz/filial) dentro de uma mesma
@@ -548,6 +589,7 @@ model Class {
   teacher       User?          @relation("ClassTeacher", fields: [teacherUserId], references: [id])
   classStudents ClassStudent[]
   lessons       Lesson[]
+  announcements Announcement[]
 
   @@index([organizationId, status])
   @@index([teacherUserId])
@@ -710,11 +752,23 @@ model Event {
   description    String?
   date           DateTime
   location       String?
+  /// Coordenadas do local para o mapa da comunidade (opcionais; ver Unit.latitude).
+  latitude       Float?
+  longitude      Float?
   isPublic       Boolean  @default(false)
   /// URL de uma imagem de capa (sem upload de arquivo — mesmo padrão leve de Student.photo/
   /// PublicProfile.photo). Usada nos cards do feed (Home/Calendário, PLANO_PROJETO.md §10.21/
   /// §10.22); sem ela, o card usa um placeholder ilustrado com o ícone do tipo.
   imageUrl       String?
+  /// Vagas (null = ilimitado). Contam CONFIRMED + ATTENDED; acima disso a inscricao vai para a lista de espera
+  /// (ParticipantStatus.WAITLIST) so a pedido do inscrito.
+  capacity       Int?
+  /// Valor de inscricao em centavos (null/0 = gratuito). INFORMATIVO: nao ha cobranca online nesta versao.
+  priceCents     Int?
+  /// DRAFT/PUBLISHED/CANCELLED/CLOSED (ver enum EventStatus). Eventos antigos nascem PUBLISHED.
+  status         EventStatus @default(PUBLISHED)
+  /// Prazo das inscricoes feitas pelo proprio aluno/responsavel (a equipe inscreve a qualquer momento).
+  registrationDeadline DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -727,6 +781,7 @@ model Event {
   @@index([organizationId, date])
   @@index([stateId, date])
   @@index([cityId, date])
+  @@index([latitude, longitude])
 }
 
 /// guestName cobre participantes sem cadastro de student/user (ex.: convidado externo em
@@ -759,12 +814,18 @@ model Announcement {
   body            String
   publishedAt     DateTime?
   isActive        Boolean   @default(true)
+  /// Alcance adicional (todos opcionais; se combinam por E): so alunos matriculados (ClassStudent ACTIVE) nesta turma
+  /// e seus responsaveis; so quem pertence a unidades da UF (Unit.state); so um papel do grupo (ALUNO, RESPONSAVEL...).
+  classId         Int?
+  stateUf         String?
+  audienceRole    OrgRole?
   createdByUserId Int
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
   organization  Organization @relation(fields: [organizationId], references: [id])
   unit          Unit?        @relation(fields: [unitId], references: [id])
+  class         Class?       @relation(fields: [classId], references: [id])
   createdByUser User         @relation("AnnouncementCreatedBy", fields: [createdByUserId], references: [id])
 
   @@index([organizationId, publishedAt])
@@ -784,6 +845,40 @@ model Notification {
   user         User          @relation(fields: [userId], references: [id])
 
   @@index([userId, createdAt])
+}
+
+/// Web Push (I13): um dispositivo/navegador inscrito para receber avisos no celular. OPCIONAL: so' usado quando
+/// VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_SUBJECT estao configuradas. `endpoint` e' unico no mundo (identifica a
+/// inscricao do navegador); reinscrever o mesmo endpoint e' idempotente. Apagada em 404/410 do servico de push.
+model PushSubscription {
+  id             Int       @id @default(autoincrement())
+  userId         Int
+  organizationId Int?
+  endpoint       String    @unique
+  p256dh         String
+  auth           String
+  userAgent      String?
+  createdAt      DateTime  @default(now())
+  lastUsedAt     DateTime?
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+}
+
+/// Quais categorias de aviso o usuario quer receber como push (a notificacao in-app e' sempre gravada).
+/// Sem linha = tudo ligado.
+model PushPreference {
+  userId        Int      @id
+  lessons       Boolean  @default(true)
+  finance       Boolean  @default(true)
+  events        Boolean  @default(true)
+  graduations   Boolean  @default(true)
+  announcements Boolean  @default(true)
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // =========================================================================
@@ -845,8 +940,18 @@ model Roda {
   description    String?
   date           DateTime
   location       String?
+  /// Coordenadas do local para o mapa da comunidade (opcionais; ver Unit.latitude).
+  latitude       Float?
+  longitude      Float?
   /// Mesma convenção de Event.imageUrl acima — URL de capa opcional, sem upload de arquivo.
   imageUrl       String?
+  /// Recorrencia ("roda mensal"): a roda MAE guarda a regra (derivada de `date`: dia da semana, n-esimo dia da
+  /// semana do mes ou dia do mes) e POST /rodas/:id/generate-occurrences cria as proximas ocorrencias como rodas
+  /// filhas (parentRodaId), de forma idempotente. As filhas tem recurrence NONE.
+  recurrence      RodaRecurrence @default(NONE)
+  /// Ultimo dia (inclusive) em que a serie pode gerar ocorrencias; null = sem fim.
+  recurrenceUntil DateTime?
+  parentRodaId    Int?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -854,11 +959,15 @@ model Roda {
   community    Community?        @relation(fields: [communityId], references: [id])
   state        State?            @relation(fields: [stateId], references: [id])
   city         City?             @relation(fields: [cityId], references: [id])
+  parent       Roda?             @relation("RodaOccurrences", fields: [parentRodaId], references: [id], onDelete: SetNull)
+  occurrences  Roda[]            @relation("RodaOccurrences")
   participants RodaParticipant[]
 
+  @@unique([parentRodaId, date])
   @@index([organizationId])
   @@index([stateId, date])
   @@index([cityId, date])
+  @@index([latitude, longitude])
 }
 
 model RodaParticipant {

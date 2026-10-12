@@ -19,5 +19,18 @@ export interface AuthResponse {
     role?: OrgRole;
     /** Senha definida por outra pessoa (conta criada/redefinida pelo Mestre): o frontend deve exigir a troca. */
     mustChangePassword?: boolean;
+    /** 2FA TOTP ativo para este usuario (o segredo nunca e' devolvido). */
+    twoFactorEnabled?: boolean;
   } & TermsStatus;
 }
+
+/**
+ * Resposta de login/platform-login quando o usuario ATIVOU o 2FA: senha correta, mas ainda sem sessao. O frontend pede o
+ * codigo e chama POST /auth/2fa/verify com o `challengeToken` (JWT de 5 min, proposito '2fa', que nao vale como accessToken).
+ */
+export interface TwoFactorChallengeResponse {
+  twoFactorRequired: true;
+  challengeToken: string;
+}
+
+export type LoginResponse = AuthResponse | TwoFactorChallengeResponse;

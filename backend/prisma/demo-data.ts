@@ -11,6 +11,12 @@ export type UnitKey = 'matriz' | 'anapolis' | 'brasilia';
 export type ClassKey = 'infantil' | 'iniciante' | 'avancado' | 'juvenil' | 'adultoAnapolis' | 'brasilia';
 export type AccountKey = 'mestre' | 'professor1' | 'professor2' | 'professor3' | 'aluno1' | 'aluno2' | 'aluno3' | 'aluno4';
 
+/** Ponto no mapa da comunidade (GET /map/places). */
+export interface DemoCoordinates {
+  latitude: number;
+  longitude: number;
+}
+
 export interface UnitSpec {
   key: UnitKey;
   name: string;
@@ -18,13 +24,32 @@ export interface UnitSpec {
   city: string;
   state: string;
   isMain: boolean;
+  /** Coordenadas reais aproximadas do endereço (mapa da comunidade). */
+  coordinates: DemoCoordinates;
 }
 
 export const UNITS: UnitSpec[] = [
-  { key: 'matriz', name: 'Matriz — Goiânia', address: 'Rua 7, 450 — Setor Central', city: 'Goiânia', state: 'GO', isMain: true },
-  { key: 'anapolis', name: 'Filial — Anápolis', address: 'Av. Brasil Norte, 1280 — Jundiaí', city: 'Anápolis', state: 'GO', isMain: false },
-  { key: 'brasilia', name: 'Filial — Brasília', address: 'SQS 308, Bloco C — Asa Sul', city: 'Brasília', state: 'DF', isMain: false },
+  { key: 'matriz', name: 'Matriz — Goiânia', address: 'Rua 7, 450 — Setor Central', city: 'Goiânia', state: 'GO', isMain: true,
+    coordinates: { latitude: -16.6772, longitude: -49.2531 } },
+  { key: 'anapolis', name: 'Filial — Anápolis', address: 'Av. Brasil Norte, 1280 — Jundiaí', city: 'Anápolis', state: 'GO', isMain: false,
+    coordinates: { latitude: -16.3069, longitude: -48.9494 } },
+  { key: 'brasilia', name: 'Filial — Brasília', address: 'SQS 308, Bloco C — Asa Sul', city: 'Brasília', state: 'DF', isMain: false,
+    coordinates: { latitude: -15.8247, longitude: -47.9143 } },
 ];
+
+/**
+ * Coordenadas dos locais de eventos/rodas do demo, pelo texto exato de `location`. Local que não está aqui herda
+ * as coordenadas da unidade do evento (ver stepEvents). Só preenche onde a latitude ainda é nula (idempotente).
+ */
+export const DEMO_LOCATION_COORDINATES: Record<string, DemoCoordinates> = {
+  'Praça Cívica, Goiânia': { latitude: -16.6799, longitude: -49.2550 },
+  'Parque Vaca Brava, Goiânia': { latitude: -16.7086, longitude: -49.2692 },
+  'Praça Bom Jesus, Anápolis': { latitude: -16.3263, longitude: -48.9528 },
+  'Parque da Cidade Sarah Kubitschek, Brasília': { latitude: -15.7989, longitude: -47.9028 },
+  'Ginásio Poliesportivo do Setor Central, Goiânia': { latitude: -16.6830, longitude: -49.2610 },
+  'Casa de Cultura da Asa Sul, Brasília': { latitude: -15.8160, longitude: -47.9060 },
+  'Caldas Novas, GO': { latitude: -17.7441, longitude: -48.6258 },
+};
 
 /** Estados/cidades de referência (tabelas públicas compartilhadas): só são criados se ainda não existirem. */
 export const STATES: Array<{ uf: string; name: string }> = [

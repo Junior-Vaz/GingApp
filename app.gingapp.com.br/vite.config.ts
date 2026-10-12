@@ -34,6 +34,11 @@ export default defineConfig({
       workbox: {
         // Só shell e assets estáticos entram no precache.
         globPatterns: ["**/*.{js,css,html,png,jpg,svg,woff2,woff}"],
+        // Web Push: handlers de `push`/`notificationclick` ficam em public/sw-push.js e entram no sw.js gerado por
+        // importScripts (mantém o generateSW e o precache atuais). O arquivo não vai ao precache: o navegador já o
+        // baixa e verifica mudanças como parte do próprio service worker.
+        importScripts: ["sw-push.js"],
+        globIgnores: ["sw-push.js"],
         // Navegações caem no shell (SPA) - exceto chamadas de API e QR públicos servidos pela API.
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//],

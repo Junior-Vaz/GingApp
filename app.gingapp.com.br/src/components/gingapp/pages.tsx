@@ -24,6 +24,7 @@ import {
   type FinancialRecord,
   type Lesson,
 } from "@/lib/queries";
+import { PushSettings } from "./push-settings";
 import { LoadMore, PageHeading, SectionHeading, StateMessage } from "./shared";
 
 /* ------------------------------ Minhas aulas ------------------------------ */
@@ -449,6 +450,7 @@ export function NotificationsPage() {
   return (
     <>
       <PageHeading title="Meus recados" subtitle="O que acontece no seu grupo e na sua jornada." />
+      <PushSettings />
       {notifications.error ? (
         <StateMessage tone="error">{errorMessage(notifications.error, "Não foi possível carregar as notificações.")}</StateMessage>
       ) : (

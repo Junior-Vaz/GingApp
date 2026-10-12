@@ -8,6 +8,8 @@ import { BILLING_GATEWAY_SERVICE } from './billing/billing-gateway.interface';
 import { StubBillingGatewayService } from './billing/stub-billing-gateway.service';
 import { MAIL_TRANSPORT, MailService } from './mail/mail.service';
 import { PasswordResetService } from './security/password-reset.service';
+import { PUSH_SENDER, PushService } from './push/push.service';
+import { GeocodingService } from './geo/geocoding.service';
 
 /**
  * Módulo global (padrão GestorPrint): disponibiliza o PrismaService para todos os módulos
@@ -33,6 +35,12 @@ import { PasswordResetService } from './security/password-reset.service';
     { provide: MAIL_TRANSPORT, useFactory: () => null },
     MailService,
     PasswordResetService,
+    // Web Push opcional (VAPID_* — ver shared/push). PUSH_SENDER = null em producao (o remetente real vem das envs);
+    // os testes sobrescrevem com um stub em memoria (nenhum push real).
+    { provide: PUSH_SENDER, useFactory: () => null },
+    PushService,
+    // Geocodificacao opcional (GOOGLE_MAPS_SERVER_KEY) para o mapa da comunidade — ver shared/geo.
+    GeocodingService,
   ],
   exports: [
     PrismaService,
@@ -43,6 +51,8 @@ import { PasswordResetService } from './security/password-reset.service';
     BILLING_GATEWAY_SERVICE,
     MailService,
     PasswordResetService,
+    PushService,
+    GeocodingService,
   ],
 })
 export class SharedModule {}

@@ -8,6 +8,9 @@ import { PermissionsService } from '../../../shared/access/permissions.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { formatInstantBR } from '../../../shared/dates/format-br';
 import { MyParticipation, redactParticipant } from '../../../shared/access/participant-privacy';
+import { GeocodingService } from '../../../shared/geo/geocoding.service';
+import { locationGeocodeParts } from '../../../shared/geo/location-text';
+import { parseRecurrenceUntil } from './roda-recurrence';
 import { CreateRodaDto } from './dto/create-roda.dto';
 import { UpdateRodaDto } from './dto/update-roda.dto';
 
@@ -28,6 +31,7 @@ export class RodasService {
     private readonly prisma: PrismaService,
     private readonly permissions: PermissionsService,
     private readonly notifications: NotificationsService,
+    private readonly geocoding: GeocodingService,
   ) {}
 
   /** Lista PÚBLICA (todas as organizações, sem filtro de tenant — regra existente): o total
@@ -121,6 +125,8 @@ export class RodasService {
 
   async create(organizationId: number, dto: CreateRodaDto) {
     await this.assertReferencesExist(dto);
+    // Coordenadas do mapa: as do corpo, ou geocodificadas a partir de location + cidade/UF (so' com chave do Google).
+    const coordinates = await this.geocoding.forCreate(dto, await locationGeocodeParts(this.prisma, dto));
 
     const roda = await this.prisma.roda.create({
       data: {
@@ -129,10 +135,14 @@ export class RodasService {
         description: dto.description,
         date: new Date(dto.date),
         location: dto.location,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
         stateId: dto.stateId,
         cityId: dto.cityId,
         communityId: dto.communityId,
         imageUrl: dto.imageUrl,
+        recurrence: dto.recurrence,
+        recurrenceUntil: dto.recurrenceUntil ? parseRecurrenceUntil(dto.recurrenceUntil) : undefined,
       },
     });
 
@@ -149,8 +159,25 @@ export class RodasService {
   }
 
   async update(organizationId: number, id: number, dto: UpdateRodaDto) {
-    await this.findOwned(organizationId, id);
+    const current = await this.findOwned(organizationId, id);
     await this.assertReferencesExist(dto);
+    if (current.parentRodaId !== null && dto.recurrence !== undefined && dto.recurrence !== 'NONE') {
+      throw new BadRequestException('Uma ocorrência gerada não pode ter recorrência: edite a roda principal da série.');
+    }
+
+    // Coordenadas: as do corpo; senao, se o local (texto/cidade/estado) mudou, geocodifica o novo (so' com chave do Google).
+    const next = {
+      location: dto.location === undefined ? current.location : dto.location,
+      stateId: dto.stateId === undefined ? current.stateId : dto.stateId,
+      cityId: dto.cityId === undefined ? current.cityId : dto.cityId,
+    };
+    const textChanged =
+      next.location !== current.location || next.stateId !== current.stateId || next.cityId !== current.cityId;
+    const coordinates = await this.geocoding.forUpdate(
+      dto,
+      textChanged,
+      textChanged ? await locationGeocodeParts(this.prisma, next) : [],
+    );
 
     return this.prisma.roda.update({
       where: { id },
@@ -159,25 +186,34 @@ export class RodasService {
         description: dto.description,
         date: dto.date ? new Date(dto.date) : undefined,
         location: dto.location,
+        latitude: coordinates?.latitude,
+        longitude: coordinates?.longitude,
         stateId: dto.stateId,
         cityId: dto.cityId,
         communityId: dto.communityId,
         imageUrl: dto.imageUrl,
+        recurrence: dto.recurrence,
+        recurrenceUntil:
+          dto.recurrenceUntil === undefined ? undefined : dto.recurrenceUntil === null ? null : parseRecurrenceUntil(dto.recurrenceUntil),
       },
     });
   }
 
   /** Apaga de verdade (não há conceito de "roda inativa" no domínio) — remove os participantes
    * primeiro numa transação para não violar a FK. */
-  async remove(organizationId: number, id: number) {
+  async remove(organizationId: number, id: number, series = false) {
     await this.findOwned(organizationId, id);
 
+    // `series`: apaga tambem as ocorrencias geradas (filhas); sem ele elas viram rodas avulsas (FK SET NULL).
+    const ids = series
+      ? [id, ...(await this.prisma.roda.findMany({ where: { parentRodaId: id, organizationId }, select: { id: true } })).map((r) => r.id)]
+      : [id];
     await this.prisma.$transaction([
-      this.prisma.rodaParticipant.deleteMany({ where: { rodaId: id } }),
-      this.prisma.roda.delete({ where: { id } }),
+      this.prisma.rodaParticipant.deleteMany({ where: { rodaId: { in: ids } } }),
+      this.prisma.roda.deleteMany({ where: { id: { in: ids } } }),
     ]);
 
-    return { success: true };
+    return { success: true, removed: ids.length };
   }
 
   /**

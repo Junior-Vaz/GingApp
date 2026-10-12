@@ -13,6 +13,8 @@ import { CreateStudentGraduationDto } from './dto/create-student-graduation.dto'
 import { UpdateGraduationSystemDto } from './dto/update-graduation-system.dto';
 import { UpdateGraduationLevelDto } from './dto/update-graduation-level.dto';
 import { UpdateStudentGraduationDto } from './dto/update-student-graduation.dto';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 
 @Injectable()
 export class GraduationsService {
@@ -22,6 +24,7 @@ export class GraduationsService {
     private readonly studentsService: StudentsService,
     private readonly notifications: NotificationsService,
     private readonly unitScope: UnitScopeService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Sistemas de graduação configuráveis do grupo, com seus níveis (projeto.txt §26). */
@@ -43,14 +46,22 @@ export class GraduationsService {
     });
   }
 
-  createSystem(organizationId: number, dto: CreateGraduationSystemDto) {
-    return this.prisma.graduationSystem.create({
+  async createSystem(organizationId: number, dto: CreateGraduationSystemDto) {
+    const created = await this.prisma.graduationSystem.create({
       data: {
         organizationId,
         name: dto.name,
         description: dto.description,
       },
     });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.GRADUATION_SYSTEM_CREATE,
+      entity: AuditEntity.GRADUATION_SYSTEM,
+      entityId: created.id,
+      meta: { name: created.name },
+    });
+    return created;
   }
 
   async createLevel(organizationId: number, systemId: number, dto: CreateGraduationLevelDto) {
@@ -59,7 +70,7 @@ export class GraduationsService {
       throw new BadRequestException('Sistema de graduação inativo: reative-o para criar níveis.');
     }
 
-    return this.prisma.graduationLevel
+    const created = await this.prisma.graduationLevel
       .create({
         data: {
           organizationId,
@@ -70,15 +81,31 @@ export class GraduationsService {
         },
       })
       .catch(rethrowDuplicateOrder);
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.GRADUATION_LEVEL_CREATE,
+      entity: AuditEntity.GRADUATION_LEVEL,
+      entityId: created.id,
+      meta: { name: created.name, systemId, order: created.order },
+    });
+    return created;
   }
 
   async updateSystem(organizationId: number, systemId: number, dto: UpdateGraduationSystemDto) {
     await this.assertSystemBelongsToOrganization(organizationId, systemId);
-    return this.prisma.graduationSystem.update({
+    const updated = await this.prisma.graduationSystem.update({
       where: { id: systemId },
       data: { name: dto.name, description: dto.description, isActive: dto.isActive },
       include: { levels: { orderBy: { order: 'asc' } } },
     });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.GRADUATION_SYSTEM_UPDATE,
+      entity: AuditEntity.GRADUATION_SYSTEM,
+      entityId: systemId,
+      meta: { fields: definedFields(dto), isActive: updated.isActive },
+    });
+    return updated;
   }
 
   /**
@@ -92,20 +119,46 @@ export class GraduationsService {
       where: { organizationId, graduationLevel: { graduationSystemId: systemId } },
     });
     if (awarded > 0) {
-      return this.prisma.graduationSystem.update({ where: { id: systemId }, data: { isActive: false } });
+      const inactivated = await this.prisma.graduationSystem.update({
+        where: { id: systemId },
+        data: { isActive: false },
+      });
+      await this.audit.record({
+        organizationId,
+        action: AuditAction.GRADUATION_SYSTEM_DELETE,
+        entity: AuditEntity.GRADUATION_SYSTEM,
+        entityId: systemId,
+        meta: { deleted: false, inactivated: true },
+      });
+      return inactivated;
     }
     await this.prisma.$transaction([
       this.prisma.graduationLevel.deleteMany({ where: { graduationSystemId: systemId, organizationId } }),
       this.prisma.graduationSystem.deleteMany({ where: { id: systemId, organizationId } }),
     ]);
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.GRADUATION_SYSTEM_DELETE,
+      entity: AuditEntity.GRADUATION_SYSTEM,
+      entityId: systemId,
+      meta: { deleted: true },
+    });
     return { id: systemId, deleted: true };
   }
 
   async updateLevel(organizationId: number, levelId: number, dto: UpdateGraduationLevelDto) {
     await this.assertLevelExists(organizationId, levelId);
-    return this.prisma.graduationLevel
+    const updated = await this.prisma.graduationLevel
       .update({ where: { id: levelId }, data: { name: dto.name, order: dto.order, color: dto.color } })
       .catch(rethrowDuplicateOrder);
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.GRADUATION_LEVEL_UPDATE,
+      entity: AuditEntity.GRADUATION_LEVEL,
+      entityId: levelId,
+      meta: { fields: definedFields(dto) },
+    });
+    return updated;
   }
 
   /**
@@ -119,6 +172,12 @@ export class GraduationsService {
       throw new ConflictException('Este nível já foi concedido a alunos e não pode ser removido.');
     }
     await this.prisma.graduationLevel.deleteMany({ where: { id: levelId, organizationId } });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.GRADUATION_LEVEL_DELETE,
+      entity: AuditEntity.GRADUATION_LEVEL,
+      entityId: levelId,
+    });
     return { id: levelId, deleted: true };
   }
 
@@ -180,6 +239,13 @@ export class GraduationsService {
       type: 'GRADUATION',
     });
 
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.STUDENT_GRADUATION_CREATE,
+      entity: AuditEntity.STUDENT_GRADUATION,
+      entityId: graduation.id,
+      meta: { studentId, graduationLevelId: dto.graduationLevelId },
+    });
     return graduation;
   }
 
@@ -196,7 +262,7 @@ export class GraduationsService {
     if (dto.graduationLevelId !== undefined) {
       await this.assertLevelBelongsToOrganization(organizationId, dto.graduationLevelId);
     }
-    return this.prisma.studentGraduation.update({
+    const updated = await this.prisma.studentGraduation.update({
       where: { id: graduationId },
       data: {
         graduationLevelId: dto.graduationLevelId,
@@ -205,6 +271,14 @@ export class GraduationsService {
       },
       include: { graduationLevel: true },
     });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.STUDENT_GRADUATION_UPDATE,
+      entity: AuditEntity.STUDENT_GRADUATION,
+      entityId: graduationId,
+      meta: { studentId, fields: definedFields(dto) },
+    });
+    return updated;
   }
 
   /**
@@ -226,6 +300,13 @@ export class GraduationsService {
       throw new ConflictException('Há certificado emitido para esta graduação; remova-o antes.');
     }
     await this.prisma.studentGraduation.deleteMany({ where: { id: graduationId, studentId, organizationId } });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.STUDENT_GRADUATION_DELETE,
+      entity: AuditEntity.STUDENT_GRADUATION,
+      entityId: graduationId,
+      meta: { studentId },
+    });
     return { id: graduationId, deleted: true };
   }
 
@@ -275,6 +356,13 @@ export class GraduationsService {
       throw new BadRequestException('Nível de graduação inválido para esta organização.');
     }
   }
+}
+
+/** Nomes dos campos enviados no DTO (para o `meta` da auditoria: nunca os valores). */
+function definedFields(dto: object): string[] {
+  return Object.entries(dto)
+    .filter(([, value]) => value !== undefined)
+    .map(([key]) => key);
 }
 
 /** @@unique([graduationSystemId, order]): ordem repetida no mesmo sistema vira 409, não 500. */

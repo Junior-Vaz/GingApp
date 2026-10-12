@@ -1,6 +1,7 @@
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { BR_UFS } from '../../../../shared/geo/br-states';
+import { IsOptionalLatitude, IsOptionalLongitude } from '../../../../shared/geo/coordinates';
 
 /** Aparar espaços; texto vazio vira `undefined` (campo omitido) — qualquer outro tipo passa e a validação reprova. */
 export const trimOrUndefined = ({ value }: { value: unknown }) => {
@@ -45,6 +46,14 @@ export class CreateUnitDto {
   @Transform(ufOrUndefined)
   @IsIn(BR_UFS, { message: UF_MESSAGE })
   state?: string;
+
+  /** Coordenadas para o mapa da comunidade (opcionais, sempre as DUAS juntas). Sem elas, o servidor tenta
+   * geocodificar address/city/state quando ha chave do Google (GOOGLE_MAPS_SERVER_KEY). */
+  @IsOptionalLatitude()
+  latitude?: number;
+
+  @IsOptionalLongitude()
+  longitude?: number;
 
   /** Matriz do grupo. Ao marcar true, a matriz anterior (se houver) deixa de ser matriz — só há UMA por grupo.
    * Omitido: vira matriz automaticamente se o grupo ainda não tem uma matriz ativa. */

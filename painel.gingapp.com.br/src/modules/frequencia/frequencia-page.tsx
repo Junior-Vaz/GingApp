@@ -13,6 +13,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, errorMessage } from "@/lib/api";
 import { notifyError } from "@/lib/crud";
 import { dayOnly, fmt } from "@/lib/format";
+import { useCan } from "@/lib/session";
+import { CheckinLink } from "@/modules/checkin/checkin-link";
 import { NativeSelect } from "@/modules/aulas/native-select";
 import { timeRange, type Lesson } from "@/modules/aulas/aulas-api";
 import { SELECTOR_LIMIT, useClassSelector, useLessonSelector } from "./frequencia-api";
@@ -32,6 +34,7 @@ const rosterKey = (lessonId: string) => ["frequencia", "roster", lessonId];
 
 export function FrequenciaPage() {
   const queryClient = useQueryClient();
+  const canCheckin = useCan("attendance", "create"); // GET /attendance/lessons/:id/checkin-token exige attendance.create
   const [classFilter, setClassFilter] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -269,8 +272,13 @@ export function FrequenciaPage() {
       ) : (
         <div className="rounded-lg border bg-card">
           {selected && (
-            <div className="border-b px-4 py-3 text-sm text-muted-foreground">
-              {className(selected.classId)} · {fmt(dayOnly(selected.date), "dd/MM/yyyy")} · {timeRange(selected)}
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-sm text-muted-foreground">
+              <span>
+                {className(selected.classId)} · {fmt(dayOnly(selected.date), "dd/MM/yyyy")} · {timeRange(selected)}
+              </span>
+              {canCheckin && (
+                <CheckinLink kind="aula" id={selected.id} label="QR de presença" ariaLabel="QR de presença desta aula" />
+              )}
             </div>
           )}
           {renderRoster()}

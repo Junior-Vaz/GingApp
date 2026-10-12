@@ -1,4 +1,5 @@
-import { IsDateString, IsIn, IsOptional } from 'class-validator';
+import { EventStatus } from '@prisma/client';
+import { IsDateString, IsEnum, IsIn, IsOptional } from 'class-validator';
 import { PageQueryDto } from '../../../../shared/pagination/pagination';
 import { EVENT_TYPES } from './event-type';
 
@@ -12,6 +13,11 @@ export class ListEventsQueryDto extends PageQueryDto {
   @IsOptional()
   @IsIn(EVENT_TYPES)
   type?: string;
+
+  /** Filtra pela situação do evento (DRAFT/PUBLISHED/CANCELLED/CLOSED). */
+  @IsOptional()
+  @IsEnum(EventStatus)
+  status?: EventStatus;
 
   @IsOptional()
   @IsDateString()

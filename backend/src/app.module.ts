@@ -1,5 +1,6 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { auditContextMiddleware } from './shared/audit/audit-context';
+import { requestLogMiddleware } from './shared/observability/request-log.middleware';
 import { AuditModule } from './interface/http/audit/audit.module';
 import { ConfigModule } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
@@ -39,9 +40,13 @@ import { PlatformSettingsModule } from './interface/http/platform-settings/platf
 import { PlatformTeamModule } from './interface/http/platform-team/platform-team.module';
 import { LegalModule } from './interface/http/legal/legal.module';
 import { UploadsModule } from './interface/http/uploads/uploads.module';
+import { MapModule } from './interface/http/map/map.module';
+import { PushModule } from './interface/http/push/push.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { JobsModule } from './jobs/jobs.module';
 import { isOverdueCronEnabled } from './jobs/overdue-cron.service';
+import { isAuditRetentionEnabled } from './jobs/audit-retention-cron.service';
+import { uploadsGcMode } from './jobs/uploads-gc-cron.service';
 
 const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
 
@@ -85,11 +90,15 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     PlatformTeamModule,
     LegalModule,
     UploadsModule,
+    MapModule,
+    PushModule,
     AuditModule,
 
     // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador
     // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.
-    ...(isOverdueCronEnabled() ? [ScheduleModule.forRoot(), JobsModule] : []),
+    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off'
+      ? [ScheduleModule.forRoot(), JobsModule]
+      : []),
   ],
   providers: [
     { provide: APP_FILTER, useClass: PrismaRangeFilter },
@@ -104,8 +113,8 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
   ],
 })
 export class AppModule implements NestModule {
-  /** Contexto da requisicao (IP + usuario) para a trilha de auditoria (shared/audit/audit-context.ts). */
+  /** X-Request-Id + log estruturado opcional (REQUEST_LOG=true) e contexto (IP + usuario) para a trilha de auditoria. */
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(auditContextMiddleware).forRoutes('*path');
+    consumer.apply(requestLogMiddleware(), auditContextMiddleware).forRoutes('*path');
   }
 }

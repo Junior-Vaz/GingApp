@@ -532,3 +532,106 @@ describe("EventosPage - participantes", () => {
     expect(await within(dialog).findByText("Nenhum participante ainda.")).toBeInTheDocument();
   });
 });
+
+describe("EventosPage - vagas, valor, situação e prazo de inscrição", () => {
+  it("tabela mostra vagas (confirmados/capacidade, sem limite, fila), valor, situação e o link do QR", async () => {
+    events = [
+      { ...EVENT, capacity: 30, confirmedCount: 12, waitlistCount: 3, spotsLeft: 18, priceCents: 4990, status: "PUBLISHED" },
+      { ...EVENT, id: 8, title: "Roda Aberta", capacity: null, confirmedCount: 12, waitlistCount: 0, spotsLeft: null, priceCents: null, status: "CANCELLED" },
+    ];
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    const table = within(screen.getByRole("table"));
+    expect(table.getByText("12/30 · +3 na espera")).toBeInTheDocument();
+    expect(table.getByText("12 (sem limite)")).toBeInTheDocument();
+    expect(table.getByText(/49,90/)).toBeInTheDocument();
+    expect(table.getByText("Publicado")).toBeInTheDocument();
+    expect(table.getByText("Cancelado")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "QR de check-in de Batizado 2026" })).toHaveAttribute("href", "/checkin/evento/7");
+  });
+
+  it("form envia capacity, priceCents (reais -> centavos), status e prazo; vazios ficam fora do POST", async () => {
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    fireEvent.click(screen.getByRole("button", { name: /Novo evento/ }));
+    fireEvent.change(await screen.findByLabelText("Título"), { target: { value: "Workshop" } });
+    fireEvent.change(screen.getByLabelText("Data e hora"), { target: { value: "2026-12-01T19:30" } });
+    fireEvent.change(screen.getByLabelText("Vagas"), { target: { value: "30" } });
+    fireEvent.change(screen.getByLabelText("Valor da inscrição (R$)"), { target: { value: "49,90" } });
+    fireEvent.change(screen.getByLabelText("Situação"), { target: { value: "DRAFT" } });
+    fireEvent.change(screen.getByLabelText("Prazo de inscrição"), { target: { value: "2026-11-30T18:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("POST", "/events")).toHaveLength(1));
+    const body = sent("POST", "/events")[0]!.body as Record<string, unknown>;
+    expect(body).toMatchObject({ capacity: 30, priceCents: 4990, status: "DRAFT" });
+    expect(body["registrationDeadline"]).toBe(new Date("2026-11-30T18:00").toISOString());
+  });
+
+  it("valida vagas, valor e prazo depois da data do evento (nenhum POST)", async () => {
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    fireEvent.click(screen.getByRole("button", { name: /Novo evento/ }));
+    fireEvent.change(await screen.findByLabelText("Título"), { target: { value: "Workshop" } });
+    fireEvent.change(screen.getByLabelText("Data e hora"), { target: { value: "2026-12-01T19:30" } });
+    fireEvent.change(screen.getByLabelText("Vagas"), { target: { value: "0" } });
+    fireEvent.change(screen.getByLabelText("Valor da inscrição (R$)"), { target: { value: "abc" } });
+    fireEvent.change(screen.getByLabelText("Prazo de inscrição"), { target: { value: "2026-12-02T10:00" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    expect(await screen.findByText(/número de vagas inteiro/)).toBeInTheDocument();
+    expect(screen.getByText(/Informe o valor em reais/)).toBeInTheDocument();
+    expect(screen.getByText("O prazo de inscrição não pode ser depois da data do evento.")).toBeInTheDocument();
+    expect(sent("POST", "/events")).toHaveLength(0);
+  });
+
+  it("editar: esvaziar vagas, valor e prazo envia null no PATCH", async () => {
+    events = [{ ...EVENT, capacity: 30, priceCents: 4990, status: "CLOSED", registrationDeadline: "2026-11-19T22:00:00.000Z" }];
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    fireEvent.click(screen.getByRole("button", { name: "Editar Batizado 2026" }));
+    expect(await screen.findByLabelText("Vagas")).toHaveValue(30);
+    expect(screen.getByLabelText("Valor da inscrição (R$)")).toHaveValue("49,90");
+    expect(screen.getByLabelText("Situação")).toHaveValue("CLOSED");
+    fireEvent.change(screen.getByLabelText("Vagas"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Valor da inscrição (R$)"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Prazo de inscrição"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("PATCH", "/events/7")).toHaveLength(1));
+    expect(sent("PATCH", "/events/7")[0]!.body).toMatchObject({
+      capacity: null, priceCents: null, registrationDeadline: null, status: "CLOSED",
+    });
+  });
+});
+
+describe("EventosPage - lista de espera", () => {
+  it("evento lotado (409 EVENT_FULL) oferece a lista de espera e reenvia com joinWaitlist; WAITLIST aparece rotulado", async () => {
+    participants = [
+      ...participants,
+      { id: 52, eventId: 7, studentId: null, guestName: "Na Fila", status: "WAITLIST", student: null },
+    ];
+    let attempts = 0;
+    overrides["POST /events/7/participants"] = () =>
+      ++attempts === 1 ? json(409, { code: "EVENT_FULL", message: "Evento lotado." }) : json(201, { id: 91 });
+    renderPage();
+    await screen.findByText("Batizado 2026");
+    fireEvent.click(screen.getByRole("button", { name: "Participantes de Batizado 2026" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("Lista de espera", { selector: "div" })).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Check-in de Na Fila" })).toBeNull();
+
+    fireEvent.click(within(dialog).getByLabelText("Convidado"));
+    fireEvent.change(within(dialog).getByLabelText("Nome do convidado"), { target: { value: "Mestre Bimba" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Adicionar" }));
+    const offer = await screen.findByRole("alertdialog");
+    expect(within(offer).getByText("Evento lotado")).toBeInTheDocument();
+    expect(toast.error).not.toHaveBeenCalled(); // o 409 EVENT_FULL não vira toast de erro
+    expect(sent("POST", "/events/7/participants")).toHaveLength(1);
+    expect(sent("POST", "/events/7/participants")[0]!.body).toEqual({ guestName: "Mestre Bimba", status: "CONFIRMED" });
+
+    fireEvent.click(within(offer).getByRole("button", { name: "Adicionar à lista de espera" }));
+    await waitFor(() => expect(sent("POST", "/events/7/participants")).toHaveLength(2));
+    expect(sent("POST", "/events/7/participants")[1]!.body).toEqual({
+      guestName: "Mestre Bimba", status: "CONFIRMED", joinWaitlist: true,
+    });
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Participante adicionado à lista de espera."));
+  });
+});

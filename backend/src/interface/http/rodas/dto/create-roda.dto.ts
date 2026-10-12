@@ -1,5 +1,7 @@
-import { IsDateString, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { RodaRecurrence } from '@prisma/client';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 import { IsImageRef } from '../../../../shared/uploads/image-ref';
+import { IsOptionalLatitude, IsOptionalLongitude } from '../../../../shared/geo/coordinates';
 
 export class CreateRodaDto {
   @IsString()
@@ -17,6 +19,13 @@ export class CreateRodaDto {
   @IsString()
   location?: string;
 
+  /** Coordenadas do local (opcionais, sempre as DUAS juntas); sem elas o servidor geocodifica `location` se houver chave. */
+  @IsOptionalLatitude()
+  latitude?: number;
+
+  @IsOptionalLongitude()
+  longitude?: number;
+
   @IsOptional()
   @IsInt()
   stateId?: number;
@@ -32,4 +41,15 @@ export class CreateRodaDto {
   @IsOptional()
   @IsImageRef()
   imageUrl?: string;
+
+  /** Recorrência (roda mensal): WEEKLY, MONTHLY_WEEKDAY ('toda 1ª sexta') ou MONTHLY_DAY ('todo dia X'), derivada de `date`.
+   * As ocorrências são geradas por POST /rodas/:id/generate-occurrences. Omitido = NONE. */
+  @IsOptional()
+  @IsEnum(RodaRecurrence)
+  recurrence?: RodaRecurrence;
+
+  /** Último dia da série (ISO; só data = fim do dia). Omitido = sem fim. */
+  @IsOptional()
+  @IsDateString()
+  recurrenceUntil?: string;
 }

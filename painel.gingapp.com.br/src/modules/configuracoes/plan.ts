@@ -23,6 +23,8 @@ export interface Organization {
   website?: string | null;
   /** "Como pagar" mostrado ao aluno/responsável no app (E07). */
   paymentInstructions?: string | null;
+  /** Mapa da comunidade: false esconde o grupo de GET /map/places (ausente em respostas antigas = true). */
+  mapVisible?: boolean;
   socialLinks?: OrganizationSocialLinks | null;
 }
 

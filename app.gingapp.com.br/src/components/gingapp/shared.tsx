@@ -10,15 +10,10 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
-import {
-  findMyParticipant,
-  useMyStudent,
-  useParticipants,
-  useToggleParticipation,
-  type Encounter,
-} from "@/lib/queries";
-import { errorMessage } from "@/lib/api";
+import { useEncounterParticipation, type Encounter } from "@/lib/queries";
 import { capitalize, fmt, toDate } from "@/lib/format";
+import { eventSituation } from "@/lib/event-info";
+import { EventFacts } from "./event-facts";
 
 export function PageHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
@@ -104,42 +99,12 @@ function icsStamp(date: Date): string {
 
 export function EventCard({ event }: { event: Encounter }) {
   const [open, setOpen] = useState(false);
-  const { student, isLoading: studentLoading } = useMyStudent();
-  const toggle = useToggleParticipation(event.source, event.id);
-
-  const myStudentId = student?.id ?? null;
-  // Contagem e "inscrito" vêm do resumo da própria listagem (GET /events): zero chamadas por card.
-  // Fonte sem resumo (GET /calendar): lista só quando o usuário abre os detalhes. Sem aluno vinculado
-  // (inscrição como convidado, que o resumo não enxerga) também precisa da lista para saber se já entrou.
-  const hasSummary = event.participantsCount !== undefined;
-  const guestMode = event.source === "EVENTO" && !studentLoading && myStudentId === null;
-  // O resumo traz UMA inscrição da conta (a do primeiro aluno inscrito). Com vários dependentes só vale
-  // para o aluno ATIVO se for a dele — ou se ninguém da conta está inscrito (null). Se for de OUTRO
-  // dependente, o resumo não responde por este aluno: consulta a lista (só nesses cards) e a inscrição
-  // do aluno ativo sai dela. Nunca mostra "Confirmado"/cancela a inscrição do irmão.
-  const summaryOwn = event.myParticipation ?? null;
-  const summaryFits = hasSummary && (studentLoading || summaryOwn === null || summaryOwn.studentId === myStudentId);
-  const participants = useParticipants(
-    event.source,
-    event.id,
-    (open && (!hasSummary || guestMode)) || (hasSummary && !summaryFits),
-  );
-  const count = hasSummary ? event.participantsCount : participants.data?.length;
-  const canJoin = summaryFits ? !guestMode || participants.isSuccess : participants.isSuccess;
-  const mine = (summaryFits ? summaryOwn : null) ?? findMyParticipant(participants.data, event.source, myStudentId);
-  const joined = mine !== null;
+  // Contagem/"inscrito"/inscrever: SSOT em queries.ts (compartilhado com o cartão do mapa da comunidade).
+  const { count, canJoin, joined, waitlisted, full, join, joinWaitlist, pending } = useEncounterParticipation(event, open);
+  const closedNow = event.source === "EVENTO" && eventSituation(event)?.closed === true;
   const date = toDate(event.date);
   const time = timeLabel(event.date);
   const place = [event.place, event.city].filter(Boolean).join(", ");
-
-  async function join() {
-    try {
-      await toggle.mutateAsync({ mine, myStudentId });
-      toast.success(joined ? "Participação cancelada." : "Você está na roda! Participação confirmada.");
-    } catch (error) {
-      toast.error(errorMessage(error, "Não foi possível atualizar sua participação."));
-    }
-  }
 
   function calendar() {
     const text = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:gingapp-${event.key}\r\nDTSTAMP:${icsStamp(new Date())}\r\nDTSTART:${icsStamp(date)}\r\nSUMMARY:${event.title}\r\nLOCATION:${place}\r\nEND:VEVENT\r\nEND:VCALENDAR`;
@@ -189,6 +154,7 @@ export function EventCard({ event }: { event: Encounter }) {
             {capitalize(fmt(date, "EEEE"))}
             {time ? ` • ${time}` : ""}
           </div>
+          <EventFacts event={event} />
           <div className="event-footer">
             <div className="attendees">{count !== undefined && count > 0 && <span>{count} na roda</span>}</div>
             <Button
@@ -197,7 +163,7 @@ export function EventCard({ event }: { event: Encounter }) {
               className="text-primary text-[10px] h-7 px-1"
               onClick={() => setOpen(true)}
             >
-              {joined ? "Confirmado" : "Ver detalhes"}
+              {joined ? (waitlisted ? "Na lista de espera" : "Confirmado") : "Ver detalhes"}
               {joined ? <Check /> : <ArrowUpRight />}
             </Button>
           </div>
@@ -229,14 +195,30 @@ export function EventCard({ event }: { event: Encounter }) {
                 {count} {count === 1 ? "participante" : "participantes"}
               </div>
             )}
+            <EventFacts event={event} />
             {event.description && (
               <p className="text-sm text-muted-foreground leading-relaxed mt-4">{event.description}</p>
             )}
           </div>
-          {canJoin && (
-            <Button onClick={join} disabled={toggle.isPending}>
+          {waitlisted && (
+            <p className="text-sm font-semibold" role="status">
+              Você está na lista de espera
+            </p>
+          )}
+          {canJoin && (joined || !closedNow) && (
+            <Button
+              onClick={!joined && full ? joinWaitlist : join}
+              variant={!joined && full ? "outline" : "default"}
+              disabled={pending}
+            >
               {joined ? <Check /> : <Users />}
-              {joined ? "Cancelar participação" : "Quero participar"}
+              {waitlisted
+                ? "Sair da lista de espera"
+                : joined
+                  ? "Cancelar participação"
+                  : full
+                    ? "Entrar na lista de espera"
+                    : "Quero participar"}
             </Button>
           )}
           <div className="flex gap-2">

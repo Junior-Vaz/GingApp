@@ -22,6 +22,7 @@ import { ChangePasswordSection } from "./change-password";
 import { ImageUploadControl } from "./image-upload";
 import { MyDataSection } from "./legal";
 import { QrDialog } from "./journey";
+import { TwoFactorSection } from "./two-factor";
 import { PageHeading, StateMessage } from "./shared";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -219,6 +220,7 @@ export function ProfilePage() {
             </p>
           )}
           <ChangePasswordSection />
+          {!user?.mustChangePassword && <TwoFactorSection />}
           {!user?.mustChangePassword && <MyDataSection />}
           <Button variant="outline" className="mt-6" onClick={handleLogout}>
             <LogOut />

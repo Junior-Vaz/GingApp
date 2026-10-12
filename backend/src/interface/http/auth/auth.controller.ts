@@ -23,7 +23,9 @@ import { AllowDuringGate } from '../../../shared/decorators/allow-during-gate.de
 import { TermsStatus } from '../../../shared/legal/legal-types';
 import { AccountExportService } from './account-export.service';
 import { AccountService, DeletionRequestView, MeResponse } from './account.service';
-import { AuthResponse } from './auth-response.interface';
+import { AuthResponse, LoginResponse } from './auth-response.interface';
+import { DisableTwoFactorDto, EnableTwoFactorDto, VerifyTwoFactorDto } from './dto/two-factor.dto';
+import { TwoFactorService, TwoFactorSetupResult } from './two-factor.service';
 import { AuthService } from './auth.service';
 import { AcceptTermsDto } from './dto/accept-terms.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
@@ -57,6 +59,10 @@ const EXPORT_THROTTLE = { default: { limit: 10, ttl: 60_000 } };
 const FORGOT_THROTTLE = { default: { limit: Number(process.env.FORGOT_THROTTLE_LIMIT ?? 5), ttl: 60_000 } };
 const RESET_THROTTLE = { default: { limit: Number(process.env.RESET_THROTTLE_LIMIT ?? 10), ttl: 60_000 } };
 
+// 2FA (setup/enable/disable/verify): adivinhar codigo de 6 digitos e' o ataque; 10/min por IP (e por usuario nas
+// rotas autenticadas). Configuravel por env so' para os e2e. Alem disso ha o bloqueio por falhas recentes por usuario.
+const TWO_FACTOR_THROTTLE = { default: { limit: Number(process.env.TWO_FACTOR_THROTTLE_LIMIT ?? 10), ttl: 60_000 } };
+
 @Controller('auth')
 export class AuthController {
   constructor(
@@ -65,6 +71,7 @@ export class AuthController {
     private readonly accountService: AccountService,
     private readonly exportService: AccountExportService,
     private readonly config: ConfigService,
+    private readonly twoFactor: TwoFactorService,
   ) {}
 
   @Public()
@@ -72,7 +79,7 @@ export class AuthController {
   @Throttle(LOGIN_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @Post('login')
-  login(@Body() dto: LoginDto): Promise<AuthResponse> {
+  login(@Body() dto: LoginDto): Promise<LoginResponse> {
     return this.authService.login(dto);
   }
 
@@ -81,9 +88,60 @@ export class AuthController {
   @Throttle(LOGIN_THROTTLE)
   @HttpCode(HttpStatus.OK)
   @Post('platform-login')
-  platformLogin(@Body() dto: PlatformLoginDto, @Req() req: Request): Promise<AuthResponse> {
+  platformLogin(@Body() dto: PlatformLoginDto, @Req() req: Request): Promise<LoginResponse> {
     this.assertIpAllowed(req);
     return this.authService.platformLogin(dto);
+  }
+
+  /**
+   * 2o passo do login quando o usuario ativou o 2FA: troca o `challengeToken` (devolvido por login/platform-login) +
+   * codigo TOTP ou de recuperacao pelo accessToken normal. Limite estrito por IP; por usuario ha o bloqueio por falhas
+   * recentes (TwoFactorService). Codigo errado = 400, excesso de tentativas = 429 (nunca 401).
+   */
+  @Public()
+  @UseFilters(JoinedValidationMessageFilter)
+  @Throttle(TWO_FACTOR_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @Post('2fa/verify')
+  verifyTwoFactor(@Body() dto: VerifyTwoFactorDto): Promise<AuthResponse> {
+    // O desafio da plataforma so' e' emitido depois de platform-login (que ja aplica PLATFORM_ALLOWED_IPS).
+    return this.authService.verifyTwoFactor(dto);
+  }
+
+  /** Inicia a ativacao do 2FA: segredo novo (pendente) + URI otpauth + QR em data URL. So' aqui o segredo e' devolvido. */
+  @UseFilters(JoinedValidationMessageFilter)
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(TWO_FACTOR_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @Post('2fa/setup')
+  setupTwoFactor(@CurrentUser() user: AuthenticatedUser): Promise<TwoFactorSetupResult> {
+    return this.twoFactor.setup(user);
+  }
+
+  /** Confirma o setup com o codigo do aplicativo, ativa o 2FA e devolve os 8 codigos de recuperacao (unica vez). */
+  @UseFilters(JoinedValidationMessageFilter)
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(TWO_FACTOR_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @Post('2fa/enable')
+  enableTwoFactor(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: EnableTwoFactorDto,
+  ): Promise<{ recoveryCodes: string[] }> {
+    return this.twoFactor.enable(user, dto.code);
+  }
+
+  /** Desativa o 2FA: senha + (codigo do aplicativo OU codigo de recuperacao). */
+  @UseFilters(JoinedValidationMessageFilter)
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(TWO_FACTOR_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @Post('2fa/disable')
+  disableTwoFactor(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: DisableTwoFactorDto,
+  ): Promise<{ twoFactorEnabled: false }> {
+    return this.twoFactor.disable(user, dto.password, { code: dto.code, recoveryCode: dto.recoveryCode });
   }
 
   /** O frontend só mostra "Esqueci minha senha" quando o e-mail transacional (SMTP_*) está habilitado. */

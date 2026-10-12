@@ -344,3 +344,79 @@ describe("RodasPage - participantes", () => {
     expect(await screen.findByText("Ninguém confirmou presença ainda.")).toBeInTheDocument();
   });
 });
+
+describe("RodasPage - recorrência", () => {
+  const MAE = { ...OWN, id: 4, title: "Roda Mensal", recurrence: "MONTHLY_WEEKDAY", recurrenceUntil: "2026-12-31T00:00:00.000Z" };
+  const FILHA = { ...OWN, id: 5, title: "Roda Filha", parentRodaId: 4, recurrence: "NONE" };
+
+  it("tabela mostra a recorrência; 'Gerar próximas ocorrências' só aparece na roda mãe", async () => {
+    rodas = [MAE, FILHA, OWN];
+    renderPage();
+    await screen.findByText("Roda Mensal");
+    const table = within(screen.getByRole("table"));
+    expect(table.getByText("Mensal (dia da semana)")).toBeInTheDocument();
+    expect(table.getByText("Ocorrência da série")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Gerar próximas ocorrências de Roda Mensal" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Gerar próximas ocorrências de Roda Filha" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Gerar próximas ocorrências de Roda de Sábado" })).toBeNull();
+  });
+
+  it("select de repetição: 'Repetir até' só aparece quando repete; POST leva recurrence e recurrenceUntil", async () => {
+    renderPage();
+    await screen.findByText("Roda de Sábado");
+    fireEvent.click(screen.getByRole("button", { name: /Nova roda/ }));
+    fireEvent.change(await screen.findByLabelText("Título"), { target: { value: "Roda da 1ª sexta" } });
+    fireEvent.change(screen.getByLabelText("Data e hora"), { target: { value: "2026-12-04T19:00" } });
+    expect(screen.getByLabelText("Repetição")).toHaveValue("NONE");
+    expect(screen.queryByLabelText("Repetir até")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Repetição"), { target: { value: "MONTHLY_WEEKDAY" } });
+    fireEvent.change(await screen.findByLabelText("Repetir até"), { target: { value: "2027-06-30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("POST", "/rodas")).toHaveLength(1));
+    expect(sent("POST", "/rodas")[0]!.body).toMatchObject({ recurrence: "MONTHLY_WEEKDAY", recurrenceUntil: "2027-06-30" });
+  });
+
+  it("ocorrência gerada: repetição desabilitada e o PATCH não envia recurrence", async () => {
+    rodas = [FILHA];
+    overrides["PATCH /rodas/5"] = () => json(200, FILHA);
+    renderPage();
+    await screen.findByText("Roda Filha");
+    fireEvent.click(screen.getByRole("button", { name: "Editar Roda Filha" }));
+    expect(await screen.findByLabelText("Repetição")).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("PATCH", "/rodas/5")).toHaveLength(1));
+    const body = sent("PATCH", "/rodas/5")[0]!.body as Record<string, unknown>;
+    expect(body).not.toHaveProperty("recurrence");
+    expect(body).not.toHaveProperty("recurrenceUntil");
+  });
+
+  it("'Gerar próximas ocorrências' chama o endpoint e avisa quantas foram criadas e a regra", async () => {
+    rodas = [MAE];
+    overrides["POST /rodas/4/generate-occurrences"] = () =>
+      json(200, { rule: "toda 1ª sexta do mês", created: 3, occurrences: [] });
+    renderPage();
+    await screen.findByText("Roda Mensal");
+    fireEvent.click(screen.getByRole("button", { name: "Gerar próximas ocorrências de Roda Mensal" }));
+    await waitFor(() => expect(sent("POST", "/rodas/4/generate-occurrences")).toHaveLength(1));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("3 ocorrências criadas (toda 1ª sexta do mês)."));
+  });
+
+  it("roda mãe: oferece 'Excluir a série inteira' (DELETE ?series=true); roda comum só tem 'Excluir'", async () => {
+    rodas = [MAE, OWN];
+    overrides["DELETE /rodas/4"] = () => json(200, { success: true, removed: 4 });
+    renderPage();
+    await screen.findByText("Roda Mensal");
+    fireEvent.click(screen.getByRole("button", { name: "Excluir Roda de Sábado" }));
+    const simple = await screen.findByRole("alertdialog");
+    expect(within(simple).queryByRole("button", { name: "Excluir a série inteira" })).toBeNull();
+    fireEvent.click(within(simple).getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Excluir Roda Mensal" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Excluir a série inteira" }));
+    await waitFor(() => expect(sent("DELETE", "/rodas/4")).toHaveLength(1));
+    expect(sent("DELETE", "/rodas/4")[0]!.query.get("series")).toBe("true");
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Série excluída (4 rodas removidas)."));
+  });
+});

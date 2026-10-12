@@ -12,6 +12,8 @@ import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { isRestricted, UnitScopeService } from '../../../shared/access/unit-scope';
+import { resolveCoordinatesInput } from '../../../shared/geo/coordinates';
+import { GeocodingService } from '../../../shared/geo/geocoding.service';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateUnitDto } from './dto/create-unit.dto';
 import { ListUnitsQueryDto } from './dto/list-units-query.dto';
@@ -40,6 +42,7 @@ export class UnitsService {
     private readonly subscriptionsService: SubscriptionsService,
     private readonly unitScope: UnitScopeService,
     private readonly audit: AuditService,
+    private readonly geocoding: GeocodingService,
   ) {}
 
   /**
@@ -72,6 +75,8 @@ export class UnitsService {
 
   async create(organizationId: number, dto: CreateUnitDto): Promise<Unit> {
     const maxUnits = await this.unitLimit(organizationId);
+    // Coordenadas do mapa: as do corpo, ou geocodificadas (so' com chave do Google; antes da transacao, que segura o lock).
+    const coordinates = await this.geocoding.forCreate(dto, [dto.address, dto.city, dto.state]);
     const created = await this.prisma.$transaction(async (tx) => {
       await this.lockOrganization(tx, organizationId);
       await this.assertWithinLimit(tx, organizationId, maxUnits);
@@ -88,6 +93,8 @@ export class UnitsService {
           address: dto.address,
           city: dto.city,
           state: dto.state,
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
           isMain,
         },
       });
@@ -108,13 +115,18 @@ export class UnitsService {
       address: dto.address,
       city: dto.city,
       state: dto.state,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
       isMain: dto.isMain,
       status: dto.status,
     };
     if (Object.values(data).every((value) => value === undefined)) {
-      throw new BadRequestException('Informe ao menos um campo para atualizar (name, address, city, state, isMain ou status).');
+      throw new BadRequestException(
+        'Informe ao menos um campo para atualizar (name, address, city, state, latitude, longitude, isMain ou status).',
+      );
     }
-    const updated = await this.apply(organizationId, id, dto);
+    resolveCoordinatesInput(dto); // 400 se so' uma das duas coordenadas veio
+    const updated = await this.apply(organizationId, id, dto, await this.coordinatesForUpdate(organizationId, id, dto));
     await this.audit.record({
       organizationId,
       action: dto.status === 'INACTIVE' ? AuditAction.UNIT_INACTIVATE : AuditAction.UNIT_UPDATE,
@@ -145,7 +157,35 @@ export class UnitsService {
     return updated;
   }
 
-  private async apply(organizationId: number, id: number, dto: UpdateUnitDto): Promise<Unit> {
+  /**
+   * Coordenadas a gravar no PATCH (ou undefined = nao mexer): as do corpo; senao, se address/city/state mudaram,
+   * geocodifica o endereco novo (so' com chave do Google). Unidade inexistente: undefined (apply responde 404).
+   */
+  private async coordinatesForUpdate(
+    organizationId: number,
+    id: number,
+    dto: UpdateUnitDto,
+  ): Promise<{ latitude: number | null; longitude: number | null } | undefined> {
+    const given = resolveCoordinatesInput(dto);
+    if (given) return given;
+    if (dto.address === undefined && dto.city === undefined && dto.state === undefined) return undefined;
+    const current = await this.prisma.unit.findFirst({ where: { id, organizationId } });
+    if (!current) return undefined;
+    const next = {
+      address: dto.address === undefined ? current.address : dto.address,
+      city: dto.city === undefined ? current.city : dto.city,
+      state: dto.state === undefined ? current.state : dto.state,
+    };
+    const textChanged = next.address !== current.address || next.city !== current.city || next.state !== current.state;
+    return this.geocoding.forUpdate(dto, textChanged, [next.address, next.city, next.state]);
+  }
+
+  private async apply(
+    organizationId: number,
+    id: number,
+    dto: UpdateUnitDto,
+    coordinates?: { latitude: number | null; longitude: number | null },
+  ): Promise<Unit> {
     const maxUnits = await this.unitLimit(organizationId);
     return this.prisma.$transaction(async (tx) => {
       await this.lockOrganization(tx, organizationId);
@@ -188,6 +228,8 @@ export class UnitsService {
           address: dto.address,
           city: dto.city,
           state: dto.state,
+          latitude: coordinates?.latitude,
+          longitude: coordinates?.longitude,
           isMain: dto.isMain,
           status: dto.status,
         },

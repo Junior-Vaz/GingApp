@@ -6,14 +6,29 @@ import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { fmt, toDate } from "@/lib/format";
+import { fmt, formatCurrency, toDate } from "@/lib/format";
 import { useListParams } from "@/lib/list-params";
 import { useCan } from "@/lib/session";
 import { NativeSelect } from "@/modules/rodas/native-select";
 import { events } from "./api";
 import { EventForm } from "./event-form";
 import { ParticipantsDialog } from "./participants-dialog";
-import { EVENT_TYPE_LABEL, EVENT_TYPES, type EventItem } from "./types";
+import { CheckinLink } from "@/modules/checkin/checkin-link";
+import { EVENT_STATUS_LABEL, EVENT_TYPE_LABEL, EVENT_TYPES, type EventItem, type EventStatus } from "./types";
+
+const STATUS_VARIANT: Record<EventStatus, "default" | "secondary" | "outline" | "destructive"> = {
+  DRAFT: "outline",
+  PUBLISHED: "default",
+  CANCELLED: "destructive",
+  CLOSED: "secondary",
+};
+
+/** "12/30" (confirmados/vagas), "12 (sem limite)" e "+3 na espera" quando há fila. */
+function spotsLabel(e: EventItem): string {
+  const confirmed = e.confirmedCount ?? 0;
+  const base = e.capacity ? `${String(confirmed)}/${String(e.capacity)}` : `${String(confirmed)} (sem limite)`;
+  return e.waitlistCount ? `${base} · +${String(e.waitlistCount)} na espera` : base;
+}
 
 const columns: Column<EventItem>[] = [
   {
@@ -41,6 +56,27 @@ const columns: Column<EventItem>[] = [
   },
   { id: "location", header: "Local", sortValue: (e) => e.location, cell: (e) => e.location || "—" },
   {
+    id: "spots",
+    header: "Vagas",
+    sortValue: (e) => e.confirmedCount ?? 0,
+    cell: (e) => spotsLabel(e),
+  },
+  {
+    id: "price",
+    header: "Valor",
+    sortValue: (e) => e.priceCents ?? 0,
+    cell: (e) => (e.priceCents ? formatCurrency(e.priceCents) : "—"),
+  },
+  {
+    id: "status",
+    header: "Situação",
+    sortValue: (e) => e.status ?? "PUBLISHED",
+    cell: (e) => {
+      const status = e.status ?? "PUBLISHED";
+      return <Badge variant={STATUS_VARIANT[status]}>{EVENT_STATUS_LABEL[status]}</Badge>;
+    },
+  },
+  {
     id: "public",
     header: "Público",
     sortValue: (e) => (e.isPublic ? 1 : 0),
@@ -50,12 +86,13 @@ const columns: Column<EventItem>[] = [
 
 export function EventosPage() {
   // Lista no servidor: busca (q em título/local), tipo e intervalo de datas (from/to) vão como query.
-  const lp = useListParams({ pageSize: 10, filters: { type: "", from: "", to: "" } });
+  const lp = useListParams({ pageSize: 10, filters: { type: "", status: "", from: "", to: "" } });
   const list = events.usePage(lp.params);
   const create = events.useCreate();
   const update = events.useUpdate();
   const remove = events.useRemove();
   const canDelete = useCan("events", "delete"); // PROFESSOR: sem events:delete (backend responde 403)
+  const canEdit = useCan("events", "edit"); // GET /events/:id/checkin-token exige events.edit
 
   const [editing, setEditing] = useState<EventItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<EventItem | null>(null);
@@ -82,7 +119,7 @@ export function EventosPage() {
         getRowId={(e) => e.id}
         searchPlaceholder="Buscar por título ou local…"
         emptyMessage={
-          lp.filters.type || lp.filters.from || lp.filters.to
+          lp.filters.type || lp.filters.status || lp.filters.from || lp.filters.to
             ? "Nenhum evento com esses filtros."
             : "Nenhum evento cadastrado ainda."
         }
@@ -98,6 +135,19 @@ export function EventosPage() {
               {EVENT_TYPES.map((type) => (
                 <option key={type} value={type}>
                   {EVENT_TYPE_LABEL[type]}
+                </option>
+              ))}
+            </NativeSelect>
+            <NativeSelect
+              aria-label="Filtrar por situação"
+              className="w-44"
+              value={lp.filters.status}
+              onChange={(e) => lp.setFilter("status", e.target.value)}
+            >
+              <option value="">Todas as situações</option>
+              {(Object.keys(EVENT_STATUS_LABEL) as EventStatus[]).map((status) => (
+                <option key={status} value={status}>
+                  {EVENT_STATUS_LABEL[status]}
                 </option>
               ))}
             </NativeSelect>
@@ -122,6 +172,7 @@ export function EventosPage() {
             <Button variant="ghost" size="sm" onClick={() => setViewing(e)} aria-label={`Participantes de ${e.title}`}>
               <Users /> Participantes
             </Button>
+            {canEdit && <CheckinLink kind="evento" id={e.id} label="QR de check-in" ariaLabel={`QR de check-in de ${e.title}`} />}
             <Button variant="ghost" size="sm" onClick={() => setEditing(e)} aria-label={`Editar ${e.title}`}>
               Editar
             </Button>

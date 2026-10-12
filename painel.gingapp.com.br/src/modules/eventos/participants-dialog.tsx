@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api, errorMessage } from "@/lib/api";
+import { ApiError, api, errorMessage } from "@/lib/api";
 import { notifyError } from "@/lib/crud";
 import { PARTICIPANT_STATUS_LABEL } from "@/modules/rodas/types";
 import { AddParticipantForm } from "./add-participant-form";
@@ -18,6 +18,8 @@ const participantName = (p: EventParticipant) => p.student?.name ?? p.guestName 
 export function ParticipantsDialog({ event, onClose }: { event: EventItem | null; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [removing, setRemoving] = useState<EventParticipant | null>(null);
+  /** Inscrição barrada por evento lotado (409 EVENT_FULL): aguarda o aceite de entrar na lista de espera. */
+  const [waitlistOffer, setWaitlistOffer] = useState<ParticipantPayload | null>(null);
   const base = `/events/${String(event?.id)}/participants`;
   const key = ["eventos", "participants", event?.id];
   const refresh = () => queryClient.invalidateQueries({ queryKey: key });
@@ -30,11 +32,18 @@ export function ParticipantsDialog({ event, onClose }: { event: EventItem | null
 
   const add = useMutation({
     mutationFn: (payload: ParticipantPayload) => api.post<EventParticipant>(base, payload),
-    onSuccess: () => {
+    onSuccess: (_data, payload) => {
       void refresh();
-      toast.success("Participante adicionado.");
+      void queryClient.invalidateQueries({ queryKey: ["crud", "/events"] }); // vagas/lista de espera da tabela
+      toast.success(payload.joinWaitlist ? "Participante adicionado à lista de espera." : "Participante adicionado.");
     },
-    onError: (error) => notifyError(error, "Não foi possível adicionar o participante."),
+    onError: (error, payload) => {
+      if (error instanceof ApiError && error.status === 409 && error.code === "EVENT_FULL" && !payload.joinWaitlist) {
+        setWaitlistOffer(payload);
+        return;
+      }
+      notifyError(error, "Não foi possível adicionar o participante.");
+    },
   });
 
   const checkIn = useMutation({
@@ -89,10 +98,14 @@ export function ParticipantsDialog({ event, onClose }: { event: EventItem | null
                     )}
                   </span>
                   <span className="flex shrink-0 items-center gap-1">
-                    <Badge variant={participant.status === "ATTENDED" ? "default" : "secondary"}>
+                    <Badge
+                      variant={
+                        participant.status === "ATTENDED" ? "default" : participant.status === "WAITLIST" ? "outline" : "secondary"
+                      }
+                    >
                       {PARTICIPANT_STATUS_LABEL[participant.status]}
                     </Badge>
-                    {participant.status !== "ATTENDED" && (
+                    {participant.status !== "ATTENDED" && participant.status !== "WAITLIST" && (
                       <Button
                         variant="ghost"
                         size="sm"
@@ -120,6 +133,15 @@ export function ParticipantsDialog({ event, onClose }: { event: EventItem | null
           )}
         </DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={waitlistOffer !== null}
+        onOpenChange={(open) => !open && setWaitlistOffer(null)}
+        title="Evento lotado"
+        description="Todas as vagas deste evento estão ocupadas. Deseja adicionar o participante à lista de espera? Ele será confirmado automaticamente quando uma vaga abrir."
+        confirmLabel="Adicionar à lista de espera"
+        variant="default"
+        onConfirm={() => add.mutateAsync({ ...waitlistOffer!, joinWaitlist: true })}
+      />
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => !open && setRemoving(null)}

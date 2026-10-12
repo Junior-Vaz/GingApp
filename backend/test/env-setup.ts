@@ -25,3 +25,14 @@ process.env.SMTP_HOST = '';
 // (AppModule so inclui ScheduleModule/JobsModule quando OVERDUE_CRON != 'false'). O job e testado a parte
 // em test/overdue-cron.spec.ts (registro do cron e execucao direta, sem esperar o relogio).
 process.env.OVERDUE_CRON = 'false';
+
+// Nunca Web Push real nos testes (o push so liga quando o spec injeta o remetente em memoria; VAPID_* vazias).
+process.env.VAPID_PUBLIC_KEY = "";
+process.env.VAPID_PRIVATE_KEY = "";
+process.env.VAPID_SUBJECT = "";
+// Retencao da auditoria (semanal), limpeza de imagens orfas (semanal), log de requisicao e 2FA: nada disso roda nos
+// testes por padrao (os specs proprios chamam os servicos direto / ligam a env que precisam).
+process.env.AUDIT_RETENTION_CRON = 'false';
+process.env.UPLOADS_GC = 'false';
+process.env.REQUEST_LOG = 'false';
+process.env.TWO_FACTOR_THROTTLE_LIMIT = '1000';

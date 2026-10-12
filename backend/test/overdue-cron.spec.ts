@@ -145,7 +145,7 @@ describe('job diário de mensalidade vencida (unidade)', () => {
     assert.equal(started, 1);
   });
 
-  it('fiação do AppModule: ScheduleModule + JobsModule só entram quando OVERDUE_CRON != "false"', () => {
+  it('fiação do AppModule: ScheduleModule + JobsModule só entram quando algum job (OVERDUE_CRON / AUDIT_RETENTION_CRON / UPLOADS_GC) não é "false"', () => {
     const root = path.join(__dirname, '..');
     const script = `
       const { AppModule } = require('./src/app.module');
@@ -154,8 +154,11 @@ describe('job diário de mensalidade vencida (unidade)', () => {
     `;
     const run = (value: string | undefined) => {
       const env: NodeJS.ProcessEnv = { ...process.env, TS_NODE_COMPILER_OPTIONS: '{"rootDir":"."}' };
-      if (value === undefined) delete env.OVERDUE_CRON;
-      else env.OVERDUE_CRON = value;
+      // Os 3 jobs semanais/diarios compartilham o agendador: o JobsModule so sai quando TODOS estao desligados.
+      for (const key of ['OVERDUE_CRON', 'AUDIT_RETENTION_CRON', 'UPLOADS_GC']) {
+        if (value === undefined) delete env[key];
+        else env[key] = value;
+      }
       const res = spawnSync(
         process.execPath,
         ['--require', 'ts-node/register/transpile-only', '-e', script],

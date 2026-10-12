@@ -6,11 +6,14 @@ export const API_URL: string =
 
 export class ApiError extends Error {
   status: number;
+  /** Código de negócio do corpo do erro (ex.: `EVENT_FULL`), quando o backend envia. */
+  code: string | undefined;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -45,7 +48,12 @@ async function throwApiError(
     clearSession();
     unauthorizedHandler?.();
   }
-  throw new ApiError(extractMessage(body) ?? `Erro ${response.status} ao chamar ${path}`, response.status);
+  const code = (body as { code?: unknown } | null)?.code;
+  throw new ApiError(
+    extractMessage(body) ?? `Erro ${response.status} ao chamar ${path}`,
+    response.status,
+    typeof code === "string" ? code : undefined,
+  );
 }
 
 async function requestRaw<T>(

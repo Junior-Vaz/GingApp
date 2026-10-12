@@ -11,6 +11,8 @@ import { ListCertificatesQueryDto } from './dto/list-certificates-query.dto';
 import { StudentsService } from '../students/students.service';
 import { CreateCertificateDto } from './dto/create-certificate.dto';
 import { UpdateCertificateDto } from './dto/update-certificate.dto';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 
 const CERTIFICATE_NOT_FOUND = 'Certificado não encontrado.';
 
@@ -37,6 +39,7 @@ export class CertificatesService {
     private readonly studentsService: StudentsService,
     private readonly unitScope: UnitScopeService,
     private readonly permissions: PermissionsService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Antes SEM limite; agora paginado (padrão 50, igual aos demais módulos) — `limit`/`offset` e
@@ -127,7 +130,15 @@ export class CertificatesService {
       });
     }
     if (!certificate) throw new NotFoundException(CERTIFICATE_NOT_FOUND);
-    return this.render(certificate, true);
+    const rendered = await this.render(certificate, true);
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.CERTIFICATE_DOWNLOAD,
+      entity: AuditEntity.CERTIFICATE,
+      entityId: id,
+      meta: { studentId: certificate.studentId },
+    });
+    return rendered;
   }
 
   /** PDF público pelo código de verificação (QR). Só o que a verificação pública já expõe (sem graduação). */
@@ -192,7 +203,7 @@ export class CertificatesService {
       }
     }
 
-    return this.prisma.certificate.create({
+    const created = await this.prisma.certificate.create({
       data: {
         organizationId,
         studentId: dto.studentId,
@@ -203,6 +214,14 @@ export class CertificatesService {
       },
       include: { student: { select: { id: true, name: true } } },
     });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.CERTIFICATE_ISSUE,
+      entity: AuditEntity.CERTIFICATE,
+      entityId: created.id,
+      meta: { studentId: dto.studentId, studentGraduationId: dto.studentGraduationId ?? null },
+    });
+    return created;
   }
 
   async update(organizationId: number, id: number, dto: UpdateCertificateDto, user?: AuthenticatedUser) {

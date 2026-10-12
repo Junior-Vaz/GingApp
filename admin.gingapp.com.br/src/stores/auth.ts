@@ -25,11 +25,35 @@ export interface AuthUser {
   termsAcceptanceRequired?: boolean
   currentTermsVersion?: string
   acceptedTermsVersion?: string | null
+  /** Verificação em duas etapas (TOTP, opt-in): vem de GET /auth/me; undefined = ainda não consultado. */
+  twoFactorEnabled?: boolean
+  recoveryCodesRemaining?: number
 }
 
 interface LoginResponse {
   accessToken: string
   user: AuthUser
+}
+
+/** Resposta do login quando a conta tem 2FA: sessão ainda NÃO existe; o desafio vale só para a verificação. */
+interface TwoFactorChallenge {
+  twoFactorRequired: true
+  challengeToken: string
+}
+
+/** Resultado do 1º passo do login: sessão iniciada, ou desafio de 2FA (o token fica só na memória de quem chama). */
+export type LoginResult = { status: 'authenticated' } | { status: 'two-factor'; challengeToken: string }
+
+/** Código do autenticador (6 dígitos) OU código de recuperação (xxxxx-xxxxx). */
+export type TwoFactorProof = { code: string } | { recoveryCode: string }
+
+function isTwoFactorChallenge(data: unknown): data is TwoFactorChallenge {
+  const candidate = data as Partial<TwoFactorChallenge> | null
+  return (
+    candidate?.twoFactorRequired === true &&
+    typeof candidate.challengeToken === 'string' &&
+    candidate.challengeToken !== ''
+  )
 }
 
 function readStoredUser(): AuthUser | null {
@@ -50,7 +74,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => Boolean(token.value))
 
   /** Login real contra POST /api/auth/platform-login (exclusivo de userType PLATFORM). */
-  async function login(email: string, password: string): Promise<void> {
+  async function login(email: string, password: string): Promise<LoginResult> {
     if (!email || !password) {
       throw new Error('Informe e-mail e senha.')
     }
@@ -72,12 +96,45 @@ export const useAuthStore = defineStore('auth', () => {
       throw new Error(message)
     }
 
-    const { accessToken, user: loggedUser } = data as LoginResponse
+    // Conta com 2FA: HTTP 200 SEM sessão. Nada é guardado - o desafio só existe na memória do componente.
+    if (isTwoFactorChallenge(data)) {
+      return { status: 'two-factor', challengeToken: data.challengeToken }
+    }
 
+    startSession(data as LoginResponse)
+    return { status: 'authenticated' }
+  }
+
+  function startSession({ accessToken, user: loggedUser }: LoginResponse): void {
     token.value = accessToken
     user.value = loggedUser
     localStorage.setItem(AUTH_TOKEN_KEY, accessToken)
     localStorage.setItem(AUTH_USER_KEY, JSON.stringify(loggedUser))
+  }
+
+  /**
+   * 2º passo do login: POST /api/auth/2fa/verify com o desafio + código do autenticador ou de recuperação.
+   * Devolve o mesmo AuthResponse do login e guarda a sessão igual. Erros (400 código incorreto/desafio
+   * expirado, 429) chegam com a mensagem do servidor.
+   */
+  async function verifyTwoFactor(challengeToken: string, proof: TwoFactorProof): Promise<void> {
+    const response = await fetch(`${API_URL}/auth/2fa/verify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeToken, ...proof }),
+    })
+
+    const data = await response.json().catch(() => null)
+
+    if (!response.ok) {
+      throw new Error(apiErrorText(response.status, data, 'Não foi possível verificar o código.'))
+    }
+
+    const session = data as Partial<LoginResponse> | null
+    if (!session || typeof session.accessToken !== 'string' || !session.user) {
+      throw new Error('Não foi possível verificar o código.')
+    }
+    startSession(session as LoginResponse)
   }
 
   /**
@@ -107,5 +164,5 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem(AUTH_USER_KEY)
   }
 
-  return { token, user, isAuthenticated, login, logout, replaceToken, updateUser }
+  return { token, user, isAuthenticated, login, verifyTwoFactor, logout, replaceToken, updateUser }
 })

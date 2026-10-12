@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEmail,
   IsIn,
   IsInt,
@@ -149,6 +150,11 @@ export class UpdateOwnOrganizationDto {
   @IsString()
   @MaxLength(2000)
   paymentInstructions?: string | null;
+
+  /** Mapa da comunidade: false esconde o grupo (unidades, treinos, eventos públicos e rodas) de GET /map/places. Não aceita null. */
+  @ValidateIf((_, v) => v !== undefined)
+  @IsBoolean({ message: 'mapVisible deve ser true ou false.' })
+  mapVisible?: boolean;
 
   /** `null` ou `{}` (sem nenhuma rede) => coluna volta a NULL; objeto com redes => substitui por inteiro. */
   @IsOptional()

@@ -38,6 +38,9 @@ export interface AuthUser {
   termsAcceptanceRequired?: boolean;
   currentTermsVersion?: string;
   acceptedTermsVersion?: string | null;
+  /** Verificação em duas etapas (GET /auth/me traz; o login não precisa trazer). */
+  twoFactorEnabled?: boolean;
+  recoveryCodesRemaining?: number;
 }
 
 /** O usuário pode usar o painel de gestão? (MEMBER com papel MESTRE ou PROFESSOR.) */

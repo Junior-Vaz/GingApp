@@ -6,11 +6,14 @@ export const API_URL: string =
 
 export class ApiError extends Error {
   status: number;
+  /** Codigo de negocio opcional do corpo do erro (ex.: 'EVENT_FULL' no 409 de evento lotado). */
+  code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    if (code !== undefined) this.code = code;
   }
 }
 
@@ -49,7 +52,12 @@ async function failure(
     clearSession();
     unauthorizedHandler?.();
   }
-  return new ApiError(extractMessage(body) ?? `Erro ${response.status} ao chamar ${path}`, response.status);
+  const code = (body as { code?: unknown } | null)?.code;
+  return new ApiError(
+    extractMessage(body) ?? `Erro ${response.status} ao chamar ${path}`,
+    response.status,
+    typeof code === "string" ? code : undefined,
+  );
 }
 
 async function requestRaw<T>(
@@ -129,8 +137,13 @@ export const api = {
     request<T>(path, { method: "POST", ...jsonBody(body) }, options),
   patch: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>(path, { method: "PATCH", ...jsonBody(body) }, options),
+  put: <T>(path: string, body?: unknown, options?: RequestOptions) =>
+    request<T>(path, { method: "PUT", ...jsonBody(body) }, options),
   delete: <T>(path: string, options?: RequestOptions) =>
     request<T>(path, { method: "DELETE" }, options),
+  /** DELETE com corpo JSON (ex.: DELETE /push/subscribe {endpoint}). */
+  deleteWithBody: <T>(path: string, body: unknown, options?: RequestOptions) =>
+    request<T>(path, { method: "DELETE", ...jsonBody(body) }, options),
 };
 
 export function errorMessage(error: unknown, fallback: string): string {

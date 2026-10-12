@@ -30,6 +30,9 @@ interface MeResponse {
   currentTermsVersion: string;
   acceptedTermsVersion: string | null;
   mustChangePassword?: boolean;
+  /** 2FA TOTP (ver lib/two-factor.ts): ausentes em backends antigos. */
+  twoFactorEnabled?: boolean;
+  recoveryCodesRemaining?: number;
 }
 
 /**

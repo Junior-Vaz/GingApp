@@ -113,7 +113,8 @@ export class StudentAccessService {
         : false;
     await this.audit.record({
       organizationId,
-      action: AuditAction.STUDENT_ACCOUNT_CREATE,
+      // Usuario ja existente apenas vinculado ao aluno = LINK; usuario novo = CREATE.
+      action: result.created ? AuditAction.STUDENT_ACCOUNT_CREATE : AuditAction.STUDENT_ACCOUNT_LINK,
       entity: AuditEntity.STUDENT,
       entityId: studentId,
       meta: { userId: result.userId, linkedExistingUser: !result.created, inviteSent },

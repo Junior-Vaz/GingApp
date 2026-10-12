@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Notification, OrgRole, Prisma } from '@prisma/client';
 import { LimitOffsetQueryDto, Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { PushService } from '../../../shared/push/push.service';
 
 /** Conteúdo de uma notificação in-app (Notification.type é uma tag livre, ex.: 'ANNOUNCEMENT', 'LESSON_CANCELLED'). */
 export interface NotificationPayload {
@@ -27,19 +28,28 @@ const CREATE_MANY_CHUNK = 500;
  * aula cancelada/alterada, graduação, evento/roda novo, mensalidade vencida) passa por
  * `notifyUsers`/`notifyAudience`/`notifyStudents`/... — nenhum outro módulo escreve em
  * `notification` diretamente.
+ *
+ * Web Push (I13): toda notificação gravada por `createMany` também dispara o push em segundo plano
+ * (PushService.dispatch — fire-and-forget, nunca lança, desligado sem VAPID). Dentro de uma `$transaction` do
+ * chamador o push só pode sair DEPOIS do commit: o chamador passa o `client` da transação e chama
+ * `pushAfterCommit(items)` quando ela confirmar.
  */
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly push: PushService,
+  ) {}
 
   // ---------------------------------------------------------------------------------------------
   // PRODUÇÃO
   // ---------------------------------------------------------------------------------------------
 
   /** createMany em lotes. Devolve quantas linhas foram gravadas. `client` permite participar de uma
-   * `$transaction` do chamador (ex.: marcar mensalidades OVERDUE e notificar de forma atômica). */
+   * `$transaction` do chamador (ex.: marcar mensalidades OVERDUE e notificar de forma atômica) — nesse caso o push
+   * NÃO é disparado aqui (a transação pode reverter): chame `pushAfterCommit(items)` depois do commit. */
   async createMany(
     items: Prisma.NotificationCreateManyInput[],
     client: Pick<Prisma.TransactionClient, 'notification'> = this.prisma,
@@ -49,7 +59,13 @@ export class NotificationsService {
       const result = await client.notification.createMany({ data: items.slice(i, i + CREATE_MANY_CHUNK) });
       created += result.count;
     }
+    if (client === this.prisma) this.pushAfterCommit(items);
     return created;
+  }
+
+  /** Dispara o push (segundo plano, nunca lança) de notificações JÁ confirmadas no banco. */
+  pushAfterCommit(items: Prisma.NotificationCreateManyInput[]): void {
+    this.push.dispatch(items.map((i) => ({ userId: i.userId, title: i.title, body: i.body, type: i.type })));
   }
 
   /** Uma notificação por usuário distinto (userIds repetidos não duplicam). `maxRecipients` corta o

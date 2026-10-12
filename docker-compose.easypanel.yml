@@ -79,6 +79,13 @@ services:
       DEMO_PASSWORD: "${DEMO_PASSWORD:-}"
       # Job diario das mensalidades vencidas (03:00 America/Sao_Paulo). OVERDUE_CRON=false desliga.
       OVERDUE_CRON: "${OVERDUE_CRON:-true}"
+      # Manutencao semanal: retencao da auditoria (dias; 0 = nunca apagar) e limpeza de imagens orfas (false = desliga; dry-run = so log).
+      AUDIT_RETENTION_DAYS: "${AUDIT_RETENTION_DAYS:-365}"
+      AUDIT_RETENTION_CRON: "${AUDIT_RETENTION_CRON:-true}"
+      UPLOADS_GC: "${UPLOADS_GC:-true}"
+      # Log estruturado de requisicao (1 linha JSON no stdout) e chave do 2FA (vazia = deriva do JWT_SECRET).
+      REQUEST_LOG: "${REQUEST_LOG:-false}"
+      TWO_FACTOR_KEY: "${TWO_FACTOR_KEY:-}"
       # TERMS_ENFORCEMENT=true: o servidor tambem barra (403) quem nao aceitou a versao vigente dos Termos/Politica.
       # Padrao false: so o frontend exige o aceite.
       TERMS_ENFORCEMENT: "${TERMS_ENFORCEMENT:-false}"
@@ -91,6 +98,20 @@ services:
       SMTP_PASS: "${SMTP_PASS:-}"
       SMTP_FROM: "${SMTP_FROM:-}"
       SMTP_SECURE: "${SMTP_SECURE:-}"
+      # Web Push (OPCIONAL): avisos no celular do aluno/responsavel (PWA). Sem as 3 variaveis o push fica DESLIGADO e nada
+      # muda (GET /push/config devolve enabled=false e o app nao mostra o botao). Gere as chaves UMA vez com
+      # `npx web-push generate-vapid-keys` e NAO as troque depois (trocar invalida todas as inscricoes dos aparelhos).
+      # VAPID_SUBJECT = mailto:contato@seudominio.com.br (ou https://...).
+      VAPID_PUBLIC_KEY: "${VAPID_PUBLIC_KEY:-}"
+      VAPID_PRIVATE_KEY: "${VAPID_PRIVATE_KEY:-}"
+      VAPID_SUBJECT: "${VAPID_SUBJECT:-}"
+      # Mapa da comunidade (OPCIONAL, Google Maps): sem GOOGLE_MAPS_API_KEY o app mostra uma lista no lugar do mapa
+      # (GET /api/map/config devolve enabled=false). API_KEY = chave de NAVEGADOR (restrita por referrer, publica por
+      # natureza); SERVER_KEY = chave de SERVIDOR so para geocodificar enderecos (restrita por IP/API; NUNCA vai ao
+      # navegador); MAP_ID = ID do mapa estilizado (opcional). Passo a passo: docs/EASYPANEL.md, secao 14.
+      GOOGLE_MAPS_API_KEY: "${GOOGLE_MAPS_API_KEY:-}"
+      GOOGLE_MAPS_SERVER_KEY: "${GOOGLE_MAPS_SERVER_KEY:-}"
+      GOOGLE_MAPS_MAP_ID: "${GOOGLE_MAPS_MAP_ID:-}"
       # Origens publicas dos frontends, usadas nos LINKS dos e-mails (/redefinir-senha?token=...) e no QR do certificado PDF.
       APP_URL: "${APP_URL:-https://app.gingapp.com.br}"
       PAINEL_URL: "${PAINEL_URL:-https://painel.gingapp.com.br}"

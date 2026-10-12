@@ -22,6 +22,7 @@ const ANNOUNCEMENTS = [
 ];
 const unit = (id: number, name: string) => ({ id, organizationId: 1, name, address: null, city: null, state: null, isMain: id === 7, status: "ACTIVE" });
 const UNITS = [unit(7, "Matriz"), unit(8, "Filial Norte")];
+const CLASSES = [{ id: 3, name: "Turma Infantil" }, { id: 4, name: "Turma Adulto" }];
 
 /** fetch falso: /announcements, busca /units?q&limit (filtra por q) e /units/:id (404 se não existir). */
 function mountFetch() {
@@ -30,6 +31,8 @@ function mountFetch() {
     const path = urlPath(url);
     if (method === "GET" && path === "/announcements")
       return Promise.resolve(json(200, ANNOUNCEMENTS, { "X-Total-Count": String(ANNOUNCEMENTS.length) }));
+    if (method === "GET" && path === "/classes")
+      return Promise.resolve(json(200, CLASSES, { "X-Total-Count": String(CLASSES.length) }));
     if (method === "GET" && path === "/units") {
       const q = (urlQuery(url).get("q") ?? "").toLowerCase();
       const rows = UNITS.filter((u) => u.name.toLowerCase().includes(q));
@@ -324,5 +327,82 @@ describe("ComunicadosPage", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Sem permissão."));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+});
+
+describe("ComunicadosPage - alcance (turma, UF, público)", () => {
+  beforeEach(() => {
+    saveSession("tok", user("MESTRE"));
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+    clearSession();
+  });
+
+  const SCOPED = { ...ANNOUNCEMENTS[0]!, id: 3, title: "Aviso focado", classId: 3, stateUf: "GO", audienceRole: "RESPONSAVEL" };
+
+  /** GET /announcements devolve SCOPED; o resto segue o fetch padrão. */
+  function mountScoped() {
+    const fetchMock = mountFetch();
+    const original = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) =>
+      (init?.method ?? "GET") === "GET" && urlPath(url) === "/announcements"
+        ? Promise.resolve(json(200, [SCOPED], { "X-Total-Count": "1" }))
+        : original(url, init),
+    );
+    return fetchMock;
+  }
+
+  it("a tabela resume o alcance: Turma · UF · Público", async () => {
+    mountScoped();
+    renderPage();
+    await screen.findByText("Aviso focado");
+    expect(await within(screen.getByRole("table")).findByText("Turma Infantil · GO · Responsáveis")).toBeInTheDocument();
+  });
+
+  it("publicar com turma, UF e público envia classId/stateUf/audienceRole no POST", async () => {
+    const fetchMock = mountFetch();
+    renderPage();
+    await screen.findByText("Feriado");
+    fireEvent.click(screen.getByRole("button", { name: /novo comunicado/i }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Título"), { target: { value: "Aviso" } });
+    fireEvent.change(within(dialog).getByLabelText("Texto"), { target: { value: "Só a turma" } });
+    await waitFor(() => expect(selectOptions(within(dialog).getByLabelText("Turma"))).toContain("Turma Infantil"));
+    expect(selectOptions(within(dialog).getByLabelText("Estado (UF)"))).toHaveLength(28); // "Todos" + 27 UFs
+    expect(selectOptions(within(dialog).getByLabelText("Somente para"))).toEqual(["Todos", "Alunos", "Responsáveis", "Professores"]);
+    fireEvent.change(within(dialog).getByLabelText("Turma"), { target: { value: "3" } });
+    fireEvent.change(within(dialog).getByLabelText("Estado (UF)"), { target: { value: "GO" } });
+    fireEvent.change(within(dialog).getByLabelText("Somente para"), { target: { value: "RESPONSAVEL" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls(fetchMock, "POST")).toHaveLength(1));
+    expect(JSON.parse(calls(fetchMock, "POST")[0]![1].body as string)).toEqual({
+      title: "Aviso", body: "Só a turma", unitId: null, classId: 3, stateUf: "GO", audienceRole: "RESPONSAVEL",
+    });
+  });
+
+  it("editar e limpar o alcance envia null em classId, stateUf e audienceRole", async () => {
+    const fetchMock = mountScoped();
+    renderPage();
+    await screen.findByText("Aviso focado");
+    fireEvent.click(screen.getByRole("button", { name: "Editar" }));
+    const dialog = await screen.findByRole("dialog");
+    await waitFor(() => expect(within(dialog).getByLabelText("Turma")).toHaveValue("3"));
+    expect(within(dialog).getByLabelText("Estado (UF)")).toHaveValue("GO");
+    expect(within(dialog).getByLabelText("Somente para")).toHaveValue("RESPONSAVEL");
+    fireEvent.change(within(dialog).getByLabelText("Turma"), { target: { value: "" } });
+    fireEvent.change(within(dialog).getByLabelText("Estado (UF)"), { target: { value: "" } });
+    fireEvent.change(within(dialog).getByLabelText("Somente para"), { target: { value: "" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls(fetchMock, "PATCH")).toHaveLength(1));
+    expect(JSON.parse(calls(fetchMock, "PATCH")[0]![1].body as string)).toMatchObject({
+      classId: null, stateUf: null, audienceRole: null,
+    });
   });
 });

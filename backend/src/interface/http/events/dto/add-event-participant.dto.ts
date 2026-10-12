@@ -1,5 +1,5 @@
 import { ParticipantStatus } from '@prisma/client';
-import { IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
 
 /**
  * Adiciona um participante a um evento: OU um aluno cadastrado (studentId) OU um convidado
@@ -19,4 +19,9 @@ export class AddEventParticipantDto {
   @IsOptional()
   @IsEnum(ParticipantStatus)
   status?: ParticipantStatus;
+
+  /** Evento lotado: com `true` a inscrição entra na lista de espera (WAITLIST) em vez de responder 409. */
+  @IsOptional()
+  @IsBoolean()
+  joinWaitlist?: boolean;
 }

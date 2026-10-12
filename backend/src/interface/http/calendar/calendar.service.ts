@@ -7,6 +7,7 @@ import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { isRestricted, UnitScopeService } from '../../../shared/access/unit-scope';
 import { EventsService } from '../events/events.service';
 import { RodasService } from '../rodas/rodas.service';
+import { describeRecurrence } from '../rodas/roda-recurrence';
 
 export interface CalendarFilters {
   stateId?: number;
@@ -32,10 +33,20 @@ export interface CalendarItem {
   /** Inscrição do usuário do token (RODA: ele mesmo; EVENTO: ele ou um dependente); `null` para
    * anônimos ou sem inscrição. Mesmo formato de GET /events e GET /rodas. */
   myParticipation: MyParticipation | null;
+  /** So EVENTO: vagas (null/ausente = ilimitado), vagas restantes, fila de espera, valor (centavos, informativo), situacao e prazo. */
+  capacity?: number | null;
+  spotsLeft?: number | null;
+  waitlistCount?: number;
+  priceCents?: number | null;
+  eventStatus?: string;
+  registrationDeadline?: Date | null;
+  /** So RODA: faz parte de uma serie recorrente (roda mensal/semanal); `recurrenceRule` (ex.: 'toda 1ª sexta do mês') vem na roda principal. */
+  inSeries?: boolean;
+  recurrenceRule?: string | null;
 }
 
 /** Item do feed antes de receber os agregados de participação. */
-type BaseCalendarItem = Omit<CalendarItem, 'participantsCount' | 'myParticipation'>;
+type BaseCalendarItem = Omit<CalendarItem, 'participantsCount' | 'myParticipation' | 'spotsLeft' | 'waitlistCount'>;
 
 /**
  * Calendário da capoeira (projeto.txt §42, Fase 2 — Jornada do Capoeirista, PLANO_PROJETO.md
@@ -78,7 +89,8 @@ export class CalendarService {
     const orderBy = [{ date: 'asc' as const }, { id: 'asc' as const }];
 
     const rodaWhere = { date: { gte: from, lte: to }, stateId: filters.stateId, cityId: filters.cityId };
-    const eventWhere: Prisma.EventWhereInput = { isPublic: true, ...rodaWhere, type: eventType };
+    // Rascunho e cancelado nao aparecem no calendario publico (PUBLISHED e CLOSED sim).
+    const eventWhere: Prisma.EventWhereInput = { isPublic: true, status: { in: ['PUBLISHED', 'CLOSED'] }, ...rodaWhere, type: eventType };
 
     // Escopo por unidade (E08): o PROFESSOR restrito nao ve, neste feed, os eventos do PROPRIO grupo de unidades fora do
     // escopo dele (evento sem unidade = grupo inteiro continua visivel). Eventos publicos de OUTROS grupos nao mudam.
@@ -112,6 +124,8 @@ export class CalendarService {
         imageUrl: r.imageUrl,
         state: r.state,
         city: r.city,
+        inSeries: r.parentRodaId !== null || r.recurrence !== 'NONE',
+        recurrenceRule: describeRecurrence(r.recurrence, r.date),
       })),
       ...events.map((e) => ({
         id: e.id,
@@ -124,6 +138,10 @@ export class CalendarService {
         imageUrl: e.imageUrl,
         state: e.state,
         city: e.city,
+        capacity: e.capacity,
+        priceCents: e.priceCents,
+        eventStatus: e.status,
+        registrationDeadline: e.registrationDeadline,
       })),
     ];
 
@@ -142,17 +160,33 @@ export class CalendarService {
         requester,
       ),
     ]);
-    const summaryByKey = new Map<string, { participantsCount: number; myParticipation: MyParticipation | null }>();
-    for (const item of [...rodaSummaries, ...eventSummaries]) {
+    const summaryByKey = new Map<
+      string,
+      { participantsCount: number; myParticipation: MyParticipation | null; spotsLeft?: number | null; waitlistCount?: number }
+    >();
+    for (const item of rodaSummaries) {
       summaryByKey.set(`${item.source}-${item.id}`, {
         participantsCount: item.participantsCount,
         myParticipation: item.myParticipation,
       });
     }
+    for (const item of eventSummaries) {
+      summaryByKey.set(`${item.source}-${item.id}`, {
+        participantsCount: item.participantsCount,
+        myParticipation: item.myParticipation,
+        spotsLeft: item.spotsLeft,
+        waitlistCount: item.waitlistCount,
+      });
+    }
     return {
       items: pageItems.map((item) => {
         const summary = summaryByKey.get(`${item.source}-${item.id}`);
-        return { ...item, participantsCount: summary?.participantsCount ?? 0, myParticipation: summary?.myParticipation ?? null };
+        return {
+          ...item,
+          participantsCount: summary?.participantsCount ?? 0,
+          myParticipation: summary?.myParticipation ?? null,
+          ...(item.source === 'EVENTO' ? { spotsLeft: summary?.spotsLeft ?? null, waitlistCount: summary?.waitlistCount ?? 0 } : {}),
+        };
       }),
       total: rodaTotal + eventTotal,
     };

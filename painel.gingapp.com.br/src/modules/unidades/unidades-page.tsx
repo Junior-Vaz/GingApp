@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
+import { CoordinatesFields } from "@/components/painel/coordinates-fields";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { PageHeader } from "@/components/painel/page-header";
@@ -215,6 +216,12 @@ export function UnidadesPage() {
                 )}
               />
             </div>
+            <CoordinatesFields
+              buildQuery={() => {
+                const { address, city, state } = form.getValues();
+                return [address.trim(), city.trim(), state].filter(Boolean).join(", ");
+              }}
+            />
             <FormField
               control={form.control}
               name="isMain"

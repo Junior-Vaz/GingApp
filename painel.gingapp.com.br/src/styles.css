@@ -29,4 +29,9 @@
   body:has(.report-printable) .report-printable,
   body:has(.report-printable) .report-printable * { visibility: visible !important; }
   body:has(.report-printable) .report-printable { position: absolute; left: 0; top: 0; width: 100%; margin: 0; background: #fff; color: #000; padding: 16px; }
+  /* QR de check-in/presença (/checkin/...): só o cartão do QR sai na impressão, sem menu. */
+  body:has(.checkin-printable) * { visibility: hidden !important; }
+  body:has(.checkin-printable) .checkin-printable,
+  body:has(.checkin-printable) .checkin-printable * { visibility: visible !important; }
+  body:has(.checkin-printable) .checkin-printable { position: absolute; left: 0; top: 0; width: 100%; max-width: none; margin: 0; border: 0; background: #fff; color: #000; padding: 24px; }
 }

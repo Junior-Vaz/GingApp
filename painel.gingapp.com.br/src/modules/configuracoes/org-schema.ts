@@ -46,6 +46,7 @@ export const organizationSchema = z.object({
       .refine((v) => HTTP_URL.test(v) || isUploadPath(v), "Logomarca: informe um link completo (https://...) ou envie uma imagem."),
   ),
   paymentInstructions: z.string().trim().max(2000, "Como pagar: no máximo 2000 caracteres."),
+  mapVisible: z.boolean(),
   instagram: url("Instagram"),
   youtube: url("YouTube"),
   tiktok: url("TikTok"),
@@ -69,6 +70,7 @@ export function organizationToForm(org: Organization): OrganizationFormValues {
     website: org.website ?? "",
     logo: org.logo ?? "",
     paymentInstructions: org.paymentInstructions ?? "",
+    mapVisible: org.mapVisible ?? true,
     instagram: links.instagram ?? "",
     youtube: links.youtube ?? "",
     tiktok: links.tiktok ?? "",
@@ -91,6 +93,8 @@ export interface OrganizationUpdateInput {
   website: string | null;
   logo: string | null;
   paymentInstructions: string | null;
+  /** O Mestre controla se o grupo aparece no mapa da comunidade (app). */
+  mapVisible: boolean;
   socialLinks: OrganizationSocialLinks | null;
 }
 
@@ -116,6 +120,7 @@ export function organizationToPayload(values: OrganizationFormValues): Organizat
     website: orNull(values.website),
     logo: orNull(values.logo),
     paymentInstructions: orNull(values.paymentInstructions),
+    mapVisible: values.mapVisible,
     socialLinks: Object.keys(socialLinks).length > 0 ? socialLinks : null,
   };
 }

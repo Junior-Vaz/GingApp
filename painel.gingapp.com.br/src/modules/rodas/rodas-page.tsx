@@ -1,19 +1,27 @@
 import { useMemo, useState } from "react";
-import { Image as ImageIcon, Plus, Users } from "lucide-react";
+import { CalendarPlus, Image as ImageIcon, Plus, Users } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
-import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { fmt, toDate } from "@/lib/format";
 import { useListParams } from "@/lib/list-params";
 import { useCan, useSessionUser } from "@/lib/session";
-import { rodas } from "./api";
+import { rodas, useGenerateOccurrences, useRemoveSeries } from "./api";
+import { DeleteRodaDialog } from "./delete-roda-dialog";
 import { NativeSelect } from "./native-select";
 import { useCities, useStates } from "./reference";
 import { RodaForm } from "./roda-form";
 import { RodaParticipantsDialog } from "./rodas-participants-dialog";
-import type { Roda } from "./types";
+import { isSeriesParent, RECURRENCE_LABEL, type Recurrence, type Roda } from "./types";
+
+/** Rótulo curto para a célula da tabela (o completo fica no title e no formulário). */
+const RECURRENCE_SHORT: Record<Recurrence, string> = {
+  NONE: RECURRENCE_LABEL.NONE,
+  WEEKLY: "Toda semana",
+  MONTHLY_WEEKDAY: "Mensal (dia da semana)",
+  MONTHLY_DAY: "Mensal (dia do mês)",
+};
 
 export function RodasPage() {
   const user = useSessionUser();
@@ -25,6 +33,9 @@ export function RodasPage() {
   const create = rodas.useCreate();
   const update = rodas.useUpdate();
   const remove = rodas.useRemove();
+  const removeSeries = useRemoveSeries();
+  const generate = useGenerateOccurrences();
+  const canEdit = useCan("rodas", "edit"); // POST /rodas/:id/generate-occurrences exige rodas.edit
   const canDelete = useCan("rodas", "delete"); // PROFESSOR: sem rodas:delete (backend responde 403)
 
   const [editing, setEditing] = useState<Roda | "new" | null>(null);
@@ -60,6 +71,21 @@ export function RodasPage() {
     },
     { id: "location", header: "Local", sortValue: (r) => r.location, cell: (r) => r.location || "—" },
     { id: "state", header: "Estado", sortValue: (r) => stateName(r.stateId), cell: (r) => stateName(r.stateId) },
+    {
+      id: "recurrence",
+      header: "Recorrência",
+      sortValue: (r) => (r.parentRodaId ? "Ocorrência da série" : RECURRENCE_LABEL[r.recurrence ?? "NONE"]),
+      cell: (r) =>
+        r.parentRodaId ? (
+          <Badge variant="outline">Ocorrência da série</Badge>
+        ) : r.recurrence && r.recurrence !== "NONE" ? (
+          <Badge variant="secondary" title={RECURRENCE_LABEL[r.recurrence]}>
+            {RECURRENCE_SHORT[r.recurrence]}
+          </Badge>
+        ) : (
+          "—"
+        ),
+    },
   ];
 
   return (
@@ -126,6 +152,17 @@ export function RodasPage() {
             </Button>
             {isOwner(r) && (
               <>
+                {canEdit && isSeriesParent(r) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={generate.isPending}
+                    onClick={() => generate.mutate(r.id)}
+                    aria-label={`Gerar próximas ocorrências de ${r.title}`}
+                  >
+                    <CalendarPlus /> Gerar próximas ocorrências
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => setEditing(r)} aria-label={`Editar ${r.title}`}>
                   Editar
                 </Button>
@@ -152,13 +189,10 @@ export function RodasPage() {
         canManage={viewing !== null && isOwner(viewing)}
         onClose={() => setViewing(null)}
       />
-      <ConfirmDialog
-        open={deleting !== null}
-        onOpenChange={(open) => !open && setDeleting(null)}
-        title="Excluir roda?"
-        description={deleting ? `"${deleting.title}" - os participantes registrados também serão removidos.` : undefined}
-        confirmLabel="Excluir"
-        onConfirm={() => remove.mutateAsync(deleting!.id)}
+      <DeleteRodaDialog
+        roda={deleting}
+        onClose={() => setDeleting(null)}
+        onDelete={(roda, series) => (series ? removeSeries.mutateAsync(roda.id) : remove.mutateAsync(roda.id))}
       />
     </>
   );

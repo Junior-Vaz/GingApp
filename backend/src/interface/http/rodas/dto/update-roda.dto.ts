@@ -1,5 +1,7 @@
-import { IsDateString, IsInt, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
+import { RodaRecurrence } from '@prisma/client';
+import { IsDateString, IsEnum, IsInt, IsOptional, IsString, MinLength, ValidateIf } from 'class-validator';
 import { IsImageRef } from '../../../../shared/uploads/image-ref';
+import { IsOptionalLatitude, IsOptionalLongitude } from '../../../../shared/geo/coordinates';
 
 /** Limpar campo: `null` grava NULL nas colunas NULLÁVEIS (description, location, stateId, cityId,
  * communityId, imageUrl). As OBRIGATÓRIAS (title, date) usam `@ValidateIf(v !== undefined)`:
@@ -22,6 +24,13 @@ export class UpdateRodaDto {
   @IsString()
   location?: string | null;
 
+  /** Coordenadas (as DUAS juntas; ambas null limpam). Sem elas, mudar location/estado/cidade re-geocodifica (se houver chave). */
+  @IsOptionalLatitude()
+  latitude?: number | null;
+
+  @IsOptionalLongitude()
+  longitude?: number | null;
+
   @IsOptional()
   @IsInt()
   stateId?: number | null;
@@ -37,4 +46,13 @@ export class UpdateRodaDto {
   @IsOptional()
   @IsImageRef()
   imageUrl?: string | null;
+
+  @ValidateIf((_, v) => v !== undefined)
+  @IsEnum(RodaRecurrence)
+  recurrence?: RodaRecurrence;
+
+  /** null remove o fim da série. */
+  @IsOptional()
+  @IsDateString()
+  recurrenceUntil?: string | null;
 }

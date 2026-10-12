@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { ListRodasQueryDto } from './dto/list-rodas-query.dto';
@@ -8,12 +8,17 @@ import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { RodasService } from './rodas.service';
+import { RodasOccurrencesService } from './rodas-occurrences.service';
+import { GenerateOccurrencesDto } from './dto/generate-occurrences.dto';
 import { CreateRodaDto } from './dto/create-roda.dto';
 import { UpdateRodaDto } from './dto/update-roda.dto';
 
 @Controller('rodas')
 export class RodasController {
-  constructor(private readonly rodasService: RodasService) {}
+  constructor(
+    private readonly rodasService: RodasService,
+    private readonly occurrencesService: RodasOccurrencesService,
+  ) {}
 
   /** Pública; com token válido (@OptionalAuth) cada item traz também `myParticipation`. */
   @Public()
@@ -64,8 +69,24 @@ export class RodasController {
 
   @Delete(':id')
   @CanAccess('rodas', 'delete')
-  remove(@CurrentOrganization() organizationId: number, @Param('id', ParseIntPipe) id: number) {
-    return this.rodasService.remove(organizationId, id);
+  remove(
+    @CurrentOrganization() organizationId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('series') series?: string,
+  ) {
+    return this.rodasService.remove(organizationId, id, series === 'true');
+  }
+
+  /** Gera (de forma idempotente) as próximas ocorrências de uma roda recorrente (ver RodasOccurrencesService). */
+  @Post(':id/generate-occurrences')
+  @HttpCode(200)
+  @CanAccess('rodas', 'edit')
+  generateOccurrences(
+    @CurrentOrganization() organizationId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: GenerateOccurrencesDto,
+  ) {
+    return this.occurrencesService.generate(organizationId, id, dto);
   }
 
   /** Lista pública (quem confirmou presença), mas identificada só para a equipe organizadora

@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { User, UserType } from '@prisma/client';
+import { OrgRole, User, UserType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
@@ -16,10 +16,12 @@ import { buildTermsStatus } from '../../../shared/legal/legal-documents';
 import { BCRYPT_ROUNDS } from '../../../shared/security/password-policy';
 import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
 import { issuedAtFor, revocationCutoff } from '../../../shared/security/token-revocation';
-import { AuthResponse } from './auth-response.interface';
+import { AuthResponse, LoginResponse, TwoFactorChallengeResponse } from './auth-response.interface';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { PlatformLoginDto } from './dto/platform-login.dto';
+import { VerifyTwoFactorDto } from './dto/two-factor.dto';
+import { CHALLENGE_EXPIRED, ChallengeClaims, TwoFactorService } from './two-factor.service';
 
 /** Mensagem de erro genérica — nunca revela se o e-mail existe nem qual tipo de conta é
  * (PLANO_PROJETO.md §3.1, mesmo comportamento do GestorPrint). */
@@ -36,6 +38,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly audit: AuditService,
+    private readonly twoFactor: TwoFactorService,
   ) {}
 
   /**
@@ -45,7 +48,7 @@ export class AuthService {
    * ele é selecionado automaticamente; se houver mais de um, `organizationSlug` é exigido
    * no payload (decisão de modelagem registrada em LoginDto).
    */
-  async login(dto: LoginDto): Promise<AuthResponse> {
+  async login(dto: LoginDto): Promise<LoginResponse> {
     const candidates = await this.findUsersByEmail(dto.email);
     const eligible = candidates.filter((u) => u.userType === UserType.MEMBER && u.status === 'ACTIVE');
     const user = await this.findPasswordMatch(eligible, dto.password);
@@ -85,6 +88,24 @@ export class AuthService {
       membership = found;
     }
 
+    if (user.twoFactorEnabled) {
+      // Senha correta, mas falta o 2o fator: sem sessao ainda (LOGIN_SUCCESS so' depois do codigo).
+      return this.challengeFor({ sub: user.id, scope: 'member', organizationId: membership.organizationId });
+    }
+    return this.memberSession(user, membership);
+  }
+
+  private challengeFor(claims: ChallengeClaims): Promise<TwoFactorChallengeResponse> {
+    return this.twoFactor
+      .signChallenge(claims)
+      .then((challengeToken) => ({ twoFactorRequired: true as const, challengeToken }));
+  }
+
+  /** Sessao completa (auditoria + accessToken) de um login de grupo ja autenticado (senha e, se houver, 2FA). */
+  private async memberSession(
+    user: User,
+    membership: { organizationId: number; role: OrgRole; organization: { slug: string } },
+  ): Promise<AuthResponse> {
     await this.audit.record({
       organizationId: membership.organizationId,
       userId: user.id,
@@ -115,13 +136,14 @@ export class AuthService {
         organizationSlug: membership.organization.slug,
         role: membership.role,
         mustChangePassword: user.mustChangePassword,
+        twoFactorEnabled: user.twoFactorEnabled,
         ...buildTermsStatus(user),
       },
     };
   }
 
   /** Login exclusivo da equipe interna GingApp (userType = 'PLATFORM'). */
-  async platformLogin(dto: PlatformLoginDto): Promise<AuthResponse> {
+  async platformLogin(dto: PlatformLoginDto): Promise<LoginResponse> {
     const candidates = await this.findUsersByEmail(dto.email);
     const eligible = candidates.filter(
       (u) => u.status === 'ACTIVE' && (u.userType === UserType.PLATFORM || u.isSuperAdmin),
@@ -131,6 +153,13 @@ export class AuthService {
       await this.auditLoginFailure('platform', dto.email, eligible[0], eligible.length > 0 ? 'BAD_PASSWORD' : 'UNKNOWN_USER');
       throw new UnauthorizedException(INVALID_CREDENTIALS);
     }
+    if (user.twoFactorEnabled) {
+      return this.challengeFor({ sub: user.id, scope: 'platform' });
+    }
+    return this.platformSession(user);
+  }
+
+  private async platformSession(user: User): Promise<AuthResponse> {
     await this.audit.record({
       organizationId: null,
       userId: user.id,
@@ -156,9 +185,38 @@ export class AuthService {
         userType: user.userType,
         isSuperAdmin: user.isSuperAdmin,
         mustChangePassword: user.mustChangePassword,
+        twoFactorEnabled: user.twoFactorEnabled,
         ...buildTermsStatus(user),
       },
     };
+  }
+
+  /**
+   * Segundo passo do login com 2FA: valida o desafio (JWT de 5 min emitido apos a senha correta), confere o codigo TOTP
+   * ou de recuperacao e so entao emite o accessToken normal. Reconfere conta e vinculo (podem ter mudado nos 5 min).
+   */
+  async verifyTwoFactor(dto: VerifyTwoFactorDto): Promise<AuthResponse> {
+    const claims = await this.twoFactor.readChallenge(dto.challengeToken);
+    const user = await this.prisma.user.findUnique({ where: { id: claims.sub } });
+    if (!user || user.status !== 'ACTIVE' || !user.twoFactorEnabled) {
+      throw new BadRequestException(CHALLENGE_EXPIRED);
+    }
+    await this.twoFactor.verifyFactor(user, dto, claims.organizationId ?? null);
+
+    if (claims.scope === 'platform') {
+      if (!(user.userType === UserType.PLATFORM || user.isSuperAdmin)) throw new BadRequestException(CHALLENGE_EXPIRED);
+      return this.platformSession(user);
+    }
+    const membership = claims.organizationId
+      ? await this.prisma.organizationUser.findFirst({
+          where: { userId: user.id, organizationId: claims.organizationId, status: 'ACTIVE', organization: { status: 'ACTIVE' } },
+          include: { organization: true },
+        })
+      : null;
+    if (!membership || (await isMembershipBlockedByInactiveStudent(this.prisma, membership))) {
+      throw new UnauthorizedException(INVALID_CREDENTIALS);
+    }
+    return this.memberSession(user, membership);
   }
 
   /**

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseArrayPipe, ParseIntPipe, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseArrayPipe, ParseIntPipe, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
@@ -8,10 +8,38 @@ import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interf
 import { AttendanceService } from './attendance.service';
 import { ListMyAttendanceQueryDto } from './dto/list-my-attendance-query.dto';
 import { AttendanceEntryDto } from './dto/mark-attendance.dto';
+import { AttendanceCheckinService } from './attendance-checkin.service';
+import { EventCheckinSelfDto } from '../events/dto/event-checkin-self.dto';
 
 @Controller('attendance')
 export class AttendanceController {
-  constructor(private readonly attendanceService: AttendanceService) {}
+  constructor(
+    private readonly attendanceService: AttendanceService,
+    private readonly checkinService: AttendanceCheckinService,
+  ) {}
+
+  /** O aluno (ou responsável, por um dependente) confirma a PRÓPRIA presença na aula lendo o QR da turma.
+   * Sem @CanAccess: self-service; a autorização é o vínculo aluno/matrícula validado no service. */
+  @Post('self-checkin')
+  @HttpCode(200)
+  selfCheckin(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: EventCheckinSelfDto,
+  ) {
+    return this.checkinService.selfCheckin(organizationId, user, dto);
+  }
+
+  /** Token + QR (data URL) de check-in da aula, para a equipe exibir/imprimir. */
+  @Get('lessons/:lessonId/checkin-token')
+  @CanAccess('attendance', 'create')
+  checkinToken(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('lessonId', ParseIntPipe) lessonId: number,
+  ) {
+    return this.checkinService.issueToken(organizationId, lessonId, user);
+  }
 
   @Get()
   @CanAccess('attendance', 'view')

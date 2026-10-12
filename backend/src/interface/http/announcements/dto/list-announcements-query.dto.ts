@@ -15,4 +15,10 @@ export class ListAnnouncementsQueryDto extends PageQueryDto {
   @Type(() => Number)
   @IsInt()
   unitId?: number;
+
+  /** Só os comunicados dirigidos a esta turma. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  classId?: number;
 }

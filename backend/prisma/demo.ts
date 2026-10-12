@@ -53,6 +53,7 @@ import {
   ClassKey,
   COMMUNITY,
   DEMO_IMAGE_URL,
+  DEMO_LOCATION_COORDINATES,
   GRADUATION_SYSTEM,
   LEVELS,
   MONTH_NAMES,
@@ -666,9 +667,19 @@ async function stepUnitsAndReferences(ctx: Ctx): Promise<void> {
             state: spec.state,
             isMain: spec.isMain,
             status: RecordStatus.ACTIVE,
+            latitude: spec.coordinates.latitude,
+            longitude: spec.coordinates.longitude,
           },
         });
         bump(ctx, 'units', 1);
+      } else if (unit.latitude === null && unit.longitude === null) {
+        // Mapa da comunidade: unidade criada antes das coordenadas existirem. Só preenche onde está nulo
+        // (nunca sobrescreve um ponto ajustado pelo painel).
+        unit = await tx.unit.update({
+          where: { id: unit.id },
+          data: { latitude: spec.coordinates.latitude, longitude: spec.coordinates.longitude },
+        });
+        bump(ctx, 'mapPoints', 1);
       }
       ctx.unitIds[spec.key] = unit.id;
     }
@@ -1335,13 +1346,17 @@ async function stepEvents(ctx: Ctx): Promise<void> {
     const plans = buildEventPlans(ctx);
     const existing = await tx.event.findMany({
       where: { organizationId: ctx.orgId, title: { in: plans.map((p) => p.title) } },
-      select: { id: true, title: true },
+      select: { id: true, title: true, latitude: true },
     });
     const idByTitle = new Map(existing.map((e) => [e.title, e.id]));
+    const withoutPoint = new Set(existing.filter((e) => e.latitude === null).map((e) => e.id));
+    const unitCoordinates = (key: UnitKey) => UNITS.find((u) => u.key === key)?.coordinates;
     const studentIdByKey = new Map(ctx.roster.map((e) => [e.spec.key, e.id as number]));
 
     for (const plan of plans) {
       let eventId = idByTitle.get(plan.title);
+      // Mapa da comunidade: ponto do local (ou, na falta, o da unidade do evento).
+      const point = DEMO_LOCATION_COORDINATES[plan.location] ?? unitCoordinates(plan.unit);
       if (eventId === undefined) {
         const created = await tx.event.create({
           data: {
@@ -1354,12 +1369,18 @@ async function stepEvents(ctx: Ctx): Promise<void> {
             description: plan.description,
             date: plan.date,
             location: plan.location,
+            latitude: point?.latitude,
+            longitude: point?.longitude,
             isPublic: plan.isPublic,
             imageUrl: plan.image ? DEMO_IMAGE_URL : null,
           },
         });
         eventId = created.id;
         bump(ctx, 'events', 1);
+      } else if (point && withoutPoint.has(eventId)) {
+        // Evento criado antes das coordenadas existirem: só preenche onde está nulo (idempotente).
+        await tx.event.update({ where: { id: eventId }, data: { latitude: point.latitude, longitude: point.longitude } });
+        bump(ctx, 'mapPoints', 1);
       }
 
       const current = await tx.eventParticipant.findMany({
@@ -1428,6 +1449,12 @@ async function stepRodas(ctx: Ctx): Promise<void> {
     ];
     for (const plan of plans) {
       let roda = await tx.roda.findFirst({ where: { organizationId: ctx.orgId, title: plan.title } });
+      const point = DEMO_LOCATION_COORDINATES[plan.location];
+      if (roda && point && roda.latitude === null) {
+        // Roda criada antes das coordenadas existirem: só preenche onde está nulo (idempotente).
+        roda = await tx.roda.update({ where: { id: roda.id }, data: { latitude: point.latitude, longitude: point.longitude } });
+        bump(ctx, 'mapPoints', 1);
+      }
       if (!roda) {
         roda = await tx.roda.create({
           data: {
@@ -1439,6 +1466,8 @@ async function stepRodas(ctx: Ctx): Promise<void> {
             description: plan.description,
             date: plan.date,
             location: plan.location,
+            latitude: point?.latitude,
+            longitude: point?.longitude,
             imageUrl: plan.image ? DEMO_IMAGE_URL : null,
           },
         });

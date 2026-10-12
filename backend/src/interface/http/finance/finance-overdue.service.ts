@@ -69,7 +69,9 @@ export class FinanceOverdueService {
     }
 
     const ids = batch.map((r) => r.id);
-    return this.prisma.$transaction(async (tx) => {
+    // O push so' sai DEPOIS do commit (a transacao pode reverter): os itens saem da closure por esta variavel.
+    let toPush: Prisma.NotificationCreateManyInput[] = [];
+    const result = await this.prisma.$transaction(async (tx) => {
       await tx.financialRecord.updateMany({
         where: { id: { in: ids }, status: FinancialStatus.PENDING },
         data: { status: FinancialStatus.OVERDUE },
@@ -95,7 +97,10 @@ export class FinanceOverdueService {
         }
       }
       const notified = await this.notifications.createMany(items, tx);
+      toPush = items;
       return { marked: marked.length, notified, hasMore };
     });
+    this.notifications.pushAfterCommit(toPush);
+    return result;
   }
 }

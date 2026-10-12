@@ -18,6 +18,7 @@ import {
   Heart,
   Menu,
   LogOut,
+  QrCode,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -32,6 +33,7 @@ const mainNav = [
   { to: "/aulas", label: "Minhas aulas", icon: CalendarDays },
   { to: "/frequencia", label: "Frequência", icon: ChartNoAxesColumnIncreasing },
   { to: "/financeiro", label: "Financeiro", icon: Wallet },
+  { to: "/checkin", label: "Check-in", icon: QrCode },
 ] as const;
 const communityNav = [
   { to: "/comunidade", label: "Comunidade", icon: Users },

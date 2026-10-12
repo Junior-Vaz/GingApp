@@ -1,9 +1,11 @@
 import { FormDialog } from "@/components/painel/form-dialog";
-import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ImageUrlField } from "./image-field";
+import { LocationCoordinatesFields } from "./location-coordinates";
 import { LocationFields } from "./location-fields";
+import { NativeSelect } from "./native-select";
 import {
   buildRodaPayload,
   buildRodaUpdatePayload,
@@ -12,7 +14,7 @@ import {
   rodaToForm,
   type RodaFormValues,
 } from "./roda-schema";
-import type { Roda, RodaPayload } from "./types";
+import { RECURRENCE_LABEL, RECURRENCES, type Roda, type RodaPayload } from "./types";
 
 interface RodaFormProps {
   /** `null` = fechado, "new" = criação, Roda = edição. */
@@ -23,6 +25,7 @@ interface RodaFormProps {
 
 export function RodaForm({ editing, onClose, onSubmit }: RodaFormProps) {
   const roda = editing && editing !== "new" ? editing : null;
+  const isOccurrence = Boolean(roda?.parentRodaId);
   return (
     <FormDialog<RodaFormValues>
       as="sheet"
@@ -31,7 +34,7 @@ export function RodaForm({ editing, onClose, onSubmit }: RodaFormProps) {
       title={roda ? "Editar roda" : "Nova roda"}
       schema={rodaSchema}
       defaultValues={roda ? rodaToForm(roda) : emptyRoda}
-      onSubmit={(values) => roda ? onSubmit(buildRodaUpdatePayload(values), roda.id) : onSubmit(buildRodaPayload(values), null)}
+      onSubmit={(values) => roda ? onSubmit(buildRodaUpdatePayload(values, roda), roda.id) : onSubmit(buildRodaPayload(values), null)}
     >
       {(form) => (
         <>
@@ -74,7 +77,46 @@ export function RodaForm({ editing, onClose, onSubmit }: RodaFormProps) {
               </FormItem>
             )}
           />
+          <FormField
+            control={form.control}
+            name="recurrence"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Repetição</FormLabel>
+                <FormControl>
+                  <NativeSelect {...field} disabled={isOccurrence}>
+                    {RECURRENCES.map((recurrence) => (
+                      <option key={recurrence} value={recurrence}>
+                        {RECURRENCE_LABEL[recurrence]}
+                      </option>
+                    ))}
+                  </NativeSelect>
+                </FormControl>
+                {isOccurrence && (
+                  <FormDescription>Esta roda é uma ocorrência gerada; edite a repetição na roda de origem da série.</FormDescription>
+                )}
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          {form.watch("recurrence") !== "NONE" && (
+            <FormField
+              control={form.control}
+              name="recurrenceUntil"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Repetir até</FormLabel>
+                  <FormControl>
+                    <Input type="date" disabled={isOccurrence} {...field} />
+                  </FormControl>
+                  <FormDescription>Último dia da série. A regra vem da data e hora da roda acima. Vazio = sem data final.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
           <LocationFields />
+          <LocationCoordinatesFields />
           <FormField
             control={form.control}
             name="description"

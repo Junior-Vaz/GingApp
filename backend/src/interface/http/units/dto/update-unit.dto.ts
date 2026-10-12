@@ -2,6 +2,7 @@ import { RecordStatus } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
 import { BR_UFS } from '../../../../shared/geo/br-states';
+import { IsOptionalLatitude, IsOptionalLongitude } from '../../../../shared/geo/coordinates';
 import { UF_MESSAGE } from './create-unit.dto';
 
 /** Aparar espaços; texto vazio vira `null` (LIMPA a coluna no PATCH); `undefined` = não mexe. */
@@ -45,6 +46,13 @@ export class UpdateUnitDto {
   @Transform(ufOrNull)
   @IsIn(BR_UFS, { message: UF_MESSAGE })
   state?: string | null;
+
+  /** Coordenadas (as DUAS juntas; ambas null limpam). Sem elas, mudar address/city/state re-geocodifica (se houver chave). */
+  @IsOptionalLatitude()
+  latitude?: number | null;
+
+  @IsOptionalLongitude()
+  longitude?: number | null;
 
   @ValidateIf((_, v) => v !== undefined)
   @IsBoolean()
