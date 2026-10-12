@@ -238,7 +238,7 @@ describe('Teachers: paginacao, filtros e limpar campos (e2e)', () => {
     const r = await list(app, 'teachers', mestreToken, `${q()}&limit=10&offset=50`);
     assert.equal(r.total, 57);
     assert.deepEqual(r.body.map((t: { id: number }) => t.id), expected.map((t) => t.id));
-    assert.deepEqual(Object.keys(r.body[0]).sort(), ['createdAt', 'id', 'role', 'status', 'unitIds', 'user']); // unitIds: E08
+    assert.deepEqual(Object.keys(r.body[0]).sort(), ['createdAt', 'id', 'photo', 'role', 'status', 'unitIds', 'user']); // unitIds: E08; photo (de User.photo) no topo
     assert.deepEqual(Object.keys(r.body[0].user).sort(), ['email', 'id', 'name', 'phone', 'photo', 'twoFactorEnabled']);
   });
 

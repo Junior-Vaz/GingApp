@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Class, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { ListClassesQueryDto } from './dto/list-classes-query.dto';
@@ -18,12 +18,37 @@ import {
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
+import { civilTodayStart } from '../finance/finance.service';
+import {
+  DAY_MS,
+  GENERATE_LESSONS_LOCK_NS,
+  GenerateLessonsResult,
+  generateLessonsInRange,
+  MAX_GENERATE_LESSONS_SPAN_DAYS,
+} from './class-lessons-generator';
+import { ClassLessonsRollingService, lessonsHorizonDays, lessonsHorizonEnd } from './class-lessons-rolling.service';
 
-const DAY_MS = 86_400_000;
-/** Maior intervalo aceito por POST /classes/:id/generate-lessons (to - from, em dias). */
-export const MAX_GENERATE_LESSONS_SPAN_DAYS = 90;
-/** Namespace do advisory lock de geração (par com o id da turma): serializa gerações concorrentes da MESMA turma. */
-export const GENERATE_LESSONS_LOCK_NS = 7106;
+// Reexporta: specs e outros módulos importam estes nomes daqui desde antes do gerador virar um arquivo próprio.
+export { GENERATE_LESSONS_LOCK_NS, MAX_GENERATE_LESSONS_SPAN_DAYS };
+export type { GenerateLessonsResult };
+
+/** Foto e nome da unidade / do professor responsável que acompanham cada turma (contrato de leitura). */
+const CLASS_INCLUDE = {
+  unit: { select: { id: true, name: true, photo: true } },
+  teacher: { select: { id: true, name: true, photo: true } },
+} satisfies Prisma.ClassInclude;
+
+/** Turma como a API devolve: colunas + `photo` + `unit:{id,name,photo}|null` + `teacher:{id,name,photo}|null`. */
+export type ClassView = Prisma.ClassGetPayload<{ include: typeof CLASS_INCLUDE }>;
+
+/** Resposta de POST /classes/:id/generate-lessons. */
+export interface GenerateLessonsResponse extends GenerateLessonsResult {
+  /** true = modo contínuo (sem `to`): ligou autoGenerateLessons e gerou até o horizonte. */
+  continuous: boolean;
+  autoGenerateLessons: boolean;
+  /** Só no modo contínuo: LESSONS_HORIZON_DAYS efetivo. */
+  horizonDays?: number;
+}
 
 /** "YYYY-MM-DD" -> meia-noite UTC do dia (mesma convenção das datas de aula). 400 se o dia não existe (ex.: 30/02). */
 function parseCivilDate(value: string, field: string): Date {
@@ -34,20 +59,6 @@ function parseCivilDate(value: string, field: string): Date {
   return date;
 }
 
-export interface GenerateLessonsResult {
-  classId: number;
-  from: string;
-  to: string;
-  /** Quantas datas do intervalo caem no dia da semana da turma. */
-  occurrences: number;
-  /** Aulas criadas agora. */
-  created: number;
-  /** Ocorrências ignoradas porque já existe aula (qualquer status, inclusive cancelada) da turma naquela data. */
-  ignored: number;
-  createdDates: string[];
-  ignoredDates: string[];
-}
-
 /** Turmas do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
 export class ClassesService {
@@ -56,6 +67,7 @@ export class ClassesService {
     private readonly studentsService: StudentsService,
     private readonly unitScope: UnitScopeService,
     private readonly audit: AuditService,
+    private readonly rolling: ClassLessonsRollingService,
   ) {}
 
   /**
@@ -63,7 +75,7 @@ export class ClassesService {
    * turmas das suas unidades (lista e contagem usam o mesmo where); `user` omitido = sem restrição. As rotas
    * /me (findMine) NÃO passam por aqui: o escopo delas é o vínculo do aluno.
    */
-  async findAll(organizationId: number, query: ListClassesQueryDto = {}, user?: AuthenticatedUser): Promise<Page<Class>> {
+  async findAll(organizationId: number, query: ListClassesQueryDto = {}, user?: AuthenticatedUser): Promise<Page<ClassView>> {
     const where: Prisma.ClassWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
     where.AND = [unitScopeFilter(await this.unitScope.resolve(user, organizationId))];
     if (query.status) where.status = query.status;
@@ -72,7 +84,7 @@ export class ClassesService {
     if (q) where.name = { contains: q, mode: 'insensitive' };
 
     const [items, total] = await Promise.all([
-      this.prisma.class.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.class.findMany({ where, include: CLASS_INCLUDE, orderBy: { id: 'desc' }, ...pageArgs(query) }),
       this.prisma.class.count({ where }),
     ]);
     return { items, total };
@@ -80,7 +92,7 @@ export class ClassesService {
 
   /** "Minhas turmas" — as turmas em que os alunos ligados ao usuário autenticado estão
    * matriculados (mesmo padrão de FinanceService.findMine). */
-  async findMine(organizationId: number, userId: number) {
+  async findMine(organizationId: number, userId: number): Promise<ClassView[]> {
     const students = await this.studentsService.findMine(organizationId, userId);
     if (students.length === 0) return [];
 
@@ -91,12 +103,15 @@ export class ClassesService {
     const classIds = [...new Set(enrollments.map((e) => e.classId))];
     if (classIds.length === 0) return [];
 
-    return this.prisma.class.findMany({ where: { id: { in: classIds } } });
+    return this.prisma.class.findMany({ where: { id: { in: classIds }, organizationId }, include: CLASS_INCLUDE });
   }
 
-  async findOne(organizationId: number, id: number, user?: AuthenticatedUser) {
+  async findOne(organizationId: number, id: number, user?: AuthenticatedUser): Promise<ClassView> {
     const scope = await this.unitScope.resolve(user, organizationId);
-    const classItem = await this.prisma.class.findFirst({ where: { id, organizationId, ...unitScopeFilter(scope) } });
+    const classItem = await this.prisma.class.findFirst({
+      where: { id, organizationId, ...unitScopeFilter(scope) },
+      include: CLASS_INCLUDE,
+    });
     if (!classItem) {
       throw new NotFoundException('Turma não encontrada.');
     }
@@ -122,7 +137,10 @@ export class ClassesService {
         weekday: dto.weekday,
         startTime: dto.startTime,
         endTime: dto.endTime,
+        photo: dto.photo,
+        autoGenerateLessons: dto.autoGenerateLessons,
       },
+      include: CLASS_INCLUDE,
     });
     await this.audit.record({
       organizationId,
@@ -131,6 +149,8 @@ export class ClassesService {
       entityId: created.id,
       meta: { name: created.name, unitId: created.unitId },
     });
+    // Aulas continuas: turma nova com dia da semana ganha as aulas ate o horizonte (fire-and-forget; silencioso).
+    if (created.weekday !== null && created.autoGenerateLessons) this.rolling.queueEnsureHorizon(created.id);
     return created;
   }
 
@@ -163,8 +183,11 @@ export class ClassesService {
         weekday: dto.weekday,
         startTime: dto.startTime,
         endTime: dto.endTime,
+        photo: dto.photo,
+        autoGenerateLessons: dto.autoGenerateLessons,
         status: dto.status,
       },
+      include: CLASS_INCLUDE,
     });
     await this.audit.record({
       organizationId,
@@ -178,6 +201,14 @@ export class ClassesService {
         status: updated.status,
       },
     });
+    // Aulas continuas: mexeu em dia/horario/status/autoGenerateLessons => garante o horizonte (nao apaga nada; turma
+    // inativa ou com autoGenerateLessons=false simplesmente nao gera).
+    const touchesHorizon = [dto.weekday, dto.startTime, dto.endTime, dto.status, dto.autoGenerateLessons].some(
+      (value) => value !== undefined,
+    );
+    if (touchesHorizon && updated.status === 'ACTIVE' && updated.weekday !== null && updated.autoGenerateLessons) {
+      this.rolling.queueEnsureHorizon(id);
+    }
     return updated;
   }
 
@@ -198,21 +229,20 @@ export class ClassesService {
   }
 
   /**
-   * Gera as aulas da turma no período: uma Lesson para cada data de [from, to] (inclusivas, datas
-   * civis UTC — mesma convenção de Lesson.date: meia-noite UTC) cujo dia da semana é o `weekday`
-   * da turma. Copia unidade, professor responsável e horário da turma.
-   * - Só turma ATIVA e com dia da semana definido; to - from <= 90 dias; from <= to.
-   * - Nunca cria antes de `from`.
-   * - Idempotente: data que já tem aula da turma (qualquer status — uma aula cancelada NÃO é
-   *   recriada) é ignorada e contada em `ignored`. Gerações concorrentes da mesma turma são
-   *   serializadas por advisory lock transacional (Lesson não tem unique por turma+data).
+   * Gera as aulas da turma (gerador único: class-lessons-generator.ts). Só turma ATIVA e com dia da semana definido.
+   *  - PERÍODO: `from` e `to` explícitos (to - from <= 90 dias, from <= to). Não mexe em autoGenerateLessons.
+   *  - CONTÍNUO: sem `to` (ou `continuous: true`): liga autoGenerateLessons e gera de `from` (padrão hoje) até
+   *    LESSONS_HORIZON_DAYS a frente; o job diário (ClassLessonsRollingService) mantém o horizonte depois.
+   * Nunca cria antes de `from`. Idempotente: data que já tem aula da turma (qualquer status — uma aula cancelada NÃO
+   * é recriada) é ignorada e contada em `ignored`. Gerações concorrentes da mesma turma são serializadas por advisory
+   * lock transacional. Aula gerada não notifica ninguém.
    */
   async generateLessons(
     organizationId: number,
     classId: number,
     dto: GenerateLessonsDto,
     user?: AuthenticatedUser,
-  ): Promise<GenerateLessonsResult> {
+  ): Promise<GenerateLessonsResponse> {
     const klass = await this.findOne(organizationId, classId, user); // 404 se não existir ou for de outra organização
     if (klass.status !== 'ACTIVE') {
       throw new BadRequestException('Turma inativa: reative a turma antes de gerar aulas.');
@@ -221,58 +251,53 @@ export class ClassesService {
       throw new BadRequestException('A turma não tem dia da semana definido: informe o dia para gerar aulas.');
     }
 
-    const from = parseCivilDate(dto.from, 'from');
-    const to = parseCivilDate(dto.to, 'to');
-    if (to.getTime() < from.getTime()) {
-      throw new BadRequestException('to deve ser igual ou posterior a from.');
+    const hasTo = dto.to !== undefined;
+    if (hasTo && dto.continuous === true) {
+      throw new BadRequestException('Informe `to` (gerar por período) OU continuous: true (sem data final), não os dois.');
     }
-    if ((to.getTime() - from.getTime()) / DAY_MS > MAX_GENERATE_LESSONS_SPAN_DAYS) {
-      throw new BadRequestException(`O período não pode passar de ${MAX_GENERATE_LESSONS_SPAN_DAYS} dias.`);
-    }
-
-    const days: string[] = [];
-    for (let t = from.getTime(); t <= to.getTime(); t += DAY_MS) {
-      const day = new Date(t);
-      if (day.getUTCDay() === klass.weekday) days.push(day.toISOString().slice(0, 10));
+    if (!hasTo && dto.continuous === false) {
+      throw new BadRequestException('Informe `to` para gerar por período, ou omita `to` (continuous: true) para aulas contínuas.');
     }
 
-    const base = { classId, from: dto.from, to: dto.to, occurrences: days.length };
-    if (days.length === 0) {
-      return { ...base, created: 0, ignored: 0, createdDates: [], ignoredDates: [] };
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${GENERATE_LESSONS_LOCK_NS}::int, ${classId}::int)`;
-
-      // Intervalo (e não "date IN (...)"): uma aula criada à mão com horário no timestamp também conta
-      // como existente naquele dia civil UTC.
-      const existing = await tx.lesson.findMany({
-        where: {
-          organizationId,
-          classId,
-          date: { gte: from, lte: new Date(to.getTime() + DAY_MS - 1) },
-        },
-        select: { date: true },
-      });
-      const taken = new Set(existing.map((l) => l.date.toISOString().slice(0, 10)));
-      const createdDates = days.filter((d) => !taken.has(d));
-      const ignoredDates = days.filter((d) => taken.has(d));
-
-      if (createdDates.length > 0) {
-        await tx.lesson.createMany({
-          data: createdDates.map((d) => ({
-            organizationId,
-            classId,
-            unitId: klass.unitId,
-            teacherUserId: klass.teacherUserId,
-            date: new Date(`${d}T00:00:00.000Z`),
-            startTime: klass.startTime,
-            endTime: klass.endTime,
-          })),
-        });
+    if (hasTo) {
+      if (dto.from === undefined) {
+        throw new BadRequestException('Informe `from` junto com `to` para gerar por período.');
       }
-      return { ...base, created: createdDates.length, ignored: ignoredDates.length, createdDates, ignoredDates };
-    });
+      const from = parseCivilDate(dto.from, 'from');
+      const to = parseCivilDate(dto.to as string, 'to');
+      if (to.getTime() < from.getTime()) {
+        throw new BadRequestException('to deve ser igual ou posterior a from.');
+      }
+      if ((to.getTime() - from.getTime()) / DAY_MS > MAX_GENERATE_LESSONS_SPAN_DAYS) {
+        throw new BadRequestException(`O período não pode passar de ${MAX_GENERATE_LESSONS_SPAN_DAYS} dias.`);
+      }
+      const generated = await generateLessonsInRange(this.prisma, klass, from, to);
+      return { ...generated, continuous: false, autoGenerateLessons: klass.autoGenerateLessons };
+    }
+
+    // Contínuo: de `from` (padrão hoje) até o horizonte rolante.
+    const today = civilTodayStart();
+    const from = dto.from === undefined ? today : parseCivilDate(dto.from, 'from');
+    const horizonDays = lessonsHorizonDays();
+    const to = lessonsHorizonEnd(new Date(), horizonDays);
+    if (from.getTime() > to.getTime()) {
+      throw new BadRequestException(`from está além do horizonte de ${horizonDays} dias das aulas contínuas.`);
+    }
+    if ((today.getTime() - from.getTime()) / DAY_MS > MAX_GENERATE_LESSONS_SPAN_DAYS) {
+      throw new BadRequestException(`from não pode ser mais de ${MAX_GENERATE_LESSONS_SPAN_DAYS} dias no passado.`);
+    }
+    const generated = await generateLessonsInRange(this.prisma, klass, from, to);
+    if (!klass.autoGenerateLessons) {
+      await this.prisma.class.update({ where: { id: classId }, data: { autoGenerateLessons: true } });
+      await this.audit.record({
+        organizationId,
+        action: AuditAction.CLASS_UPDATE,
+        entity: AuditEntity.CLASS,
+        entityId: classId,
+        meta: { fields: ['autoGenerateLessons'], source: 'generate-lessons', status: klass.status },
+      });
+    }
+    return { ...generated, continuous: true, autoGenerateLessons: true, horizonDays };
   }
 
   /** Alunos matriculados (ativos) na turma, com os dados básicos do aluno. */

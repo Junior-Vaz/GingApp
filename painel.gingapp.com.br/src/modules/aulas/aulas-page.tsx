@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Ban, Pencil } from "lucide-react";
+import { Ban, Layers, Pencil, UserRound } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
+import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
@@ -45,6 +46,9 @@ export function AulasPage() {
   const teachersTruncated = (teachers.data?.total ?? 0) > OPTIONS_LIMIT;
 
   const className = (id: number) => classItems.find((c) => c.id === id)?.name ?? "—";
+  /** Nome da turma da aula: o do servidor (`class`) tem prioridade; senão o da lista de opções. */
+  const lessonClassName = (l: Lesson) => l.class?.name ?? className(l.classId);
+  const lessonClassPhoto = (l: Lesson) => l.class?.photo ?? classItems.find((c) => c.id === l.classId)?.photo;
   const nameOfTeacher = (id: number | null | undefined) =>
     id ? (teacherItems.find((t) => t.user.id === id)?.user.name ?? "—") : "—";
   /** Professor da aula; sem professor próprio, mostra o responsável da turma (rótulo "(turma)"). */
@@ -56,10 +60,35 @@ export function AulasPage() {
   const hasFilters = Object.values(lp.filters).some(Boolean);
 
   const columns: Column<Lesson>[] = [
-    { id: "class", header: "Turma", sortValue: (l) => className(l.classId), cell: (l) => <span className="font-medium">{className(l.classId)}</span> },
+    {
+      id: "class",
+      header: "Turma",
+      sortValue: (l) => lessonClassName(l),
+      cell: (l) => (
+        <span className="flex items-center gap-2 font-medium">
+          <EntityAvatar name={lessonClassName(l)} photo={lessonClassPhoto(l)} icon={Layers} className="size-8" />
+          {lessonClassName(l)}
+        </span>
+      ),
+    },
     { id: "date", header: "Data", sortValue: (l) => isoDay(l.date), cell: (l) => fmt(dayOnly(l.date), "dd/MM/yyyy") },
     { id: "time", header: "Horário", cell: (l) => timeRange(l) },
-    { id: "teacher", header: "Professor", sortValue: (l) => teacherName(l), cell: (l) => teacherName(l) },
+    {
+      id: "teacher",
+      header: "Professor",
+      sortValue: (l) => l.teacher?.name ?? teacherName(l),
+      cell: (l) => {
+        const name = l.teacher?.name ?? teacherName(l);
+        if (name === "—") return name;
+        const photo = l.teacher?.photo ?? teacherItems.find((t) => t.user.id === l.teacherUserId)?.user.photo;
+        return (
+          <>
+            <EntityAvatar name={name} photo={photo} icon={UserRound} className="mr-2 size-6 align-middle" />
+            {name}
+          </>
+        );
+      },
+    },
     {
       id: "status",
       header: "Status",

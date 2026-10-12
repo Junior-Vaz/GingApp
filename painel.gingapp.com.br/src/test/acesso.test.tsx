@@ -64,6 +64,7 @@ const guardianWithAccess = {
 const base = () => ({ "GET /students": () => json(200, students, { "X-Total-Count": String(students.length) }) });
 
 beforeEach(() => {
+  localStorage.setItem("painel:alunos:view", "table"); // estes testes cobrem a visão em tabela (o padrão novo é cards)
   loginAs("MESTRE");
 });
 afterEach(() => {

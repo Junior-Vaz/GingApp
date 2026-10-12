@@ -5,6 +5,7 @@ import { buildTermsStatus, LEGAL_VERSION } from '../../../shared/legal/legal-doc
 import { TermsStatus } from '../../../shared/legal/legal-types';
 import { AuthResponse } from './auth-response.interface';
 import { TwoFactorService } from './two-factor.service';
+import { UpdateAccountProfileDto } from './dto/update-account-profile.dto';
 
 export const TERMS_VERSION_MISMATCH_CODE = 'TERMS_VERSION_MISMATCH';
 export const TERMS_VERSION_MISMATCH_MESSAGE =
@@ -74,6 +75,14 @@ export class AccountService {
       pendingDeletionRequest: pending ? { id: pending.id, requestedAt: pending.requestedAt } : null,
       ...TwoFactorService.status(user),
     };
+  }
+
+  /** Atualiza o perfil da PRÓPRIA conta (hoje só a foto). `photo` omitida = não mexe; null = limpa. Devolve o mesmo corpo de GET /auth/me. */
+  async updateProfile(actor: AuthenticatedUser, dto: UpdateAccountProfileDto): Promise<MeResponse> {
+    if (dto.photo !== undefined) {
+      await this.prisma.user.update({ where: { id: actor.id }, data: { photo: dto.photo } });
+    }
+    return this.me(actor);
   }
 
   /**

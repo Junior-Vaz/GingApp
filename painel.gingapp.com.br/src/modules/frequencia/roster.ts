@@ -4,6 +4,8 @@ export interface RosterEntry {
   studentName: string;
   present: boolean | null;
   justification: string | null;
+  /** Foto do aluno (caminho de /uploads ou URL http(s)); ausente/nula = iniciais. */
+  photo?: string | null;
 }
 
 /** Linha editável da chamada. `present: null` = o professor ainda não decidiu. */
@@ -12,6 +14,7 @@ export interface RosterRow {
   studentName: string;
   present: boolean | null;
   justification: string;
+  photo: string | null;
 }
 
 /** Item de POST /attendance/lessons/:lessonId (corpo é um array). */
@@ -27,6 +30,7 @@ export function toRows(entries: RosterEntry[]): RosterRow[] {
     studentName: e.studentName,
     present: e.present,
     justification: e.justification ?? "",
+    photo: e.photo ?? null,
   }));
 }
 

@@ -68,7 +68,7 @@ afterEach(() => {
 });
 
 describe("período de geração de aulas", () => {
-  const ok = (from: string, to: string) => generateLessonsSchema.safeParse({ from, to }).success;
+  const ok = (from: string, to: string) => generateLessonsSchema.safeParse({ mode: "period", from, to }).success;
 
   it("aceita de 0 a 90 dias e recusa vazio, invertido e mais de 90 dias", () => {
     expect(ok("2026-11-01", "2026-11-01")).toBe(true);
@@ -78,6 +78,13 @@ describe("período de geração de aulas", () => {
     expect(ok("", "2026-11-09")).toBe(false);
     expect(ok("2026-11-01", "")).toBe(false);
     expect(MAX_GENERATE_DAYS).toBe(90);
+  });
+
+  it("modo contínuo não exige nem limita datas (sem data final, sem teto de 90 dias)", () => {
+    const cont = (from: string, to: string) => generateLessonsSchema.safeParse({ mode: "continuous", from, to }).success;
+    expect(cont("2026-11-01", "")).toBe(true);
+    expect(cont("2026-11-01", "2030-01-01")).toBe(true);
+    expect(cont("", "")).toBe(true);
   });
 
   it("daysBetween conta dias civis sem efeito de horário de verão", () => {
@@ -171,7 +178,31 @@ describe("Turmas: Gerar aulas", () => {
     expect(screen.queryByRole("button", { name: /Gerar aulas/ })).not.toBeInTheDocument();
   });
 
-  it("abre com o período padrão (hoje a +28 dias) e faz POST /classes/1/generate-lessons com from/to; toast com o resumo", async () => {
+  it("abre em modo Contínuo (padrão): sem campos de período, texto dos ~60 dias e POST SEM `to`", async () => {
+    const calls = mockApi({
+      "POST /classes/1/generate-lessons": () =>
+        json(201, { classId: 1, from: "x", to: "y", occurrences: 8, created: 8, ignored: 0, createdDates: [], ignoredDates: [] }),
+    });
+    renderUi(<TurmasPage />);
+    await screen.findByText("Infantil");
+    fireEvent.click(screen.getByRole("button", { name: "Gerar aulas de Infantil" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByRole("switch", { name: "Contínuo (sem data final)" })).toBeChecked();
+    expect(within(dialog).getByText(/mantém ~60 dias de aulas à frente automaticamente/)).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("De")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("Até")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText(/90 dias/)).not.toBeInTheDocument();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Gerar aulas" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
+    const post = calls.find((c) => c.method === "POST")!;
+    expect(post.path).toBe("/classes/1/generate-lessons");
+    expect(post.body).toEqual({ from: format(new Date(), "yyyy-MM-dd") });
+    expect(post.body).not.toHaveProperty("to");
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Aulas contínuas ligadas. 8 aulas criadas."));
+  });
+
+  it("'Período específico' (desliga o contínuo) mostra De/Até e mantém o limite de 90 dias; faz POST /classes/1/generate-lessons com from/to; toast com o resumo", async () => {
     const calls = mockApi({
       "POST /classes/1/generate-lessons": () =>
         json(201, { classId: 1, from: "x", to: "y", occurrences: 6, created: 2, ignored: 4, createdDates: [], ignoredDates: [] }),
@@ -180,7 +211,9 @@ describe("Turmas: Gerar aulas", () => {
     await screen.findByText("Infantil");
     fireEvent.click(screen.getByRole("button", { name: "Gerar aulas de Infantil" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/uma aula para cada terça do período/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/uma aula para cada terça/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("switch", { name: "Contínuo (sem data final)" }));
+    expect(within(dialog).getByText(/máximo de 90 dias/)).toBeInTheDocument();
     const today = new Date();
     await waitFor(() => expect(within(dialog).getByLabelText("De")).toHaveValue(format(today, "yyyy-MM-dd")));
     expect(within(dialog).getByLabelText("Até")).toHaveValue(format(addDays(today, 28), "yyyy-MM-dd"));
@@ -203,6 +236,7 @@ describe("Turmas: Gerar aulas", () => {
     await screen.findByText("Infantil");
     fireEvent.click(screen.getByRole("button", { name: "Gerar aulas de Infantil" }));
     const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("switch", { name: "Contínuo (sem data final)" }));
 
     fireEvent.change(within(dialog).getByLabelText("De"), { target: { value: "2026-11-10" } });
     fireEvent.change(within(dialog).getByLabelText("Até"), { target: { value: "2026-11-01" } });

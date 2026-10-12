@@ -1,5 +1,5 @@
 import { dayOnly, fmt, startOfToday } from "@/lib/format";
-import type { AttendanceRecord, FinanceStatus, FinancialRecord, Lesson, Passport } from "@/lib/queries";
+import type { AttendanceRecord, ClassItem, FinanceStatus, FinancialRecord, Lesson, Passport } from "@/lib/queries";
 
 /**
  * Que ações de compartilhamento do passaporte a tela deve oferecer. Espelha as regras do
@@ -57,6 +57,38 @@ export function nextLesson(lessons: Lesson[]): Lesson | null {
       .filter((l) => l.status === "ACTIVE" && dayOnly(l.date).getTime() >= today)
       .sort((a, b) => dayOnly(a.date).getTime() - dayOnly(b.date).getTime())[0] ?? null
   );
+}
+
+export interface ClassInfo {
+  name: string;
+  photo: string | null;
+  /** Unidade da aula/turma (ou a do aluno, se o backend não informou); foto opcional. */
+  unit: { name: string; photo: string | null } | null;
+  teacher: { name: string; photo: string | null } | null;
+  /** "19:00 – 20:30" (horário da aula, senão o da turma). */
+  time: string;
+}
+
+/**
+ * Tudo que o cartão de uma aula mostra, juntando a aula (`/lessons/me`) e a turma (`/classes/me`). Os campos de foto,
+ * unidade e professor são opcionais (backend antigo): sem eles o cartão continua igual ao de antes.
+ */
+export function resolveClassInfo(
+  lesson: Pick<Lesson, "classId" | "startTime" | "endTime" | "class" | "unit" | "teacher"> | null,
+  classes: ClassItem[] | undefined,
+  fallbackUnit?: { name: string; photo?: string | null } | null,
+): ClassInfo {
+  const cls = lesson ? classes?.find((c) => c.id === lesson.classId) : undefined;
+  const unit = lesson?.unit ?? cls?.unit ?? fallbackUnit ?? null;
+  const teacher = lesson?.teacher ?? cls?.teacher ?? null;
+  const time = [lesson?.startTime ?? cls?.startTime, lesson?.endTime ?? cls?.endTime].filter(Boolean).join(" – ");
+  return {
+    name: lesson?.class?.name || cls?.name || "Aula",
+    photo: lesson?.class?.photo || cls?.photo || null,
+    unit: unit ? { name: unit.name, photo: unit.photo || (fallbackUnit?.name === unit.name ? fallbackUnit.photo : null) || null } : null,
+    teacher: teacher ? { name: teacher.name, photo: teacher.photo || null } : null,
+    time,
+  };
 }
 
 export function recordsInMonth(records: AttendanceRecord[], reference: Date): AttendanceRecord[] {

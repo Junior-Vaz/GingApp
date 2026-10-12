@@ -56,3 +56,6 @@ process.env.TWO_FACTOR_THROTTLE_LIMIT = '1000';
 // Ginga Rank: sem o recalculo noturno (02:30) nem o fechamento mensal de temporada nos testes (RankingCronService e' chamado direto
 // pelos specs; o motor RankingService tambem).
 process.env.RANKING_CRON = 'false';
+// Aulas continuas (geracao rolante diaria 01:30): sem o job nos testes (LessonsCronService/ClassLessonsRollingService sao chamados
+// direto pelos specs; so o job agendado fica desligado — criar/editar turma continua gerando aulas, fire-and-forget).
+process.env.LESSONS_CRON = 'false';

@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength, ValidateIf } from 'class-validator';
 import { BR_UFS } from '../../../../shared/geo/br-states';
 import { IsOptionalLatitude, IsOptionalLongitude } from '../../../../shared/geo/coordinates';
+import { blankImageToNull, IsImageRef } from '../../../../shared/uploads/image-ref';
 import { UF_MESSAGE } from './create-unit.dto';
 
 /** Aparar espaços; texto vazio vira `null` (LIMPA a coluna no PATCH); `undefined` = não mexe. */
@@ -18,7 +19,7 @@ const ufOrNull = ({ value }: { value: unknown }) => {
 
 /**
  * PATCH /units/:id — update parcial. Campo ausente = não mexe; `null` (ou texto vazio) LIMPA
- * address/city/state. `name`, `isMain` e `status` não aceitam null (400). `organizationId` não existe aqui.
+ * address/city/state/photo. `name`, `isMain` e `status` não aceitam null (400). `organizationId` não existe aqui.
  * As regras de negócio (matriz única, não inativar a única unidade ativa/a matriz, limite do plano ao
  * reativar) ficam no UnitsService, onde enxergam o estado do grupo.
  */
@@ -53,6 +54,12 @@ export class UpdateUnitDto {
 
   @IsOptionalLongitude()
   longitude?: number | null;
+
+  /** Foto da unidade (caminho de POST /uploads ou URL http(s)). null ou '' LIMPA. */
+  @IsOptional()
+  @Transform(blankImageToNull)
+  @IsImageRef()
+  photo?: string | null;
 
   @ValidateIf((_, v) => v !== undefined)
   @IsBoolean()

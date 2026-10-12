@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { KeyRound, Plus, Upload, Users } from "lucide-react";
+import { KeyRound, LayoutGrid, Plus, Table2, Upload, Users } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
@@ -28,9 +28,11 @@ import {
 } from "@/modules/financeiro/collection";
 import { BILLING_KEY, useStudentBillings } from "@/modules/financeiro/finance-api";
 import { AcessoAlunoDialog } from "./acesso-aluno-dialog";
+import { StudentCard } from "./aluno-card";
 import { ImportarAlunosDialog } from "./importar-alunos-dialog";
 import { NativeSelect } from "./native-select";
 import { ResponsaveisDialog } from "./responsaveis-dialog";
+import { useStudentsView, type StudentsView } from "./students-view";
 import {
   STUDENT_STATUS_LABEL,
   emptyStudentForm,
@@ -50,6 +52,31 @@ const students = createCrud<Student, StudentInput>("/students", {
   removed: "Aluno inativado.",
 });
 
+/** Alternador "Cards | Tabela" da lista de alunos (a escolha fica salva neste navegador). */
+function ViewToggle({ view, onChange }: { view: StudentsView; onChange: (view: StudentsView) => void }) {
+  const options: { value: StudentsView; label: string; icon: typeof Table2 }[] = [
+    { value: "cards", label: "Cards", icon: LayoutGrid },
+    { value: "table", label: "Tabela", icon: Table2 },
+  ];
+  return (
+    <div role="group" aria-label="Modo de visualização" className="inline-flex rounded-md border bg-card p-0.5">
+      {options.map(({ value, label, icon: Icon }) => (
+        <Button
+          key={value}
+          type="button"
+          size="sm"
+          variant={view === value ? "default" : "ghost"}
+          aria-pressed={view === value}
+          className="h-8 px-3"
+          onClick={() => onChange(value)}
+        >
+          <Icon /> {label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 export function AlunosPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
   const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "" } });
@@ -68,6 +95,7 @@ export function AlunosPage() {
   const [accessOf, setAccessOf] = useState<Student | null>(null);
   const [guardiansOf, setGuardiansOf] = useState<Student | null>(null);
   const [importing, setImporting] = useState(false);
+  const [view, setView] = useStudentsView();
   // Importação em massa é só do Mestre (backend: POST /students/import exige o MESTRE).
   const isMestre = useSessionUser()?.role === "MESTRE";
 
@@ -134,6 +162,30 @@ export function AlunosPage() {
 
   const isEdit = editing !== null && editing !== "new";
 
+  /** Mesmas ações nos dois modos (tabela e cards), com as mesmas permissões. */
+  const studentActions = (s: Student) => (
+    <>
+      <Button variant="ghost" size="sm" onClick={() => setEditing(s)}>
+        Editar
+      </Button>
+      {canEdit && (
+        <>
+          <Button variant="ghost" size="sm" onClick={() => setAccessOf(s)} aria-label={`Acesso de ${s.name}`}>
+            <KeyRound /> Acesso
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setGuardiansOf(s)} aria-label={`Responsáveis de ${s.name}`}>
+            <Users /> Responsáveis
+          </Button>
+        </>
+      )}
+      {canDelete && s.status !== "INACTIVE" && (
+        <Button variant="ghost" size="sm" onClick={() => setDeleting(s)}>
+          Inativar
+        </Button>
+      )}
+    </>
+  );
+
   return (
     <>
       <PageHeader
@@ -167,8 +219,20 @@ export function AlunosPage() {
         getRowId={(s) => s.id}
         searchPlaceholder="Buscar por nome, documento, telefone…"
         emptyMessage={lp.filters.status || lp.filters.unitId ? "Nenhum aluno com esses filtros." : "Nenhum aluno cadastrado ainda."}
+        cards={{
+          active: view === "cards",
+          render: (s) => (
+            <StudentCard
+              student={s}
+              unitName={unitName(s.unitId)}
+              billing={canViewFinance ? billingSummary(billingOf.get(s.id), formatCurrency) : undefined}
+              actions={studentActions(s)}
+            />
+          ),
+        }}
         toolbar={
           <div className="flex flex-wrap gap-2">
+            <ViewToggle view={view} onChange={setView} />
             <UnitPicker
               mode="filter"
               value={lp.filters.unitId ? Number(lp.filters.unitId) : null}
@@ -189,28 +253,7 @@ export function AlunosPage() {
             </NativeSelect>
           </div>
         }
-        rowActions={(s) => (
-          <>
-            <Button variant="ghost" size="sm" onClick={() => setEditing(s)}>
-              Editar
-            </Button>
-            {canEdit && (
-              <>
-                <Button variant="ghost" size="sm" onClick={() => setAccessOf(s)} aria-label={`Acesso de ${s.name}`}>
-                  <KeyRound /> Acesso
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setGuardiansOf(s)} aria-label={`Responsáveis de ${s.name}`}>
-                  <Users /> Responsáveis
-                </Button>
-              </>
-            )}
-            {canDelete && s.status !== "INACTIVE" && (
-              <Button variant="ghost" size="sm" onClick={() => setDeleting(s)}>
-                Inativar
-              </Button>
-            )}
-          </>
-        )}
+        rowActions={studentActions}
       />
 
       <FormDialog<StudentFormValues>

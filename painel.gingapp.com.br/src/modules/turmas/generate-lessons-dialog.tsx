@@ -1,24 +1,27 @@
 import { addDays, format } from "date-fns";
+import { Infinity as InfinityIcon } from "lucide-react";
 import { FormDialog } from "@/components/painel/form-dialog";
-import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   MAX_GENERATE_DAYS,
   generateLessonsSchema,
   useGenerateLessons,
   type GenerateLessonsValues,
 } from "./generate-lessons";
-import { WEEKDAY_LABEL, scheduleLabel, type ClassItem } from "./schema";
+import { CONTINUOUS_AHEAD_DAYS, WEEKDAY_LABEL, scheduleLabel, type ClassItem } from "./schema";
 
-/** Período padrão: de hoje a 4 semanas (data local do navegador). */
-function defaultPeriod(): GenerateLessonsValues {
+/** Padrão: contínuo (sem data final), começando hoje; o período específico já vem com hoje a +28 dias (data local). */
+function defaultValues(): GenerateLessonsValues {
   const today = new Date();
-  return { from: format(today, "yyyy-MM-dd"), to: format(addDays(today, 28), "yyyy-MM-dd") };
+  return { mode: "continuous", from: format(today, "yyyy-MM-dd"), to: format(addDays(today, 28), "yyyy-MM-dd") };
 }
 
 /**
- * "Gerar aulas" de uma turma: escolhe o período e cria uma aula por ocorrência do dia da semana da
- * turma (horário e professor copiados). Repetir não duplica — datas que já têm aula são ignoradas.
+ * "Gerar aulas" de uma turma. Padrão "Contínuo (sem data final)": o sistema mantém ~60 dias de aulas à frente sozinho.
+ * Desligado ("Período específico"), cria uma aula por ocorrência do dia da semana entre De e Até (máx. 90 dias).
+ * Repetir não duplica — datas que já têm aula são ignoradas.
  */
 export function GenerateLessonsDialog({ turma, onClose }: { turma: ClassItem | null; onClose: () => void }) {
   const generate = useGenerateLessons(turma?.id);
@@ -31,44 +34,76 @@ export function GenerateLessonsDialog({ turma, onClose }: { turma: ClassItem | n
       title="Gerar aulas"
       description={
         turma
-          ? `${turma.name}: uma aula para cada ${weekday.toLowerCase()} do período (${scheduleLabel(turma)}), com o professor da turma. Datas que já têm aula são ignoradas. Máximo de ${MAX_GENERATE_DAYS} dias.`
+          ? `${turma.name}: uma aula para cada ${weekday.toLowerCase()} (${scheduleLabel(turma)}), com o professor da turma. Datas que já têm aula são ignoradas.`
           : undefined
       }
       schema={generateLessonsSchema}
-      defaultValues={defaultPeriod()}
+      defaultValues={defaultValues()}
       submitLabel="Gerar aulas"
       onSubmit={(values) => generate.mutateAsync(values)}
     >
-      {(form) => (
-        <div className="grid grid-cols-2 gap-3">
-          <FormField
-            control={form.control}
-            name="from"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>De</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
+      {(form) => {
+        const continuous = form.watch("mode") === "continuous";
+        return (
+          <>
+            <FormField
+              control={form.control}
+              name="mode"
+              render={({ field }) => (
+                <FormItem className="rounded-md border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <FormLabel className="flex items-center gap-2">
+                      <InfinityIcon className="size-4" aria-hidden /> Contínuo (sem data final)
+                    </FormLabel>
+                    <FormControl>
+                      <Switch
+                        aria-label="Contínuo (sem data final)"
+                        checked={field.value === "continuous"}
+                        onCheckedChange={(on) => field.onChange(on ? "continuous" : "period")}
+                      />
+                    </FormControl>
+                  </div>
+                  <FormDescription>
+                    {continuous
+                      ? `O sistema mantém ~${CONTINUOUS_AHEAD_DAYS} dias de aulas à frente automaticamente, sem você precisar gerar de novo.`
+                      : `Período específico: cria só as aulas entre as duas datas (máximo de ${MAX_GENERATE_DAYS} dias).`}
+                  </FormDescription>
+                </FormItem>
+              )}
+            />
+            {!continuous && (
+              <div className="grid grid-cols-2 gap-3">
+                <FormField
+                  control={form.control}
+                  name="from"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>De</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="to"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Até</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             )}
-          />
-          <FormField
-            control={form.control}
-            name="to"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Até</FormLabel>
-                <FormControl>
-                  <Input type="date" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
-      )}
+          </>
+        );
+      }}
     </FormDialog>
   );
 }

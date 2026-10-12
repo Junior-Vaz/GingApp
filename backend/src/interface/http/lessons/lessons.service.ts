@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Lesson, Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { civilDateRange } from '../../../shared/dates/date-range';
@@ -24,6 +24,39 @@ import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
 
+const REF_SELECT = { id: true, name: true, photo: true } as const;
+
+/** Relações que montam o contrato de leitura (turma, unidade e professor da aula, com os da turma como reserva). */
+const LESSON_INCLUDE = {
+  class: { select: { ...REF_SELECT, unit: { select: REF_SELECT }, teacher: { select: REF_SELECT } } },
+  unit: { select: REF_SELECT },
+  teacher: { select: REF_SELECT },
+} satisfies Prisma.LessonInclude;
+
+type LessonWithRelations = Prisma.LessonGetPayload<{ include: typeof LESSON_INCLUDE }>;
+type Ref = { id: number; name: string; photo: string | null };
+
+/**
+ * Aula como a API devolve: todas as colunas (inclusive unitId/teacherUserId) + `class:{id,name,photo}` +
+ * `unit:{id,name,photo}|null` (unidade da aula ou, na falta, a da turma) + `teacher:{id,name,photo}|null`
+ * (professor da aula ou, na falta, o da turma). Só nome e foto — o mesmo que já é público dentro do grupo.
+ */
+export type LessonView = Omit<LessonWithRelations, 'class' | 'unit' | 'teacher'> & {
+  class: Ref;
+  unit: Ref | null;
+  teacher: Ref | null;
+};
+
+export function toLessonView(lesson: LessonWithRelations): LessonView {
+  const { class: klass, unit, teacher, ...rest } = lesson;
+  return {
+    ...rest,
+    class: { id: klass.id, name: klass.name, photo: klass.photo },
+    unit: unit ?? klass.unit ?? null,
+    teacher: teacher ?? klass.teacher ?? null,
+  };
+}
+
 /** Aulas do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
 export class LessonsService {
@@ -40,7 +73,7 @@ export class LessonsService {
    * aulas da sua unidade — a unidade efetiva da aula é a dela (Lesson.unitId) ou, se nula, a da turma. Lista e
    * contagem usam o mesmo where; `user` omitido = sem restrição. /lessons/me (findMine) não passa por aqui.
    */
-  async findAll(organizationId: number, query: ListLessonsQueryDto = {}, user?: AuthenticatedUser): Promise<Page<Lesson>> {
+  async findAll(organizationId: number, query: ListLessonsQueryDto = {}, user?: AuthenticatedUser): Promise<Page<LessonView>> {
     const where: Prisma.LessonWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
     where.AND = [lessonScopeFilter(await this.unitScope.resolve(user, organizationId))];
     if (query.classId !== undefined) where.classId = query.classId;
@@ -51,10 +84,10 @@ export class LessonsService {
     if (q) where.notes = { contains: q, mode: 'insensitive' };
 
     const [items, total] = await Promise.all([
-      this.prisma.lesson.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.lesson.findMany({ where, include: LESSON_INCLUDE, orderBy: { id: 'desc' }, ...pageArgs(query) }),
       this.prisma.lesson.count({ where }),
     ]);
-    return { items, total };
+    return { items: items.map(toLessonView), total };
   }
 
   /** "Minhas aulas" — aulas das turmas em que os alunos ligados ao usuário autenticado estão
@@ -62,7 +95,7 @@ export class LessonsService {
    * crescente (a "próxima aula" fica no topo); `order=desc` inverte. Paginado (limit/offset, total
    * em X-Total-Count) e filtrável por from/to (data da aula) e status — assim o app busca "a partir
    * de hoje" e "anteriores" separadamente, sem depender de uma lista truncada. */
-  async findMine(organizationId: number, userId: number, query: ListMyLessonsQueryDto = {}): Promise<Page<Lesson>> {
+  async findMine(organizationId: number, userId: number, query: ListMyLessonsQueryDto = {}): Promise<Page<LessonView>> {
     let classIds: number[];
     if (query.studentId !== undefined) {
       // Seletor de dependente: só as turmas (matrícula ACTIVE, mesma regra de ClassesService.findMine)
@@ -85,21 +118,22 @@ export class LessonsService {
 
     const dir = query.order ?? 'asc';
     const [items, total] = await Promise.all([
-      this.prisma.lesson.findMany({ where, orderBy: [{ date: dir }, { id: dir }], ...pageArgs(query) }),
+      this.prisma.lesson.findMany({ where, include: LESSON_INCLUDE, orderBy: [{ date: dir }, { id: dir }], ...pageArgs(query) }),
       this.prisma.lesson.count({ where }),
     ]);
-    return { items, total };
+    return { items: items.map(toLessonView), total };
   }
 
-  async findOne(organizationId: number, id: number, user?: AuthenticatedUser) {
+  async findOne(organizationId: number, id: number, user?: AuthenticatedUser): Promise<LessonView> {
     const scope = await this.unitScope.resolve(user, organizationId);
     const lesson = await this.prisma.lesson.findFirst({
       where: { id, organizationId, AND: [lessonScopeFilter(scope)] },
+      include: LESSON_INCLUDE,
     });
     if (!lesson) {
       throw new NotFoundException('Aula não encontrada.');
     }
-    return lesson;
+    return toLessonView(lesson);
   }
 
   async create(organizationId: number, dto: CreateLessonDto, user?: AuthenticatedUser) {
@@ -124,7 +158,8 @@ export class LessonsService {
         endTime: dto.endTime,
         notes: dto.notes,
       },
-    });
+      include: LESSON_INCLUDE,
+    }).then(toLessonView);
   }
 
   async update(organizationId: number, id: number, dto: UpdateLessonDto, user?: AuthenticatedUser) {
@@ -160,9 +195,11 @@ export class LessonsService {
         notes: dto.notes,
         status: dto.status,
       },
+      include: LESSON_INCLUDE,
     });
-    await this.notifyLessonChange(organizationId, current, updated);
-    return updated;
+    const view = toLessonView(updated);
+    await this.notifyLessonChange(organizationId, current, view);
+    return view;
   }
 
   /**
@@ -172,9 +209,14 @@ export class LessonsService {
    */
   async remove(organizationId: number, id: number, user?: AuthenticatedUser) {
     const current = await this.findOne(organizationId, id, user);
-    const updated = await this.prisma.lesson.update({ where: { id }, data: { status: 'INACTIVE' } });
-    await this.notifyLessonChange(organizationId, current, updated);
-    return updated;
+    const updated = await this.prisma.lesson.update({
+      where: { id },
+      data: { status: 'INACTIVE' },
+      include: LESSON_INCLUDE,
+    });
+    const view = toLessonView(updated);
+    await this.notifyLessonChange(organizationId, current, view);
+    return view;
   }
 
   /**
@@ -186,7 +228,11 @@ export class LessonsService {
    * - aula cujo dia novo já passou (dia civil de America/Sao_Paulo, mesmo "hoje" do financeiro).
    * Falha ao notificar nunca derruba o PATCH/DELETE (NotificationsService.safely).
    */
-  private async notifyLessonChange(organizationId: number, before: Lesson, after: Lesson): Promise<void> {
+  private async notifyLessonChange(
+    organizationId: number,
+    before: Pick<LessonView, 'status' | 'date' | 'startTime' | 'endTime' | 'classId'>,
+    after: Pick<LessonView, 'status' | 'date' | 'startTime' | 'endTime' | 'classId'>,
+  ): Promise<void> {
     const cancelled = before.status === 'ACTIVE' && after.status === 'INACTIVE';
     const reactivated = before.status === 'INACTIVE' && after.status === 'ACTIVE';
     const rescheduled =

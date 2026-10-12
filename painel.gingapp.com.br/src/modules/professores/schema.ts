@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isImageRef } from "@/lib/uploads";
 import type { Unit } from "@/modules/unidades/units";
 
 export type TeacherRole = "MESTRE" | "PROFESSOR";
@@ -31,6 +32,8 @@ export interface TeacherInput {
   phone?: string | null | undefined;
   role?: TeacherRole | undefined;
   status?: "ACTIVE" | "INACTIVE" | undefined;
+  /** Foto do professor (User.photo): URL de upload / http(s); no PATCH, `null` remove. */
+  photo?: string | null | undefined;
 }
 
 export const TEACHER_ROLE_LABEL: Record<TeacherRole, string> = {
@@ -49,6 +52,11 @@ export const createTeacherSchema = z.object({
   email: z.string().trim().email("Informe um e-mail válido."),
   password: z.string().min(6, "A senha inicial precisa ter pelo menos 6 caracteres."),
   phone: z.string(),
+  photo: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || isImageRef(v), "Informe uma URL válida (http/https) ou envie uma imagem.")
+    .optional(),
   role: z.enum(["MESTRE", "PROFESSOR"]),
   status: z.enum(["ACTIVE", "INACTIVE"]),
 });
@@ -58,6 +66,11 @@ export const editTeacherSchema = z.object({
   email: z.string(),
   password: z.string(),
   phone: z.string(),
+  photo: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || isImageRef(v), "Informe uma URL válida (http/https) ou envie uma imagem.")
+    .optional(),
   role: z.enum(["MESTRE", "PROFESSOR"]),
   status: z.enum(["ACTIVE", "INACTIVE"]),
 });
@@ -68,6 +81,7 @@ export const emptyTeacherForm: TeacherFormValues = {
   email: "",
   password: "",
   phone: "",
+  photo: "",
   role: "PROFESSOR",
   status: "ACTIVE",
 };
@@ -78,6 +92,7 @@ export function teacherToForm(teacher: Teacher): TeacherFormValues {
     email: teacher.user.email,
     password: "",
     phone: teacher.user.phone ?? "",
+    photo: teacher.user.photo ?? "",
     role: teacher.role,
     status: teacher.status === "INACTIVE" ? "INACTIVE" : "ACTIVE",
   };
@@ -89,6 +104,7 @@ export function createPayload(values: TeacherFormValues): TeacherInput {
     email: values.email.trim(),
     password: values.password,
     phone: values.phone.trim() || undefined,
+    photo: values.photo?.trim() || undefined,
     role: values.role,
   };
 }
@@ -98,6 +114,7 @@ export function editPayload(values: TeacherFormValues): TeacherInput {
   return {
     name: values.name.trim(),
     phone: values.phone.trim() || null,
+    photo: values.photo?.trim() || null,
     role: values.role,
     status: values.status,
   };

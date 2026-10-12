@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { notifyError } from "@/lib/crud";
 import { lessons } from "@/modules/aulas/aulas-api";
 
-/** Maior período aceito por POST /classes/:id/generate-lessons (to - from, em dias). */
+/** Maior período aceito por POST /classes/:id/generate-lessons com `from`/`to` explícitos (to - from, em dias). */
 export const MAX_GENERATE_DAYS = 90;
 
 const DAY_MS = 86_400_000;
@@ -16,12 +16,20 @@ export function daysBetween(from: string, to: string): number {
   return Math.round((parseDay(to) - parseDay(from)) / DAY_MS);
 }
 
+/** "continuous" = geração contínua (sem data final); "period" = from/to explícitos (máx. 90 dias). */
+export type GenerateMode = "continuous" | "period";
+
 export const generateLessonsSchema = z
   .object({
-    from: z.string().min(1, "Informe a data inicial."),
-    to: z.string().min(1, "Informe a data final."),
+    mode: z.enum(["continuous", "period"]),
+    from: z.string(),
+    to: z.string(),
   })
   .superRefine((v, ctx) => {
+    // Contínuo não tem período: nada a validar (o servidor mantém ~60 dias à frente sozinho).
+    if (v.mode === "continuous") return;
+    if (!v.from) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["from"], message: "Informe a data inicial." });
+    if (!v.to) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["to"], message: "Informe a data final." });
     if (!v.from || !v.to) return;
     const days = daysBetween(v.from, v.to);
     if (Number.isNaN(days)) return;
@@ -32,6 +40,11 @@ export const generateLessonsSchema = z
     }
   });
 export type GenerateLessonsValues = z.infer<typeof generateLessonsSchema>;
+
+/** Corpo do POST: contínuo envia só `from` (sem `to`); período envia `from` e `to`. */
+export function generateLessonsBody(values: GenerateLessonsValues): { from: string; to?: string } {
+  return values.mode === "continuous" ? { from: values.from } : { from: values.from, to: values.to };
+}
 
 /** Resposta de POST /classes/:id/generate-lessons. */
 export interface GenerateLessonsResult {
@@ -54,18 +67,23 @@ export function generateLessonsMessage(r: Pick<GenerateLessonsResult, "created" 
   return `${created}, ${ignored}.`;
 }
 
-/** POST /classes/:id/generate-lessons {from,to} (idempotente). Invalida as listas de aulas e avisa por toast. */
+/**
+ * POST /classes/:id/generate-lessons (idempotente): `{from}` liga a geração CONTÍNUA (sem data final); `{from,to}` gera só
+ * o período (até 90 dias). Invalida as listas de aulas e de turmas (selo "Aulas contínuas") e avisa por toast.
+ */
 export function useGenerateLessons(classId: number | undefined) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (values: GenerateLessonsValues) =>
-      api.post<GenerateLessonsResult>(`/classes/${String(classId)}/generate-lessons`, {
-        from: values.from,
-        to: values.to,
-      }),
-    onSuccess: (result) => {
+      api.post<GenerateLessonsResult>(`/classes/${String(classId)}/generate-lessons`, generateLessonsBody(values)),
+    onSuccess: (result, values) => {
       void queryClient.invalidateQueries({ queryKey: lessons.rootKey });
-      toast.success(generateLessonsMessage(result));
+      void queryClient.invalidateQueries({ queryKey: ["crud", "/classes"] });
+      toast.success(
+        values.mode === "continuous"
+          ? `Aulas contínuas ligadas. ${generateLessonsMessage(result)}`
+          : generateLessonsMessage(result),
+      );
     },
     onError: (error) => notifyError(error, "Não foi possível gerar as aulas."),
   });

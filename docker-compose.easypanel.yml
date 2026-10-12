@@ -86,6 +86,9 @@ services:
       # Ginga Rank: recalculo noturno + fechamento mensal de temporada (false = desliga) e backfill no boot (vazio = 1x; true = sempre; false = nunca).
       RANKING_CRON: "${RANKING_CRON:-true}"
       RANKING_BACKFILL: "${RANKING_BACKFILL:-}"
+      # Aulas continuas (sem data final): horizonte em dias a partir de hoje (1-365) e job diario 01:30 (false = desliga so o job).
+      LESSONS_HORIZON_DAYS: "${LESSONS_HORIZON_DAYS:-60}"
+      LESSONS_CRON: "${LESSONS_CRON:-true}"
       # Log estruturado de requisicao (1 linha JSON no stdout) e chave do 2FA (vazia = deriva do JWT_SECRET).
       REQUEST_LOG: "${REQUEST_LOG:-false}"
       TWO_FACTOR_KEY: "${TWO_FACTOR_KEY:-}"

@@ -33,3 +33,13 @@ export function IsImageRef(validationOptions?: ValidationOptions) {
     });
   };
 }
+
+/**
+ * Para usar com @Transform antes de @IsOptional() + @IsImageRef(): texto vazio/so espacos vira `null` (LIMPA a
+ * coluna no PATCH; no POST grava null); `undefined` = nao mexe; qualquer outro valor passa e a validacao decide.
+ */
+export function blankImageToNull({ value }: { value: unknown }): unknown {
+  if (typeof value !== 'string') return value;
+  const trimmed = value.trim();
+  return trimmed === '' ? null : trimmed;
+}

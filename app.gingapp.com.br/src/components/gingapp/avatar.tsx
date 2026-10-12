@@ -1,7 +1,7 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import type { CSSProperties } from "react";
 
 import { initials } from "@/lib/format";
-import { imageSrc } from "@/lib/uploads";
+import { useImage } from "@/lib/use-image";
 
 /** Cores de fundo das iniciais (todas escuras o bastante para texto branco, contraste >= 4.5). */
 const INITIALS_COLORS = ["#1b5e43", "#2f6f8f", "#8a4f9e", "#b0533a", "#6b7a1f", "#a1455f", "#46628c", "#7a5a2b"];
@@ -14,13 +14,6 @@ function initialsColor(name: string | null | undefined): string {
   return INITIALS_COLORS[hash % INITIALS_COLORS.length] ?? "#1b5e43";
 }
 
-/** Imagem com fallback: sem `src`, ou se falhar (404/CORS), nada é renderizado (o chamador mostra as iniciais). */
-function useImage(src: string | null | undefined) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [src]);
-  const resolved = src ? imageSrc(src) : "";
-  return { src: resolved && !failed ? resolved : null, onError: () => setFailed(true) };
-}
 
 export interface AvatarProps {
   /** Nome da pessoa (iniciais, cor estável e rótulo de acessibilidade). */

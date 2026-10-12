@@ -55,7 +55,8 @@ export interface Certificate {
 export interface Passport {
   student: { id: number; name: string };
   organization: { name: string };
-  unit: { name: string } | null;
+  /** `id` e `photo` só em backend novo (opcionais: o app funciona sem eles). */
+  unit: { name: string; id?: number; photo?: string | null } | null;
   currentGraduation: { name: string } | null;
   stats: { aulas: number; rodas: number; eventos: number; graduacoes: number; certificados: number };
   publicProfile: { isPublished: boolean; publicCode: string } | null;
@@ -69,6 +70,13 @@ export interface Passport {
   };
 }
 
+/** Referência leve com foto (campos novos do backend; sempre opcionais no app). */
+export interface PhotoRef {
+  id: number;
+  name: string;
+  photo?: string | null;
+}
+
 export interface Lesson {
   id: number;
   classId: number;
@@ -79,6 +87,10 @@ export interface Lesson {
   endTime: string | null;
   notes: string | null;
   status: "ACTIVE" | "INACTIVE";
+  /** Turma, unidade e professor com foto (GET /lessons/me em backend novo). */
+  class?: PhotoRef | null;
+  unit?: PhotoRef | null;
+  teacher?: PhotoRef | null;
 }
 
 export interface ClassItem {
@@ -89,6 +101,10 @@ export interface ClassItem {
   startTime: string | null;
   endTime: string | null;
   unitId: number | null;
+  /** Foto da turma, unidade e professor (GET /classes/me em backend novo). */
+  photo?: string | null;
+  unit?: PhotoRef | null;
+  teacher?: PhotoRef | null;
 }
 
 export interface AttendanceRecord {
@@ -524,6 +540,19 @@ export function useNextLessons() {
 
 export const useClasses = () =>
   useQuery({ queryKey: ["classes", "me"], queryFn: () => api.get<ClassItem[]>("/classes/me") });
+
+/**
+ * Unidade do aluno com foto: o passaporte traz o nome (e a foto, em backend novo); sem foto ali, usa a da turma
+ * que pertence à mesma unidade. Sem unidade = null.
+ */
+export function useMyUnit(): { name: string; photo: string | null } | null {
+  const passport = usePassport();
+  const classes = useClasses();
+  const unit = passport.data?.unit;
+  if (!unit) return null;
+  const fromClass = classes.data?.find((c) => c.unit && (c.unit.id === unit.id || c.unit.name === unit.name))?.unit;
+  return { name: unit.name, photo: unit.photo || fromClass?.photo || null };
+}
 
 export interface AttendanceRange {
   /** yyyy-MM-dd (data da aula, inclusivo). */

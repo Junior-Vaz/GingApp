@@ -55,9 +55,9 @@ describe("schema de professores", () => {
     expect(createTeacherSchema.safeParse(v).success).toBe(true);
     expect(createTeacherSchema.safeParse({ ...v, password: "12345" }).success).toBe(false);
     expect(createTeacherSchema.safeParse({ ...v, email: "x" }).success).toBe(false);
-    expect(createPayload(v)).toEqual({ name: "Ab", email: "a@b.com", password: "123456", phone: undefined, role: "PROFESSOR" });
+    expect(createPayload(v)).toEqual({ name: "Ab", email: "a@b.com", password: "123456", phone: undefined, photo: undefined, role: "PROFESSOR" });
     // edição: telefone esvaziado => null (limpa); criação omite
-    expect(editPayload(v)).toEqual({ name: "Ab", phone: null, role: "PROFESSOR", status: "ACTIVE" });
+    expect(editPayload(v)).toEqual({ name: "Ab", phone: null, photo: null, role: "PROFESSOR", status: "ACTIVE" });
     expect(editPayload({ ...v, phone: " 71 " })).toMatchObject({ phone: "71" });
   });
 });
@@ -192,7 +192,7 @@ describe("ProfessoresPage", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     const body = calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>;
-    expect(body).toEqual({ name: "Mestre Bimba", phone: null, role: "MESTRE", status: "ACTIVE" });
+    expect(body).toEqual({ name: "Mestre Bimba", phone: null, photo: null, role: "MESTRE", status: "ACTIVE" });
   });
 
   it("erro 400 do PATCH aparece em toast e mantém o formulário aberto", async () => {

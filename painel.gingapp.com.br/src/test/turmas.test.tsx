@@ -74,8 +74,9 @@ describe("schema de turmas", () => {
   it("classToUpdatePayload manda null nos opcionais esvaziados (nome/status nunca); weekday 0 permanece 0", () => {
     const empty = { name: " Ab ", unitId: "", teacherUserId: "", weekday: "", startTime: "", endTime: "", description: " ", status: "ACTIVE" as const };
     expect(classToUpdatePayload(empty)).toEqual({
-      name: "Ab", unitId: null, teacherUserId: null, weekday: null, startTime: null, endTime: null, description: null, status: "ACTIVE",
+      name: "Ab", unitId: null, teacherUserId: null, weekday: null, startTime: null, endTime: null, description: null, status: "ACTIVE", photo: null, autoGenerateLessons: undefined,
     });
+    expect(classToUpdatePayload({ ...empty, photo: " https://x.com/a.jpg ", autoGenerateLessons: true })).toMatchObject({ photo: "https://x.com/a.jpg", autoGenerateLessons: true });
     expect(classToUpdatePayload({ ...empty, weekday: "0", unitId: "7", teacherUserId: "9" })).toMatchObject({ weekday: 0, unitId: 7, teacherUserId: 9 });
     // criação continua omitindo vazios e sem status
     const created = classToCreatePayload(empty);
@@ -304,7 +305,7 @@ describe("TurmasPage", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     const body = calls.find((c) => c.method === "PATCH")!.body as Record<string, unknown>;
     expect(body).toEqual({
-      name: "Infantil", unitId: null, teacherUserId: null, weekday: null, startTime: null, endTime: null, description: null, status: "ACTIVE",
+      name: "Infantil", unitId: null, teacherUserId: null, weekday: null, startTime: null, endTime: null, description: null, status: "ACTIVE", photo: null, autoGenerateLessons: false,
     });
   });
 

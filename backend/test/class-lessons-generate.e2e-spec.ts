@@ -37,7 +37,7 @@ describe('Turma: professor responsável + geração de aulas (e2e)', () => {
     const res = await request(app.getHttpServer())
       .post('/api/classes')
       .set(auth(token))
-      .send({ name: '[e2e-gen] Turma', ...body })
+      .send({ name: '[e2e-gen] Turma', autoGenerateLessons: false, ...body }) // sem geracao rolante: estes testes contam aulas do periodo manual
       .expect(201);
     classIds.push(res.body.id);
     return res.body as { id: number };
@@ -247,15 +247,16 @@ describe('Turma: professor responsável + geração de aulas (e2e)', () => {
       assert.equal(await prisma.lesson.count({ where: { classId: saturday } }), before);
     });
 
-    it('validações: formato, dia inexistente (30/02), to < from, campos ausentes e propriedade extra => 400', async () => {
+    it('validações: formato, dia inexistente (30/02), to < from, `to` sem `from`, to+continuous, continuous:false sem `to` e propriedade extra => 400', async () => {
       const before = await prisma.lesson.count({ where: { classId } });
       for (const body of [
         { from: '2026-11-1', to: '2026-11-30' },
         { from: '2026-02-30', to: '2026-03-10' },
         { from: '2026-11-30', to: '2026-11-01' },
-        { from: '2026-11-01' },
         { to: '2026-11-30' },
-        {},
+        { from: '2026-11-01', to: '2026-11-30', continuous: true },
+        { continuous: false },
+        { from: '2026-11-01', continuous: 'sim' },
         { from: '2026-11-01', to: '2026-11-30', classId: 1 },
         { from: '2026-11-01T00:00:00Z', to: '2026-11-30' },
       ]) {

@@ -27,10 +27,12 @@ import {
   useMyStudent,
   useNextLessons,
   useMyIdentity,
+  useMyUnit,
   usePassport,
 } from "@/lib/queries";
 import { Avatar } from "./avatar";
-import { monthRange, monthStats, nextLesson, weekdayLabel } from "@/lib/derive";
+import { ClassCover, TeacherLine, UnitLine } from "./class-parts";
+import { monthRange, monthStats, nextLesson, resolveClassInfo, weekdayLabel } from "@/lib/derive";
 
 export function HomePage() {
   const user = useSessionUser();
@@ -55,14 +57,12 @@ export function HomePage() {
   const upcomingClass = classes.data?.find((c) => c.id === upcoming?.classId);
   const upcomingDate = upcoming ? dayOnly(upcoming.date) : null;
   const isToday = upcomingDate !== null && upcomingDate.getTime() === startOfToday().getTime();
-  const unitName = passport.data?.unit?.name;
+  const myUnit = useMyUnit();
+  const info = resolveClassInfo(upcoming, classes.data, myUnit);
   const events = calendar.items.slice(0, 2).map(fromCalendar);
   const notices = (announcements.data ?? [])
     .filter((a) => a.isActive && (a.unitId === null || a.unitId === (student?.unitId ?? null)))
     .slice(0, 2);
-  const timeRange = upcoming
-    ? [upcoming.startTime, upcoming.endTime].filter(Boolean).join(" – ") || (upcomingClass ? [upcomingClass.startTime, upcomingClass.endTime].filter(Boolean).join(" – ") : "")
-    : "";
 
   return (
     <>
@@ -154,25 +154,21 @@ export function HomePage() {
           {lessons.isLoading ? (
             <StateMessage>Carregando…</StateMessage>
           ) : upcoming && upcomingDate ? (
-            <article className="class-card">
+            <article className="class-card next-class">
+              <ClassCover name={info.name} src={info.photo} variant="wide" />
               <div className="class-top">
                 <span className="badge">
                   <span className="cord-dot size-1.5" /> Próxima aula • {isToday ? "Hoje" : capitalize(fmt(upcomingDate, "EEE, dd/MM"))}
                 </span>
-                {timeRange && (
+                {info.time && (
                   <span className="class-time">
                     <Clock size={13} />
-                    {timeRange}
+                    {info.time}
                   </span>
                 )}
               </div>
-              <h3>{upcomingClass?.name ?? "Aula"}</h3>
-              {unitName && (
-                <div className="detail-line">
-                  <MapPin />
-                  {unitName}
-                </div>
-              )}
+              <h3>{info.name}</h3>
+              <UnitLine unit={info.unit} />
               {upcomingClass?.weekday != null && (
                 <div className="detail-line">
                   <CalendarDays />
@@ -181,7 +177,7 @@ export function HomePage() {
               )}
               <div className="class-bottom">
                 <div className="teacher">
-                  <span>{upcoming.notes ?? upcomingClass?.description ?? "Bom treino!"}</span>
+                  {info.teacher ? <TeacherLine teacher={info.teacher} /> : <span>{upcoming.notes ?? upcomingClass?.description ?? "Bom treino!"}</span>}
                 </div>
                 <Button variant="soft" size="sm" asChild className="text-[10px]">
                   <Link to="/aulas">

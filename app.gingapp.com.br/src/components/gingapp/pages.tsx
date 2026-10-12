@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Clock, MapPin, Download, Bell, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Check, Clock, Download, Bell, ShieldCheck, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { api, errorMessage } from "@/lib/api";
 import { capitalize, dayOnly, fmt, formatCurrency, relativeTime } from "@/lib/format";
-import { effectiveFinanceStatus, monthRange, monthStats, recentMonths, recordsInMonth, streakOf } from "@/lib/derive";
+import { effectiveFinanceStatus, monthRange, monthStats, recentMonths, recordsInMonth, resolveClassInfo, streakOf } from "@/lib/derive";
 import {
   useAnnouncements,
   useAttendance,
@@ -14,6 +14,7 @@ import {
   useFinance,
   useFinanceSummary,
   useMyStudent,
+  useMyUnit,
   useNotifications,
   useOwnOrganization,
   usePassport,
@@ -24,6 +25,7 @@ import {
   type FinancialRecord,
   type Lesson,
 } from "@/lib/queries";
+import { ClassCover, MyClasses, TeacherLine, UnitLine } from "./class-parts";
 import { PushSettings } from "./push-settings";
 import { LoadMore, PageHeading, SectionHeading, StateMessage } from "./shared";
 
@@ -43,44 +45,43 @@ export function ClassesPage() {
   const all = [...upcoming, ...past];
   const loading = upcomingQuery.isLoading || pastQuery.isLoading;
   const error = upcomingQuery.error ?? pastQuery.error;
-  const className = (l: Lesson) => classes.data?.find((c) => c.id === l.classId)?.name ?? "Aula";
-  const unitName = passport.data?.unit?.name;
-  const timeOf = (l: Lesson) => {
-    const c = classes.data?.find((item) => item.id === l.classId);
-    return [l.startTime ?? c?.startTime, l.endTime ?? c?.endTime].filter(Boolean).join(" – ");
-  };
+  const myUnit = useMyUnit();
+  const infoOf = (l: Lesson) => resolveClassInfo(l, classes.data, myUnit);
 
-  const card = (item: Lesson, isNext: boolean) => (
-    <article className="class-card" key={item.id}>
-      <div className="class-top">
-        <span className="badge">
-          {isNext ? "Próxima aula • " : ""}
-          {capitalize(fmt(dayOnly(item.date), "EEE, dd/MM"))}
-        </span>
-        {timeOf(item) && (
-          <span className="class-time">
-            <Clock size={13} />
-            {timeOf(item)}
-          </span>
-        )}
-      </div>
-      <h3>{className(item)}</h3>
-      {unitName && (
-        <div className="detail-line">
-          <MapPin />
-          {unitName}
+  const card = (item: Lesson, isNext: boolean) => {
+    const info = infoOf(item);
+    return (
+      <article className="class-card lesson-card" key={item.id}>
+        <ClassCover name={info.name} src={info.photo} />
+        <div className="lesson-main">
+          <div className="class-top">
+            <span className="badge">
+              {isNext ? "Próxima aula • " : ""}
+              {capitalize(fmt(dayOnly(item.date), "EEE, dd/MM"))}
+            </span>
+            {info.time && (
+              <span className="class-time">
+                <Clock size={13} />
+                {info.time}
+              </span>
+            )}
+          </div>
+          <h3>{info.name}</h3>
+          <UnitLine unit={info.unit} />
+          <TeacherLine teacher={info.teacher} />
+          {item.status === "INACTIVE" && <span className="badge badge-warm">Cancelada</span>}
+          {item.notes && <p className="text-xs text-muted-foreground my-4">{item.notes}</p>}
+          <div className="class-bottom">
+            <span />
+            <Button variant="soft" size="sm" onClick={() => setDetail(item)}>
+              Ver aula
+            </Button>
+          </div>
         </div>
-      )}
-      {item.status === "INACTIVE" && <span className="badge badge-warm">Cancelada</span>}
-      {item.notes && <p className="text-xs text-muted-foreground my-4">{item.notes}</p>}
-      <div className="class-bottom">
-        <span />
-        <Button variant="soft" size="sm" onClick={() => setDetail(item)}>
-          Ver aula
-        </Button>
-      </div>
-    </article>
-  );
+      </article>
+    );
+  };
+  const detailInfo = detail ? infoOf(detail) : null;
 
   return (
     <>
@@ -131,17 +132,14 @@ export function ClassesPage() {
       )}
       <Dialog open={detail !== null} onOpenChange={(open) => !open && setDetail(null)}>
         <DialogContent>
-          <DialogTitle>{detail ? className(detail) : ""}</DialogTitle>
+          <DialogTitle>{detailInfo?.name ?? ""}</DialogTitle>
           <DialogDescription>
             {detail ? capitalize(fmt(dayOnly(detail.date), "EEEE, dd 'de' MMMM")) : ""}
-            {detail && timeOf(detail) ? ` · ${timeOf(detail)}` : ""}
+            {detailInfo?.time ? ` · ${detailInfo.time}` : ""}
           </DialogDescription>
-          {unitName && (
-            <div className="detail-line">
-              <MapPin />
-              {unitName}
-            </div>
-          )}
+          {detailInfo && <ClassCover name={detailInfo.name} src={detailInfo.photo} variant="wide" className="in-dialog" />}
+          <UnitLine unit={detailInfo?.unit ?? null} />
+          <TeacherLine teacher={detailInfo?.teacher ?? null} />
           {detail?.status === "INACTIVE" && <p className="text-sm text-destructive">Esta aula foi cancelada.</p>}
           {detail?.notes && <p className="text-sm text-muted-foreground">{detail.notes}</p>}
         </DialogContent>
@@ -269,6 +267,7 @@ export function AttendancePage() {
             )}
             <p className="text-xs text-muted-foreground mt-4">Presenças registradas pelo professor.</p>
           </section>
+          <MyClasses />
         </>
       )}
     </>

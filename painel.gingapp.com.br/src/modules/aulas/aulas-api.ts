@@ -13,11 +13,16 @@ export interface Lesson {
   endTime: string | null;
   notes: string | null;
   status: "ACTIVE" | "INACTIVE";
+  /** Turma/unidade/professor já resolvidos pelo servidor (nome + foto) para as listas; ausentes em respostas antigas. */
+  class?: { id: number; name: string; photo?: string | null };
+  unit?: { id: number; name: string; photo?: string | null } | null;
+  teacher?: { id: number; name: string; photo?: string | null } | null;
 }
 
 export interface ClassOption {
   id: number;
   name: string;
+  photo?: string | null;
   /** Professor responsável da turma (as aulas geradas dela herdam este professor). */
   teacherUserId?: number | null;
 }
@@ -26,7 +31,7 @@ export interface TeacherMembership {
   id: number;
   role: "MESTRE" | "PROFESSOR";
   status: string;
-  user: { id: number; name: string; email: string; phone: string | null };
+  user: { id: number; name: string; email: string; phone: string | null; photo?: string | null };
 }
 
 /**

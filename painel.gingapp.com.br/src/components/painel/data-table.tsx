@@ -73,16 +73,17 @@ interface DataTableProps<T> {
   server?: ServerTableState;
   /** Classe extra por linha (ex.: destacar a linha do usuário). */
   rowClassName?: ((row: T) => string | undefined) | undefined;
+  /**
+   * Visão alternativa em CARDS (um por linha, largura total) no lugar da tabela. Busca, toolbar, paginação e os
+   * estados de carregando/erro/vazio são os mesmos nos dois modos. `active` liga a visão de cards.
+   */
+  cards?: { active: boolean; render: (row: T) => ReactNode } | undefined;
 }
 
 /** `take` fixo das listagens do backend; ver LACUNAS no README. */
 export const SERVER_LIST_LIMIT = 50;
 
-const normalize = (text: string) =>
-  text
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase();
+const normalize = (text: string) => text.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 function compare(a: string | number | null | undefined, b: string | number | null | undefined) {
   if (a == null && b == null) return 0;
@@ -112,6 +113,7 @@ export function DataTable<T>({
   serverLimit = SERVER_LIST_LIMIT,
   server,
   rowClassName,
+  cards,
 }: DataTableProps<T>) {
   const [localQuery, setLocalQuery] = useState("");
   const [sort, setSort] = useState<{ id: string; dir: "asc" | "desc" } | null>(null);
@@ -226,6 +228,51 @@ export function DataTable<T>({
     ));
   }
 
+  function renderCards(): ReactNode {
+    if (isLoading) {
+      return (
+        <div className="grid gap-3" data-testid="cards-loading">
+          {Array.from({ length: 3 }, (_, index) => (
+            <Skeleton key={index} className="h-36 w-full rounded-xl" />
+          ))}
+        </div>
+      );
+    }
+    if (error) {
+      return (
+        <div className="rounded-lg border bg-card py-10 text-center" data-testid="cards-error">
+          <p className="text-sm text-destructive">
+            {error instanceof Error ? error.message : "Não foi possível carregar os dados."}
+          </p>
+          {onRetry && (
+            <Button variant="outline" size="sm" className="mt-3" onClick={onRetry}>
+              Tentar novamente
+            </Button>
+          )}
+        </div>
+      );
+    }
+    if (visible.length === 0) {
+      return (
+        <div
+          className="rounded-lg border bg-card py-10 text-center text-sm text-muted-foreground"
+          data-testid="cards-empty"
+        >
+          {query ? "Nenhum resultado para a busca." : emptyMessage}
+        </div>
+      );
+    }
+    return (
+      <ul className="grid gap-3" data-testid="cards-list">
+        {visible.map((row) => (
+          <li key={getRowId(row)} className={rowClassName?.(row)}>
+            {cards?.render(row)}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   return (
     <div className="space-y-3">
       {(showSearch || toolbar) && (
@@ -255,41 +302,55 @@ export function DataTable<T>({
         </div>
       )}
 
-      <div className={cn("rounded-lg border bg-card", server?.isFetching && "opacity-60 transition-opacity")}>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              {columns.map((column) => {
-                const sortable = !!column.sortValue;
-                const active = sort?.id === column.id ? sort.dir : null;
-                const Icon = active === "asc" ? ArrowUp : active === "desc" ? ArrowDown : ArrowUpDown;
-                return (
-                  <TableHead
-                    key={column.id}
-                    className={column.className}
-                    aria-sort={active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"}
-                  >
-                    {sortable ? (
-                      <button
-                        type="button"
-                        className="inline-flex items-center gap-1 font-medium hover:text-foreground"
-                        onClick={() => toggleSort(column.id)}
-                      >
-                        {column.header}
-                        <Icon className={cn("size-3.5", !active && "opacity-40")} />
-                      </button>
-                    ) : (
-                      column.header
-                    )}
-                  </TableHead>
-                );
-              })}
-              {rowActions && <TableHead className="w-px text-right">Ações</TableHead>}
-            </TableRow>
-          </TableHeader>
-          <TableBody>{renderBody()}</TableBody>
-        </Table>
-      </div>
+      {cards?.active ? (
+        <div className={cn(server?.isFetching && "opacity-60 transition-opacity")}>
+          {renderCards()}
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "rounded-lg border bg-card",
+            server?.isFetching && "opacity-60 transition-opacity",
+          )}
+        >
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {columns.map((column) => {
+                  const sortable = !!column.sortValue;
+                  const active = sort?.id === column.id ? sort.dir : null;
+                  const Icon =
+                    active === "asc" ? ArrowUp : active === "desc" ? ArrowDown : ArrowUpDown;
+                  return (
+                    <TableHead
+                      key={column.id}
+                      className={column.className}
+                      aria-sort={
+                        active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"
+                      }
+                    >
+                      {sortable ? (
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 font-medium hover:text-foreground"
+                          onClick={() => toggleSort(column.id)}
+                        >
+                          {column.header}
+                          <Icon className={cn("size-3.5", !active && "opacity-40")} />
+                        </button>
+                      ) : (
+                        column.header
+                      )}
+                    </TableHead>
+                  );
+                })}
+                {rowActions && <TableHead className="w-px text-right">Ações</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>{renderBody()}</TableBody>
+          </Table>
+        </div>
+      )}
 
       {!server && !isLoading && !error && serverLimit > 0 && (data?.length ?? 0) >= serverLimit && (
         <p
@@ -297,8 +358,8 @@ export function DataTable<T>({
           data-testid="table-limit-warning"
           className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900"
         >
-          O servidor devolve no máximo {serverLimit} registros por lista. Pode haver registros que não
-          aparecem aqui, e busca, filtros e totais consideram apenas estes {serverLimit}.
+          O servidor devolve no máximo {serverLimit} registros por lista. Pode haver registros que
+          não aparecem aqui, e busca, filtros e totais consideram apenas estes {serverLimit}.
         </p>
       )}
 

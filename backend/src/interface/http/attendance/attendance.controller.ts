@@ -65,6 +65,13 @@ export class AttendanceController {
     return { records: sendPage(res, { items: records, total }), last30dPercent, currentStreak };
   }
 
+  /** Chamada rápida: aulas de HOJE (São Paulo) visíveis ao usuário, com contagem de alunos e de marcados. Equipe (attendance:view). */
+  @Get('quick-sessions')
+  @CanAccess('attendance', 'view')
+  quickSessions(@CurrentOrganization() organizationId: number, @CurrentUser() user: AuthenticatedUser) {
+    return this.attendanceService.quickSessions(organizationId, user);
+  }
+
   @Get('lessons/:lessonId')
   @CanAccess('attendance', 'view')
   getRoster(

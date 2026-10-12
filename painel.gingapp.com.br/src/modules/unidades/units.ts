@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BR_UFS } from "@/lib/br-ufs";
 import { createCrud } from "@/lib/crud";
+import { isImageRef } from "@/lib/uploads";
 import {
   coordinatesCreatePayload,
   coordinatesToForm,
@@ -25,6 +26,8 @@ export interface Unit {
   longitude?: number | null;
   isMain: boolean;
   status: UnitStatus;
+  /** Foto/logo da unidade: caminho `/api/uploads/<arquivo>` ou URL http(s). */
+  photo?: string | null;
 }
 
 /**
@@ -41,6 +44,8 @@ export interface UnitInput {
   longitude?: number | null | undefined;
   isMain?: boolean | undefined;
   status?: UnitStatus | undefined;
+  /** URL de upload / http(s); no PATCH, `null` remove a foto. */
+  photo?: string | null | undefined;
 }
 
 export const UNIT_STATUS_LABEL: Record<UnitStatus, string> = { ACTIVE: "Ativa", INACTIVE: "Inativa" };
@@ -65,6 +70,11 @@ export const unitSchema = z
     longitude: longitudeField,
     isMain: z.boolean(),
     status: z.enum(["ACTIVE", "INACTIVE"]),
+    photo: z
+      .string()
+      .trim()
+      .refine((v) => v === "" || isImageRef(v), "Informe uma URL válida (http/https) ou envie uma imagem.")
+      .optional(),
   })
   .refine((values) => !hasHalfCoordinates(values), {
     path: ["longitude"],
@@ -81,6 +91,7 @@ export const emptyUnitForm: UnitFormValues = {
   longitude: "",
   isMain: false,
   status: "ACTIVE",
+  photo: "",
 };
 
 export function unitToForm(unit: Unit): UnitFormValues {
@@ -92,6 +103,7 @@ export function unitToForm(unit: Unit): UnitFormValues {
     ...coordinatesToForm(unit),
     isMain: unit.isMain,
     status: unit.status,
+    photo: unit.photo ?? "",
   };
 }
 
@@ -104,6 +116,7 @@ export function unitToCreatePayload(values: UnitFormValues): UnitInput {
     state: values.state || undefined,
     ...coordinatesCreatePayload(values),
     isMain: values.isMain,
+    photo: values.photo?.trim() || undefined,
   };
 }
 
@@ -121,6 +134,7 @@ export function unitToUpdatePayload(values: UnitFormValues, original: Unit): Uni
     state: values.state || null,
     // Só quando o usuário mudou as coordenadas: assim, trocar só o endereço faz o servidor re-geocodificar.
     ...coordinatesUpdatePayload(values, original),
+    photo: values.photo?.trim() || null,
   };
   if (values.isMain && !original.isMain) payload.isMain = true;
   if (values.status !== original.status) payload.status = values.status;

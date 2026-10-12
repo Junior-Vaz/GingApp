@@ -23,6 +23,11 @@ const TEACHER_SELECT = {
   user: { select: { id: true, name: true, email: true, phone: true, photo: true, twoFactorEnabled: true } },
 } as const;
 
+/** Contrato de leitura: `photo` (de User.photo) no topo do item, além de `user.photo` (mantido). */
+function withPhoto<T extends { user: { photo: string | null } }>(membership: T): T & { photo: string | null } {
+  return { ...membership, photo: membership.user.photo };
+}
+
 /**
  * Não existe model Teacher próprio (PLANO_PROJETO.md §2.2): "professor" é o papel MESTRE
  * ou PROFESSOR de um OrganizationUser dentro do grupo. `id` nas rotas deste controller é o
@@ -63,7 +68,7 @@ export class TeachersService {
     ]);
     // unitIds (E08): unidades de atuação de cada professor da página, numa única consulta (vazio = sem restrição).
     const unitsByUser = await this.unitIdsByUser(organizationId, rows.map((r) => r.user.id));
-    return { items: rows.map((r) => ({ ...r, unitIds: unitsByUser.get(r.user.id) ?? [] })), total };
+    return { items: rows.map((r) => ({ ...withPhoto(r), unitIds: unitsByUser.get(r.user.id) ?? [] })), total };
   }
 
   async findOne(organizationId: number, id: number) {
@@ -75,7 +80,7 @@ export class TeachersService {
       throw new NotFoundException('Professor não encontrado.');
     }
     const unitsByUser = await this.unitIdsByUser(organizationId, [membership.user.id]);
-    return { ...membership, unitIds: unitsByUser.get(membership.user.id) ?? [] };
+    return { ...withPhoto(membership), unitIds: unitsByUser.get(membership.user.id) ?? [] };
   }
 
   /** Unidades de atuação (UserUnitAccess) dos usuários, ordenadas por id, na organização informada. */
@@ -148,7 +153,7 @@ export class TeachersService {
 
     const membership = await this.prisma.$transaction(async (tx) => {
       const user = await tx.user.create({
-        data: { email, passwordHash, name: dto.name, phone: dto.phone, status: 'ACTIVE' },
+        data: { email, passwordHash, name: dto.name, phone: dto.phone, photo: dto.photo, status: 'ACTIVE' },
       });
       return tx.organizationUser.create({
         data: { organizationId, userId: user.id, role: dto.role, status: 'ACTIVE' },
@@ -163,16 +168,16 @@ export class TeachersService {
       entityId: membership.id,
       meta: { role: membership.role, userId: membership.user.id },
     });
-    return membership;
+    return withPhoto(membership);
   }
 
   async update(organizationId: number, id: number, dto: UpdateTeacherDto) {
     const membership = await this.findOne(organizationId, id);
 
-    if (dto.name !== undefined || dto.phone !== undefined) {
+    if (dto.name !== undefined || dto.phone !== undefined || dto.photo !== undefined) {
       await this.prisma.user.update({
         where: { id: membership.user.id },
-        data: { name: dto.name, phone: dto.phone },
+        data: { name: dto.name, phone: dto.phone, photo: dto.photo },
       });
     }
 
@@ -237,6 +242,6 @@ export class TeachersService {
       entity: AuditEntity.TEACHER,
       entityId: id,
     });
-    return updated;
+    return withPhoto(updated);
   }
 }

@@ -450,6 +450,8 @@ model Unit {
   /// (shared/geo/geocoding.service.ts) a partir de address/city/state quando ha chave do Google.
   latitude       Float?
   longitude      Float?
+  /// Foto da unidade (URL http(s) ou /api/uploads/<uuid>.<ext>, validada por IsImageRef). Aparece nas turmas/aulas e no mapa.
+  photo          String?
   isMain         Boolean      @default(false)
   status         RecordStatus @default(ACTIVE)
   createdAt      DateTime     @default(now())
@@ -588,6 +590,12 @@ model Class {
   /// grupo (validado no service, mesmo padrao de Lesson.teacherUserId). Copiado para as aulas
   /// geradas por POST /classes/:id/generate-lessons.
   teacherUserId  Int?
+  /// Foto da turma (URL http(s) ou /api/uploads/<uuid>.<ext>, validada por IsImageRef).
+  photo          String?
+  /// Aulas continuas (sem data final): true = o job diario (e o ensureHorizon ao criar/editar a turma) mantem as
+  /// aulas geradas ate LESSONS_HORIZON_DAYS a frente, a partir do weekday/horario da turma. Turmas ja existentes
+  /// migram com true (passam a ter aulas geradas automaticamente); false = so geracao manual por periodo.
+  autoGenerateLessons Boolean  @default(true)
   status         RecordStatus @default(ACTIVE)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt

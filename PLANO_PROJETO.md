@@ -3229,3 +3229,25 @@ O que NAO deu certo / decisoes
 2. Recálculo noturno é sequencial por aluno (5 em paralelo): para milhares de alunos medir o tempo antes de aumentar a base.
 3. Rodas futuras só pontuam no recálculo noturno; graduação/evento alterados direto no banco idem.
 4. Textos do Passaporte/app devem avisar que o consentimento do responsável também libera o aluno nos rankings abertos.
+
+
+### Fotos (turma/unidade/professor), aulas contínuas e chamada rápida (backend) - 2026-10-12
+
+**Estado:** concluído (sem commit). Migration `20261012170000_photos_and_continuous_lessons`.
+
+#### O que deu certo
+- `Class.photo`, `Unit.photo` (novas) e `User.photo` (já existia; vale em todos os grupos), todas validadas por `IsImageRef` (aceita `null`/`''` para limpar via `blankImageToNull`). `PATCH /auth/me/profile {photo}` para o próprio usuário.
+- Contrato de leitura: `/classes*` e `/classes/me` com `photo`, `unit{id,name,photo}`, `teacher{id,name,photo}`; `/units` com `photo`; `/teachers*` com `photo` no topo; `/lessons*` com `class`, `unit` e `teacher` (da aula ou, na falta, da turma); roster com `photo` do aluno; mapa (CLASS/UNIT) com `imageUrl`.
+- Aulas contínuas: `Class.autoGenerateLessons` (padrão true), gerador único `class-lessons-generator.ts`, `ClassLessonsRollingService.ensureHorizon` (LESSONS_HORIZON_DAYS=60), job 01:30 SP (`LESSONS_CRON`), disparo ao criar/editar turma; `generate-lessons` sem `to` liga o modo contínuo.
+- `GET /attendance/quick-sessions` (aulas de hoje em SP, escopo de unidade, `attendance:view`).
+- Números: `test:unit` 146 ok; `test:quick` completo 869 ok (3 specs novos + 1 unit); demo (org 883) de 13 para 53 aulas futuras, até 2026-12-11, 2ª execução cria 0.
+
+#### O que NÃO deu certo e a solução
+- A migration escrita com BOM (PowerShell `Set-Content -Encoding utf8`) falhou no Postgres: regravada sem BOM + `migrate resolve --rolled-back`.
+- `class-lessons-generate.e2e-spec` quebrou (turma criada com dia da semana agora gera aulas sozinha): o spec cria as turmas com `autoGenerateLessons:false`; `{}`/`{from}` deixaram de ser 400 (viram modo contínuo).
+- `teachers.e2e-spec` (chaves do item) ganhou `photo`; `overdue-cron.spec` agora desliga os 5 jobs.
+
+#### Pendências (numeradas)
+1. Mudar dia/horário de uma turma não reescreve nem cancela as aulas futuras já geradas (só as novas saem certas).
+2. Turmas existentes migram com `autoGenerateLessons=true`: o primeiro job cria aulas à frente em todas as que têm dia da semana.
+3. Foto do professor é `User.photo` (global): o Mestre edita via `PATCH /teachers/:id`, o próprio usuário via `PATCH /auth/me/profile`.

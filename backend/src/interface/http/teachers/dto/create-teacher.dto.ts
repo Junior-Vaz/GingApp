@@ -1,5 +1,7 @@
 import { OrgRole } from '@prisma/client';
+import { Transform } from 'class-transformer';
 import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { blankImageToNull, IsImageRef } from '../../../../shared/uploads/image-ref';
 import { IsNewPassword } from '../../../../shared/security/new-password.decorator';
 
 /** "Professor" é papel (MESTRE ou PROFESSOR) de um OrganizationUser — não existe tabela
@@ -22,4 +24,10 @@ export class CreateTeacherDto {
 
   @IsIn([OrgRole.MESTRE, OrgRole.PROFESSOR])
   role!: OrgRole;
+
+  /** Foto de perfil do usuário (User.photo — vale em todos os grupos): caminho de POST /uploads ou URL http(s). */
+  @IsOptional()
+  @Transform(blankImageToNull)
+  @IsImageRef()
+  photo?: string | null;
 }

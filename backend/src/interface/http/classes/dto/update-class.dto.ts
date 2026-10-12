@@ -1,5 +1,7 @@
 import { RecordStatus } from '@prisma/client';
-import { IsEnum, IsInt, IsOptional, IsString, Max, Min, MinLength, ValidateIf } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, MinLength, ValidateIf } from 'class-validator';
+import { blankImageToNull, IsImageRef } from '../../../../shared/uploads/image-ref';
 import { IsAfterTimeOf, IsTimeOfDay } from '../../../../shared/dates/time-of-day';
 
 /**
@@ -44,4 +46,15 @@ export class UpdateClassDto {
   @ValidateIf((_, v) => v !== undefined)
   @IsEnum(RecordStatus)
   status?: RecordStatus;
+
+  /** Foto da turma (caminho de POST /uploads ou URL http(s)). null ou '' LIMPA. */
+  @IsOptional()
+  @Transform(blankImageToNull)
+  @IsImageRef()
+  photo?: string | null;
+
+  /** Aulas continuas ligadas/desligadas (nao aceita null). Desligar nao apaga as aulas ja geradas. */
+  @ValidateIf((_, v) => v !== undefined)
+  @IsBoolean()
+  autoGenerateLessons?: boolean;
 }

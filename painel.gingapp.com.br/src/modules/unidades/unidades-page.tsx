@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Building2, Plus } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { CoordinatesFields } from "@/components/painel/coordinates-fields";
 import { DataTable, type Column } from "@/components/painel/data-table";
+import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { FormDialog } from "@/components/painel/form-dialog";
+import { ImageUploadField } from "@/components/painel/image-upload-field";
 import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,6 +56,7 @@ export function UnidadesPage() {
       sortValue: (u) => u.name,
       cell: (u) => (
         <span className="flex items-center gap-2 font-semibold">
+          <EntityAvatar name={u.name} photo={u.photo} icon={Building2} className="size-9" />
           {u.name}
           {u.isMain && <Badge variant="secondary">Matriz</Badge>}
         </span>
@@ -167,6 +170,13 @@ export function UnidadesPage() {
                   <FormMessage />
                 </FormItem>
               )}
+            />
+            <ImageUploadField<UnitFormValues>
+              name="photo"
+              label="Foto ou logo da unidade (URL)"
+              shape="square"
+              previewAlt="Foto da unidade"
+              description="Opcional. Envie uma imagem (JPEG, PNG ou WebP até 5 MB) ou cole o link de uma imagem."
             />
             <FormField
               control={form.control}

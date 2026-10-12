@@ -4,6 +4,7 @@ import { civilDateRange } from '../../../shared/dates/date-range';
 import { pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { civilTodayStart } from '../finance/finance.service';
+import { timeToMinutes, isTimeOfDay } from '../../../shared/dates/time-of-day';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { lessonScopeFilter, UnitScopeService } from '../../../shared/access/unit-scope';
@@ -25,8 +26,41 @@ export interface MyAttendance {
 export interface RosterEntry {
   studentId: number;
   studentName: string;
+  /** Foto do aluno (Student.photo) ou null. */
+  photo: string | null;
   present: boolean | null;
   justification: string | null;
+}
+
+export type QuickSessionStatus = 'UPCOMING' | 'ONGOING' | 'ENDED';
+
+/** Uma aula de HOJE para a chamada rápida (GET /attendance/quick-sessions). */
+export interface QuickSession {
+  lessonId: number;
+  classId: number;
+  className: string;
+  classPhoto: string | null;
+  startTime: string | null;
+  endTime: string | null;
+  unitName: string | null;
+  status: QuickSessionStatus;
+  /** Alunos ATIVOS matriculados na turma (o roster da chamada). */
+  studentsCount: number;
+  /** Registros de presença/falta já lançados nesta aula. */
+  markedCount: number;
+}
+
+/** "HH:MM" atual em America/Sao_Paulo (mesmo fuso do "hoje" civil usado nas aulas). */
+function saoPauloMinutes(now: Date): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
+  return hour * 60 + minute;
 }
 
 /**
@@ -155,10 +189,82 @@ export class AttendanceService {
       return {
         studentId: cs.studentId,
         studentName: cs.student.name,
+        photo: cs.student.photo,
         present: attendance ? attendance.present : null,
         justification: attendance?.justification ?? null,
       };
     });
+  }
+
+  /**
+   * Chamada rápida (botão flutuante do painel): as aulas de HOJE (data civil de America/Sao_Paulo) da organização
+   * visíveis ao usuário (escopo de unidade, igual a /attendance/lessons/:id), só aulas ATIVAS de turmas ATIVAS.
+   * `status` pelo horário atual de São Paulo: ENDED (já passou do fim), UPCOMING (ainda não começou) ou ONGOING
+   * (entre início e fim; aula sem horário conta como ONGOING o dia todo). Ordem: ONGOING, UPCOMING, ENDED —
+   * dentro de cada grupo por horário de início (sem horário por último). O horário da aula cai no da turma se nulo.
+   * Contagens em lote (sem N+1): studentsCount = matrículas ACTIVE da turma; markedCount = presenças lançadas na aula.
+   */
+  async quickSessions(organizationId: number, user?: AuthenticatedUser, now: Date = new Date()): Promise<QuickSession[]> {
+    const scope = await this.unitScope.resolve(user, organizationId);
+    const today = civilTodayStart(now);
+    const lessons = await this.prisma.lesson.findMany({
+      where: {
+        organizationId,
+        status: 'ACTIVE',
+        date: { gte: today, lt: new Date(today.getTime() + DAY_MS) },
+        class: { status: 'ACTIVE' },
+        AND: [lessonScopeFilter(scope)],
+      },
+      include: {
+        class: { select: { id: true, name: true, photo: true, startTime: true, endTime: true, unit: { select: { name: true } } } },
+        unit: { select: { name: true } },
+      },
+    });
+    if (lessons.length === 0) return [];
+
+    const classIds = [...new Set(lessons.map((l) => l.classId))];
+    const [enrolled, marked] = await Promise.all([
+      this.prisma.classStudent.groupBy({
+        by: ['classId'],
+        where: { organizationId, classId: { in: classIds }, status: 'ACTIVE' },
+        _count: { _all: true },
+      }),
+      this.prisma.attendance.groupBy({
+        by: ['lessonId'],
+        where: { organizationId, lessonId: { in: lessons.map((l) => l.id) } },
+        _count: { _all: true },
+      }),
+    ]);
+    const studentsByClass = new Map(enrolled.map((e) => [e.classId, e._count._all]));
+    const markedByLesson = new Map(marked.map((m) => [m.lessonId, m._count._all]));
+
+    const nowMinutes = saoPauloMinutes(now);
+    const rank: Record<QuickSessionStatus, number> = { ONGOING: 0, UPCOMING: 1, ENDED: 2 };
+    const sessions = lessons.map((lesson): QuickSession => {
+      const startTime = lesson.startTime ?? lesson.class.startTime;
+      const endTime = lesson.endTime ?? lesson.class.endTime;
+      let status: QuickSessionStatus = 'ONGOING';
+      if (isTimeOfDay(endTime) && nowMinutes >= timeToMinutes(endTime)) status = 'ENDED';
+      else if (isTimeOfDay(startTime) && nowMinutes < timeToMinutes(startTime)) status = 'UPCOMING';
+      return {
+        lessonId: lesson.id,
+        classId: lesson.classId,
+        className: lesson.class.name,
+        classPhoto: lesson.class.photo,
+        startTime,
+        endTime,
+        unitName: lesson.unit?.name ?? lesson.class.unit?.name ?? null,
+        status,
+        studentsCount: studentsByClass.get(lesson.classId) ?? 0,
+        markedCount: markedByLesson.get(lesson.id) ?? 0,
+      };
+    });
+    return sessions.sort(
+      (a, b) =>
+        rank[a.status] - rank[b.status] ||
+        (a.startTime ?? '99:99').localeCompare(b.startTime ?? '99:99') ||
+        a.lessonId - b.lessonId,
+    );
   }
 
   /**

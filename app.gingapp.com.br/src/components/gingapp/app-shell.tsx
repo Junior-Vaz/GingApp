@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { logout } from "@/lib/auth";
 import { useSessionUser } from "@/lib/session";
-import { useMyIdentity, useMyStudent, usePassport, useUnreadCount } from "@/lib/queries";
+import { useMyIdentity, useMyStudent, useMyUnit, usePassport, useUnreadCount } from "@/lib/queries";
 import { Avatar } from "./avatar";
 
 const mainNav = [
@@ -98,7 +98,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   const me = useMyIdentity();
   const unread = useUnreadCount().data ?? 0; // contado no banco, não pela lista de notificações
   const groupName = passport.data?.organization.name ?? user?.organizationSlug ?? "Seu grupo";
-  const unitName = passport.data?.unit?.name ?? "";
+  const myUnit = useMyUnit();
+  const unitName = myUnit?.name ?? passport.data?.unit?.name ?? "";
   const current = [...mainNav, ...communityNav, ...personalNav].find((item) => item.to === pathname)?.label ?? "GingApp";
 
   function handleLogout() {
@@ -140,7 +141,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Avatar decorative name={me.name || user?.name} src={me.photo} size={38} groupName={me.groupName ?? groupName} groupLogoUrl={me.groupLogoUrl} />
             <div className="min-w-0">
               <strong className="truncate">{user?.name}</strong>
-              <p className="truncate">
+              <p className="truncate shell-unit">
+                {myUnit?.photo && <Avatar decorative name={unitName} src={myUnit.photo} size={16} className="shell-unit-photo" />}
                 {groupName}
                 {unitName ? ` · ${unitName}` : ""}
               </p>
@@ -167,7 +169,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="top-actions">
             {unitName && (
               <span className="location-label">
-                <MapPin size={13} /> {unitName}
+                {myUnit?.photo ? <Avatar decorative name={unitName} src={myUnit.photo} size={20} /> : <MapPin size={13} />} {unitName}
               </span>
             )}
             <Button variant="ghost" size="icon" asChild title="Notificações">

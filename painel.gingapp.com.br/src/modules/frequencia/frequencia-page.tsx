@@ -1,39 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
-import { CheckCheck, UserX } from "lucide-react";
+import { CheckCheck, Layers, UserX } from "lucide-react";
+import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { ExportCsvButton } from "@/components/painel/export-csv-button";
 import { PageHeader } from "@/components/painel/page-header";
+import { StudentAvatar } from "@/components/painel/student-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api, errorMessage } from "@/lib/api";
-import { notifyError } from "@/lib/crud";
+import { errorMessage } from "@/lib/api";
 import { dayOnly, fmt } from "@/lib/format";
 import { useCan } from "@/lib/session";
 import { CheckinLink } from "@/modules/checkin/checkin-link";
 import { NativeSelect } from "@/modules/aulas/native-select";
 import { timeRange, type Lesson } from "@/modules/aulas/aulas-api";
-import { SELECTOR_LIMIT, useClassSelector, useLessonSelector } from "./frequencia-api";
+import { SELECTOR_LIMIT, useClassSelector, useLessonSelector, useRoster, useSaveAttendance } from "./frequencia-api";
 import {
-  buildPayload,
   markAll,
   nextPresence,
   setJustification,
   setPresence,
   summarize,
   toRows,
-  type RosterEntry,
   type RosterRow,
 } from "./roster";
 
-const rosterKey = (lessonId: string) => ["frequencia", "roster", lessonId];
-
 export function FrequenciaPage() {
-  const queryClient = useQueryClient();
   const canCheckin = useCan("attendance", "create"); // GET /attendance/lessons/:id/checkin-token exige attendance.create
   const [classFilter, setClassFilter] = useState("");
   const [from, setFrom] = useState("");
@@ -59,24 +53,13 @@ export function FrequenciaPage() {
   const classesTotal = classes.data?.total ?? 0;
   const selected: Lesson | undefined = lessonItems?.find((l) => String(l.id) === lessonId);
 
-  const roster = useQuery({
-    queryKey: rosterKey(lessonId),
-    queryFn: () => api.get<RosterEntry[]>(`/attendance/lessons/${lessonId}`),
-    enabled: lessonId !== "",
-  });
+  const roster = useRoster(lessonId);
 
   useEffect(() => {
     setRows(roster.data ? toRows(roster.data) : []);
   }, [roster.data]);
 
-  const save = useMutation({
-    mutationFn: (id: string) => api.post<{ count: number }>(`/attendance/lessons/${id}`, buildPayload(rows)),
-    onSuccess: (result, id) => {
-      toast.success(`Frequência salva (${result?.count ?? buildPayload(rows).length} alunos).`);
-      void queryClient.invalidateQueries({ queryKey: rosterKey(id) });
-    },
-    onError: (error) => notifyError(error, "Não foi possível salvar a frequência."),
-  });
+  const save = useSaveAttendance();
 
   const summary = summarize(rows);
   const canSave = rows.length > 0 && summary.total - summary.undecided > 0 && !save.isPending;
@@ -143,7 +126,12 @@ export function FrequenciaPage() {
           <TableBody>
             {rows.map((row) => (
               <TableRow key={row.studentId}>
-                <TableCell className="font-medium">{row.studentName}</TableCell>
+                <TableCell className="font-medium">
+                  <span className="flex items-center gap-2">
+                    <StudentAvatar name={row.studentName} photo={row.photo} className="size-8" />
+                    {row.studentName}
+                  </span>
+                </TableCell>
                 <TableCell>
                   <Checkbox
                     aria-label={`Presença de ${row.studentName}`}
@@ -172,7 +160,7 @@ export function FrequenciaPage() {
           {summary.undecided > 0 && (
             <p className="text-xs text-muted-foreground">Alunos sem marcação não são enviados.</p>
           )}
-          <Button disabled={!canSave} onClick={() => save.mutate(lessonId)}>
+          <Button disabled={!canSave} onClick={() => save.mutate({ lessonId, rows })}>
             {save.isPending ? "Salvando…" : "Salvar frequência"}
           </Button>
         </div>
@@ -273,8 +261,9 @@ export function FrequenciaPage() {
         <div className="rounded-lg border bg-card">
           {selected && (
             <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3 text-sm text-muted-foreground">
-              <span>
-                {className(selected.classId)} · {fmt(dayOnly(selected.date), "dd/MM/yyyy")} · {timeRange(selected)}
+              <span className="flex items-center gap-2">
+                <EntityAvatar name={selected.class?.name ?? className(selected.classId)} photo={selected.class?.photo} icon={Layers} className="size-7" />
+                {selected.class?.name ?? className(selected.classId)} · {fmt(dayOnly(selected.date), "dd/MM/yyyy")} · {timeRange(selected)}
               </span>
               {canCheckin && (
                 <CheckinLink kind="aula" id={selected.id} label="QR de presença" ariaLabel="QR de presença desta aula" />

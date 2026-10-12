@@ -300,7 +300,7 @@ describe("UnidadesPage — CRUD", () => {
     fireEvent.change(within(dialog).getByLabelText("UF"), { target: { value: "" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
-    expect(writes(calls)[0]!.body).toEqual({ name: "Filial Norte", address: null, city: null, state: null });
+    expect(writes(calls)[0]!.body).toEqual({ name: "Filial Norte", address: null, city: null, state: null, photo: null });
   });
 
   it("matriz atual: o interruptor de matriz e a situação ficam travados no formulário", async () => {
@@ -395,7 +395,7 @@ describe("units.ts — schema e payloads", () => {
 
   it("editar: vazios viram null; isMain só quando passa a true; status só quando muda", () => {
     const form = unitToForm(base);
-    expect(unitToUpdatePayload({ ...form, address: "", city: " ", state: "" }, base)).toEqual({ name: "Filial", address: null, city: null, state: null });
+    expect(unitToUpdatePayload({ ...form, address: "", city: " ", state: "" }, base)).toEqual({ name: "Filial", address: null, city: null, state: null, photo: null });
     expect(unitToUpdatePayload({ ...form, isMain: true }, base)).toMatchObject({ isMain: true });
     const main = { ...base, isMain: true };
     expect(unitToUpdatePayload(unitToForm(main), main)).not.toHaveProperty("isMain"); // nunca reenvia o valor igual

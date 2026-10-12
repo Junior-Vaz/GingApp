@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Award, Check, Facebook, Instagram, LogOut, MapPin, MessageCircle, QrCode, Sprout, Users, X, Youtube, Music2 } from "lucide-react";
+import { Award, Check, Facebook, Instagram, LogOut, MessageCircle, QrCode, Sprout, Users, X, Youtube, Music2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { api, errorMessage } from "@/lib/api";
@@ -14,12 +14,14 @@ import {
   useGraduations,
   useMyIdentity,
   useMyStudent,
+  useMyUnit,
   usePassport,
   useStudents,
   type SocialLinks,
   type Student,
 } from "@/lib/queries";
 import { ChangePasswordSection } from "./change-password";
+import { UnitLine } from "./class-parts";
 import { ImageUploadControl } from "./image-upload";
 import { MyDataSection } from "./legal";
 import { QrDialog } from "./journey";
@@ -123,6 +125,7 @@ export function ProfilePage() {
   const { student } = useMyStudent();
   const own = students.data?.find((s) => s.userId === user?.id) ?? null;
   const passport = usePassport();
+  const myUnit = useMyUnit();
   const identity = useMyIdentity();
   const graduations = useGraduations(student?.id); // passaporte e graduação: do aluno ATIVO (seletor)
   const [qrOpen, setQrOpen] = useState(false);
@@ -283,12 +286,7 @@ export function ProfilePage() {
                 {p.organization.name}
               </div>
             )}
-            {p?.unit && (
-              <div className="detail-line">
-                <MapPin />
-                {p.unit.name}
-              </div>
-            )}
+            {p?.unit && <UnitLine unit={myUnit ?? { name: p.unit.name, photo: p.unit.photo ?? null }} />}
             {(students.data ?? []).length > 1 && (
               <div className="detail-line">
                 <Users />

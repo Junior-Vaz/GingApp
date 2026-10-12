@@ -18,6 +18,9 @@ export interface Student {
   photo?: string | null;
   status: StudentStatus;
   joinedAt: string | null;
+  /** Opcionais (exibidos no card quando o servidor os envia): turmas ativas e corda/graduação atual. */
+  classNames?: string[] | undefined;
+  currentCord?: string | null | undefined;
 }
 
 /**

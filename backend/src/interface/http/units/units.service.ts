@@ -95,6 +95,7 @@ export class UnitsService {
           state: dto.state,
           latitude: coordinates.latitude,
           longitude: coordinates.longitude,
+          photo: dto.photo,
           isMain,
         },
       });
@@ -117,12 +118,13 @@ export class UnitsService {
       state: dto.state,
       latitude: dto.latitude,
       longitude: dto.longitude,
+      photo: dto.photo,
       isMain: dto.isMain,
       status: dto.status,
     };
     if (Object.values(data).every((value) => value === undefined)) {
       throw new BadRequestException(
-        'Informe ao menos um campo para atualizar (name, address, city, state, latitude, longitude, isMain ou status).',
+        'Informe ao menos um campo para atualizar (name, address, city, state, latitude, longitude, photo, isMain ou status).',
       );
     }
     resolveCoordinatesInput(dto); // 400 se so' uma das duas coordenadas veio
@@ -230,6 +232,7 @@ export class UnitsService {
           state: dto.state,
           latitude: coordinates?.latitude,
           longitude: coordinates?.longitude,
+          photo: dto.photo,
           isMain: dto.isMain,
           status: dto.status,
         },

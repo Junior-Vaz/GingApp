@@ -15,6 +15,7 @@ import {
   usePassport,
   type Certificate,
 } from "@/lib/queries";
+import { MyClasses } from "./class-parts";
 import { PageHeading, SectionHeading, StateMessage } from "./shared";
 
 export function QrDialog({
@@ -202,6 +203,7 @@ export function JourneyPage() {
               <StateMessage>{loading ? "Carregando…" : "Nenhuma graduação registrada ainda."}</StateMessage>
             )}
           </section>
+          <MyClasses />
           <section className="content-band">
             <SectionHeading title="Meus certificados" />
             {certificates.isLoading ? (

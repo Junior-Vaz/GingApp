@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { AppShell } from "@/components/painel/app-shell";
 import { MustChangePasswordScreen, TermsGate } from "@/components/painel/legal";
+import { QuickAttendance } from "@/modules/frequencia/chamada-rapida";
 import { clearSession, isAuthenticated, useSessionUser } from "@/lib/session";
 
 // Guard: sem sessão de gestão válida (token + papel MESTRE/PROFESSOR) -> /login?redirect=...
@@ -23,6 +24,7 @@ function AppLayout() {
     <AppShell>
       <Outlet />
       <TermsGate />
+      <QuickAttendance />
     </AppShell>
   );
 }

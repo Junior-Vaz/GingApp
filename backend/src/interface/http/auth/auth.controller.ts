@@ -8,6 +8,7 @@ import {
   HttpStatus,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Req,
   UseFilters,
@@ -30,6 +31,7 @@ import { DisableTwoFactorDto, EnableTwoFactorDto, VerifyTwoFactorDto } from './d
 import { TwoFactorService, TwoFactorSetupResult } from './two-factor.service';
 import { AuthService } from './auth.service';
 import { AcceptTermsDto } from './dto/accept-terms.dto';
+import { UpdateAccountProfileDto } from './dto/update-account-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { DeleteRequestDto } from './dto/delete-request.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -220,6 +222,12 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthenticatedUser): Promise<MeResponse> {
     return this.accountService.me(user);
+  }
+
+  /** Foto de perfil da PRÓPRIA conta (professor/mestre; o aluno usa PATCH /students/me/profile). Sem @AllowDuringGate: exige senha trocada e termos aceitos. */
+  @Patch('me/profile')
+  updateProfile(@CurrentUser() user: AuthenticatedUser, @Body() dto: UpdateAccountProfileDto): Promise<MeResponse> {
+    return this.accountService.updateProfile(user, dto);
   }
 
   /** Aceite da versão vigente dos Termos de Uso + Política de Privacidade (GET /legal -> version). */

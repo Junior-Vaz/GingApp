@@ -1,12 +1,14 @@
 import { useState } from "react";
-import { KeyRound, MapPin, Plus, ShieldOff } from "lucide-react";
+import { GraduationCap, KeyRound, MapPin, Plus, ShieldOff } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ResetPasswordDialog } from "@/components/painel/account-dialogs";
 import { ResetTwoFactorDialog } from "@/components/painel/reset-two-factor-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
+import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { FormDialog } from "@/components/painel/form-dialog";
+import { ImageUploadField } from "@/components/painel/image-upload-field";
 import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -70,7 +72,13 @@ export function ProfessoresPage() {
   });
 
   const columns: Column<Teacher>[] = [
-    { id: "name", header: "Nome", sortValue: (t) => t.user.name, cell: (t) => <span className="font-medium">{t.user.name}</span> },
+    { id: "name", header: "Nome", sortValue: (t) => t.user.name, cell: (t) => (
+        <span className="flex items-center gap-2 font-medium">
+          <EntityAvatar name={t.user.name} photo={t.user.photo} icon={GraduationCap} className="size-9" />
+          {t.user.name}
+        </span>
+      ),
+    },
     { id: "email", header: "E-mail", sortValue: (t) => t.user.email, cell: (t) => t.user.email },
     { id: "phone", header: "Telefone", cell: (t) => t.user.phone || "—" },
     {
@@ -208,6 +216,13 @@ export function ProfessoresPage() {
                   <FormMessage />
                 </FormItem>
               )}
+            />
+            <ImageUploadField<TeacherFormValues>
+              name="photo"
+              label="Foto (URL)"
+              shape="square"
+              previewAlt="Foto do professor"
+              description="Opcional. Envie uma foto (JPEG, PNG ou WebP até 5 MB) ou cole o link de uma imagem."
             />
             <FormField
               control={form.control}

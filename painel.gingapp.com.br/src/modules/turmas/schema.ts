@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isImageRef } from "@/lib/uploads";
 
 export type ClassStatus = "ACTIVE" | "INACTIVE";
 
@@ -13,6 +14,13 @@ export interface ClassItem {
   /** Professor responsável: User.id de um membro ativo MESTRE/PROFESSOR do grupo. */
   teacherUserId: number | null;
   status: ClassStatus;
+  /** Foto da turma: caminho `/api/uploads/<arquivo>` ou URL http(s). */
+  photo?: string | null;
+  /** Unidade/professor já resolvidos pelo servidor (nome + foto) para listas; ausentes em respostas antigas. */
+  unit?: { id: number; name: string; photo?: string | null } | null;
+  teacher?: { id: number; name: string; photo?: string | null } | null;
+  /** Geração contínua de aulas: o sistema mantém ~60 dias de aulas à frente automaticamente. */
+  autoGenerateLessons?: boolean;
 }
 
 /**
@@ -28,7 +36,13 @@ export interface ClassInput {
   startTime?: string | null | undefined;
   endTime?: string | null | undefined;
   status?: ClassStatus | undefined;
+  /** URL de upload / http(s); no PATCH, `null` remove a foto. */
+  photo?: string | null | undefined;
+  autoGenerateLessons?: boolean | undefined;
 }
+
+/** Dias de aulas à frente que o sistema mantém sozinho na geração contínua (texto de ajuda). */
+export const CONTINUOUS_AHEAD_DAYS = 60;
 
 export const CLASS_STATUS_LABEL: Record<ClassStatus, string> = { ACTIVE: "Ativa", INACTIVE: "Inativa" };
 
@@ -51,6 +65,12 @@ export const classSchema = z.object({
   endTime: z.string(),
   description: z.string(),
   status: z.enum(["ACTIVE", "INACTIVE"]),
+  photo: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || isImageRef(v), "Informe uma URL válida (http/https) ou envie uma imagem.")
+    .optional(),
+  autoGenerateLessons: z.boolean().optional(),
 });
 export type ClassFormValues = z.infer<typeof classSchema>;
 
@@ -63,6 +83,8 @@ export const emptyClassForm: ClassFormValues = {
   endTime: "",
   description: "",
   status: "ACTIVE",
+  photo: "",
+  autoGenerateLessons: true, // turma nova nasce com aulas contínuas ligadas
 };
 
 export function classToForm(c: ClassItem): ClassFormValues {
@@ -75,6 +97,8 @@ export function classToForm(c: ClassItem): ClassFormValues {
     endTime: c.endTime ?? "",
     description: c.description ?? "",
     status: c.status,
+    photo: c.photo ?? "",
+    autoGenerateLessons: c.autoGenerateLessons ?? false,
   };
 }
 
@@ -89,6 +113,8 @@ export function classToPayload(values: ClassFormValues): ClassInput {
     endTime: values.endTime || undefined,
     description: values.description.trim() || undefined,
     status: values.status,
+    photo: values.photo?.trim() || undefined,
+    autoGenerateLessons: values.autoGenerateLessons,
   };
 }
 
@@ -106,6 +132,8 @@ export function classToUpdatePayload(values: ClassFormValues): ClassInput {
     endTime: values.endTime || null,
     description: values.description.trim() || null,
     status: values.status,
+    photo: values.photo?.trim() || null,
+    autoGenerateLessons: values.autoGenerateLessons,
   };
 }
 

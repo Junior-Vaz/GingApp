@@ -1,14 +1,17 @@
 import { useState } from "react";
-import { Plus } from "lucide-react";
+import { Building2, Layers, Plus, Repeat, UserRound } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
+import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { FormDialog } from "@/components/painel/form-dialog";
+import { ImageUploadField } from "@/components/painel/image-upload-field";
 import { PageHeader } from "@/components/painel/page-header";
 import { UnitPicker } from "@/components/painel/unit-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { createCrud } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
@@ -20,6 +23,7 @@ import { GenerateLessonsDialog } from "./generate-lessons-dialog";
 import { ClassStudentsDialog } from "./students-dialog";
 import {
   CLASS_STATUS_LABEL,
+  CONTINUOUS_AHEAD_DAYS,
   WEEKDAY_LABEL,
   classSchema,
   classToForm,
@@ -63,8 +67,38 @@ export function TurmasPage() {
   const unitName = (id: number | null) => (id === null ? "—" : nameOfUnit(id, `Unidade #${id}`));
 
   const columns: Column<ClassItem>[] = [
-    { id: "name", header: "Nome", sortValue: (c) => c.name, cell: (c) => <span className="font-medium">{c.name}</span> },
-    { id: "unit", header: "Unidade", sortValue: (c) => unitName(c.unitId), cell: (c) => unitName(c.unitId) },
+    {
+      id: "name",
+      header: "Nome",
+      sortValue: (c) => c.name,
+      cell: (c) => (
+        <span className="flex items-center gap-2 font-medium">
+          <EntityAvatar name={c.name} photo={c.photo} icon={Layers} className="size-9" />
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            {c.name}
+            {c.autoGenerateLessons && (
+              <Badge variant="outline" className="gap-1 font-normal" title={`O sistema mantém ~${CONTINUOUS_AHEAD_DAYS} dias de aulas à frente automaticamente.`}>
+                <Repeat className="size-3" /> Aulas contínuas
+              </Badge>
+            )}
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: "unit",
+      header: "Unidade",
+      sortValue: (c) => c.unit?.name ?? unitName(c.unitId),
+      cell: (c) =>
+        c.unitId === null && !c.unit ? (
+          "—"
+        ) : (
+          <>
+            <EntityAvatar name={c.unit?.name ?? unitName(c.unitId)} photo={c.unit?.photo} icon={Building2} className="mr-2 size-6 align-middle" />
+            {c.unit?.name ?? unitName(c.unitId)}
+          </>
+        ),
+    },
     {
       id: "weekday",
       header: "Dia",
@@ -75,8 +109,18 @@ export function TurmasPage() {
     {
       id: "teacher",
       header: "Professor",
-      sortValue: (c) => teacherName(c.teacherUserId),
-      cell: (c) => teacherName(c.teacherUserId),
+      sortValue: (c) => c.teacher?.name ?? teacherName(c.teacherUserId),
+      cell: (c) => {
+        const name = c.teacher?.name ?? teacherName(c.teacherUserId);
+        if (name === "—") return name;
+        const photo = c.teacher?.photo ?? teacherItems.find((t) => t.user.id === c.teacherUserId)?.user.photo;
+        return (
+          <>
+            <EntityAvatar name={name} photo={photo} icon={UserRound} className="mr-2 size-6 align-middle" />
+            {name}
+          </>
+        );
+      },
     },
     {
       id: "status",
@@ -188,6 +232,13 @@ export function TurmasPage() {
                 </FormItem>
               )}
             />
+            <ImageUploadField<ClassFormValues>
+              name="photo"
+              label="Foto da turma (URL)"
+              shape="square"
+              previewAlt="Foto da turma"
+              description="Opcional. Envie uma foto (JPEG, PNG ou WebP até 5 MB) ou cole o link de uma imagem."
+            />
             <div className="grid grid-cols-2 gap-3">
               <FormField
                 control={form.control}
@@ -285,6 +336,24 @@ export function TurmasPage() {
                     <Textarea rows={3} {...field} />
                   </FormControl>
                   <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="autoGenerateLessons"
+              render={({ field }) => (
+                <FormItem className="rounded-md border p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <FormLabel>Contínuo (sem data final)</FormLabel>
+                    <FormControl>
+                      <Switch checked={field.value === true} onCheckedChange={field.onChange} aria-label="Contínuo (sem data final)" />
+                    </FormControl>
+                  </div>
+                  <FormDescription>
+                    O sistema mantém ~{CONTINUOUS_AHEAD_DAYS} dias de aulas à frente automaticamente, no dia e horário da turma
+                    (precisa de dia da semana). Desligue para criar as aulas só pelo botão &quot;Gerar aulas&quot;.
+                  </FormDescription>
                 </FormItem>
               )}
             />

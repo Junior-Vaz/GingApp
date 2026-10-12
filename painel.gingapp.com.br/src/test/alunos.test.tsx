@@ -63,6 +63,7 @@ const base = () => ({
 });
 
 beforeEach(() => {
+  localStorage.setItem("painel:alunos:view", "table"); // estes testes cobrem a visão em tabela (o padrão novo é cards)
   loginAs("MESTRE"); // a UI esconde ações conforme o papel (useCan); os testes de PROFESSOR trocam o papel
 });
 
