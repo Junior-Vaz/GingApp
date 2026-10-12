@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { BellRing, Smartphone } from "lucide-react";
+import { BellRing, Send, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -10,55 +10,58 @@ import {
   PushPermissionDeniedError,
   disablePush,
   enablePush,
-  getBrowserSubscription,
+  getCurrentPush,
   isPushSupported,
   needsIosInstall,
-  registerSubscription,
+  sendTestPush,
   usePushConfig,
   usePushPreferences,
   type PushCategory,
+  type PushHandle,
   type PushPreferences,
 } from "@/lib/push";
 
 /**
- * Avisos no celular (Web Push). Só aparece quando o servidor tem push ligado (GET /push/config -> enabled) e o
- * aparelho suporta (ou, no iPhone, mostra a dica de instalar o app na tela inicial). Notificação in-app continua
- * sempre existindo: as preferências aqui só controlam o push.
+ * Avisos no celular (FCM, ou Web Push VAPID como fallback). Só aparece quando o servidor tem push ligado
+ * (GET /push/config -> enabled) e o aparelho suporta (ou, no iPhone, mostra a dica de instalar o app na tela inicial).
+ * Notificação in-app continua sempre existindo: as preferências aqui só controlam o push. Com FCM os avisos também
+ * chegam com o app ABERTO (toast + sino na hora, ver PushBridge).
  */
 export function PushSettings() {
-  const config = usePushConfig();
-  const enabled = config.data?.enabled === true;
+  const configQuery = usePushConfig();
+  const config = configQuery.data;
+  const enabled = config?.enabled === true;
   const iosInstall = enabled && needsIosInstall();
   const supported = enabled && !iosInstall && isPushSupported();
+  const fcm = config?.provider === "fcm";
 
-  const [subscription, setSubscription] = useState<PushSubscription | null>(null);
+  const [handle, setHandle] = useState<PushHandle | null>(null);
   const [checked, setChecked] = useState(false);
   const [denied, setDenied] = useState(false);
   const queryClient = useQueryClient();
 
-  // Estado real do aparelho. Se já há inscrição, regrava (idempotente) para o usuário logado ser o dono dela.
+  // Estado real do aparelho. Se já há inscrição/token, regrava (idempotente) para o usuário logado ser o dono dela.
   useEffect(() => {
-    if (!supported) return;
+    if (!supported || !config) return;
     let cancelled = false;
     void (async () => {
-      const current = await getBrowserSubscription();
+      const current = await getCurrentPush(config).catch(() => null);
       if (cancelled) return;
-      setSubscription(current);
+      setHandle(current);
       setDenied(typeof Notification !== "undefined" && Notification.permission === "denied");
       setChecked(true);
-      if (current && Notification.permission === "granted") await registerSubscription(current).catch(() => undefined);
     })();
     return () => {
       cancelled = true;
     };
-  }, [supported]);
+  }, [supported, config]);
 
-  const preferences = usePushPreferences(supported && subscription !== null);
+  const preferences = usePushPreferences(supported && handle !== null);
 
   const activate = useMutation({
-    mutationFn: () => enablePush(config.data!.publicKey!),
+    mutationFn: () => enablePush(config!),
     onSuccess: async (created) => {
-      setSubscription(created);
+      setHandle(created);
       setDenied(false);
       await queryClient.invalidateQueries({ queryKey: ["push-preferences"] });
       toast.success("Avisos no celular ativados.");
@@ -74,12 +77,22 @@ export function PushSettings() {
   });
 
   const deactivate = useMutation({
-    mutationFn: () => disablePush(subscription!),
+    mutationFn: () => disablePush(config!, handle!),
     onSuccess: () => {
-      setSubscription(null);
+      setHandle(null);
       toast.success("Avisos no celular desativados.");
     },
     onError: (error) => toast.error(errorMessage(error, "Não foi possível desativar os avisos.")),
+  });
+
+  const sendTest = useMutation({
+    mutationFn: sendTestPush,
+    onSuccess: ({ sent, devices }) => {
+      if (devices === 0) toast.error("Nenhum aparelho com avisos ativos. Ative os avisos primeiro.");
+      else if (sent === 0) toast.error("O aviso de teste não pôde ser entregue agora. Tente de novo em instantes.");
+      else toast.success("Aviso de teste enviado. Ele deve aparecer em instantes.");
+    },
+    onError: (error) => toast.error(errorMessage(error, "Não foi possível enviar o aviso de teste agora.")),
   });
 
   const update = useMutation({
@@ -109,7 +122,7 @@ export function PushSettings() {
 
   if (!supported) return null;
 
-  const active = subscription !== null;
+  const active = handle !== null;
   const prefs = preferences.data;
 
   return (
@@ -121,7 +134,9 @@ export function PushSettings() {
         </div>
         <p>
           {active
-            ? "Este aparelho recebe avisos do GingApp mesmo com o app fechado."
+            ? fcm
+              ? "Este aparelho recebe avisos do GingApp com o app aberto ou fechado."
+              : "Este aparelho recebe avisos do GingApp mesmo com o app fechado."
             : "Receba aulas canceladas, cobranças e recados do grupo direto no celular, mesmo com o app fechado."}
         </p>
         {denied && !active && (
@@ -129,11 +144,17 @@ export function PushSettings() {
             As notificações estão bloqueadas neste navegador. Libere nas configurações do site para ativar.
           </p>
         )}
-        <div className="mt-3">
+        <div className="mt-3 flex flex-wrap gap-2">
           {active ? (
-            <Button variant="outline" size="sm" disabled={deactivate.isPending} onClick={() => deactivate.mutate()}>
-              Desativar avisos neste aparelho
-            </Button>
+            <>
+              <Button variant="outline" size="sm" disabled={sendTest.isPending} onClick={() => sendTest.mutate()}>
+                <Send />
+                Enviar aviso de teste
+              </Button>
+              <Button variant="outline" size="sm" disabled={deactivate.isPending} onClick={() => deactivate.mutate()}>
+                Desativar avisos neste aparelho
+              </Button>
+            </>
           ) : (
             <Button size="sm" disabled={!checked || activate.isPending || denied} onClick={() => activate.mutate()}>
               <BellRing />

@@ -153,7 +153,7 @@ model User {
   pushPreference               PushPreference?
   createdAnnouncements         Announcement[]         @relation("AnnouncementCreatedBy")
   createdPlatformAnnouncements PlatformAnnouncement[] @relation("PlatformAnnouncementCreatedBy")
-  studentLink                  Student?               @relation("StudentUser")
+  studentLinks                 Student[]              @relation("StudentUser")
   guardianLinks                StudentGuardian[]      @relation("StudentGuardianUser")
   taughtLessons                Lesson[]               @relation("LessonTeacher")
   taughtClasses                Class[]                @relation("ClassTeacher")
@@ -488,7 +488,9 @@ model Student {
   id             Int           @id @default(autoincrement())
   organizationId Int
   unitId         Int?
-  userId         Int?          @unique
+  /// Um User pode ser aluno em VARIOS grupos (um Student por organizacao): unicidade so por (organizationId, userId).
+  /// NULLs repetidos sao permitidos (aluno sem login).
+  userId         Int?
   name           String
   birthDate      DateTime?
   document       String?
@@ -521,7 +523,9 @@ model Student {
   certificates        Certificate[]
   billing             StudentBilling?
 
+  @@unique([organizationId, userId])
   @@index([organizationId, status])
+  @@index([userId])
 }
 
 /// Cobranca mensal do aluno (E07): valor da mensalidade (centavos) e dia de vencimento (1..31; em meses
@@ -854,9 +858,14 @@ model PushSubscription {
   id             Int       @id @default(autoincrement())
   userId         Int
   organizationId Int?
-  endpoint       String    @unique
-  p256dh         String
-  auth           String
+  /// Web Push (VAPID): endpoint + chaves. Nulos nas linhas provider='fcm' (so' o token).
+  endpoint       String?   @unique
+  p256dh         String?
+  auth           String?
+  /// 'webpush' (VAPID, lib web-push) ou 'fcm' (Firebase Cloud Messaging).
+  provider       String    @default("webpush")
+  /// FCM registration token (provider='fcm'); unico no sistema.
+  token          String?   @unique
   userAgent      String?
   createdAt      DateTime  @default(now())
   lastUsedAt     DateTime?

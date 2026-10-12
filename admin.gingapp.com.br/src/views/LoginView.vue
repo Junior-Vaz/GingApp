@@ -92,7 +92,7 @@ async function handleVerify(): Promise<void> {
     <div class="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
       <div class="mb-8 text-center">
         <img src="/logo.png" alt="GingApp" class="mx-auto h-12 w-auto object-contain" />
-        <p class="mt-1 text-sm text-slate-500">Painel administrativo — equipe interna</p>
+        <p class="mt-2 text-sm text-slate-500">Painel administrativo — equipe interna</p>
       </div>
 
       <p v-if="isDev" data-testid="dev-hint" class="mb-4 text-center text-xs text-slate-400">

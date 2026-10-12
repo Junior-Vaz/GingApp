@@ -110,7 +110,9 @@ describe('log de requisicao (REQUEST_LOG) e X-Request-Id', () => {
     );
     assert.equal(line.requestId, res.headers[REQUEST_ID_HEADER]);
     assert.equal(typeof line.ms, 'number');
-    assert.ok(!lines[0].includes('SEGREDO') && !lines[0].includes('42'));
+    // O id da URL (/students/42) não pode vazar. Não basta procurar "42": o requestId é um UUID aleatório e às
+    // vezes contém essa sequência (flake observado 1 a cada ~5 execuções).
+    assert.ok(!lines[0].includes('SEGREDO') && !lines[0].includes('/students/42'));
   });
 
   it('desligado: sem log, mas o X-Request-Id sai (proprio ou o do cliente se inofensivo; lixo e trocado)', () => {

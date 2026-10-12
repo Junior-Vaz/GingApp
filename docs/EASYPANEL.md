@@ -135,18 +135,65 @@ Cópia dos backups para fora do servidor e alertas de falha do backup (seção 7
 - **Privacidade:** o conteúdo dos e-mails, os endereços e os links **nunca são logados** (só o nome do modelo e o código técnico do erro, ex.: `ECONNREFUSED`); falha de envio não vaza detalhe ao cliente. Atenção: a conta da equipe GingApp (admin) também pode ser recuperada por e-mail — proteja a caixa do super admin.
 - **Certificado em PDF:** `GET /api/certificates/:id/pdf` (autenticado; Mestre/Professor do grupo, ou o próprio aluno/responsável) e `GET /api/public/certificates/:código/pdf` (público, mesmos dados da verificação pública) geram um A4 paisagem com grupo, aluno, título, graduação (só na rota autenticada), data, código e QR. Não depende de SMTP.
 
-## 13. Web Push (opcional): avisos no celular
+## 13. Web Push VAPID (opcional, fallback): avisos no celular
 
-- **Desligado por padrão.** Sem `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` (as três, válidas) nada muda: `GET /api/push/config` devolve `{ "enabled": false, "publicKey": null }`, o app **não mostra** "Ativar avisos no celular" e `POST /api/push/subscribe` responde **503**. As notificações continuam aparecendo no sino do app.
+> Desde a seção 13b o transporte **principal** é o **FCM** (Firebase). Esta seção descreve o Web Push VAPID, que continua valendo como **fallback**: ele só é oferecido ao app quando o FCM **não** está configurado (`GET /api/push/config` → `provider: "webpush"`). Os dois podem ficar ligados ao mesmo tempo; o FCM tem prioridade e as inscrições antigas (VAPID) continuam recebendo.
+
+- **Desligado por padrão.** Sem `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` e `VAPID_SUBJECT` (as três, válidas) nada muda: `GET /api/push/config` devolve `{ "enabled": false, "provider": null, "publicKey": null, "firebase": null }`, o app **não mostra** "Ativar avisos no celular" e `POST /api/push/subscribe` responde **503**. As notificações continuam aparecendo no sino do app.
 - **Gerar as chaves (uma vez):** `npx web-push generate-vapid-keys`. Copie a *Public Key* para `VAPID_PUBLIC_KEY` e a *Private Key* para `VAPID_PRIVATE_KEY` no Environment do Compose (ver `.env.easypanel.example`); `VAPID_SUBJECT` é um contato, ex.: `mailto:contato@seudominio.com.br`. **Não troque as chaves depois**: isso invalida todas as inscrições já feitas (cada aparelho teria de reativar). A chave privada é segredo: nunca commite nem logue.
 - **Como funciona:** o aluno/responsável abre Notificações no app e toca em "Ativar avisos no celular"; o navegador pede permissão e a inscrição (`PushSubscription`, única por `endpoint`) é gravada ligada ao usuário (até 10 aparelhos por usuário). Toda notificação gravada pelo `NotificationsService` (aula cancelada/alterada, mensalidade vencida, evento/roda novo, graduação, comunicados) dispara o push **em segundo plano** (falha de push nunca derruba a ação principal). Inscrições recusadas pelo serviço de push com **404/410** são removidas sozinhas.
 - **Preferências por usuário:** `GET/PUT /api/push/preferences` (aulas, financeiro, eventos/rodas, graduações, comunicados). Desligar uma categoria só desliga o **push**; a notificação continua no sino.
 - **Privacidade:** o push leva só `{title, body, url, tag}` (corpo cortado em 140 caracteres). Mensalidade vencida **não** mostra descrição nem valor na tela de bloqueio ("Há uma pendência financeira..."). Endpoint e chaves do aparelho nunca são logados; só são aceitos endpoints `https` de host público (sem IP/localhost).
 - **iPhone/iPad:** o iOS só entrega push para o app **instalado na tela inicial** (Safari > Compartilhar > Adicionar à Tela de Início, iOS 16.4+); o app mostra essa dica.
 - **Service worker:** o `sw.js` (workbox, precache do shell) importa `sw-push.js` (handler de `push` e `notificationclick`); as respostas da API continuam fora de qualquer cache.
-- **Pendência:** não há tela no painel/admin para disparar um push de teste; para validar em produção, crie um comunicado e confira o aparelho inscrito.
+- **Teste:** o app tem o botão "Enviar aviso de teste" (`POST /api/push/test`, ver 13b), que também vale para o Web Push.
 
-## 14. Mapa da comunidade (Google Maps) e geocodificação (opcional)
+## 14. Mapa da comunidade (Google Maps) e geocodificação (opcional)## 13b. Firebase Cloud Messaging (FCM, opcional): avisos com o app aberto e fechado
+
+O **FCM** é o transporte principal dos avisos push. Diferente de só "notificar em segundo plano", com o app **aberto** o navegador recebe a mensagem na hora (`onMessage`): o app mostra um aviso na tela (toast), atualiza o sino e, se o usuário permitiu, também uma notificação do navegador; com o app **fechado ou em segundo plano** quem mostra é o service worker `firebase-messaging-sw.js`. O Web Push VAPID (seção 13) segue como **fallback** quando o FCM não está configurado.
+
+**Regra de ligação.** O FCM só liga quando as **duas metades** estão válidas: (1) a conta de serviço (o backend envia) e (2) a config do app Web (o navegador se inscreve). Faltando qualquer campo, `GET /api/push/config` devolve `provider: "webpush"` (se houver VAPID) ou `{ "enabled": false, "provider": null, "publicKey": null, "firebase": null }` e o app esconde o botão. **Nada disso vai no build do app** (não existe `VITE_FIREBASE_*`): o app lê a config em tempo de execução em `GET /api/push/config` (rota autenticada) — por isso basta trocar as variáveis do backend e reiniciar.
+
+### Passo a passo no console Firebase (https://console.firebase.google.com)
+
+1. **Criar o projeto:** *Adicionar projeto* → nome (ex.: `gingapp`) → o Google Analytics pode ficar desligado → *Criar projeto*. O **ID do projeto** aparece em *Configurações do projeto* (ex.: `gingapp-ab123`).
+2. **Adicionar um app Web:** na página inicial do projeto, ícone **`</>`** (Web) → apelido `GingApp` → **não** marque o Firebase Hosting → *Registrar app*. Na tela seguinte (ou depois em *Configurações do projeto → Geral → Seus apps → Configuração do SDK*, opção **Config**) copie o objeto `firebaseConfig` e preencha:
+
+   | Campo do `firebaseConfig` | Variável do backend |
+   | --- | --- |
+   | `apiKey` | `FIREBASE_WEB_API_KEY` |
+   | `authDomain` | `FIREBASE_WEB_AUTH_DOMAIN` (opcional; vazio = `<projectId>.firebaseapp.com`) |
+   | `projectId` | `FIREBASE_PROJECT_ID` |
+   | `storageBucket` | `FIREBASE_WEB_STORAGE_BUCKET` (opcional) |
+   | `messagingSenderId` | `FIREBASE_WEB_MESSAGING_SENDER_ID` |
+   | `appId` | `FIREBASE_WEB_APP_ID` |
+
+3. **Gerar o par de chaves Web Push:** *Configurações do projeto → **Cloud Messaging** → **Configuração da Web** (Web configuration) → Certificados push da Web (Web Push certificates) → **Gerar par de chaves***. Copie a **chave pública** (começa com `B`, ~87 caracteres) para `FIREBASE_WEB_VAPID_KEY`. (Não confunda com o `VAPID_*` da seção 13: é outro par, gerenciado pelo Firebase.)
+4. **Gerar a chave da conta de serviço (envio):** *Configurações do projeto → **Contas de serviço** → **Gerar nova chave privada*** → baixa um `.json`. Dele saem:
+
+   | Campo do `.json` | Variável do backend |
+   | --- | --- |
+   | `project_id` | `FIREBASE_PROJECT_ID` (o mesmo do passo 2) |
+   | `client_email` | `FIREBASE_CLIENT_EMAIL` |
+   | `private_key` | `FIREBASE_PRIVATE_KEY` — cole **inteiro**, de `-----BEGIN PRIVATE KEY-----` a `-----END PRIVATE KEY-----`, numa linha só com os `\n` escapados como está no `.json` (com ou sem aspas) ou com quebras de linha reais |
+
+   **Alternativa:** em vez dos três campos acima, defina só `FIREBASE_SERVICE_ACCOUNT_JSON` = o `.json` **inteiro em base64** (PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("chave.json"))`). Se as duas formas existirem, as variáveis soltas têm precedência campo a campo.
+5. **API habilitada:** a conta de serviço usa a *Firebase Cloud Messaging API (V1)*, que vem ligada em projetos novos. Se o envio falhar com `messaging/third-party-auth-error` ou "API not enabled", ative-a em *Google Cloud Console → APIs e serviços → Firebase Cloud Messaging API*.
+6. **Easypanel:** preencha as variáveis no Environment do Compose (ver `.env.easypanel.example`; `docker-compose.easypanel.yml` repassa todas com padrão vazio) e faça **Deploy**. A chave privada é **segredo**: nunca commite nem logue (o backend não loga credenciais nem tokens).
+7. **Conferir:** logado no app, `GET /api/push/config` deve mostrar `"provider": "fcm"` e o bloco `firebase`; em *Notificações* toque em **Ativar avisos**, aceite a permissão e use **Enviar aviso de teste** (`POST /api/push/test`).
+
+### Como funciona
+- **Inscrição:** o app (SDK `firebase`, carregado sob demanda em um chunk separado e **só** se a config trouxer `provider: "fcm"`) registra `/firebase-messaging-sw.js` (escopo próprio `/firebase-cloud-messaging-push-scope`, sem conflito com o `sw.js` do PWA), pede permissão, obtém o *registration token* e faz `POST /api/push/subscribe` com `{ "provider": "fcm", "token": "...", "platform": "web" }`. O token é **único** no sistema (aparelho compartilhado: o último usuário logado fica com ele), no máximo **10 aparelhos por usuário** (os mais antigos saem). O app renova o token a cada abertura.
+- **Envio:** cada notificação gravada (`NotificationsService`) vira push em segundo plano, via `sendEachForMulticast` (até 500 tokens por chamada; avisos iguais viram um único multicast), prioridade alta, TTL de 24 h e link para a tela do app. O payload é mínimo — `data` `{title, body, url, tag}` + `notification` `{title, body}`; mensalidade continua genérica (sem descrição nem valor). Respeita as preferências por categoria da seção 13.
+- **Limpeza:** token recusado pelo FCM (`messaging/registration-token-not-registered`, `messaging/invalid-registration-token`, `messaging/invalid-argument`) é apagado sozinho; erro transitório ou falha geral do serviço **não** apaga nada.
+- **Desativar:** o botão apaga o token no servidor (`DELETE /api/push/subscribe` com `{ "token": "..." }`) e chama `deleteToken` no SDK.
+- **Aviso de teste:** `POST /api/push/test` (autenticado, 3 por minuto por usuário) envia um aviso genérico só aos aparelhos do **próprio** usuário e devolve `{ "sent": n, "devices": m }`; responde 503 se nenhum transporte estiver ligado.
+- **iPhone/iPad:** o iOS só entrega push ao app **instalado na tela inicial** (iOS 16.4+); o app mostra a dica.
+- **Service workers:** o PWA continua com o `sw.js` (workbox: precache do shell + `sw-push.js` do VAPID). O `firebase-messaging-sw.js` é separado, importa o SDK compat do `www.gstatic.com` (versão fixa) e recebe a config pela URL de registro (`?apiKey=...`), porque um service worker não enxerga a config de runtime. As respostas da API continuam fora de qualquer cache.
+
+### Não validado automaticamente
+A suíte usa um remetente FCM falso (nunca fala com o Firebase) e o app é testado com o SDK simulado. O envio real, a entrega em segundo plano, o `onMessage` em primeiro plano e o iOS **só podem ser confirmados** com um projeto Firebase real e um aparelho: faça o passo 7 após o primeiro deploy.
+
 
 - **Desligado por padrão.** Sem `GOOGLE_MAPS_API_KEY`, `GET /api/map/config` devolve `{ "enabled": false, "apiKey": null, "mapId": null }` e o app (`/comunidade`) mostra a lista no lugar do mapa. `GET /api/map/places` (unidades, treinos, eventos e rodas com posição) funciona mesmo sem chave: só o desenho do mapa depende do Google.
 - **Variáveis do backend** (Environment do Compose; ver `.env.easypanel.example`): `GOOGLE_MAPS_API_KEY` (chave de **navegador**, entregue ao app em `/api/map/config` — é pública por natureza, por isso precisa de restrição por referrer), `GOOGLE_MAPS_SERVER_KEY` (chave de **servidor**, só para geocodificar endereços; **nunca** sai do backend nem é logada) e `GOOGLE_MAPS_MAP_ID` (opcional, mapa estilizado). Se só `GOOGLE_MAPS_API_KEY` existir, a geocodificação tenta usá-la como reserva, mas uma chave restrita por referrer **não funciona no servidor** (o Google responde `REQUEST_DENIED` e nada é geocodificado): crie a chave de servidor separada.

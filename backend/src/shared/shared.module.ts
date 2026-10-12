@@ -8,7 +8,7 @@ import { BILLING_GATEWAY_SERVICE } from './billing/billing-gateway.interface';
 import { StubBillingGatewayService } from './billing/stub-billing-gateway.service';
 import { MAIL_TRANSPORT, MailService } from './mail/mail.service';
 import { PasswordResetService } from './security/password-reset.service';
-import { PUSH_SENDER, PushService } from './push/push.service';
+import { FCM_SENDER, PUSH_SENDER, PushService } from './push/push.service';
 import { GeocodingService } from './geo/geocoding.service';
 
 /**
@@ -38,6 +38,9 @@ import { GeocodingService } from './geo/geocoding.service';
     // Web Push opcional (VAPID_* — ver shared/push). PUSH_SENDER = null em producao (o remetente real vem das envs);
     // os testes sobrescrevem com um stub em memoria (nenhum push real).
     { provide: PUSH_SENDER, useFactory: () => null },
+    // FCM (Firebase Cloud Messaging) opcional, transporte principal do push (FIREBASE_* — ver shared/push/fcm.config).
+    // FCM_SENDER = null em producao (o remetente real vem das envs); os testes sobrescrevem com um stub em memoria.
+    { provide: FCM_SENDER, useFactory: () => null },
     PushService,
     // Geocodificacao opcional (GOOGLE_MAPS_SERVER_KEY) para o mapa da comunidade — ver shared/geo.
     GeocodingService,

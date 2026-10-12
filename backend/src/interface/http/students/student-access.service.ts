@@ -87,8 +87,9 @@ export class StudentAccessService {
           role: OrgRole.ALUNO,
           invite: dto.sendInvite,
         });
-        // Student.userId é único: este usuário não pode já ser (ou ser ao mesmo tempo) outro aluno.
-        if ((await tx.student.count({ where: { userId: provisioned.userId } })) > 0) {
+        // Student é único por (organizationId, userId): este usuário não pode já ser outro aluno DESTE grupo. Ser aluno
+        // em OUTRO grupo é permitido (um Student por organização, mesmo login).
+        if ((await tx.student.count({ where: { organizationId, userId: provisioned.userId } })) > 0) {
           throw new ConflictException(USER_ALREADY_LINKED);
         }
         // Condicional a userId nulo: duas criações simultâneas para o mesmo aluno => só uma vence.

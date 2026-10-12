@@ -1,6 +1,7 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { AppShell } from "@/components/gingapp/app-shell";
 import { TermsGate } from "@/components/gingapp/legal";
+import { PushBridge } from "@/components/gingapp/push-bridge";
 import { getUser, isAuthenticated } from "@/lib/session";
 
 // Guard: sem token -> /login (com redirect de volta). A autorização real é sempre validada no backend.
@@ -18,6 +19,7 @@ export const Route = createFileRoute("/_app")({
     <AppShell>
       <Outlet />
       <TermsGate />
+      <PushBridge />
     </AppShell>
   ),
 });

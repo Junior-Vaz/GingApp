@@ -47,10 +47,10 @@ const personalNav = [
 const bottomNav = [mainNav[0], mainNav[1], communityNav[0], mainNav[2], personalNav[1]];
 type NavItem = (typeof mainNav)[number] | (typeof communityNav)[number] | (typeof personalNav)[number];
 
-export function Brand({ mobile = false }: { mobile?: boolean }) {
+export function Brand({ mobile = false, large = false }: { mobile?: boolean; large?: boolean }) {
   return (
-    <div className={`brand ${mobile ? "mobile-brand" : ""}`}>
-      <img src="/logo.png" alt="GingApp" className="h-9 w-auto object-contain" />
+    <div className={`brand ${mobile ? "mobile-brand" : ""} ${large ? "brand-lg" : ""}`}>
+      <img src="/logo.png" alt="GingApp" width={1550} height={312} />
     </div>
   );
 }

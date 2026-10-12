@@ -28,7 +28,7 @@ function AuthShell({ subtitle, children }: { subtitle: string; children: ReactNo
     <div className="flex min-h-screen flex-col items-center justify-center bg-background px-6 py-10">
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
-          <Brand />
+          <Brand large />
           <p className="text-sm text-muted-foreground">{subtitle}</p>
         </div>
         <Card className="p-6">{children}</Card>

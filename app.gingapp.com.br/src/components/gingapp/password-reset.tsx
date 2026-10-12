@@ -21,7 +21,7 @@ function Frame({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col items-center gap-6 bg-background px-4 py-10">
       <Link to="/login" search={{ redirect: undefined }} className="no-underline">
-        <Brand />
+        <Brand large />
       </Link>
       <main className="w-full max-w-sm rounded-lg border border-border bg-card p-6">
         <h1 className="text-xl font-extrabold">{title}</h1>

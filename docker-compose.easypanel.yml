@@ -105,6 +105,24 @@ services:
       VAPID_PUBLIC_KEY: "${VAPID_PUBLIC_KEY:-}"
       VAPID_PRIVATE_KEY: "${VAPID_PRIVATE_KEY:-}"
       VAPID_SUBJECT: "${VAPID_SUBJECT:-}"
+      # Firebase Cloud Messaging (FCM, OPCIONAL): transporte PRINCIPAL dos avisos push; funciona com o app aberto (toast +
+      # sino na hora) e fechado. Precisa das DUAS metades: conta de servico (envio) + config do app Web (navegador). Se
+      # faltar qualquer campo o FCM fica desligado e o Web Push VAPID acima (se houver) assume. Nada vai no build do app:
+      # a config web e' servida em runtime por GET /api/push/config. Passo a passo: docs/EASYPANEL.md, secao 13b.
+      #  - Conta de servico: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY (cole com \n escapado ou
+      #    com quebras reais), OU FIREBASE_SERVICE_ACCOUNT_JSON (o .json inteiro em base64) no lugar dos tres.
+      #  - App Web: FIREBASE_WEB_API_KEY, FIREBASE_WEB_AUTH_DOMAIN (opcional), FIREBASE_WEB_MESSAGING_SENDER_ID,
+      #    FIREBASE_WEB_APP_ID, FIREBASE_WEB_VAPID_KEY (chave do par Web Push em Cloud Messaging), FIREBASE_WEB_STORAGE_BUCKET (opcional).
+      FIREBASE_PROJECT_ID: "${FIREBASE_PROJECT_ID:-}"
+      FIREBASE_CLIENT_EMAIL: "${FIREBASE_CLIENT_EMAIL:-}"
+      FIREBASE_PRIVATE_KEY: "${FIREBASE_PRIVATE_KEY:-}"
+      FIREBASE_SERVICE_ACCOUNT_JSON: "${FIREBASE_SERVICE_ACCOUNT_JSON:-}"
+      FIREBASE_WEB_API_KEY: "${FIREBASE_WEB_API_KEY:-}"
+      FIREBASE_WEB_AUTH_DOMAIN: "${FIREBASE_WEB_AUTH_DOMAIN:-}"
+      FIREBASE_WEB_STORAGE_BUCKET: "${FIREBASE_WEB_STORAGE_BUCKET:-}"
+      FIREBASE_WEB_MESSAGING_SENDER_ID: "${FIREBASE_WEB_MESSAGING_SENDER_ID:-}"
+      FIREBASE_WEB_APP_ID: "${FIREBASE_WEB_APP_ID:-}"
+      FIREBASE_WEB_VAPID_KEY: "${FIREBASE_WEB_VAPID_KEY:-}"
       # Mapa da comunidade (OPCIONAL, Google Maps): sem GOOGLE_MAPS_API_KEY o app mostra uma lista no lugar do mapa
       # (GET /api/map/config devolve enabled=false). API_KEY = chave de NAVEGADOR (restrita por referrer, publica por
       # natureza); SERVER_KEY = chave de SERVIDOR so para geocodificar enderecos (restrita por IP/API; NUNCA vai ao

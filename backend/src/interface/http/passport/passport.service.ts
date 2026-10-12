@@ -36,7 +36,9 @@ export class PassportService {
         this.prisma.attendance.count({ where: { organizationId, studentId, present: true } }),
         this.prisma.rodaParticipant.count({
           where: student.userId
-            ? { OR: [{ studentId }, { userId: student.userId }] }
+            ? // O mesmo usuário pode ser aluno em outros grupos: a contagem por userId só vale para rodas deste grupo
+              // (ou da comunidade, sem organização) — nunca soma a participação em rodas de outro grupo.
+              { OR: [{ studentId }, { userId: student.userId, roda: { OR: [{ organizationId }, { organizationId: null }] } }] }
             : { studentId },
         }),
         this.prisma.eventParticipant.count({ where: { organizationId, studentId, status: 'ATTENDED' } }),

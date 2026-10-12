@@ -11,7 +11,8 @@
 :root { --background: oklch(.976 .003 150); --foreground: oklch(.25 .022 155); --card: oklch(1 0 0); --primary: oklch(.365 .067 158); --primary-foreground: oklch(.99 .005 150); --secondary: oklch(.938 .025 147); --muted: oklch(.949 .006 155); --muted-foreground: oklch(.55 .015 155); --border: oklch(.907 .009 150); --highlight: oklch(.89 .12 120); --warning: oklch(.65 .135 70); --destructive: oklch(.57 .18 25); --shadow: 0 4px 20px oklch(.2 .03 155 / .035); --radius: 8px; }
 @layer base { * { border-color: var(--border); } body { margin:0; background:var(--background); color:var(--foreground); font-family:var(--font-sans); letter-spacing:0; } h1,h2,h3,h4 { font-family:var(--font-display); letter-spacing:0; } button,a,input,select { -webkit-tap-highlight-color:transparent; } button,a { touch-action:manipulation; } }
 .brand { display:flex; align-items:center; gap:8px; color:var(--primary); font-family:var(--font-display); font-size:24px; font-weight:850; }
-.brand img { width:30px; height:30px; border-radius:50%; }
+.brand img { display:block; height:32px; width:auto; max-width:100%; object-fit:contain; }
+.brand-lg img { height:44px; }
 .brand-dot { color:var(--warning); }
 
 /* Impressão do recibo (financeiro): com o diálogo aberto (.receipt-printable), só ele sai na página. */

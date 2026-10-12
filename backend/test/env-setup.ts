@@ -30,6 +30,23 @@ process.env.OVERDUE_CRON = 'false';
 process.env.VAPID_PUBLIC_KEY = "";
 process.env.VAPID_PRIVATE_KEY = "";
 process.env.VAPID_SUBJECT = "";
+// Idem FCM: nunca o Firebase real nos testes (so liga quando o spec injeta o remetente em memoria). O aviso de teste
+// (POST /push/test, 3/min) sobe aqui; push.e2e-spec.ts prova o rate limit com um limite proprio.
+for (const name of [
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_CLIENT_EMAIL',
+  'FIREBASE_PRIVATE_KEY',
+  'FIREBASE_SERVICE_ACCOUNT_JSON',
+  'FIREBASE_WEB_API_KEY',
+  'FIREBASE_WEB_AUTH_DOMAIN',
+  'FIREBASE_WEB_STORAGE_BUCKET',
+  'FIREBASE_WEB_MESSAGING_SENDER_ID',
+  'FIREBASE_WEB_APP_ID',
+  'FIREBASE_WEB_VAPID_KEY',
+]) {
+  process.env[name] = '';
+}
+process.env.PUSH_TEST_THROTTLE_LIMIT = '1000';
 // Retencao da auditoria (semanal), limpeza de imagens orfas (semanal), log de requisicao e 2FA: nada disso roda nos
 // testes por padrao (os specs proprios chamam os servicos direto / ligam a env que precisam).
 process.env.AUDIT_RETENTION_CRON = 'false';

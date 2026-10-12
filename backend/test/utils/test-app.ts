@@ -4,7 +4,14 @@ import { getStorageToken } from '@nestjs/throttler';
 import { AppModule } from '../../src/app.module';
 import { MAIL_TRANSPORT, MailEnvelope, MailTransport } from '../../src/shared/mail/mail.service';
 import type { PushPayload } from '../../src/shared/push/push.config';
-import { PUSH_SENDER, PushSender, PushTarget } from '../../src/shared/push/push.service';
+import {
+  FCM_SENDER,
+  FcmSendResult,
+  FcmSender,
+  PUSH_SENDER,
+  PushSender,
+  PushTarget,
+} from '../../src/shared/push/push.service';
 
 /** Stub de transporte de e-mail para os e2e: guarda as mensagens em memória (nunca envia nada). */
 export class MemoryMailTransport implements MailTransport {
@@ -46,6 +53,27 @@ export class MemoryPushSender implements PushSender {
   }
 }
 
+/** Stub do remetente FCM para os e2e: guarda os multicasts em memória (NUNCA fala com o Firebase real). */
+export class MemoryFcmSender implements FcmSender {
+  readonly calls: { tokens: string[]; payload: PushPayload }[] = [];
+  /** token -> código de erro do FCM com o qual o envio a ele deve falhar (ex.: 'messaging/registration-token-not-registered'). */
+  readonly failures = new Map<string, string>();
+  /** true = o serviço inteiro falha (rede/credencial): nenhum token pode ser apagado por causa disso. */
+  failAll = false;
+  async sendMulticast(tokens: string[], payload: PushPayload): Promise<FcmSendResult[]> {
+    if (this.failAll) throw Object.assign(new Error('falha simulada'), { code: 'ESTUB' });
+    this.calls.push({ tokens: [...tokens], payload });
+    return tokens.map((token) => {
+      const errorCode = this.failures.get(token);
+      return errorCode ? { token, ok: false, errorCode } : { token, ok: true };
+    });
+  }
+  /** Avisos enviados a um token (um por multicast que o incluiu). */
+  to(token: string): PushPayload[] {
+    return this.calls.filter((c) => c.tokens.includes(token)).map((c) => c.payload);
+  }
+}
+
 export interface TestAppOptions {
   /** Desliga o rate limit global (60 req/min por IP) — só para specs que varrem centenas de
    * rotas (ex.: member-privacy.e2e-spec.ts). O throttle em si não é o que esses specs testam. */
@@ -54,6 +82,8 @@ export interface TestAppOptions {
   mailTransport?: MailTransport;
   /** Remetente de Web Push em memória (stub): liga o push SEM VAPID e SEM enviar nada de verdade. */
   pushSender?: PushSender;
+  /** Remetente FCM em memória (stub): liga o FCM SEM credenciais Firebase e SEM enviar nada de verdade. */
+  fcmSender?: FcmSender;
 }
 
 /** Bootstrap da aplicação real (mesmos guards/pipes globais de `src/main.ts`) para os
@@ -72,6 +102,9 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<INest
   }
   if (options.pushSender) {
     builder = builder.overrideProvider(PUSH_SENDER).useValue(options.pushSender);
+  }
+  if (options.fcmSender) {
+    builder = builder.overrideProvider(FCM_SENDER).useValue(options.fcmSender);
   }
   const moduleRef = await builder.compile();
 

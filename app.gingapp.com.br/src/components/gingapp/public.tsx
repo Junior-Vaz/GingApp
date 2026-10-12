@@ -23,7 +23,7 @@ interface PublicPassport {
 function PublicFrame({ heading, children }: { heading: string; children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background px-6 py-10">
-      <Brand />
+      <Brand large />
       <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{heading}</p>
       {children}
     </div>

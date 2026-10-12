@@ -3191,3 +3191,21 @@ O que NAO deu certo / decisoes
 2. Flake nÃ£o reproduzido em `audit.spec`/`two-factor.spec` (1 de 5 execuÃ§Ãµes): provÃ¡vel borda de passo TOTP.
 3. Avatar ainda ausente em frequÃªncia/financeiro/certificados; "Ver detalhes" no mapa oculto (sem tela de detalhe).
 4. Sem prova em produÃ§Ã£o: build Docker (sharp/bcrypt 6 no Alpine), backup `restore.sh verify`, push real, SMTP real, jobs semanais.
+
+### 10.46 Push por Firebase (FCM), logo corrigida, aluno em vÃ¡rios grupos
+
+**Data:** 2026-10-12 Â· **Status:** âœ… concluÃ­do (FCM real NÃƒO provado). Gate: backend 125 unit + 823 e2e rÃ¡pido + 14 bootstrap, admin 138, painel 469, app 150.
+
+- **FCM** como transporte principal (`firebase-admin` no backend, `firebase` lazy no app, `firebase-messaging-sw.js` com escopo prÃ³prio); Web Push VAPID continua como fallback; `GET /push/config` devolve `provider`; `POST /push/test`; foreground via `onMessage` (toast + sino). VariÃ¡veis `FIREBASE_*` (docs Â§13b).
+- **Logo minÃºscula**: causa = `.brand img {35x35}` vencia as classes Tailwind; corrigido no app e no painel (sidebar 160â€“180px, login 219x44); Ã­cones PWA maskable e apple-touch com fundo branco.
+- **Aluno em vÃ¡rios grupos**: `Student.userId` deixou de ser Ãºnico (`@@unique([organizationId, userId])`); 409 "jÃ¡ ligado a outro aluno" sÃ³ dentro do mesmo grupo; Passaporte nÃ£o soma rodas de outro grupo.
+
+#### O que NÃƒO deu certo e a soluÃ§Ã£o
+- `two-factor.spec` falhava ~1 em 5: checava `!includes('42')` mas o `requestId` UUID Ã s vezes contÃ©m "42" â†’ checa `/students/42` (12/12 estÃ¡vel).
+- `npm run build` do app falhou uma vez no `tsc` por teste de outra frente (corrigido pelo prÃ³prio agente do FCM antes do gate).
+
+#### PendÃªncias (numeradas)
+1. Preencher o Firebase no Easypanel e testar o aviso de teste (push real, app fechado, iOS nunca provados).
+2. Login com 2+ vÃ­nculos onde um estÃ¡ bloqueado por aluno inativo ignora o slug pedido (decisÃ£o de produto: 401?); exportaÃ§Ã£o LGPD nÃ£o lista perfis pÃºblicos (leitura por `userId` nunca gravado).
+3. `npm audit`: 4 altas no app (`@grpc/grpc-js`, via `firebase`, nÃ£o usado) e 4 no backend (`sharp`).
+4. CabeÃ§alho mobile do painel sem logo e com ~8px de estouro horizontal; admin sem layout responsivo.

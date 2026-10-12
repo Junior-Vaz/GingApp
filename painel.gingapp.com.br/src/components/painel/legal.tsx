@@ -26,7 +26,7 @@ export function LegalPage({ type }: { type: LegalDocumentType }) {
   const doc = query.data;
   return (
     <div className="flex min-h-screen flex-col items-center gap-6 bg-background px-4 py-10">
-      <Brand />
+      <Brand large />
       <Card className="w-full max-w-2xl p-6 text-sm leading-relaxed">
         {query.isLoading && <p className="text-muted-foreground">Carregando…</p>}
         {query.isError && (
@@ -100,7 +100,7 @@ export function MustChangePasswordScreen() {
   const queryClient = useQueryClient();
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-background px-6" data-testid="must-change-password">
-      <Brand />
+      <Brand large />
       <Card className="w-full max-w-sm p-6 text-center">
         <KeyRound className="mx-auto size-8 text-primary" aria-hidden />
         <h1 className="mt-3 text-lg font-bold">Crie uma nova senha</h1>

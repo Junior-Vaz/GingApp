@@ -188,7 +188,7 @@ async function main() {
   // 6. Aluno (Student) vinculado ao usuario ALUNO + responsavel (StudentGuardian)
   // ---------------------------------------------------------------------
   const student = await prisma.student.upsert({
-    where: { userId: alunoUser.id },
+    where: { organizationId_userId: { organizationId: org.id, userId: alunoUser.id } },
     update: {},
     create: {
       organizationId: org.id,

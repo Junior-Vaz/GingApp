@@ -25,7 +25,7 @@ export function LegalPage({ type }: { type: LegalDocumentType }) {
   return (
     <div className="flex min-h-screen flex-col items-center gap-6 bg-background px-4 py-10">
       <Link to="/login" search={{ redirect: undefined }} className="no-underline">
-        <Brand />
+        <Brand large />
       </Link>
       <article className="w-full max-w-2xl rounded-lg border border-border bg-card p-6 text-sm leading-relaxed">
         {query.isLoading && <p className="text-muted-foreground">Carregando…</p>}

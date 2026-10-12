@@ -28,7 +28,9 @@ export default defineConfig({
         background_color: "#f7f9f7",
         icons: [
           { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+          { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
       workbox: {
@@ -38,7 +40,9 @@ export default defineConfig({
         // importScripts (mantém o generateSW e o precache atuais). O arquivo não vai ao precache: o navegador já o
         // baixa e verifica mudanças como parte do próprio service worker.
         importScripts: ["sw-push.js"],
-        globIgnores: ["sw-push.js"],
+        // FCM: public/firebase-messaging-sw.js e' um service worker proprio (escopo /firebase-cloud-messaging-push-scope),
+        // registrado pelo app so' quando o servidor usa FCM; nunca entra no precache do sw.js nem e' importado por ele.
+        globIgnores: ["sw-push.js", "firebase-messaging-sw.js"],
         // Navegações caem no shell (SPA) - exceto chamadas de API e QR públicos servidos pela API.
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//],
