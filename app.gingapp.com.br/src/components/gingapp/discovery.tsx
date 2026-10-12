@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState, type ReactNode } from "react";
 import { List, Map as MapIcon, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/api";
@@ -19,7 +19,12 @@ import { EventCard, LoadMore, PageHeading, SectionHeading, StateMessage } from "
 // Se o chunk não carregar (sem rede / deploy novo), mostra um aviso no lugar em vez de derrubar a página.
 const MapExplorer = lazy(() =>
   import("./map-explorer").catch(() => ({
-    default: () => <StateMessage tone="error">Não foi possível abrir o mapa agora. Use a Lista ou recarregue a página.</StateMessage>,
+    default: ({ viewToggle }: { viewToggle?: ReactNode }) => (
+      <div className="map-loading" role="alert">
+        <div className="map-float map-switch map-switch-top">{viewToggle}</div>
+        Não foi possível abrir o mapa agora. Use a Lista ou recarregue a página.
+      </div>
+    ),
   })),
 );
 
@@ -143,18 +148,38 @@ export function DiscoveryPage({ mode = "community" }: { mode?: Mode }) {
 
   return (
     <>
-      <PageHeading title={title} subtitle="Encontros reais. Novas histórias. A mesma paixão pela capoeira." />
-      {mapEnabled && (
+      {!showMap && (
+        <PageHeading title={title} subtitle="Encontros reais. Novas histórias. A mesma paixão pela capoeira." />
+      )}
+      {mapEnabled && !showMap && (
         <div className="view-bar">
           <ViewToggle view={view} onChange={changeView} />
         </div>
       )}
       {mountMap && mapEnabled && (
-        <Suspense fallback={<StateMessage>Carregando o mapa…</StateMessage>}>
-          <div hidden={!showMap}>
-            <MapExplorer config={mapEnabled} active={showMap} />
-          </div>
-        </Suspense>
+        // Modo Mapa: o mapa ocupa TODA a área útil (sem título, sem rolagem — ver `.map-fullscreen` no CSS) e o
+        // alternador Lista | Mapa passa a flutuar sobre ele. Na Lista o mapa segue montado, só escondido.
+        <div hidden={!showMap} className={showMap ? "map-fullscreen" : undefined}>
+          <Suspense
+            fallback={
+              showMap ? (
+                <div className="map-loading" role="status">
+                  <div className="map-float map-switch map-switch-top">
+                    <ViewToggle view={view} onChange={changeView} />
+                  </div>
+                  <span className="map-spinner" aria-hidden="true" />
+                  Carregando o mapa…
+                </div>
+              ) : null
+            }
+          >
+            <MapExplorer
+              config={mapEnabled}
+              active={showMap}
+              viewToggle={<ViewToggle view={view} onChange={changeView} />}
+            />
+          </Suspense>
+        </div>
       )}
       {!showMap && (
         <>

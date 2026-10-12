@@ -63,11 +63,15 @@ export interface MapCanvasProps {
   places: MapPlace[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Clique no mapa vazio (fora de pins/clusters): fecha o cartão do local. */
+  onMapClick?: () => void;
+  /** Devolve o foco ao pin ao fechar o cartão pelo teclado (`n` muda a cada pedido, mesmo para o mesmo pin). */
+  focusRequest?: { id: string; n: number } | null;
   /** Círculo de "Perto de mim". */
   near: NearMe | null;
   /** Muda quando o CONJUNTO de resultados muda: reenquadra o mapa nos pins. */
   fitToken: string;
-  /** Falso enquanto o mapa está escondido (aba Lista): ao voltar, reenquadra. */
+  /** Falso enquanto o mapa está escondido (visão Lista): ao voltar, reenquadra. */
   active: boolean;
   onStatus?: (status: "loading" | "ready" | "error") => void;
 }
@@ -78,6 +82,8 @@ export default function MapCanvas({
   places,
   selectedId,
   onSelect,
+  onMapClick,
+  focusRequest,
   near,
   fitToken,
   active,
@@ -90,6 +96,7 @@ export default function MapCanvas({
   const circleRef = useRef<google.maps.Circle | null>(null);
   const entries = useRef<Map<string, Entry>>(new Map());
   const onSelectRef = useRef(onSelect);
+  const onMapClickRef = useRef(onMapClick);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [attempt, setAttempt] = useState(0);
   const [authError, setAuthError] = useState(false);
@@ -97,7 +104,8 @@ export default function MapCanvas({
 
   useEffect(() => {
     onSelectRef.current = onSelect;
-  }, [onSelect]);
+    onMapClickRef.current = onMapClick;
+  }, [onSelect, onMapClick]);
 
   useEffect(() => {
     onStatus?.(status);
@@ -132,6 +140,10 @@ export default function MapCanvas({
           minZoom: 3,
           disableDefaultUI: true,
           zoomControl: true,
+          // Zoom no meio da borda direita: não colide com os cartões flutuantes (topo) nem com o cartão do local (base).
+          ...(google.maps.ControlPosition
+            ? { zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER } }
+            : {}),
           fullscreenControl: false,
           streetViewControl: false,
           mapTypeControl: false,
@@ -140,6 +152,7 @@ export default function MapCanvas({
           ...(mapId ? { mapId } : { styles: BRAND_STYLE }),
         });
         mapRef.current = map;
+        map.addListener("click", () => onMapClickRef.current?.());
         const useAdvanced = !!mapId && !!api.AdvancedMarkerElement;
         clusterRef.current = new clusterer.MarkerClusterer({
           map,
@@ -207,7 +220,7 @@ export default function MapCanvas({
 
     const timers: number[] = [];
     // Falha ao criar os pins (SDK em estado inválido: chave recusada, Map ID inexistente...): vira o aviso de erro
-    // do mapa em vez de derrubar a tela; a lista ao lado segue funcionando.
+    // do mapa (com "Tentar novamente") em vez de derrubar a tela.
     try {
       const markers = places.map((place, index) => {
         const position = { lat: place.latitude, lng: place.longitude };
@@ -275,7 +288,13 @@ export default function MapCanvas({
       const bounds = new api.LatLngBounds();
       places.forEach((p) => bounds.extend({ lat: p.latitude, lng: p.longitude }));
       if (near) extendWithCircle(bounds, near);
-      map.fitBounds(bounds, isCompact() ? { top: 70, bottom: 70, left: 36, right: 36 } : 56);
+      // Folga para os cartões flutuantes: topo (alternador + chips) e, no desktop, o cartão de filtros à esquerda.
+      map.fitBounds(
+        bounds,
+        isCompact()
+          ? { top: 130, bottom: 56, left: 36, right: 36 }
+          : { top: 120, bottom: 60, left: 340, right: 80 },
+      );
     });
     return () => window.cancelAnimationFrame(frame);
     // O conjunto é identificado pelo token (a lista inteira mudar de identidade a cada render não deve reenquadrar).
@@ -306,11 +325,10 @@ export default function MapCanvas({
     else circleRef.current = new api.Circle({ ...options, map });
   }, [status, near]);
 
-  /* 5) Item selecionado: destaca o pin, dá zoom e centraliza (acima do cartão no celular). */
+  /* 5) Item selecionado: destaca o pin, dá zoom e centraliza (o cartão fica na base; o centro do mapa o acomoda). */
   useEffect(() => {
     const map = mapRef.current;
     if (status !== "ready" || !map) return;
-    let timer: number | undefined;
     for (const [id, entry] of entries.current) {
       const isSelected = id === selectedId;
       if (entry.element) entry.element.classList.toggle("is-selected", isSelected);
@@ -330,11 +348,14 @@ export default function MapCanvas({
     if (selected) {
       map.panTo({ lat: selected.place.latitude, lng: selected.place.longitude });
       if ((map.getZoom() ?? 0) < 16) map.setZoom(16);
-      // O cartão ocupa a parte de baixo no celular: sobe o pin para o centro da área livre.
-      if (isCompact()) timer = window.setTimeout(() => map.panBy(0, 120), 320);
     }
-    return () => window.clearTimeout(timer);
   }, [selectedId, status, places]);
+
+  /* 6) Foco de volta ao pin (Esc no cartão). */
+  useEffect(() => {
+    if (!focusRequest) return;
+    entries.current.get(focusRequest.id)?.element?.focus({ preventScroll: true });
+  }, [focusRequest]);
 
   return (
     <div className="map-canvas">
@@ -358,8 +379,8 @@ export default function MapCanvas({
           </p>
           <p className="map-overlay-sub">
             {authError
-              ? "Avise o administrador do GingApp (chave inválida ou sem permissão para este domínio). A lista ao lado continua funcionando."
-              : "A lista ao lado continua funcionando. Verifique a conexão e tente de novo."}
+              ? "Avise o administrador do GingApp (chave inválida ou sem permissão para este domínio)."
+              : "Verifique a conexão e tente de novo."}
           </p>
           {!authError && (
             <Button size="sm" onClick={() => setAttempt((n) => n + 1)}>

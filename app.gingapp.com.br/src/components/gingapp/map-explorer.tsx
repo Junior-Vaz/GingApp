@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import {
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   CircleDot,
   Clock,
   LocateFixed,
   MapPin,
   Navigation,
   Search,
+  SlidersHorizontal,
   Users,
   X,
   Check,
@@ -52,9 +55,6 @@ const TYPE_ICON: Record<PlaceType, LucideIcon> = {
 
 const pinStyle = (type: PlaceType) => ({ "--pin": PLACE_META[type].color }) as CSSProperties;
 
-/** Seletor do item da lista de um local (ids são "TIPO:número"; aspas escapadas por segurança). */
-const placeSelector = (id: string) => `[data-place-id="${id.replace(/"/g, '\\"')}"]`;
-
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -64,10 +64,11 @@ function useDebounced<T>(value: T, delay: number): T {
   return debounced;
 }
 
-/** Logo do grupo em círculo; sem logo (ou imagem quebrada) mostra as iniciais. */
+/** Logo do grupo; sem logo (ou imagem quebrada) mostra as iniciais. */
 function OrgLogo({ place, className }: { place: MapPlace; className: string }) {
   const [failed, setFailed] = useState(false);
   const logo = place.organization.logoUrl;
+  useEffect(() => setFailed(false), [logo]);
   return (
     <span className={className} aria-hidden="true">
       {logo && !failed ? (
@@ -89,9 +90,16 @@ function placeSpotsLabel(place: MapPlace): string | null {
  * Inscrição em evento/roda: o mesmo estado/ação do card da lista (useEncounterParticipation, SSOT em queries.ts).
  * Evento lotado: mostra "Lotado" e troca o botão por "Entrar na lista de espera" (quem já está na fila vê
  * "Sair da lista de espera"). O resumo de vagas vem do mapa (`spotsLeft`); se o servidor responder 409 EVENT_FULL
- * o hook também passa a oferecer a fila.
+ * o hook também passa a oferecer a fila. Entrega as linhas informativas (`lines`, itens de lista) e o botão
+ * (`action`) separados, porque o cartão horizontal os põe em lugares diferentes.
  */
-function ParticipateAction({ place }: { place: MapPlace }) {
+function Participation({
+  place,
+  children,
+}: {
+  place: MapPlace;
+  children: (parts: { lines: ReactNode; action: ReactNode }) => ReactNode;
+}) {
   const isEvent = place.type === "EVENT";
   const { count, canJoin, joined, waitlisted, full, join, joinWaitlist, pending } = useEncounterParticipation(
     {
@@ -103,7 +111,7 @@ function ParticipateAction({ place }: { place: MapPlace }) {
   );
   const spots = placeSpotsLabel(place);
   const showFull = full || (!joined && spots === "Lotado");
-  return (
+  const lines = (
     <>
       {count !== undefined && count > 0 && (
         <li>
@@ -123,102 +131,64 @@ function ParticipateAction({ place }: { place: MapPlace }) {
           Você está na lista de espera
         </li>
       )}
-      {canJoin && (
-        <li className="map-card-join">
-          <Button
-            variant={joined ? "soft" : showFull ? "outline" : "hero"}
-            size="sm"
-            onClick={() => void (!joined && showFull ? joinWaitlist() : join())}
-            disabled={pending}
-          >
-            {joined ? <Check /> : <Users />}
-            {waitlisted
-              ? "Sair da lista de espera"
-              : joined
-                ? "Cancelar participação"
-                : showFull
-                  ? "Entrar na lista de espera"
-                  : "Quero participar"}
-          </Button>
-        </li>
-      )}
     </>
   );
-}
-
-/** Capa do cartão: a imagem do evento/roda (`imageUrl`); some se não existir ou falhar ao carregar. */
-function PlaceCover({ place }: { place: MapPlace }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [place.id]);
-  if (!place.imageUrl || failed) return null;
-  return (
-    <img
-      className="map-card-cover"
-      data-testid="map-card-cover"
-      src={imageSrc(place.imageUrl)}
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
-  );
+  const action = canJoin ? (
+    <Button
+      variant={joined ? "soft" : showFull ? "outline" : "hero"}
+      size="sm"
+      onClick={() => void (!joined && showFull ? joinWaitlist() : join())}
+      disabled={pending}
+    >
+      {joined ? <Check /> : <Users />}
+      {waitlisted
+        ? "Sair da lista de espera"
+        : joined
+          ? "Cancelar participação"
+          : showFull
+            ? "Entrar na lista de espera"
+            : "Quero participar"}
+    </Button>
+  ) : null;
+  return <>{children({ lines, action })}</>;
 }
 
 /**
- * Cartão do local selecionado: popover sobre o mapa no desktop e bottom sheet no celular (só CSS muda).
- * "Ver detalhes" não aparece: o app ainda não tem tela de detalhe de evento/roda/grupo (só as listas) —
- * o cartão já traz tudo; quando existir uma rota, o link entra aqui.
+ * Imagem quadrada à esquerda do cartão: a capa do evento/roda (`imageUrl`); sem capa (ou se falhar ao carregar),
+ * o logo do grupo ou as iniciais.
  */
-function PlaceCard({
-  place,
-  near,
-  onClose,
-}: {
-  place: MapPlace;
-  near: NearMe | null;
-  onClose: () => void;
-}) {
-  const meta = PLACE_META[place.type];
-  const ref = useRef<HTMLDivElement>(null);
+function PlaceMedia({ place }: { place: MapPlace }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [place.id]);
+  if (place.imageUrl && !failed) {
+    return (
+      <div className="map-card-media">
+        <img
+          data-testid="map-card-cover"
+          src={imageSrc(place.imageUrl)}
+          alt=""
+          loading="lazy"
+          onError={() => setFailed(true)}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="map-card-media is-logo">
+      <OrgLogo place={place} className="map-card-logo" />
+    </div>
+  );
+}
+
+/** Linhas de detalhe (grupo, endereço, quando, distância, vagas) + botões de ação do cartão. */
+function PlaceDetails({ place, near }: { place: MapPlace; near: NearMe | null }) {
   const distance = formatDistance(distanceOf(place, near));
   const when = whenLabel(place, toDate);
   const address = addressLine(place);
-  const description = place.description || place.organization.description;
   const joinable = place.type === "EVENT" || place.type === "RODA";
 
-  useEffect(() => {
-    ref.current?.focus({ preventScroll: true });
-  }, [place.id]);
-
-  return (
-    <div
-      ref={ref}
-      tabIndex={-1}
-      className="map-card"
-      role="dialog"
-      aria-label={`${meta.singular}: ${place.title}`}
-      style={pinStyle(place.type)}
-      data-testid="map-card"
-    >
-      <span className="map-card-handle" aria-hidden="true" />
-      <button type="button" className="map-card-close" aria-label="Fechar cartão" onClick={onClose}>
-        <X />
-      </button>
-      <PlaceCover place={place} />
-      <header className="map-card-head">
-        <OrgLogo place={place} className="map-logo is-large" />
-        <div>
-          <div className="map-card-tags">
-            <span className="map-type-pill">{meta.singular}</span>
-            {place.isMine && (
-              <span className="map-mine">
-                <Star /> Meu grupo
-              </span>
-            )}
-          </div>
-          <h3>{place.title}</h3>
-        </div>
-      </header>
-      {description && <p className="map-card-desc">{description}</p>}
+  const render = (lines: ReactNode, action: ReactNode) => (
+    <>
       <ul className="map-card-lines">
         {place.type !== "UNIT" && (
           <li>
@@ -244,7 +214,7 @@ function PlaceCard({
             {distance} de você
           </li>
         )}
-        {joinable && <ParticipateAction key={place.id} place={place} />}
+        {lines}
       </ul>
       <div className="map-card-actions">
         <Button asChild size="sm">
@@ -253,8 +223,96 @@ function PlaceCard({
             Como chegar
           </a>
         </Button>
+        {action}
       </div>
-    </div>
+    </>
+  );
+
+  // "key": trocar de local (Anterior/Próximo) reinicia o estado de inscrição.
+  return joinable ? (
+    <Participation key={place.id} place={place}>
+      {({ lines, action }) => render(lines, action)}
+    </Participation>
+  ) : (
+    render(null, null)
+  );
+}
+
+/**
+ * Cartão do local selecionado: HORIZONTAL, fixado na base do mapa e centralizado (imagem quadrada à esquerda;
+ * selo, título, descrição, detalhes e botões à direita). Anterior/Próximo percorrem os locais filtrados — é
+ * o acesso por teclado/leitor de tela sem lista. "Ver detalhes" não aparece: o app ainda não tem tela de detalhe
+ * de evento/roda/grupo; o cartão já traz tudo.
+ */
+function PlaceCard({
+  place,
+  near,
+  position,
+  onPrev,
+  onNext,
+  onClose,
+}: {
+  place: MapPlace;
+  near: NearMe | null;
+  /** "3/17" — só aparece com mais de um local. */
+  position: { index: number; total: number } | null;
+  onPrev: () => void;
+  onNext: () => void;
+  onClose: () => void;
+}) {
+  const meta = PLACE_META[place.type];
+  const ref = useRef<HTMLElement>(null);
+  const description = place.description || place.organization.description;
+
+  // Foco no cartão só ao abrir: ao navegar com Anterior/Próximo o foco fica no botão usado.
+  useEffect(() => {
+    ref.current?.focus({ preventScroll: true });
+  }, []);
+
+  return (
+    <section
+      ref={ref}
+      tabIndex={-1}
+      className="map-card"
+      aria-label={`${meta.singular}: ${place.title}`}
+      style={pinStyle(place.type)}
+      data-testid="map-card"
+    >
+      <PlaceMedia place={place} />
+      <div className="map-card-body">
+        <div className="map-card-top">
+          <div className="map-card-tags">
+            <span className="map-type-pill">{meta.singular}</span>
+            {place.isMine && (
+              <span className="map-mine">
+                <Star /> Meu grupo
+              </span>
+            )}
+          </div>
+          <div className="map-card-nav">
+            {position && (
+              <>
+                <button type="button" aria-label="Local anterior" onClick={onPrev}>
+                  <ChevronLeft />
+                </button>
+                <span className="map-card-pos" aria-hidden="true">
+                  {position.index + 1}/{position.total}
+                </span>
+                <button type="button" aria-label="Próximo local" onClick={onNext}>
+                  <ChevronRight />
+                </button>
+              </>
+            )}
+            <button type="button" className="map-card-close" aria-label="Fechar cartão" onClick={onClose}>
+              <X />
+            </button>
+          </div>
+        </div>
+        <h3>{place.title}</h3>
+        {description && <p className="map-card-desc">{description}</p>}
+        <PlaceDetails place={place} near={near} />
+      </div>
+    </section>
   );
 }
 
@@ -267,12 +325,19 @@ const GEO_MESSAGE: Record<Exclude<GeoState, "idle" | "locating">, string> = {
   error: "Não conseguimos descobrir onde você está agora. Tente novamente.",
 };
 
+/**
+ * Mapa da comunidade em TELA CHEIA: o Google ocupa toda a área e tudo o mais flutua sobre ele (alternador
+ * Lista | Mapa, chips de tipo, busca/período/"perto de mim", contagem e o cartão do local). Não há lista.
+ */
 export default function MapExplorer({
   config,
   active,
+  viewToggle,
 }: {
   config: MapConfig & { apiKey: string };
   active: boolean;
+  /** Alternador Lista | Mapa (vive em discovery.tsx; aqui só flutua sobre o mapa). */
+  viewToggle?: ReactNode;
 }) {
   const [types, setTypes] = useState<PlaceType[]>(PLACE_TYPES);
   const [period, setPeriod] = useState<Period>("all");
@@ -285,8 +350,9 @@ export default function MapExplorer({
   const [radius, setRadius] = useState(DEFAULT_RADIUS_KM);
   const [geo, setGeo] = useState<GeoState>("idle");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const listRef = useRef<HTMLOListElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [focusRequest, setFocusRequest] = useState<{ id: string; n: number } | null>(null);
+  const focusCount = useRef(0);
 
   const near = useMemo<NearMe | null>(
     () => (coords ? { ...coords, radiusKm: radius } : null),
@@ -307,10 +373,11 @@ export default function MapExplorer({
       ),
     [base, types, near],
   );
-  const selected = useMemo(
-    () => visible.find((p) => p.id === selectedId) ?? null,
+  const selectedIndex = useMemo(
+    () => visible.findIndex((p) => p.id === selectedId),
     [visible, selectedId],
   );
+  const selected = selectedIndex >= 0 ? (visible[selectedIndex] ?? null) : null;
   // O mapa só reenquadra quando o CONJUNTO muda (não a cada render).
   const fitToken = useMemo(
     () =>
@@ -355,33 +422,23 @@ export default function MapExplorer({
 
   const select = useCallback((id: string) => setSelectedId(id), []);
 
-  // No celular a lista fica ABAIXO do mapa: ao escolher um item, leva o mapa (e o cartão) para a tela.
-  function selectFromList(id: string) {
-    setSelectedId(id);
-    if (window.matchMedia("(max-width: 767px)").matches) {
-      stageRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-    }
+  /** Anterior/Próximo: percorre os locais filtrados em círculo (o mapa centraliza e dá zoom no escolhido). */
+  function step(delta: number) {
+    if (visible.length < 2 || selectedIndex < 0) return;
+    const next = visible[(selectedIndex + delta + visible.length) % visible.length];
+    if (next) setSelectedId(next.id);
   }
 
   function close(returnFocus = true) {
     const id = selectedId;
     setSelectedId(null);
     if (returnFocus && id) {
-      window.requestAnimationFrame(() =>
-        listRef.current
-          ?.querySelector<HTMLElement>(placeSelector(id))
-          ?.focus({ preventScroll: true }),
-      );
+      focusCount.current += 1;
+      setFocusRequest({ id, n: focusCount.current });
     }
   }
-
-  // Item selecionado pelo pin: rola a lista até ele (lista e mapa sempre sincronizados).
-  useEffect(() => {
-    if (!selectedId) return;
-    listRef.current
-      ?.querySelector<HTMLElement>(placeSelector(selectedId))
-      ?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
-  }, [selectedId]);
+  // Clique no mapa vazio: fecha sem roubar o foco.
+  const closeFromMap = useCallback(() => setSelectedId(null), []);
 
   const filtersActive =
     types.length !== PLACE_TYPES.length ||
@@ -394,48 +451,115 @@ export default function MapExplorer({
     <section
       className="map-explorer"
       aria-label="Mapa da comunidade"
+      data-has-card={selected ? "true" : "false"}
       onKeyDown={(event) => {
         if (event.key === "Escape" && selected) close();
       }}
     >
-      <div className="map-toolbar">
-        <div className="map-chip-row" role="group" aria-label="Tipos de local">
-          {PLACE_TYPES.map((type) => {
-            const Icon = TYPE_ICON[type];
-            const on = types.includes(type);
-            return (
+      <MapCanvas
+        apiKey={config.apiKey}
+        mapId={config.mapId}
+        places={visible}
+        selectedId={selected?.id ?? null}
+        onSelect={select}
+        onMapClick={closeFromMap}
+        focusRequest={focusRequest}
+        near={near}
+        fitToken={fitToken}
+        active={active}
+      />
+      {places.isFetching && <span className="map-progress" aria-hidden="true" />}
+
+      <div className="map-hud">
+        <div className="map-hud-center">
+          <div className="map-hud-row">
+            {active && viewToggle && <div className="map-float map-switch">{viewToggle}</div>}
+            <button
+              type="button"
+              className="map-float map-filter-btn"
+              aria-expanded={filtersOpen}
+              aria-controls="map-filters"
+              onClick={() => setFiltersOpen((open) => !open)}
+            >
+              <SlidersHorizontal aria-hidden="true" />
+              <span className="map-filter-label">Filtros</span>
+              {filtersActive && <span className="map-dot" aria-label="filtros ativos" />}
+            </button>
+          </div>
+          <div className="map-types" role="group" aria-label="Tipos de local">
+            {PLACE_TYPES.map((type) => {
+              const Icon = TYPE_ICON[type];
+              const on = types.includes(type);
+              return (
+                <button
+                  key={type}
+                  type="button"
+                  className="map-chip map-float"
+                  style={{ "--chip": PLACE_META[type].color } as CSSProperties}
+                  aria-pressed={on}
+                  aria-label={`${PLACE_META[type].label}: ${counts[type]}`}
+                  onClick={() => toggleType(type)}
+                >
+                  <Icon aria-hidden="true" />
+                  {PLACE_META[type].label}
+                  <span className="map-chip-count" aria-hidden="true">
+                    {counts[type]}
+                  </span>
+                </button>
+              );
+            })}
+            {hasMine && (
               <button
-                key={type}
                 type="button"
-                className="map-chip"
-                style={{ "--chip": PLACE_META[type].color } as CSSProperties}
-                aria-pressed={on}
-                aria-label={`${PLACE_META[type].label}: ${counts[type]}`}
-                onClick={() => toggleType(type)}
+                className="map-chip map-float"
+                style={{ "--chip": "#8a6d0b" } as CSSProperties}
+                aria-pressed={mineOnly}
+                onClick={() => setMineOnly((value) => !value)}
               >
-                <Icon aria-hidden="true" />
-                {PLACE_META[type].label}
-                <span className="map-chip-count" aria-hidden="true">
-                  {counts[type]}
-                </span>
+                <Star aria-hidden="true" />
+                Meu grupo
               </button>
-            );
-          })}
-          {hasMine && (
+            )}
+          </div>
+        </div>
+
+        <div id="map-filters" className="map-float map-filters" data-open={filtersOpen}>
+          <label className="search-field map-search">
+            <Search aria-hidden="true" />
+            <input
+              aria-label="Buscar no mapa"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Grupo, evento, cidade…"
+            />
+          </label>
+          <div className="map-filters-row">
             <button
               type="button"
               className="map-chip"
-              style={{ "--chip": "#8a6d0b" } as CSSProperties}
-              aria-pressed={mineOnly}
-              onClick={() => setMineOnly((value) => !value)}
+              aria-pressed={coords !== null}
+              onClick={toggleNear}
+              disabled={geo === "locating"}
             >
-              <Star aria-hidden="true" />
-              Meu grupo
+              <LocateFixed aria-hidden="true" />
+              {geo === "locating" ? "Localizando…" : "Perto de mim"}
             </button>
-          )}
-        </div>
-        <div className="map-chip-row">
-          <div className="map-chip-row" role="group" aria-label="Período">
+            {coords && (
+              <select
+                aria-label="Raio da busca"
+                className="select-field"
+                value={radius}
+                onChange={(event) => setRadius(Number(event.target.value))}
+              >
+                {RADIUS_OPTIONS.map((km) => (
+                  <option key={km} value={km}>
+                    até {km} km
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className="map-periods" role="group" aria-label="Período">
             {PERIODS.map((item) => (
               <button
                 key={item.value}
@@ -448,83 +572,41 @@ export default function MapExplorer({
               </button>
             ))}
           </div>
-          <label className="search-field map-search">
-            <Search aria-hidden="true" />
-            <input
-              aria-label="Buscar no mapa"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Grupo, evento, cidade…"
-            />
-          </label>
-          <button
-            type="button"
-            className="map-chip"
-            aria-pressed={coords !== null}
-            onClick={toggleNear}
-            disabled={geo === "locating"}
-          >
-            <LocateFixed aria-hidden="true" />
-            {geo === "locating" ? "Localizando…" : "Perto de mim"}
-          </button>
-          {coords && (
-            <select
-              aria-label="Raio da busca"
-              className="select-field"
-              value={radius}
-              onChange={(event) => setRadius(Number(event.target.value))}
-            >
-              {RADIUS_OPTIONS.map((km) => (
-                <option key={km} value={km}>
-                  até {km} km
-                </option>
-              ))}
-            </select>
+          {geo !== "idle" && geo !== "locating" && (
+            <p className="map-note" role="status">
+              {GEO_MESSAGE[geo]}
+            </p>
           )}
         </div>
-        {geo !== "idle" && geo !== "locating" && (
-          <p className="map-note" role="status">
-            {GEO_MESSAGE[geo]}
-          </p>
-        )}
-      </div>
 
-      <div className="map-layout">
-        <div className="map-stage" ref={stageRef}>
-          <MapCanvas
-            apiKey={config.apiKey}
-            mapId={config.mapId}
-            places={visible}
-            selectedId={selected?.id ?? null}
-            onSelect={select}
-            near={near}
-            fitToken={fitToken}
-            active={active}
-          />
-          {places.isFetching && <span className="map-progress" aria-hidden="true" />}
-          {selected && <PlaceCard place={selected} near={near} onClose={() => close()} />}
+        <div className="map-float map-count" role="status" aria-live="polite">
+          {places.isLoading ? (
+            "Procurando a roda…"
+          ) : (
+            <>
+              <strong>{visible.length}</strong> {visible.length === 1 ? "local" : "locais"}
+              {near && <span className="map-count-sub"> · perto de você</span>}
+              {total > items.length && (
+                <span className="map-count-sub">
+                  {" "}
+                  · {items.length} de {total} (limite de {MAP_LIMIT})
+                </span>
+              )}
+            </>
+          )}
         </div>
 
-        <aside className="map-panel" aria-label="Resultados do mapa">
-          <div className="map-panel-head" aria-live="polite">
-            <span>
-              {visible.length} {visible.length === 1 ? "local" : "locais"}
-            </span>
-            {near && <span className="map-panel-sub">perto de você</span>}
+        {places.isError ? (
+          <div className="map-float map-state text-destructive" role="alert">
+            {errorMessage(places.error, "Não foi possível carregar os locais.")}
+            <Button size="sm" variant="outline" onClick={() => void places.refetch()}>
+              Tentar novamente
+            </Button>
           </div>
-          {places.isLoading ? (
-            <div className="map-panel-state" role="status">
-              Procurando a roda…
-            </div>
-          ) : places.isError ? (
-            <div className="map-panel-state text-destructive" role="alert">
-              {errorMessage(places.error, "Não foi possível carregar os locais.")}
-              <Button size="sm" variant="outline" onClick={() => void places.refetch()}>
-                Tentar novamente
-              </Button>
-            </div>
-          ) : visible.length === 0 ? (
-            <div className="map-panel-state" role="status" data-testid="map-empty">
+        ) : (
+          !places.isLoading &&
+          visible.length === 0 && (
+            <div className="map-float map-state" role="status" data-testid="map-empty">
               <CircleDot className="map-empty-icon" aria-hidden="true" />
               <strong>A roda ainda não chegou por aqui</strong>
               <span>
@@ -537,48 +619,19 @@ export default function MapExplorer({
                 </Button>
               )}
             </div>
-          ) : (
-            <ol className="map-results" ref={listRef}>
-              {visible.map((place) => {
-                const distance = formatDistance(distanceOf(place, near));
-                const when = whenLabel(place, toDate);
-                return (
-                  <li key={place.id}>
-                    <button
-                      type="button"
-                      className="map-result"
-                      style={pinStyle(place.type)}
-                      data-place-id={place.id}
-                      aria-current={place.id === selected?.id ? "true" : undefined}
-                      onClick={() => selectFromList(place.id)}
-                    >
-                      <OrgLogo place={place} className="map-logo" />
-                      <span className="map-result-body">
-                        <span className="map-result-title">{place.title}</span>
-                        <span className="map-result-meta">
-                          <span className="map-type-pill">{PLACE_META[place.type].singular}</span>
-                          {place.type !== "UNIT" && <span>{place.organization.name}</span>}
-                          {place.isMine && <span className="map-mine">Meu grupo</span>}
-                        </span>
-                        {(when || distance) && (
-                          <span className="map-result-when">
-                            {[when, distance].filter(Boolean).join(" · ")}
-                          </span>
-                        )}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-          {!places.isLoading && total > items.length && (
-            <p className="map-panel-foot" role="status">
-              Mostrando {items.length} de {total} locais (limite de {MAP_LIMIT}). Refine a busca ou
-              o período.
-            </p>
-          )}
-        </aside>
+          )
+        )}
+
+        {selected && (
+          <PlaceCard
+            place={selected}
+            near={near}
+            position={visible.length > 1 ? { index: selectedIndex, total: visible.length } : null}
+            onPrev={() => step(-1)}
+            onNext={() => step(1)}
+            onClose={() => close()}
+          />
+        )}
       </div>
     </section>
   );

@@ -26,7 +26,7 @@ const fake = vi.hoisted(() => {
   const state = {
     failMarkers: false,
     markers: [] as FakeMarker[],
-    maps: [] as { opts: Record<string, unknown> }[],
+    maps: [] as { opts: Record<string, unknown>; listeners: Record<string, () => void> }[],
     clusters: [] as { markers: FakeMarker[] }[],
   };
   interface FakeMarker {
@@ -58,6 +58,10 @@ const fake = vi.hoisted(() => {
       public opts: Record<string, unknown>,
     ) {
       state.maps.push(this);
+    }
+    listeners: Record<string, () => void> = {};
+    addListener(name: string, handler: () => void) {
+      this.listeners[name] = handler;
     }
     setCenter() {}
     setZoom(zoom: number) {
@@ -200,8 +204,19 @@ const click = async (el: HTMLElement | undefined) => {
   await act(async () => el!.click());
 };
 const toggle = () => container!.querySelector('[role="radiogroup"]');
-const resultTitles = () =>
-  [...container!.querySelectorAll(".map-result-title")].map((e) => e.textContent);
+const lastMarkers = () => fake.state.clusters.at(-1)?.markers ?? [];
+/** Títulos dos pins que o mapa recebeu (sem a lista: o que está filtrado é o que está no mapa), na ordem enviada. */
+const pinTitles = () =>
+  lastMarkers().map((m) => String(m.opts["title"]).replace(/^[^:]+: /, "").replace(/ — .*$/, ""));
+const markerFor = (title: string) =>
+  lastMarkers().find((m) => String(m.opts["title"]).includes(title));
+const openPin = async (title: string) => {
+  const pin = markerFor(title);
+  expect(pin, `pin ${title}`).toBeTruthy();
+  await act(async () => pin!.listeners["gmp-click"]!());
+};
+const card = () => container!.querySelector<HTMLElement>('[data-testid="map-card"]');
+const pill = () => container!.querySelector<HTMLElement>(".map-count");
 
 /** Altera o campo como o navegador (o setter do protótipo escapa do rastreio de valor do React) e dispara o evento. */
 function setNative(el: HTMLElement, proto: object, value: string, event: "input" | "change") {
@@ -219,7 +234,7 @@ const stubGeolocation = (value: object) =>
 async function openMap() {
   await waitFor(() => expect(toggle()).toBeTruthy());
   await click(byRole("radio", /Mapa/));
-  await waitFor(() => expect(resultTitles().length).toBeGreaterThan(0));
+  await waitFor(() => expect(pinTitles().length).toBeGreaterThan(0));
 }
 
 // Aquece o chunk lazy do mapa (a 1ª transformação a frio do vitest é lenta e estouraria o timeout do 1º teste).
@@ -303,10 +318,16 @@ describe("toggle Lista | Mapa da Comunidade", () => {
     expect(url.searchParams.has("q")).toBe(false);
     expect(url.searchParams.has("from")).toBe(false);
     expect(url.searchParams.has("lat")).toBe(false);
-    expect(resultTitles()).toEqual(PLACES.map((p) => p.title));
+    expect(pinTitles()).toEqual(PLACES.map((p) => p.title));
     expect(localStorage.getItem("gingapp:community-view")).toBe("map");
-    // A lista de encontros sai de cena; o mapa foi criado com o Map ID (pins em HTML).
+    // Tela cheia: título, filtros da lista e qualquer listagem saem de cena; o alternador passa a flutuar sobre o mapa.
     expect(container!.querySelector(".filter-bar")).toBeNull();
+    expect(container!.querySelector(".page-heading")).toBeNull();
+    expect(text()).not.toContain("Na roda, juntos.");
+    expect(container!.querySelector(".map-fullscreen")).toBeTruthy();
+    expect(container!.querySelector(".map-results, .map-panel, ol")).toBeNull();
+    expect(container!.querySelector(".map-hud [role='radiogroup']")).toBeTruthy();
+    expect(byRole("radio", /Mapa/)?.getAttribute("aria-checked")).toBe("true");
     await waitFor(() => expect(fake.state.maps).toHaveLength(1));
     expect(fake.state.maps[0]!.opts["mapId"]).toBe("MAP1");
     expect(fake.state.maps[0]!.opts["styles"]).toBeUndefined();
@@ -316,10 +337,14 @@ describe("toggle Lista | Mapa da Comunidade", () => {
     localStorage.setItem("gingapp:community-view", "map");
     mockApi();
     render(<DiscoveryPage mode="community" />);
-    await waitFor(() => expect(resultTitles().length).toBe(PLACES.length));
+    await waitFor(() => expect(pinTitles().length).toBe(PLACES.length));
     expect(byRole("radio", /Mapa/)?.getAttribute("aria-checked")).toBe("true");
     await click(byRole("radio", /Lista/));
     expect(container!.querySelector(".filter-bar")).toBeTruthy();
+    expect(container!.querySelector(".map-fullscreen")).toBeNull();
+    expect(text()).toContain("Na roda, juntos.");
+    // Na Lista só existe um alternador (o do mapa, escondido, não duplica).
+    expect(container!.querySelectorAll('[role="radiogroup"]')).toHaveLength(1);
     expect(localStorage.getItem("gingapp:community-view")).toBe("list");
   });
 
@@ -336,16 +361,16 @@ describe("toggle Lista | Mapa da Comunidade", () => {
 });
 
 describe("falhas do Google Maps não derrubam a tela", () => {
-  it("falha ao criar os pins: mostra o aviso no mapa e a lista continua navegável", async () => {
+  it("falha ao criar os pins: mostra o aviso no mapa com 'Tentar novamente'", async () => {
     fake.state.failMarkers = true;
     mockApi();
     render(<DiscoveryPage mode="community" />);
-    await openMap();
+    await waitFor(() => expect(toggle()).toBeTruthy());
+    await click(byRole("radio", /Mapa/));
     await waitFor(() => expect(text()).toContain("Não foi possível carregar o Google Maps agora."));
     expect(button(/Tentar novamente/)).toBeTruthy();
-    expect(resultTitles()).toHaveLength(PLACES.length);
-    await click(container!.querySelector<HTMLElement>('[data-place-id="UNIT:1"]')!);
-    expect(container!.querySelector('[data-testid="map-card"]')).toBeTruthy();
+    // O alternador continua à mão para voltar à Lista.
+    expect(byRole("radio", /Lista/)).toBeTruthy();
   });
 
   it("chave recusada pelo Google (gm_authFailure): explica e não oferece tentar de novo", async () => {
@@ -356,12 +381,11 @@ describe("falhas do Google Maps não derrubam a tela", () => {
     await act(async () => (window as unknown as { gm_authFailure: () => void }).gm_authFailure());
     expect(text()).toContain("O Google Maps recusou a chave deste site.");
     expect(button(/Tentar novamente/)).toBeUndefined();
-    expect(resultTitles()).toHaveLength(PLACES.length);
   });
 });
 
 describe("filtros do mapa", () => {
-  it("chips de tipo trazem contador, filtram a lista e os pins sem nova chamada", async () => {
+  it("chips de tipo trazem contador, filtram os pins e a contagem sem nova chamada", async () => {
     mockApi();
     render(<DiscoveryPage mode="community" />);
     await openMap();
@@ -370,17 +394,23 @@ describe("filtros do mapa", () => {
     expect(chip(/Grupos: 1/)).toBeTruthy();
     expect(chip(/Rodas: 1/)).toBeTruthy();
     expect(chip(/Treinos: 1/)).toBeTruthy();
+    // Pílula flutuante de contagem, anunciada por leitores de tela.
+    expect(pill()?.getAttribute("aria-live")).toBe("polite");
+    expect(pill()?.textContent).toContain("5 locais");
     const before = placesCalls().length;
 
     await click(chip(/Eventos/));
     expect(chip(/Eventos/).getAttribute("aria-pressed")).toBe("false");
-    expect(resultTitles()).toEqual(["Sede Cordão de Ouro", "Treino de quinta", "Roda da Praça"]);
-    await waitFor(() => expect(fake.state.clusters[0]?.markers).toHaveLength(3));
+    await waitFor(() =>
+      expect(pinTitles()).toEqual(["Sede Cordão de Ouro", "Treino de quinta", "Roda da Praça"]),
+    );
+    expect(pill()?.textContent).toContain("3 locais");
     expect(placesCalls().length).toBe(before);
 
     await click(chip(/Grupos/));
     await click(chip(/Treinos/));
-    expect(resultTitles()).toEqual(["Roda da Praça"]);
+    await waitFor(() => expect(pinTitles()).toEqual(["Roda da Praça"]));
+    expect(pill()?.textContent).toContain("1 local");
   });
 
   it("período, busca e 'meu grupo' mudam a consulta / a lista", async () => {
@@ -403,7 +433,7 @@ describe("filtros do mapa", () => {
     await waitFor(() => expect(lastPlaces().searchParams.get("q")).toBe("batizado"));
 
     await click(button(/Meu grupo/));
-    expect(resultTitles()).toEqual(["Sede Cordão de Ouro"]);
+    await waitFor(() => expect(pinTitles()).toEqual(["Sede Cordão de Ouro"]));
   });
 
   it("'Perto de mim' pede a localização, envia lat/lng/radiusKm e ordena por distância", async () => {
@@ -425,9 +455,12 @@ describe("filtros do mapa", () => {
     await waitFor(() => expect(lastPlaces().searchParams.get("lat")).toBe("-23.5"));
     expect(lastPlaces().searchParams.get("lng")).toBe("-46.6");
     expect(lastPlaces().searchParams.get("radiusKm")).toBe("25");
-    await waitFor(() => expect(resultTitles()).toEqual(["Perto", "Longe"]));
-    expect(text()).toContain("400 m");
-    expect(text()).toContain("12 km");
+    await waitFor(() => expect(pinTitles()).toEqual(["Perto", "Longe"]));
+    // A distância aparece no cartão do local (não há lista).
+    await openPin("Perto");
+    expect(card()?.textContent).toContain("400 m de você");
+    await click(button(/Próximo local/));
+    expect(card()?.textContent).toContain("12 km de você");
 
     const radius = container!.querySelector<HTMLSelectElement>(
       'select[aria-label="Raio da busca"]',
@@ -446,7 +479,7 @@ describe("filtros do mapa", () => {
     await click(button(/Perto de mim/));
     await waitFor(() => expect(text()).toContain("Sem permissão de localização"));
     expect(lastPlaces().searchParams.has("lat")).toBe(false);
-    expect(resultTitles()).toHaveLength(PLACES.length);
+    expect(pinTitles()).toHaveLength(PLACES.length);
   });
 
   it("estado vazio simpático, com 'Limpar filtros' que restaura tudo", async () => {
@@ -457,75 +490,122 @@ describe("filtros do mapa", () => {
     await typeInto(input, "zzz");
     await waitFor(() => expect(container!.querySelector('[data-testid="map-empty"]')).toBeTruthy());
     expect(text()).toContain("A roda ainda não chegou por aqui");
-    expect(resultTitles()).toHaveLength(0);
+    expect(pinTitles()).toHaveLength(0);
+    expect(pill()?.textContent).toContain("0 locais");
 
     await click(button(/Limpar filtros/));
-    await waitFor(() => expect(resultTitles()).toHaveLength(PLACES.length));
+    await waitFor(() => expect(pinTitles()).toHaveLength(PLACES.length));
     expect(input.value).toBe("");
   });
 });
 
-describe("cartão do local", () => {
-  it("clicar num item da lista abre o cartão com descrição, endereço, 'Como chegar' e sem 'Ver detalhes'", async () => {
+describe("cartão do local (horizontal, flutuante)", () => {
+  it("tocar no pin abre o cartão com descrição, endereço, 'Como chegar' e sem 'Ver detalhes'; Esc fecha", async () => {
     mockApi();
     render(<DiscoveryPage mode="community" />);
     await openMap();
-    await click(container!.querySelector<HTMLElement>('[data-place-id="CLASS:9"]')!);
+    expect(card()).toBeNull();
+    await openPin("Treino de quinta");
 
-    const card = container!.querySelector('[data-testid="map-card"]')!;
-    expect(card).toBeTruthy();
-    expect(card.textContent).toContain("Treino de quinta");
-    expect(card.textContent).toContain("descrição do local");
-    expect(card.textContent).toContain("Rua da Roda, 10 — São Paulo/SP");
-    expect(card.textContent).toContain("Quinta");
-    expect(card.textContent).toContain("19:00–20:00");
-    expect(card.textContent).toContain("Grupo Cordão de Ouro");
-    const directions = card.querySelector<HTMLAnchorElement>("a")!;
+    const el = card()!;
+    expect(el).toBeTruthy();
+    // Região rotulada, não diálogo modal: o mapa continua à vista e acessível.
+    expect(el.tagName).toBe("SECTION");
+    expect(el.getAttribute("aria-label")).toBe("Treino: Treino de quinta");
+    expect(el.getAttribute("role")).not.toBe("dialog");
+    expect(el.textContent).toContain("Treino de quinta");
+    expect(el.textContent).toContain("descrição do local");
+    expect(el.textContent).toContain("Rua da Roda, 10 — São Paulo/SP");
+    expect(el.textContent).toContain("Quinta");
+    expect(el.textContent).toContain("19:00–20:00");
+    expect(el.textContent).toContain("Grupo Cordão de Ouro");
+    const directions = el.querySelector<HTMLAnchorElement>("a")!;
     expect(directions.textContent).toContain("Como chegar");
-    expect(directions.href).toBe(
-      "https://www.google.com/maps/dir/?api=1&destination=-23.55,-46.63",
-    );
+    expect(directions.href).toBe("https://www.google.com/maps/dir/?api=1&destination=-23.55,-46.63");
     expect(directions.target).toBe("_blank");
-    expect(card.textContent).not.toContain("Ver detalhes");
-    expect(card.textContent).not.toContain("Quero participar"); // treino/grupo não têm inscrição no app
+    expect(el.textContent).not.toContain("Ver detalhes");
+    expect(el.textContent).not.toContain("Quero participar"); // treino/grupo não têm inscrição no app
+    // Sem capa: o logo do grupo (iniciais) ocupa o quadrado da esquerda.
+    expect(el.querySelector('[data-testid="map-card-cover"]')).toBeNull();
+    expect(el.querySelector(".map-card-media .map-card-logo")?.textContent).toBe("GO");
 
-    // Esc fecha o cartão e devolve o foco ao item da lista.
     await act(async () => {
-      card.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
-    expect(container!.querySelector('[data-testid="map-card"]')).toBeNull();
+    expect(card()).toBeNull();
   });
 
-  it("tocar no pin (gmp-click) abre o cartão do evento com 'Quero participar' e inscreve via /events/7/participants", async () => {
+  it("botão X e clique no mapa vazio fecham o cartão", async () => {
+    mockApi();
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await openPin("Sede Cordão");
+    expect(card()).toBeTruthy();
+    await click(button(/Fechar cartão/));
+    expect(card()).toBeNull();
+
+    await openPin("Roda da Praça");
+    expect(card()).toBeTruthy();
+    await act(async () => fake.state.maps[0]!.listeners["click"]!());
+    expect(card()).toBeNull();
+  });
+
+  it("Anterior/Próximo percorrem os locais filtrados em círculo (acesso sem lista)", async () => {
+    mockApi();
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await openPin("Sede Cordão");
+    const title = () => card()?.querySelector("h3")?.textContent;
+    expect(title()).toBe("Sede Cordão de Ouro");
+    expect(card()?.textContent).toContain("1/5");
+
+    await click(button(/Próximo local/));
+    expect(title()).toBe("Treino de quinta");
+    await click(button(/Próximo local/));
+    expect(title()).toBe("Roda da Praça");
+    await click(button(/Local anterior/));
+    expect(title()).toBe("Treino de quinta");
+    // Do primeiro volta ao último, e do último ao primeiro.
+    await click(button(/Local anterior/));
+    await click(button(/Local anterior/));
+    expect(title()).toBe("Workshop de berimbau");
+    await click(button(/Próximo local/));
+    expect(title()).toBe("Sede Cordão de Ouro");
+
+    // Respeita os filtros: sem eventos, o ciclo só passa pelos outros 3.
+    await click(button(/Eventos/));
+    await click(button(/Local anterior/));
+    expect(title()).toBe("Roda da Praça");
+  });
+
+  it("com um único local não há Anterior/Próximo", async () => {
+    mockApi({ places: () => [PLACES[0]!] });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await openPin("Sede Cordão");
+    expect(card()).toBeTruthy();
+    expect(button(/Próximo local/)).toBeUndefined();
+    expect(button(/Local anterior/)).toBeUndefined();
+  });
+
+  it("pin do evento: cartão com 'Quero participar' e inscreve via /events/7/participants", async () => {
     mockApi();
     // Sem aluno vinculado (/students/me vazio) => inscrição como convidado, fluxo que o app já suporta.
     render(<DiscoveryPage mode="community" />);
     await openMap();
-    await waitFor(() => expect(fake.state.clusters[0]?.markers).toHaveLength(PLACES.length));
-    const pin = fake.state.markers.find(
-      (m) => m.opts["title"] === "Evento: Batizado 2026 — Grupo Cordão de Ouro",
-    );
+    const pin = markerFor("Evento: Batizado 2026 — Grupo Cordão de Ouro");
     expect(pin, "pin do evento").toBeTruthy();
     expect(pin!.opts["gmpClickable"]).toBe(true);
     expect((pin!.opts["content"] as HTMLElement).textContent).toContain("NOV");
-    await act(async () => pin!.listeners["gmp-click"]!());
+    await openPin("Batizado 2026");
 
-    const card = container!.querySelector('[data-testid="map-card"]')!;
-    expect(card.textContent).toContain("Batizado 2026");
+    expect(card()!.textContent).toContain("Batizado 2026");
     await waitFor(() => expect(button(/Quero participar/)).toBeTruthy());
-    expect(
-      calls.some((c) => c.url.pathname === "/events/7/participants" && c.method === "GET"),
-    ).toBe(true);
+    expect(calls.some((c) => c.url.pathname === "/events/7/participants" && c.method === "GET")).toBe(true);
     await click(button(/Quero participar/));
     await waitFor(() =>
-      expect(
-        calls.some((c) => c.url.pathname === "/events/7/participants" && c.method === "POST"),
-      ).toBe(true),
+      expect(calls.some((c) => c.url.pathname === "/events/7/participants" && c.method === "POST")).toBe(true),
     );
-    // O item da lista fica marcado como selecionado.
-    expect(
-      container!.querySelector('[data-place-id="EVENT:7"]')!.getAttribute("aria-current"),
-    ).toBe("true");
   });
 });
 
@@ -538,11 +618,13 @@ describe("cartão do evento: vagas, lista de espera e capa", () => {
     mockApi({ places: withEvent({ capacity: 20, spotsLeft: 0, imageUrl: "https://cdn.test/batizado.png" }) });
     render(<DiscoveryPage mode="community" />);
     await openMap();
-    await click(container!.querySelector<HTMLElement>('[data-place-id="EVENT:7"]')!);
+    await openPin("Batizado 2026");
 
-    const card = container!.querySelector('[data-testid="map-card"]')!;
-    expect(card.querySelector<HTMLImageElement>('[data-testid="map-card-cover"]')?.src).toBe("https://cdn.test/batizado.png");
-    expect(card.querySelector('[data-testid="map-card-spots"]')?.textContent).toBe("Lotado");
+    const el = card()!;
+    expect(el.querySelector<HTMLImageElement>('[data-testid="map-card-cover"]')?.src).toBe(
+      "https://cdn.test/batizado.png",
+    );
+    expect(el.querySelector('[data-testid="map-card-spots"]')?.textContent).toBe("Lotado");
     await waitFor(() => expect(button(/Entrar na lista de espera/)).toBeTruthy());
     expect(button(/Quero participar/)).toBeUndefined();
     await click(button(/Entrar na lista de espera/));
@@ -556,11 +638,11 @@ describe("cartão do evento: vagas, lista de espera e capa", () => {
     mockApi({ places: withEvent({ capacity: 20, spotsLeft: 5 }) });
     render(<DiscoveryPage mode="community" />);
     await openMap();
-    await click(container!.querySelector<HTMLElement>('[data-place-id="EVENT:7"]')!);
+    await openPin("Batizado 2026");
 
-    const card = container!.querySelector('[data-testid="map-card"]')!;
-    expect(card.querySelector('[data-testid="map-card-spots"]')?.textContent).toBe("5 vagas restantes");
-    expect(card.querySelector('[data-testid="map-card-cover"]')).toBeNull();
+    const el = card()!;
+    expect(el.querySelector('[data-testid="map-card-spots"]')?.textContent).toBe("5 vagas restantes");
+    expect(el.querySelector('[data-testid="map-card-cover"]')).toBeNull();
     await waitFor(() => expect(button(/Quero participar/)).toBeTruthy());
     expect(button(/lista de espera/)).toBeUndefined();
   });
