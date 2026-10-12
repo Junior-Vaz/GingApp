@@ -4,6 +4,7 @@ import { FileDown } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +20,7 @@ import { notifyError } from "@/lib/crud";
 import { saveCsv } from "@/lib/csv";
 import {
   buildTemplateCsv,
+  IMPORT_CODE_LABEL,
   IMPORT_MAX_BYTES,
   parseStudentsCsv,
   type ImportAction,
@@ -53,12 +55,22 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [notes, setNotes] = useState<string[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
+  // "Importar mesmo assim os possíveis duplicados": reenvia com confirmNew:true (simulação e gravação).
+  const [includeDuplicates, setIncludeDuplicates] = useState(false);
+  const [duplicateCount, setDuplicateCount] = useState(0);
+  const duplicatesId = useId();
 
   const preview = useMutation({
-    mutationFn: (payload: ImportRow[]) => api.post<ImportResult>("/students/import", { rows: payload, dryRun: true }),
+    mutationFn: ({ payload, confirmNew }: { payload: ImportRow[]; confirmNew: boolean }) =>
+      api.post<ImportResult>("/students/import", { rows: payload, dryRun: true, ...(confirmNew ? { confirmNew: true } : {}) }),
+    onSuccess: (data, { confirmNew }) => {
+      // a contagem vem da simulação SEM confirmação (com ela, as linhas deixam de ser duplicados pendentes)
+      if (!confirmNew) setDuplicateCount(data.items.filter((item) => item.code === "POSSIBLE_DUPLICATE").length);
+    },
   });
   const confirm = useMutation({
-    mutationFn: (payload: ImportRow[]) => api.post<ImportResult>("/students/import", { rows: payload, dryRun: false }),
+    mutationFn: (payload: ImportRow[]) =>
+      api.post<ImportResult>("/students/import", { rows: payload, dryRun: false, ...(includeDuplicates ? { confirmNew: true } : {}) }),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ["crud", "/students"] });
       const extra = [
@@ -77,6 +89,8 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
     setRows([]);
     setNotes([]);
     setFileError(null);
+    setIncludeDuplicates(false);
+    setDuplicateCount(0);
     preview.reset();
     confirm.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- só reinicia ao abrir
@@ -87,6 +101,8 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
     setRows([]);
     setNotes([]);
     setFileError(null);
+    setIncludeDuplicates(false);
+    setDuplicateCount(0);
     if (!file) {
       setFileName("");
       return;
@@ -104,13 +120,17 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
       }
       setRows(parsed.rows);
       setNotes(parsed.ignoredColumns.length ? [`Colunas ignoradas: ${parsed.ignoredColumns.join(", ")}.`] : []);
-      preview.mutate(parsed.rows);
+      preview.mutate({ payload: parsed.rows, confirmNew: false });
     } catch (error) {
       setFileError(errorMessage(error, "Não foi possível ler o arquivo."));
     }
   }
 
   const result = preview.data;
+  function toggleDuplicates(checked: boolean) {
+    setIncludeDuplicates(checked);
+    preview.mutate({ payload: rows, confirmNew: checked });
+  }
   const busy = preview.isPending || confirm.isPending;
 
   return (
@@ -120,7 +140,7 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
           <DialogTitle>Importar alunos</DialogTitle>
           <DialogDescription>
             Envie uma planilha CSV (máximo de 500 linhas). Antes de gravar, mostramos o que será criado e o que tem erro.
-            Quem já está cadastrado (mesmo e-mail, ou mesmo nome e nascimento) é ignorado.
+            Quem já está cadastrado (mesmo e-mail, ou mesmo nome e nascimento) é ignorado. Se a pessoa já tem ficha no GingApp (CPF ou código), mostramos o motivo na linha.
           </DialogDescription>
         </DialogHeader>
 
@@ -130,7 +150,7 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
               <FileDown /> Baixar modelo CSV
             </Button>
             <span className="text-xs text-muted-foreground">
-              Colunas: Nome (obrigatório), Data de nascimento, E-mail, Telefone, CPF, Unidade, Situação, Data de ingresso.
+              Colunas: Nome (obrigatório), Data de nascimento, E-mail, Telefone, CPF, Unidade, Situação, Data de ingresso, CPF do responsável, Código GingApp.
             </span>
           </div>
           <div className="space-y-1.5">
@@ -188,6 +208,23 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
               {result.failed > 0 && (
                 <p className="text-xs text-muted-foreground">As linhas com erro não serão importadas. Corrija a planilha e envie de novo, se quiser.</p>
               )}
+              {(duplicateCount > 0 || includeDuplicates) && (
+                <div className="flex items-start gap-2 rounded-md border p-3" data-testid="import-duplicates">
+                  <Checkbox
+                    id={duplicatesId}
+                    checked={includeDuplicates}
+                    disabled={busy}
+                    onCheckedChange={(checked) => toggleDuplicates(checked === true)}
+                    className="mt-0.5"
+                  />
+                  <label htmlFor={duplicatesId} className="text-sm">
+                    Importar mesmo assim os possíveis duplicados ({duplicateCount})
+                    <span className="block text-xs text-muted-foreground">
+                      Marque só se você conferiu que NÃO são as mesmas pessoas já cadastradas no GingApp.
+                    </span>
+                  </label>
+                </div>
+              )}
               <div className="max-h-72 overflow-auto rounded-md border">
                 <Table>
                   <TableHeader>
@@ -208,7 +245,14 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
                             {ACTION_LABEL[item.action]}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-xs text-muted-foreground">{item.messages.join(" ")}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {item.code && (
+                            <span data-testid={`import-code-${item.line}`} className="mr-1 font-medium text-foreground">
+                              {IMPORT_CODE_LABEL[item.code] ?? item.code}.
+                            </span>
+                          )}
+                          {item.messages.join(" ")}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

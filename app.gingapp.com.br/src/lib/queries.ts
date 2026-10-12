@@ -498,6 +498,67 @@ export function usePassport() {
   return scoped(query, scope);
 }
 
+/* ---------- Ficha única do capoeirista (GET /people/me/code e /people/me/ficha) ---------- */
+
+export interface PersonCode {
+  personId: number;
+  /** Ex.: 'GING-7K3Q-9XPM'. */
+  gingappCode: string;
+  /** data:image/png;base64,... do QR do código. */
+  qrDataUrl: string;
+}
+
+/** Código único da ficha do aluno ATIVO. 404 PERSON_NOT_FOUND (sem ficha) é erro e NÃO deve ser repetido. */
+export function usePersonCode() {
+  const scope = useStudentScope();
+  return useQuery({
+    queryKey: ["people", "me", "code", scope.studentId ?? null],
+    queryFn: () => api.get<PersonCode>(withQuery("/people/me/code", { studentId: scope.studentId })),
+    enabled: scope.ready,
+    retry: false,
+  });
+}
+
+export interface FichaEnrollment {
+  studentId: number;
+  organization: { id: number; name: string; logoUrl: string | null };
+  unit: { id: number; name: string } | null;
+  status: string;
+  since: string | null;
+  until: string | null;
+  isCurrent: boolean;
+}
+
+export interface Ficha {
+  person: {
+    id: number;
+    gingappCode: string;
+    name: string;
+    nickname: string | null;
+    birthDate: string | null;
+    photo: string | null;
+    documentMasked: string | null;
+    documentKind: string | null;
+  };
+  enrollments: FichaEnrollment[];
+  graduations: unknown[];
+  attendanceByGroup: { organization: { id: number; name: string }; present: number; absent: number; total: number }[];
+  certificates: unknown[];
+  sharedFromOtherGroups: unknown[];
+  scope: "SELF" | string;
+}
+
+/** Ficha única do aluno ATIVO (sem tela ainda; exposta para uso futuro). */
+export function useFicha(enabled = true) {
+  const scope = useStudentScope();
+  return useQuery({
+    queryKey: ["people", "me", "ficha", scope.studentId ?? null],
+    queryFn: () => api.get<Ficha>(withQuery("/people/me/ficha", { studentId: scope.studentId })),
+    enabled: enabled && scope.ready,
+    retry: false,
+  });
+}
+
 /* ---------- Listagens paginadas (limit/offset + X-Total-Count) ----------
  * Os endpoints "/me", /events, /calendar e /notifications devolvem 50 por padrão (teto 200) e o
  * total real no header X-Total-Count. NUNCA calcule totais/contagens em cima da lista carregada:

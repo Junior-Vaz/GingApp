@@ -22,6 +22,7 @@ import {
 } from "@/lib/queries";
 import { ChangePasswordSection } from "./change-password";
 import { UnitLine } from "./class-parts";
+import { PersonCodeCard } from "./ficha-code-card";
 import { ImageUploadControl } from "./image-upload";
 import { MyDataSection } from "./legal";
 import { QrDialog } from "./journey";
@@ -205,6 +206,7 @@ export function ProfilePage() {
               Sua senha foi definida pelo seu mestre ou professor. Crie uma senha nova abaixo para continuar usando o aplicativo.
             </p>
           )}
+          {!user?.mustChangePassword && <PersonCodeCard />}
           <ChangePasswordSection />
           {!user?.mustChangePassword && <TwoFactorSection />}
           {!user?.mustChangePassword && <MyDataSection />}

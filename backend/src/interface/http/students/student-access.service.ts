@@ -7,6 +7,7 @@ import { resetMemberPassword } from '../../../shared/security/reset-member-passw
 import { ResetMemberPasswordDto } from '../../../shared/security/reset-member-password.dto';
 import { CreateStudentAccountDto } from './dto/create-student-account.dto';
 import { PasswordResetService } from '../../../shared/security/password-reset.service';
+import { PersonIdentityService } from '../people/person-identity.service';
 import {
   assertInviteRequest,
   EMAIL_REQUIRED_MESSAGE,
@@ -53,6 +54,7 @@ export class StudentAccessService {
     private readonly prisma: PrismaService,
     private readonly passwordReset: PasswordResetService,
     private readonly audit: AuditService,
+    private readonly people: PersonIdentityService,
   ) {}
 
   private async groupName(organizationId: number): Promise<string> {
@@ -105,6 +107,8 @@ export class StudentAccessService {
       throw error;
     }
 
+    // Ficha única: "mesmo login = mesma pessoa" (liga o User à ficha; mescla se o User já tinha outra). Nunca lança.
+    await this.people.attachUser(studentId, result.userId);
     const account = await this.loadAccount(organizationId, result.userId);
     // Convite só para User NOVO (quem já era usuário mantém a própria senha e não precisa de link).
     const inviteSent =

@@ -161,6 +161,7 @@ model User {
   createdAnnouncements         Announcement[]         @relation("AnnouncementCreatedBy")
   createdPlatformAnnouncements PlatformAnnouncement[] @relation("PlatformAnnouncementCreatedBy")
   studentLinks                 Student[]              @relation("StudentUser")
+  person                       Person?                @relation("PersonUser")
   guardianLinks                StudentGuardian[]      @relation("StudentGuardianUser")
   taughtLessons                Lesson[]               @relation("LessonTeacher")
   taughtClasses                Class[]                @relation("ClassTeacher")
@@ -507,6 +508,11 @@ model Student {
   phone          String?
   email          String?
   photo          String?
+  /// Ficha unica (docs/FICHA_UNICA.md): a PESSOA dona desta matricula. Student = matricula da pessoa NESTE grupo
+  /// (situacao, unidade, turma, mensalidade, frequencia, graduacoes concedidas pelo grupo); Person = identidade global.
+  /// Nulo so em linhas antigas ainda nao processadas pelo backfill (npm run person:backfill / boot) ou criadas fora
+  /// da API (seed/specs): PeopleService.ensurePersonForStudent completa sob demanda. NOT NULL numa fase futura.
+  personId       Int?
   /// URL de uma foto de capa/fundo pro cartão de perfil no PWA (mesmo padrão leve de photo
   /// acima — só URL, sem upload). Auto-atendimento: o próprio aluno/responsável define a sua
   /// via PATCH /students/me/profile — não é um campo gerenciado pelo painel/admin.
@@ -522,6 +528,7 @@ model Student {
   organization        Organization        @relation(fields: [organizationId], references: [id])
   unit                Unit?               @relation(fields: [unitId], references: [id])
   user                User?               @relation("StudentUser", fields: [userId], references: [id])
+  person              Person?             @relation(fields: [personId], references: [id], onDelete: SetNull)
   guardians           StudentGuardian[]
   classStudents       ClassStudent[]
   attendances         Attendance[]
@@ -539,6 +546,52 @@ model Student {
   @@unique([organizationId, userId])
   @@index([organizationId, status])
   @@index([userId])
+  @@index([personId])
+}
+
+/// Tipo do documento que identifica a Person (chave de busca sem duplicar): CPF proprio; GUARDIAN_CPF = crianca sem
+/// CPF identificada pelo CPF do responsavel + data de nascimento; PASSPORT reservado (estrangeiros; sem fluxo ainda).
+enum PersonDocumentKind {
+  CPF
+  GUARDIAN_CPF
+  PASSPORT
+}
+
+/// FICHA UNICA do capoeirista (docs/FICHA_UNICA.md): uma linha por PESSOA no GingApp inteiro, ligada ao CPF. As
+/// matriculas (Student) de todos os grupos apontam para ela. Dados de identidade; nada de financeiro/frequencia aqui.
+/// O documento NUNCA fica em claro: documentEnc = AES-256-GCM (PERSON_DOC_KEY), documentHash = HMAC-SHA256 do
+/// documento normalizado (PERSON_DOC_PEPPER) para busca exata, documentLast4 = so para exibir a mascara.
+/// Mescla (POST /people/merge): a ficha mesclada NAO e apagada; ganha mergedIntoId (o codigo/CPF antigos continuam
+/// encontrando a ficha mantida seguindo essa cadeia).
+model Person {
+  id            Int                 @id @default(autoincrement())
+  /// Codigo legivel unico por pessoa (GING-XXXX-XXXX, alfabeto sem 0/O/1/I, ultimo caractere = verificador).
+  gingappCode   String              @unique
+  name          String
+  nickname      String?
+  birthDate     DateTime?
+  photo         String?
+  gender        String?
+  email         String?
+  phone         String?
+  documentHash  String?             @unique
+  documentEnc   String?
+  documentLast4 String?
+  documentKind  PersonDocumentKind?
+  /// Login da pessoa (no maximo uma ficha por User).
+  userId        Int?                @unique
+  mergedIntoId  Int?
+  mergedAt      DateTime?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  user       User?     @relation("PersonUser", fields: [userId], references: [id], onDelete: SetNull)
+  mergedInto Person?   @relation("PersonMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom Person[]  @relation("PersonMerge")
+  students   Student[]
+
+  @@index([birthDate])
+  @@index([mergedIntoId])
 }
 
 /// Cobranca mensal do aluno (E07): valor da mensalidade (centavos) e dia de vencimento (1..31; em meses

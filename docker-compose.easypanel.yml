@@ -92,6 +92,12 @@ services:
       # Log estruturado de requisicao (1 linha JSON no stdout) e chave do 2FA (vazia = deriva do JWT_SECRET).
       REQUEST_LOG: "${REQUEST_LOG:-false}"
       TWO_FACTOR_KEY: "${TWO_FACTOR_KEY:-}"
+      # Ficha unica (docs/FICHA_UNICA.md): chave que cifra o CPF da ficha e "pepper" do hash de busca por CPF (vazias =
+      # derivam do JWT_SECRET). NUNCA troque depois de ter fichas (o pepper novo faz o CPF nao achar mais ninguem).
+      # PERSON_BACKFILL: vazio = liga no boot as matriculas sem ficha; true = sempre; false = nunca.
+      PERSON_DOC_KEY: "${PERSON_DOC_KEY:-}"
+      PERSON_DOC_PEPPER: "${PERSON_DOC_PEPPER:-}"
+      PERSON_BACKFILL: "${PERSON_BACKFILL:-}"
       # TERMS_ENFORCEMENT=true: o servidor tambem barra (403) quem nao aceitou a versao vigente dos Termos/Politica.
       # Padrao false: so o frontend exige o aceite.
       TERMS_ENFORCEMENT: "${TERMS_ENFORCEMENT:-false}"

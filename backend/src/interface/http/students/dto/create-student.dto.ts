@@ -1,5 +1,5 @@
 import { StudentStatus } from '@prisma/client';
-import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsBoolean, IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { IsImageRef } from '../../../../shared/uploads/image-ref';
 
 export class CreateStudentDto {
@@ -15,9 +15,28 @@ export class CreateStudentDto {
   @IsDateString()
   birthDate?: string;
 
+  /** CPF do aluno (com ou sem máscara). Validado (400 INVALID_CPF) e usado para nunca duplicar a pessoa (ficha única). */
   @IsOptional()
   @IsString()
+  @MaxLength(30)
   document?: string;
+
+  /** CPF do RESPONSÁVEL, para criança sem CPF (exige birthDate): a ficha é identificada por CPF do responsável + nascimento. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  guardianDocument?: string;
+
+  /** Código GingApp de quem já tem ficha (GING-XXXX-XXXX). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  gingappCode?: string;
+
+  /** true = cadastra mesmo havendo POSSIBLE_DUPLICATE (fica na auditoria). */
+  @IsOptional()
+  @IsBoolean()
+  confirmNew?: boolean;
 
   @IsOptional()
   @IsString()

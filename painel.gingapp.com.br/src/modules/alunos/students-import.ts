@@ -13,6 +13,10 @@ export interface ImportRow {
   email?: string;
   phone?: string;
   document?: string;
+  /** CPF do responsável (criança sem CPF; exige a data de nascimento). */
+  guardianDocument?: string;
+  /** Código GingApp da pessoa, quando ela já tem ficha. */
+  gingappCode?: string;
   unit?: string;
   status?: string;
   joinedAt?: string;
@@ -28,6 +32,8 @@ export const TEMPLATE_HEADERS = [
   "Unidade",
   "Situação",
   "Data de ingresso",
+  "CPF do responsável",
+  "Código GingApp",
 ] as const;
 
 const normalizeHeader = (text: string): string =>
@@ -53,6 +59,11 @@ const HEADER_FIELD: Record<string, keyof Omit<ImportRow, "line">> = {
   whatsapp: "phone",
   cpf: "document",
   documento: "document",
+  "cpf do responsavel": "guardianDocument",
+  "cpf responsavel": "guardianDocument",
+  "cpf do responsavel legal": "guardianDocument",
+  "codigo gingapp": "gingappCode",
+  "codigo ginga app": "gingappCode",
   unidade: "unit",
   situacao: "status",
   status: "status",
@@ -64,8 +75,8 @@ const HEADER_FIELD: Record<string, keyof Omit<ImportRow, "line">> = {
 /** Modelo para download: cabeçalho + duas linhas de exemplo (a unidade deve existir no grupo, ou ficar vazia). */
 export function buildTemplateCsv(): string {
   return buildCsv(TEMPLATE_HEADERS, [
-    ["Maria da Silva", "15/03/2012", "maria@exemplo.com", "(11) 91234-5678", "", "", "Ativo", "01/02/2024"],
-    ["João Pereira", "22/08/1990", "", "(21) 99876-5432", "", "", "Ativo", ""],
+    ["Maria da Silva", "15/03/2012", "maria@exemplo.com", "(11) 91234-5678", "", "", "Ativo", "01/02/2024", "", ""],
+    ["João Pereira", "22/08/1990", "", "(21) 99876-5432", "", "", "Ativo", "", "", ""],
   ]);
 }
 
@@ -109,12 +120,23 @@ export function parseStudentsCsv(text: string): ParsedImport {
 
 export type ImportAction = "CREATE" | "IGNORE" | "ERROR";
 
+/** Motivo de negócio por linha (pessoa que já tem ficha no GingApp). */
+export type ImportCode = "PERSON_ALREADY_IN_GROUP" | "PERSON_EXISTS_ELSEWHERE" | "POSSIBLE_DUPLICATE";
+
 export interface ImportItem {
   line: number;
   name: string;
   action: ImportAction;
   messages: string[];
+  code?: ImportCode | undefined;
 }
+
+/** Texto amigável do `code` da linha (pt-BR). */
+export const IMPORT_CODE_LABEL: Record<ImportCode, string> = {
+  PERSON_ALREADY_IN_GROUP: "Já está cadastrada no seu grupo",
+  PERSON_EXISTS_ELSEWHERE: "Já tem ficha em outro grupo (transferência em breve)",
+  POSSIBLE_DUPLICATE: "Possível duplicado: confira se é a mesma pessoa",
+};
 
 /** Contrato de POST /students/import (backend: StudentTransferService.importRows). */
 export interface ImportResult {

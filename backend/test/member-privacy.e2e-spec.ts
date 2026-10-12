@@ -53,6 +53,8 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/units', 'unidades do próprio grupo (endereço institucional, sem dado de aluno)'],
   ['/api/units/:id', 'idem /units, escopo organizationId'],
   ['/api/students/me', 'só o próprio Student e dependentes (StudentsService.findMine)'],
+  ['/api/people/me/ficha', 'ficha única da PRÓPRIA pessoa (ou do dependente via ?studentId= conferido por resolveLink); CPF só mascarado'],
+  ['/api/people/me/code', 'código GingApp + QR da PRÓPRIA ficha (ou do dependente via ?studentId= conferido por resolveLink)'],
   ['/api/classes/me', 'turmas em que o próprio/dependente está matriculado'],
   ['/api/lessons/me', 'aulas das turmas do próprio/dependente'],
   ['/api/attendance/me', 'presenças do próprio/dependente'],

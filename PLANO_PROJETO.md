@@ -3277,3 +3277,40 @@ O que NAO deu certo / decisoes
 1. A migration padroniza para maiúsculas as cores já gravadas (inclusive as do grupo `ginga-brasil` do seed).
 2. Trocar a ordem de um sistema com muitos alunos dispara a re-sincronização do Ginga Rank (fire-and-forget, serializada por aluno).
 3. Sistema com mais de 30 níveis (legado) não consegue ser reordenado pelo endpoint (o limite vale também para `reorder`).
+
+### Ficha única do capoeirista — Fase 1 (backend + painel + app) - 2026-10-12
+
+**Estado:** Fase 1 concluída (sem commit). Desenho completo, contrato exato, fases 2–5, migração, rollback, riscos e LGPD em
+[`docs/FICHA_UNICA.md`](docs/FICHA_UNICA.md). Migration `20261012210000_person_ficha_unica` (aplicada com `migrate deploy`).
+
+#### O que deu certo
+- `Person` (identidade global: código `GING-XXXX-XXXX` com verificador, CPF só cifrado AES-256-GCM + hash HMAC + 4 últimos,
+  `userId` único, `mergedIntoId`) e `Student.personId` (nullable nesta fase). Cifra AES-GCM extraída para
+  `shared/security/aes-gcm.ts` (SSOT, agora usada também pelo 2FA); validador de CPF movido para `shared/security/person-document.ts`.
+- Cadastro sem duplicar em `POST /students` e no CSV (409 `PERSON_ALREADY_IN_GROUP` / `PERSON_EXISTS_ELSEWHERE` com preview
+  mínimo / `POSSIBLE_DUPLICATE` + `confirmNew`; 400 `INVALID_CPF` etc.), criança pelo CPF do responsável + nascimento,
+  "mesmo login = mesma pessoa" ao criar o acesso (mescla automática), PATCH do CPF com conflitos 409.
+- `GET /students/:id/ficha` (equipe, só matrículas do grupo), `GET /people/me/ficha` e `/people/me/code` (própria pessoa /
+  dependente), `GET /people/duplicates` e `POST /people/merge` (super admin). Auditoria `PERSON_*`.
+- Backfill `npm run person:backfill` + boot (`PERSON_BACKFILL`). Banco de dev: **40 matrículas → 40 fichas criadas, 0 por
+  login, 0 por CPF, 2 documentos não-CPF, 0 conflitos, 0 duplicatas, 0 restantes**; 2ª execução: 0 processadas (idempotente);
+  `--auto` dispensado (0 sem ficha).
+- Painel: CPF com máscara/validação, CPF do responsável e código no cadastro, diálogos dos 409, botão Ficha, CSV com colunas
+  novas. App: cartão "Meu código GingApp" (copiar + QR).
+- Gates: backend build limpo OK, `test:unit` 162/162, `test:quick` completo **914/914** (76 specs), conjunto pedido 214/214,
+  smoke 74/74, `person-ficha` 12/12; painel lint OK, 534/534, build OK; app lint OK, 208/208, build limpo OK.
+
+#### O que NÃO deu certo e a solução
+- 1ª execução do e2e novo: 11/12 — o teste supunha que nome+nascimento no MESMO grupo nunca bloqueia, mas já havia a
+  ficha confirmada do outro grupo (sugestão correta). Teste reordenado; 12/12.
+- Specs antigos que criam aluno pela API e apagam só o `Student` deixam `Person` órfã (91 no banco de dev após a suíte).
+  Corrigido o cleanup de `students-import-export` e de `report-fixtures` (apagam as fichas sem matrícula); as órfãs criadas
+  nesta sessão foram removidas do banco de dev. Demais specs continuam podendo deixar órfãs (sem efeito funcional).
+
+#### Pendências (numeradas)
+1. Fase 2 (transferência) é urgente: até lá, quem tem ficha em outro grupo não pode ser cadastrado no grupo novo (409).
+2. Admin (Vue) sem tela de duplicatas/mescla (só API).
+3. Exportação LGPD (`/auth/me/export`) ainda não inclui a Person; procedimento de exclusão/anonimização da Person.
+4. `Student.document` legado continua em claro e visível à equipe; `Student.personId` ainda nullable (NOT NULL na F2).
+5. Definir `PERSON_DOC_KEY`/`PERSON_DOC_PEPPER` no Easypanel ANTES do deploy e nunca trocar.
+6. Specs antigos podem deixar `Person` órfã no banco de dev (limpeza geral opcional).

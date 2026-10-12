@@ -1,6 +1,8 @@
 import { StudentStatus } from '@prisma/client';
 import { isEmail } from 'class-validator';
 import { unescapeFormulaCell } from '../../../shared/csv/csv';
+import { formatCpf, isValidCpf } from '../../../shared/security/person-document';
+import { normalizeGingappCode } from '../people/gingapp-code';
 
 /**
  * Regras PURAS de validacao/normalizacao de uma linha da importacao de alunos (POST /students/import) — sem banco,
@@ -61,21 +63,8 @@ export function civilKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** CPF valido (11 digitos, digitos verificadores corretos, nao todos iguais). Recebe so digitos. */
-export function isValidCpf(digits: string): boolean {
-  if (!/^\d{11}$/.test(digits) || /^(\d)\1{10}$/.test(digits)) return false;
-  const check = (length: number): number => {
-    let sum = 0;
-    for (let i = 0; i < length; i++) sum += Number(digits[i]) * (length + 1 - i);
-    const rest = (sum * 10) % 11;
-    return rest === 10 ? 0 : rest;
-  };
-  return check(9) === Number(digits[9]) && check(10) === Number(digits[10]);
-}
-
-export function formatCpf(digits: string): string {
-  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
-}
+// CPF: SSOT em shared/security/person-document.ts (a ficha unica usa as mesmas regras); reexportado para os chamadores.
+export { formatCpf, isValidCpf } from '../../../shared/security/person-document';
 
 /** Telefone brasileiro: 10 a 13 digitos (DDD + numero, com ou sem 55). Devolve o texto aparado como veio. */
 export function isValidPhone(text: string): boolean {
@@ -115,6 +104,9 @@ export interface RawStudentRow {
   unit?: string | null;
   status?: string | null;
   joinedAt?: string | null;
+  /** Ficha unica: CPF do responsavel (crianca sem CPF; exige nascimento) e codigo GingApp de quem ja tem ficha. */
+  guardianDocument?: string | null;
+  gingappCode?: string | null;
 }
 
 export interface UnitRef {
@@ -133,6 +125,10 @@ export interface ParsedStudentRow {
   unitId: number | null;
   status: StudentStatus;
   joinedAt: Date | null;
+  /** Digitos do CPF do responsavel (so quando informado e valido). */
+  guardianDocument: string | null;
+  /** Codigo GingApp canonico (GING-XXXX-XXXX). */
+  gingappCode: string | null;
 }
 
 const NAME_MIN = 2;
@@ -209,6 +205,22 @@ export function parseStudentRow(
     else status = parsed;
   }
 
+  let guardianDocument: string | null = null;
+  const guardianText = cleanCell(raw.guardianDocument);
+  if (guardianText) {
+    const digits = guardianText.replace(/\D/g, '');
+    if (!isValidCpf(digits)) errors.push('CPF do responsável inválido.');
+    else if (!birthText) errors.push('Informe a data de nascimento para usar o CPF do responsável.');
+    else guardianDocument = digits;
+  }
+
+  let gingappCode: string | null = null;
+  const codeText = cleanCell(raw.gingappCode);
+  if (codeText) {
+    gingappCode = normalizeGingappCode(codeText);
+    if (!gingappCode) errors.push('Código GingApp inválido.');
+  }
+
   if (errors.length > 0) return { ok: false, errors };
-  return { ok: true, row: { name, birthDate, email, phone, document, unitId, status, joinedAt } };
+  return { ok: true, row: { name, birthDate, email, phone, document, unitId, status, joinedAt, guardianDocument, gingappCode } };
 }

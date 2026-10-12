@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { formatCpf, isValidCpf, onlyDigits } from "@/lib/cpf";
 import type { RopeStyle } from "@/lib/rope";
 import { isImageRef } from "@/lib/uploads";
 import { billingFieldsError } from "@/modules/financeiro/collection";
@@ -19,6 +20,8 @@ export interface Student {
   photo?: string | null;
   status: StudentStatus;
   joinedAt: string | null;
+  /** Ficha única da pessoa (id e código GingApp), quando o servidor envia. */
+  person?: { id: number; gingappCode: string } | null | undefined;
   /** Opcionais (exibidos no card quando o servidor os envia): turmas ativas e corda/graduação atual. */
   classNames?: string[] | undefined;
   currentCord?: string | null | undefined;
@@ -40,6 +43,12 @@ export interface StudentInput {
   email?: string | null | undefined;
   photo?: string | null | undefined;
   status?: StudentStatus | undefined;
+  /** Só no cadastro (POST): CPF do responsável, para criança sem CPF (exige `birthDate`). */
+  guardianDocument?: string | undefined;
+  /** Só no cadastro (POST): código GingApp da pessoa, quando ela já tem ficha (ex.: `GING-7K3Q-9XPM`). */
+  gingappCode?: string | undefined;
+  /** Só no cadastro (POST): confirma que NÃO é a mesma pessoa de um possível duplicado. */
+  confirmNew?: boolean | undefined;
 }
 
 export const STUDENT_STATUS_LABEL: Record<StudentStatus, string> = {
@@ -49,7 +58,23 @@ export const STUDENT_STATUS_LABEL: Record<StudentStatus, string> = {
   FORMER: "Ex-aluno",
 };
 
-export const studentSchema = z
+/** O documento do formulário é o mesmo que o aluno já tinha (ignorando a máscara de CPF)? */
+export function isDocumentUnchanged(value: string, originalDocument: string | null | undefined): boolean {
+  const original = (originalDocument ?? "").trim();
+  const current = value.trim();
+  if (original === "") return false;
+  return current === original || (onlyDigits(original).length === 11 && onlyDigits(current) === onlyDigits(original));
+}
+
+/**
+ * Schema do formulário de aluno. `originalDocument` só vai na EDIÇÃO: se o documento atual do aluno (legado, pode não
+ * ser um CPF válido) não foi alterado, o campo não bloqueia o salvamento; se foi alterado, tem de ser um CPF válido.
+ * No cadastro (sem `originalDocument`) o CPF, quando preenchido, é sempre validado pelos dígitos verificadores.
+ */
+export function makeStudentSchema(originalDocument?: string | null) {
+  const documentUnchanged = (value: string): boolean => isDocumentUnchanged(value, originalDocument);
+
+  return z
   .object({
     name: z.string().trim().min(2, "Informe o nome do aluno (mínimo 2 letras)."),
     unitId: z.string(),
@@ -69,11 +94,36 @@ export const studentSchema = z
     /** Cobrança mensal (E07; só quem tem finance:edit vê os campos): valor em reais e dia 1..31, juntos ou ambos vazios. */
     monthlyFee: z.string().optional(),
     dueDay: z.string().optional(),
+    /** Só no cadastro: CPF do responsável (criança sem CPF) e código GingApp da pessoa. */
+    guardianDocument: z.string().optional(),
+    gingappCode: z.string().optional(),
   })
   .superRefine((value, ctx) => {
     const error = billingFieldsError({ monthlyFee: value.monthlyFee ?? "", dueDay: value.dueDay ?? "" });
     if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, path: [error.field], message: error.message });
+    const document = value.document.trim();
+    if (document !== "" && !documentUnchanged(document) && !isValidCpf(document)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["document"], message: CPF_INVALID_MESSAGE });
+    }
+    const guardian = (value.guardianDocument ?? "").trim();
+    if (guardian !== "") {
+      if (!isValidCpf(guardian)) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["guardianDocument"], message: CPF_INVALID_MESSAGE });
+      } else if (value.birthDate.trim() === "") {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["birthDate"],
+          message: "Informe a data de nascimento para usar o CPF do responsável.",
+        });
+      }
+    }
   });
+}
+
+export const CPF_INVALID_MESSAGE = "CPF inválido. Confira os números.";
+
+/** Schema estrito (cadastro): CPF preenchido sempre validado. A edição usa `makeStudentSchema(documentoAtual)`. */
+export const studentSchema = makeStudentSchema();
 export type StudentFormValues = z.infer<typeof studentSchema>;
 
 export const emptyStudentForm: StudentFormValues = {
@@ -87,14 +137,22 @@ export const emptyStudentForm: StudentFormValues = {
   photo: "",
   monthlyFee: "",
   dueDay: "",
+  guardianDocument: "",
+  gingappCode: "",
 };
+
+/** Documento no formulário: 11 dígitos aparecem com máscara de CPF; qualquer outro valor legado fica como veio. */
+function documentToForm(document: string | null): string {
+  const value = (document ?? "").trim();
+  return /^[\d.\-\s]*$/.test(value) && onlyDigits(value).length === 11 ? formatCpf(value) : value;
+}
 
 export function studentToForm(student: Student): StudentFormValues {
   return {
     name: student.name,
     unitId: student.unitId ? String(student.unitId) : "",
     birthDate: student.birthDate ? student.birthDate.slice(0, 10) : "",
-    document: student.document ?? "",
+    document: documentToForm(student.document),
     phone: student.phone ?? "",
     email: student.email ?? "",
     status: student.status,
@@ -113,6 +171,8 @@ export function studentToPayload(values: StudentFormValues): StudentInput {
     email: values.email.trim() || undefined,
     photo: (values.photo ?? "").trim() || undefined,
     status: values.status,
+    guardianDocument: (values.guardianDocument ?? "").trim() || undefined,
+    gingappCode: (values.gingappCode ?? "").trim().toUpperCase() || undefined,
   };
 }
 
@@ -120,12 +180,14 @@ export function studentToPayload(values: StudentFormValues): StudentInput {
  * EDITAR (PATCH): campos opcionais que o usuário esvaziou vão como `null` (o backend limpa a
  * coluna). `name` e `status` são obrigatórios e nunca vão `null`.
  */
-export function studentToUpdatePayload(values: StudentFormValues): StudentInput {
+export function studentToUpdatePayload(values: StudentFormValues, originalDocument?: string | null): StudentInput {
   return {
     name: values.name.trim(),
     unitId: values.unitId ? Number(values.unitId) : null,
     birthDate: values.birthDate || null,
-    document: values.document.trim() || null,
+    // Documento não alterado: reenvia o valor ORIGINAL do servidor (sem a máscara do formulário), para o backend não
+    // tratar como mudança nem revalidar um documento legado.
+    document: isDocumentUnchanged(values.document, originalDocument) ? (originalDocument ?? "").trim() : values.document.trim() || null,
     phone: values.phone.trim() || null,
     email: values.email.trim() || null,
     photo: (values.photo ?? "").trim() || null,

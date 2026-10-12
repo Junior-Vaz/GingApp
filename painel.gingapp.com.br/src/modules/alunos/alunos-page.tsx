@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { KeyRound, LayoutGrid, Plus, Table2, Upload, Users } from "lucide-react";
+import { useMemo, useState } from "react";
+import { flushSync } from "react-dom";
+import { IdCard, KeyRound, LayoutGrid, Plus, Table2, Upload, Users } from "lucide-react";
+import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
@@ -14,6 +16,7 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { Input } from "@/components/ui/input";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { maskCpfInput } from "@/lib/cpf";
 import { createCrud, notifyError } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
 import { useCan, useSessionUser } from "@/lib/session";
@@ -29,6 +32,9 @@ import {
 import { BILLING_KEY, useStudentBillings } from "@/modules/financeiro/finance-api";
 import { AcessoAlunoDialog } from "./acesso-aluno-dialog";
 import { StudentCard } from "./aluno-card";
+import { createErrorMessage, parseStudentConflict, type StudentConflict } from "./aluno-conflito";
+import { AlunoConflitoDialog } from "./aluno-conflito-dialog";
+import { FichaAlunoDialog } from "./ficha-aluno-dialog";
 import { ImportarAlunosDialog } from "./importar-alunos-dialog";
 import { NativeSelect } from "./native-select";
 import { ResponsaveisDialog } from "./responsaveis-dialog";
@@ -37,7 +43,7 @@ import {
   STUDENT_STATUS_LABEL,
   emptyStudentForm,
   isMinor,
-  studentSchema,
+  makeStudentSchema,
   studentToForm,
   studentToPayload,
   studentToUpdatePayload,
@@ -81,7 +87,6 @@ export function AlunosPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
   const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "" } });
   const list = students.usePage(lp.params);
-  const create = students.useCreate();
   const update = students.useUpdate();
   const remove = students.useRemove();
   const canDelete = useCan("students", "delete"); // PROFESSOR: sem students:delete (backend responde 403)
@@ -94,7 +99,11 @@ export function AlunosPage() {
   const [deleting, setDeleting] = useState<Student | null>(null);
   const [accessOf, setAccessOf] = useState<Student | null>(null);
   const [guardiansOf, setGuardiansOf] = useState<Student | null>(null);
+  const [fichaOf, setFichaOf] = useState<Student | null>(null);
   const [importing, setImporting] = useState(false);
+  // 409 do cadastro (já no grupo / em outro grupo / possível duplicado) + os valores do formulário que o originaram.
+  const [conflict, setConflict] = useState<{ conflict: StudentConflict; values: StudentFormValues } | null>(null);
+  const [confirmingNew, setConfirmingNew] = useState(false);
   const [view, setView] = useStudentsView();
   // Importação em massa é só do Mestre (backend: POST /students/import exige o MESTRE).
   const isMestre = useSessionUser()?.role === "MESTRE";
@@ -161,12 +170,79 @@ export function AlunosPage() {
   ];
 
   const isEdit = editing !== null && editing !== "new";
+  // Na edição, o CPF só é validado se o usuário o alterou (aluno legado com documento que não é CPF não fica preso).
+  const originalDocument = editing && editing !== "new" ? editing.document : undefined;
+  const formSchema = useMemo(() => makeStudentSchema(originalDocument), [originalDocument]);
+
+  /** Cobrança: só com finance:edit, e na edição só se a cobrança atual já foi carregada. Sem mudança, nem chama. */
+  async function saveBilling(student: Student, values: StudentFormValues, saved: Student | null) {
+    const fields = { monthlyFee: values.monthlyFee ?? "", dueDay: values.dueDay ?? "" };
+    const previous = saved ? billingOf.get(saved.id) : undefined;
+    if (canEditFinance && (!saved || billings.isSuccess) && billingChanged(fields, previous)) {
+      try {
+        await api.put(`/finance/billing/${student.id}`, billingPayload(fields));
+        void queryClient.invalidateQueries({ queryKey: BILLING_KEY });
+      } catch (error) {
+        notifyError(error, "O aluno foi salvo, mas não foi possível salvar a mensalidade.");
+      }
+    }
+  }
+
+  /**
+   * POST /students. Os 409 de pessoa já existente abrem o diálogo correspondente (nada é criado); os 400 de
+   * CPF/código GingApp viram toast com mensagem clara. Em qualquer erro relança, para o formulário continuar aberto.
+   */
+  async function createStudent(values: StudentFormValues, confirmNew = false): Promise<Student> {
+    const payload = { ...studentToPayload(values), ...(confirmNew ? { confirmNew: true } : {}) };
+    try {
+      const student = await api.post<Student>("/students", payload);
+      void queryClient.invalidateQueries({ queryKey: students.rootKey });
+      toast.success("Aluno cadastrado.");
+      return student;
+    } catch (error) {
+      const found = parseStudentConflict(error);
+      if (found) setConflict({ conflict: found, values });
+      else toast.error(createErrorMessage(error, "Algo deu errado. Tente novamente."));
+      throw error;
+    }
+  }
+
+  /** "Cadastrar mesmo assim" do possível duplicado: reenvia o MESMO corpo com confirmNew:true. */
+  async function confirmNewStudent() {
+    if (!conflict) return;
+    setConfirmingNew(true);
+    try {
+      const student = await createStudent(conflict.values, true);
+      await saveBilling(student, conflict.values, null);
+      setConflict(null);
+      setEditing(null);
+    } catch {
+      // erro já notificado (toast) ou novo conflito exibido
+    } finally {
+      setConfirmingNew(false);
+    }
+  }
+
+  /** PERSON_ALREADY_IN_GROUP: busca a matrícula existente e abre para editar (ex.: reativar). */
+  async function openExistingStudent(studentId: number) {
+    try {
+      const existing = await api.get<Student>(`/students/${studentId}`);
+      setConflict(null);
+      flushSync(() => setEditing(null)); // fecha o "Novo aluno" antes, para o formulário recarregar com o aluno existente
+      setEditing(existing);
+    } catch (error) {
+      notifyError(error, "Não foi possível abrir o cadastro existente.");
+    }
+  }
 
   /** Mesmas ações nos dois modos (tabela e cards), com as mesmas permissões. */
   const studentActions = (s: Student) => (
     <>
       <Button variant="ghost" size="sm" onClick={() => setEditing(s)}>
         Editar
+      </Button>
+      <Button variant="ghost" size="sm" onClick={() => setFichaOf(s)} aria-label={`Ficha de ${s.name}`}>
+        <IdCard /> Ficha
       </Button>
       {canEdit && (
         <>
@@ -261,7 +337,7 @@ export function AlunosPage() {
         open={editing !== null}
         onOpenChange={(o) => !o && setEditing(null)}
         title={isEdit ? "Editar aluno" : "Novo aluno"}
-        schema={studentSchema}
+        schema={formSchema}
         defaultValues={
           editing && editing !== "new"
             ? { ...studentToForm(editing), ...billingToFields(billingOf.get(editing.id)) }
@@ -269,21 +345,11 @@ export function AlunosPage() {
         }
         onSubmit={async (values) => {
           const saved = editing && editing !== "new" ? editing : null;
+          // Edição: 409 do PATCH (documento de outra pessoa / travado) chega como toast com a mensagem do backend.
           const student = saved
-            ? await update.mutateAsync({ id: saved.id, data: studentToUpdatePayload(values) })
-            : await create.mutateAsync(studentToPayload(values));
-          // Cobrança: só com finance:edit, e na edição só se a cobrança atual já foi carregada (senão um
-          // formulário "vazio" por não ter carregado apagaria a cobrança). Sem mudança, nem chama.
-          const fields = { monthlyFee: values.monthlyFee ?? "", dueDay: values.dueDay ?? "" };
-          const previous = saved ? billingOf.get(saved.id) : undefined;
-          if (canEditFinance && (!saved || billings.isSuccess) && billingChanged(fields, previous)) {
-            try {
-              await api.put(`/finance/billing/${student.id}`, billingPayload(fields));
-              void queryClient.invalidateQueries({ queryKey: BILLING_KEY });
-            } catch (error) {
-              notifyError(error, "O aluno foi salvo, mas não foi possível salvar a mensalidade.");
-            }
-          }
+            ? await update.mutateAsync({ id: saved.id, data: studentToUpdatePayload(values, saved.document) })
+            : await createStudent(values);
+          await saveBilling(student, values, saved);
         }}
       >
         {(form) => (
@@ -340,14 +406,55 @@ export function AlunosPage() {
               name="document"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Documento</FormLabel>
+                  <FormLabel>CPF</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input
+                      placeholder="000.000.000-00"
+                      autoComplete="off"
+                      {...field}
+                      onChange={(e) => field.onChange(maskCpfInput(e.target.value))}
+                    />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
+            {!isEdit && (
+              <>
+                <FormField
+                  control={form.control}
+                  name="guardianDocument"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>CPF do responsável (para criança sem CPF)</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="000.000.000-00"
+                          autoComplete="off"
+                          {...field}
+                          value={field.value ?? ""}
+                          onChange={(e) => field.onChange(maskCpfInput(e.target.value))}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="gingappCode"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Código GingApp (se a pessoa já tem)</FormLabel>
+                      <FormControl>
+                        <Input placeholder="GING-XXXX-XXXX" autoComplete="off" {...field} value={field.value ?? ""} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </>
+            )}
             <FormField
               control={form.control}
               name="phone"
@@ -432,6 +539,14 @@ export function AlunosPage() {
       {isMestre && <ImportarAlunosDialog open={importing} onOpenChange={setImporting} />}
       <AcessoAlunoDialog student={accessOf} onClose={() => setAccessOf(null)} />
       <ResponsaveisDialog student={guardiansOf} onClose={() => setGuardiansOf(null)} />
+      <FichaAlunoDialog student={fichaOf} onClose={() => setFichaOf(null)} />
+      <AlunoConflitoDialog
+        conflict={conflict?.conflict ?? null}
+        confirming={confirmingNew}
+        onClose={() => setConflict(null)}
+        onOpenExisting={(id) => void openExistingStudent(id)}
+        onConfirmNew={() => void confirmNewStudent()}
+      />
 
       <ConfirmDialog
         open={deleting !== null}

@@ -68,6 +68,18 @@ export class ImportStudentRowDto {
   @IsString()
   @MaxLength(50)
   joinedAt?: string;
+
+  /** Ficha unica: CPF do responsavel (crianca sem CPF; exige nascimento). */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  guardianDocument?: string;
+
+  /** Ficha unica: codigo GingApp de quem ja tem ficha. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  gingappCode?: string;
 }
 
 export class ImportStudentsDto {
@@ -75,6 +87,11 @@ export class ImportStudentsDto {
   @IsOptional()
   @IsBoolean()
   dryRun?: boolean;
+
+  /** true = importa tambem as linhas POSSIBLE_DUPLICATE (mesmo nome + nascimento em outro grupo); fica na auditoria. */
+  @IsOptional()
+  @IsBoolean()
+  confirmNew?: boolean;
 
   @IsArray()
   @ArrayMinSize(1, { message: 'Nenhuma linha para importar.' })

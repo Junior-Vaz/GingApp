@@ -8,12 +8,15 @@ export class ApiError extends Error {
   status: number;
   /** Código de negócio do corpo do erro (ex.: `EVENT_FULL`), quando o backend envia. */
   code: string | undefined;
+  /** Corpo JSON completo do erro (campos extras de negócio, ex.: `person`, `possibleMatches`), quando existe. */
+  body: Record<string, unknown> | undefined;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, body?: Record<string, unknown>) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.body = body;
   }
 }
 
@@ -53,6 +56,7 @@ async function throwApiError(
     extractMessage(body) ?? `Erro ${response.status} ao chamar ${path}`,
     response.status,
     typeof code === "string" ? code : undefined,
+    body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : undefined,
   );
 }
 

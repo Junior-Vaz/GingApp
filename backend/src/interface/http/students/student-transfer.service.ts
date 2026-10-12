@@ -16,6 +16,8 @@ import {
   UnitRef,
 } from './student-import';
 import { StudentsService } from './students.service';
+import { PERSON_MESSAGES, PersonErrorCode } from '../people/person-errors';
+import { EnrollmentResolution, PersonIdentityService } from '../people/person-identity.service';
 
 export type ImportAction = 'CREATE' | 'IGNORE' | 'ERROR';
 
@@ -27,6 +29,8 @@ export interface ImportItem {
   action: ImportAction;
   /** ERROR: todas as falhas da linha. IGNORE: o motivo. */
   messages: string[];
+  /** Ficha unica: PERSON_ALREADY_IN_GROUP (IGNORE), PERSON_EXISTS_ELSEWHERE / POSSIBLE_DUPLICATE / GINGAPP_CODE_NOT_FOUND / IDENTITY_MISMATCH (ERROR). */
+  code?: string;
 }
 
 export interface ImportResult {
@@ -63,6 +67,7 @@ export class StudentTransferService {
     private readonly prisma: PrismaService,
     private readonly students: StudentsService,
     private readonly subscriptions: SubscriptionsService,
+    private readonly people: PersonIdentityService,
   ) {}
 
   async importRows(organizationId: number, dto: ImportStudentsDto, now: Date = new Date()): Promise<ImportResult> {
@@ -125,6 +130,44 @@ export class StudentTransferService {
       toCreate.push(row);
     }
 
+    // Ficha unica: as MESMAS regras do POST /students, linha a linha. Ja no grupo = IGNORE (idempotente); em outro
+    // grupo / possivel duplicata = ERROR da linha (a menos de confirmNew); mesma chave repetida no arquivo = IGNORE.
+    const resolutions = new Map<ParsedStudentRow, Exclude<EnrollmentResolution, { kind: 'ERROR' }>>();
+    const seenKey = new Map<string, number>();
+    const rowIndex = new Map(valid.map((v) => [v.row, v.index]));
+    const identified: ParsedStudentRow[] = [];
+    for (const row of toCreate) {
+      const item = items[rowIndex.get(row)!]!;
+      const input = {
+        name: row.name,
+        birthDate: row.birthDate,
+        cpf: row.document ? row.document.replace(/\D/g, '') : null,
+        guardianCpf: row.guardianDocument,
+        gingappCode: row.gingappCode,
+        confirmNew: dto.confirmNew === true,
+      };
+      const key = this.people.keyOf(input);
+      const fileKey = key?.hash ?? (row.gingappCode ? `code:${row.gingappCode}` : null);
+      if (fileKey && seenKey.has(fileKey)) {
+        item.action = 'IGNORE';
+        item.messages = [`Mesma pessoa (CPF/código) da linha ${items[seenKey.get(fileKey)!]!.line} do arquivo.`];
+        continue;
+      }
+      const resolution = await this.people.resolveForEnrollment(organizationId, input);
+      await this.people.auditResolution(organizationId, resolution, 'import');
+      if (resolution.kind === 'ERROR') {
+        item.code = resolution.code;
+        item.messages = [PERSON_MESSAGES[resolution.code]];
+        item.action = resolution.code === PersonErrorCode.PERSON_ALREADY_IN_GROUP ? 'IGNORE' : 'ERROR';
+        continue;
+      }
+      if (fileKey) seenKey.set(fileKey, rowIndex.get(row)!);
+      resolutions.set(row, resolution);
+      identified.push(row);
+    }
+    toCreate.length = 0;
+    toCreate.push(...identified);
+
     // Limite do plano: só alunos ATIVOS ocupam vaga (mesma regra de StudentsService.create). Quem passa do limite
     // vira erro da linha (as anteriores entram) — nunca estoura o plano.
     const subscription = await this.subscriptions.findOpenForOrganization(organizationId);
@@ -164,19 +207,34 @@ export class StudentTransferService {
             throw new ConflictException('O limite de alunos do plano mudou durante a importação. Tente novamente.');
           }
         }
-        await tx.student.createMany({
-          data: creatable.map((r) => ({
-            organizationId,
-            unitId: r.unitId,
+        // Uma Person (ficha) por linha nova; linha de ficha existente sem matricula reaproveita a ficha.
+        for (const r of creatable) {
+          const person = await this.people.personIdFor(tx, resolutions.get(r)!, {
             name: r.name,
             birthDate: r.birthDate,
-            document: r.document,
             phone: r.phone,
             email: r.email,
-            status: r.status,
-            joinedAt: r.joinedAt,
-          })),
-        });
+          });
+          await tx.student.create({
+            data: {
+              organizationId,
+              unitId: r.unitId,
+              personId: person.id,
+              name: r.name,
+              birthDate: r.birthDate,
+              document: r.document,
+              phone: r.phone,
+              email: r.email,
+              status: r.status,
+              joinedAt: r.joinedAt,
+            },
+          });
+        }
+      }, { timeout: 60_000, maxWait: 10_000 }).catch((error: unknown) => {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+          throw new ConflictException('Outro cadastro gravou uma destas pessoas durante a importação. Tente novamente.');
+        }
+        throw error;
       });
     }
 

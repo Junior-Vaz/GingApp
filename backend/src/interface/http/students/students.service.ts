@@ -16,6 +16,9 @@ import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
+import { formatCpf } from '../../../shared/security/person-document';
+import { PersonFichaService } from '../people/person-ficha.service';
+import { PersonIdentityService } from '../people/person-identity.service';
 
 /** Alunos do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
@@ -25,6 +28,8 @@ export class StudentsService {
     private readonly subscriptionsService: SubscriptionsService,
     private readonly unitScope: UnitScopeService,
     private readonly audit: AuditService,
+    private readonly people: PersonIdentityService,
+    private readonly fichaService: PersonFichaService,
   ) {}
 
   /**
@@ -122,7 +127,7 @@ export class StudentsService {
       throw new NotFoundException('Nenhum aluno vinculado a esta conta.');
     }
 
-    return this.prisma.student.update({
+    const updated = await this.prisma.student.update({
       where: { id: student.id },
       data: {
         // null limpa a coluna (NULL); undefined deixa como está.
@@ -131,6 +136,11 @@ export class StudentsService {
         socialLinks: this.toSocialLinksInput(dto.socialLinks),
       },
     });
+    // A foto é da própria pessoa: vale também para a ficha única (se ela já existe).
+    if (dto.photo !== undefined && student.personId) {
+      await this.prisma.person.update({ where: { id: student.personId }, data: { photo: dto.photo } });
+    }
+    return updated;
   }
 
   /**
@@ -166,29 +176,67 @@ export class StudentsService {
     }
     await this.assertWithinStudentLimit(organizationId);
 
-    return this.prisma.student.create({
-      data: {
-        organizationId,
-        unitId,
-        name: dto.name,
-        birthDate: dto.birthDate ? new Date(dto.birthDate) : undefined,
-        document: dto.document,
-        phone: dto.phone,
-        email: dto.email,
-        photo: dto.photo,
-        status: dto.status,
-        joinedAt: dto.joinedAt ? new Date(dto.joinedAt) : undefined,
-      },
-    });
+    // Ficha unica (docs/FICHA_UNICA.md): a pessoa ja existe? (CPF / CPF do responsavel + nascimento / codigo GingApp /
+    // nome + nascimento). 400/409 com `code` antes de gravar qualquer coisa.
+    const identity = this.people.parseInput(dto);
+    const birthDate = identity.birthDate ?? undefined;
+    const document = identity.cpf ? formatCpf(identity.cpf) : undefined;
+    for (let attempt = 0; ; attempt++) {
+      const resolution = await this.people.resolveForEnrollment(organizationId, identity);
+      await this.people.auditResolution(organizationId, resolution, 'create');
+      this.people.throwIfError(resolution);
+      try {
+        const { student, person } = await this.prisma.$transaction(async (tx) => {
+          const person = await this.people.personIdFor(tx, resolution, {
+            name: dto.name,
+            birthDate: identity.birthDate,
+            photo: dto.photo,
+            phone: dto.phone,
+            email: dto.email,
+          });
+          const student = await tx.student.create({
+            data: {
+              organizationId,
+              unitId,
+              personId: person.id,
+              name: dto.name,
+              birthDate,
+              document,
+              phone: dto.phone,
+              email: dto.email,
+              photo: dto.photo,
+              status: dto.status,
+              joinedAt: dto.joinedAt ? new Date(dto.joinedAt) : undefined,
+            },
+          });
+          return { student, person };
+        });
+        return { ...student, person };
+      } catch (error) {
+        // Corrida: outro cadastro gravou a mesma pessoa (CPF/codigo unicos) entre a consulta e a gravacao. Refaz a
+        // consulta uma vez - agora ela devolve o 409 correto em vez de 500.
+        if (attempt === 0 && error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') continue;
+        throw error;
+      }
+    }
+  }
+
+  /** Ficha unica da matricula `id` vista pela equipe (so as matriculas DESTE grupo nesta fase). */
+  async ficha(organizationId: number, id: number, user?: AuthenticatedUser) {
+    await this.findOne(organizationId, id, user); // 404: outro grupo / fora do escopo de unidade
+    return this.fichaService.forStaff(organizationId, id);
   }
 
   async update(organizationId: number, id: number, dto: UpdateStudentDto, user?: AuthenticatedUser) {
-    await this.findOne(organizationId, id, user); // 404 se não existir, for de outra organização ou de unidade fora do escopo
+    const current = await this.findOne(organizationId, id, user); // 404 se não existir, for de outra organização ou de unidade fora do escopo
     assertUnitUpdate(await this.unitScope.resolve(user, organizationId), dto.unitId); // 403: não move para fora do escopo
 
     if (dto.unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
     }
+
+    // CPF: so e validado/aplicado na ficha quando MUDA (valor legado reenviado igual pelo formulario passa).
+    const document = dto.document === undefined ? undefined : await this.people.applyDocumentChange(id, current.document, dto.document);
 
     const updated = await this.prisma.student.update({
       where: { id },
@@ -197,7 +245,7 @@ export class StudentsService {
         name: dto.name,
         // null limpa a coluna (NULL); undefined deixa como esta.
         birthDate: dto.birthDate === null ? null : dto.birthDate ? new Date(dto.birthDate) : undefined,
-        document: dto.document,
+        document,
         phone: dto.phone,
         email: dto.email,
         photo: dto.photo,
@@ -215,6 +263,7 @@ export class StudentsService {
         meta: { via: 'update' },
       });
     }
+    await this.people.syncFromStudent(id);
     return updated;
   }
 

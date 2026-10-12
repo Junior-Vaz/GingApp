@@ -55,6 +55,17 @@ export class StudentsController {
     return this.studentsService.findOne(organizationId, id, user);
   }
 
+  /** Ficha única (identidade + matrículas + graduações + frequência + certificados) vista pela equipe do grupo. */
+  @Get(':id/ficha')
+  @CanAccess('students', 'view')
+  ficha(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.studentsService.ficha(organizationId, id, user);
+  }
+
   @Post()
   @CanAccess('students', 'create')
   create(

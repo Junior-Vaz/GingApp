@@ -71,7 +71,12 @@ export async function createReportOrg(app: INestApplication, prisma: PrismaClien
       await prisma.studentGuardian.deleteMany({ where });
       await prisma.certificate.deleteMany({ where });
       await prisma.notification.deleteMany({ where });
+      // Ficha unica: alunos criados pela API ganham uma Person; apaga as que ficarem sem nenhuma matricula.
+      const personIds = (await prisma.student.findMany({ where: { ...where, personId: { not: null } }, select: { personId: true } })).map(
+        (s) => s.personId!,
+      );
       await prisma.student.deleteMany({ where });
+      await prisma.person.deleteMany({ where: { id: { in: personIds }, students: { none: {} }, mergedFrom: { none: {} } } });
       await prisma.userUnitAccess.deleteMany({ where });
       await prisma.unit.deleteMany({ where });
       await prisma.subscription.deleteMany({ where });

@@ -98,6 +98,12 @@ export const AuditAction = {
   RANKING_SETTINGS: 'RANKING_SETTINGS',
   // Retencao: limpeza automatica de registros antigos (job semanal)
   AUDIT_PURGE: 'AUDIT_PURGE',
+  // Ficha unica (Person): consulta de identidade que achou alguem, cadastro confirmado apesar de possivel duplicata,
+  // mescla de fichas e conflito ao ligar um login a ficha.
+  PERSON_LOOKUP_MATCH: 'PERSON_LOOKUP_MATCH',
+  PERSON_DUPLICATE_CONFIRMED: 'PERSON_DUPLICATE_CONFIRMED',
+  PERSON_MERGE: 'PERSON_MERGE',
+  PERSON_LINK_CONFLICT: 'PERSON_LINK_CONFLICT',
 } as const;
 
 export type AuditActionCode = (typeof AuditAction)[keyof typeof AuditAction];
@@ -133,4 +139,5 @@ export const AuditEntity = {
   RODA: 'roda',
   DATA_DELETION_REQUEST: 'data_deletion_request',
   RANKING_PROFILE: 'ranking_profile',
+  PERSON: 'person',
 } as const;

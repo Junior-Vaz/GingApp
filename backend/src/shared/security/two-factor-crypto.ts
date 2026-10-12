@@ -1,5 +1,6 @@
-import { createCipheriv, createDecipheriv, createHmac, hkdfSync, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomInt, timingSafeEqual } from 'node:crypto';
 import { resolveJwtSecret } from '../config/runtime-config';
+import { aesGcmDecrypt, aesGcmEncrypt, deriveSubkey } from './aes-gcm';
 
 /**
  * Criptografia do 2FA. Chave-mestra = TWO_FACTOR_KEY (opcional; qualquer texto) ou, na falta, o JWT_SECRET. Cada uso
@@ -7,7 +8,7 @@ import { resolveJwtSecret } from '../config/runtime-config';
  * recuperacao e o segredo do JWT do desafio de login. Girar o JWT_SECRET sem TWO_FACTOR_KEY invalida os segredos ja
  * cifrados - por isso em producao convem fixar TWO_FACTOR_KEY (ver .env.example).
  */
-const HKDF_SALT = Buffer.from('gingapp-two-factor-v1');
+const HKDF_SALT = 'gingapp-two-factor-v1';
 
 function masterKey(): string {
   const dedicated = process.env.TWO_FACTOR_KEY?.trim();
@@ -15,7 +16,7 @@ function masterKey(): string {
 }
 
 function deriveKey(info: string): Buffer {
-  return Buffer.from(hkdfSync('sha256', masterKey(), HKDF_SALT, info, 32));
+  return deriveSubkey(masterKey(), HKDF_SALT, info);
 }
 
 /** Segredo do JWT do desafio ('2fa'): distinto do JWT_SECRET, entao um desafio nunca vale como token de acesso. */
@@ -23,23 +24,14 @@ export function challengeJwtSecret(): string {
   return deriveKey('challenge-jwt').toString('hex');
 }
 
-const ENCRYPTED_PREFIX = 'v1';
-
-/** AES-256-GCM: `v1:<iv>:<tag>:<texto cifrado>` (base64). IV novo (12 bytes) a cada cifragem. */
+/** AES-256-GCM (shared/security/aes-gcm.ts): `v1:<iv>:<tag>:<texto cifrado>` (base64). */
 export function encryptTwoFactorSecret(plain: string): string {
-  const iv = randomBytes(12);
-  const cipher = createCipheriv('aes-256-gcm', deriveKey('secret-encryption'), iv);
-  const encrypted = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
-  return [ENCRYPTED_PREFIX, iv.toString('base64'), cipher.getAuthTag().toString('base64'), encrypted.toString('base64')].join(':');
+  return aesGcmEncrypt(deriveKey('secret-encryption'), plain);
 }
 
 /** Lanca se o valor estiver adulterado ou a chave tiver mudado (a tag GCM nao confere). */
 export function decryptTwoFactorSecret(stored: string): string {
-  const [version, iv, tag, data] = stored.split(':');
-  if (version !== ENCRYPTED_PREFIX || !iv || !tag || !data) throw new Error('Formato do segredo 2FA invalido.');
-  const decipher = createDecipheriv('aes-256-gcm', deriveKey('secret-encryption'), Buffer.from(iv, 'base64'));
-  decipher.setAuthTag(Buffer.from(tag, 'base64'));
-  return Buffer.concat([decipher.update(Buffer.from(data, 'base64')), decipher.final()]).toString('utf8');
+  return aesGcmDecrypt(deriveKey('secret-encryption'), stored, 'segredo 2FA');
 }
 
 // Sem caracteres ambiguos (0/o, 1/l/i): o usuario transcreve o codigo a mao.

@@ -33,7 +33,12 @@ describe('Alunos: importação e exportação CSV (e2e)', () => {
   });
 
   after(async () => {
+    // Ficha unica: a importacao cria uma Person por aluno (com o CPF cifrado); apaga junto para nao deixar ficha orfa.
+    const personIds = (
+      await prisma.student.findMany({ where: { organizationId: orgB.organizationId, personId: { not: null } }, select: { personId: true } })
+    ).map((s) => s.personId!);
     await prisma.student.deleteMany({ where: { organizationId: orgB.organizationId } });
+    await prisma.person.deleteMany({ where: { id: { in: personIds }, students: { none: {} } } });
     await prisma.unit.deleteMany({ where: { organizationId: orgB.organizationId } });
     await orgB.cleanup();
     await org.cleanup();
