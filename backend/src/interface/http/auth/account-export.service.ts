@@ -147,7 +147,7 @@ export class AccountExportService {
         guardians: true,
         classStudents: { include: { class: { select: { id: true, name: true } } } },
         attendances: { include: { lesson: { select: { id: true, date: true } } }, orderBy: { id: 'asc' } },
-        graduations: { include: { graduationLevel: { select: { id: true, name: true } } }, orderBy: { id: 'asc' } },
+        graduations: { include: { graduationLevel: { select: { id: true, name: true, order: true, color: true, style: true, colors: true } } }, orderBy: { id: 'asc' } },
         financialRecords: { orderBy: { id: 'asc' } },
         eventParticipations: { include: { event: { select: { id: true, title: true, date: true } } } },
         rodaParticipations: { include: { roda: { select: { id: true, title: true, date: true } } } },

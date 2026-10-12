@@ -61,6 +61,8 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/certificates/me', 'certificados do próprio/dependente'],
   ['/api/passport/me', 'passaporte do próprio/dependente'],
   ['/api/graduations/students/:studentId', 'só com vínculo (próprio/dependente); sem vínculo = 404'],
+  ['/api/graduations/hierarchy', 'Jornada: hierarquia do PRÓPRIO grupo — só alunos ATIVOS (nome curto/apelido + foto do aluno, como o ranking de grupo), mestres/professores (nome e foto públicos); sem e-mail/telefone/documento/nascimento; ?studentId= conferido por resolveLink (sem vínculo = 404)'],
+  ['/api/graduations/templates', 'modelos estáticos de sistema de graduação (cores/estilos de corda), sem dado pessoal nem de grupo'],
   ['/api/events', 'agenda do grupo (sem dado pessoal; agregados participantsCount/myParticipation)'],
   ['/api/events/:id', 'evento do grupo (escopo organizationId)'],
   ['/api/events/:eventId/participants', 'terceiros anonimizados; só a própria inscrição identificada'],
@@ -437,7 +439,7 @@ describe('Privacidade de ALUNO/RESPONSAVEL — varredura de rotas GET + fluxo do
       for (const path of [
         '/api/attendance/me', '/api/lessons/me', '/api/classes/me', '/api/finance/me', '/api/certificates/me',
         '/api/passport/me', '/api/notifications', '/api/announcements', '/api/calendar', '/api/rodas',
-        '/api/rodas/reference/states', '/api/events',
+        '/api/rodas/reference/states', '/api/events', '/api/graduations/hierarchy', '/api/graduations/templates',
       ]) {
         const res = await get(path, token);
         assert.equal(res.status, 200, `${who} ${path} -> ${res.status} ${res.text}`);

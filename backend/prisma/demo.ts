@@ -733,6 +733,9 @@ async function stepGraduationSystem(ctx: Ctx): Promise<void> {
         data: { organizationId: ctx.orgId, name: GRADUATION_SYSTEM.name, description: GRADUATION_SYSTEM.description, isActive: true },
       });
       bump(ctx, 'graduationSystems', 1);
+    } else if (system.description?.includes('à vermelha (instrutor)')) {
+      // Descrição do demo antigo (cordas lisas): atualiza para o novo sistema com cordas divididas/trançadas.
+      system = await tx.graduationSystem.update({ where: { id: system.id }, data: { description: GRADUATION_SYSTEM.description } });
     }
     for (const level of LEVELS) {
       let row = await tx.graduationLevel.findUnique({
@@ -746,9 +749,19 @@ async function stepGraduationSystem(ctx: Ctx): Promise<void> {
             name: level.name,
             order: level.order,
             color: level.color,
+            style: level.style,
+            colors: level.colors,
           },
         });
         bump(ctx, 'graduationLevels', 1);
+      } else if (row.style === 'SOLID' && row.colors.length <= 1) {
+        // Demo antigo (8 cordas lisas): converte para as cordas divididas/trançadas. Idempotente — só mexe em corda
+        // ainda SOLID de 1 cor; uma corda que o usuário já editou (ou que este seed já converteu) não é tocada, e
+        // reaplicar nas SOLID do modelo é um no-op. A ordem (e portanto as graduações/pontos) não muda.
+        row = await tx.graduationLevel.update({
+          where: { id: row.id },
+          data: { name: level.name, color: level.color, style: level.style, colors: level.colors },
+        });
       }
       ctx.levelIds.set(level.order, row.id);
     }
@@ -1659,8 +1672,17 @@ async function stepCertificatesAndPassports(ctx: Ctx): Promise<void> {
       seenPerStudent.set(g.studentId, n);
       const recent = today.getTime() - g.graduatedAt.getTime() <= 200 * DAY;
       if (!(recent || (publishedIds.has(g.studentId) && n <= 2))) continue;
-      if (haveGradCert.has(g.id)) continue;
       const order = levelOrderById.get(g.graduationLevelId) as number;
+      if (haveGradCert.has(g.id)) {
+        // Corda renomeada pelo demo novo (cordas divididas/trançadas): mantém o título do certificado coerente.
+        // Idempotente — só toca títulos gerados por este seed e diferentes do atual.
+        const title = `Certificado de Graduação — Corda ${levelNameByOrder.get(order)}`;
+        await tx.certificate.updateMany({
+          where: { organizationId: ctx.orgId, studentGraduationId: g.id, title: { startsWith: 'Certificado de Graduação — Corda ' }, NOT: { title } },
+          data: { title },
+        });
+        continue;
+      }
       certRows.push({
         organizationId: ctx.orgId,
         studentId: g.studentId,

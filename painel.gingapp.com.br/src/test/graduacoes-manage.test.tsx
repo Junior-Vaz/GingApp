@@ -16,6 +16,8 @@ const level = (id: number, name: string, order: number, color: string | null, sy
   name,
   order,
   color,
+  style: "SOLID" as const,
+  colors: color ? [color] : [],
 });
 const systemsData: GraduationSystem[] = [
   { id: 1, name: "Cordas", description: "Sistema de cordas", isActive: true, levels: [level(1, "Crua", 0, "#f5f5dc"), level(2, "Amarela", 1, null)] },
@@ -58,7 +60,7 @@ async function goStudents() {
   await screen.findByLabelText("Aluno");
   await waitFor(() => expect(within(screen.getByLabelText("Aluno")).getAllByRole("option")).toHaveLength(2));
   fireEvent.change(screen.getByLabelText("Aluno"), { target: { value: "5" } });
-  await screen.findByRole("cell", { name: "Amarela" });
+  await screen.findByRole("cell", { name: /Amarela$/ });
 }
 
 beforeEach(() => clearSession());
@@ -84,17 +86,17 @@ describe("Graduações - editar/remover sistemas e níveis", () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Sistema de graduação atualizado."));
   });
 
-  it("MESTRE edita o nível: PATCH /graduations/levels/2 com a cor limpa virando null", async () => {
+  it("MESTRE edita o nível: PATCH /graduations/levels/1 com style e colors (cor preservada, 2ª cor completada)", async () => {
     loginAs("MESTRE");
     const { calls } = setup();
     fireEvent.click(await screen.findByRole("button", { name: "Editar nível Crua" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText("Nome do nível")).toHaveValue("Crua");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Remover cor" }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Trançada 2 cores" }));
     fireEvent.change(within(dialog).getByLabelText("Ordem"), { target: { value: "4" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
-    expect(writes(calls)[0]).toEqual({ url: "/graduations/levels/1", method: "PATCH", body: { name: "Crua", order: 4, color: null } });
+    expect(writes(calls)[0]).toEqual({ url: "/graduations/levels/1", method: "PATCH", body: { name: "Crua", order: 4, style: "BRAIDED", colors: ["#f5f5dc", "#16a34a"] } });
   });
 
   it("remover sistema pede confirmação (nada é enviado antes) e faz DELETE; cancelar não envia", async () => {
@@ -159,9 +161,9 @@ describe("Graduações - editar/remover graduação do aluno", () => {
     await goStudents();
     fireEvent.click(screen.getByRole("button", { name: "Editar graduação Amarela" }));
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByLabelText("Nível alcançado")).toHaveValue("2");
+    expect(within(dialog).getByRole("option", { selected: true, name: /Amarela/ })).toBeInTheDocument();
     expect(within(dialog).getByLabelText("Data")).toHaveValue("2026-02-10");
-    fireEvent.change(within(dialog).getByLabelText("Nível alcançado"), { target: { value: "1" } });
+    fireEvent.click(within(dialog).getByRole("option", { name: /Crua/ }));
     fireEvent.change(within(dialog).getByLabelText("Data"), { target: { value: "2026-03-01" } });
     fireEvent.change(within(dialog).getByLabelText("Observação (opcional)"), { target: { value: "" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
@@ -205,7 +207,7 @@ describe("Graduações - editar/remover graduação do aluno", () => {
 describe("conversores de PATCH", () => {
   it("campos opcionais vazios viram null", () => {
     expect(toSystemUpdate({ name: " A ", description: " " })).toEqual({ name: "A", description: null });
-    expect(toLevelUpdate({ name: "N", order: "3", color: "" })).toEqual({ name: "N", order: 3, color: null });
+    expect(toLevelUpdate({ name: "N", order: "3", style: "BRAIDED", colors: ["#FF0000", "#00FF00"] })).toEqual({ name: "N", order: 3, style: "BRAIDED", colors: ["#ff0000", "#00ff00"] });
     expect(toRegistrationUpdate({ graduationLevelId: "2", graduatedAt: "2026-01-01", notes: " " })).toEqual({
       graduationLevelId: 2,
       graduatedAt: "2026-01-01",

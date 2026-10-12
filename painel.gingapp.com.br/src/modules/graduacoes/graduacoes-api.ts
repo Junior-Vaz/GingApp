@@ -2,13 +2,22 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { createCrud, notifyError } from "@/lib/crud";
+import type { RopeStyle } from "@/lib/rope";
+
+export type { RopeStyle } from "@/lib/rope";
 
 export interface GraduationLevel {
   id: number;
   graduationSystemId: number;
   name: string;
   order: number;
+  /** Cor primária (legado/atalho); o desenho da corda usa `style` + `colors`. */
   color: string | null;
+  style?: RopeStyle | undefined;
+  /** 1 cor (SOLID) ou 2-3 cores (SPLIT/BRAIDED). */
+  colors?: string[] | undefined;
+  /** Alunos cuja graduação atual é este nível (quando o servidor informa). */
+  studentCount?: number | undefined;
 }
 
 export interface GraduationSystem {
@@ -37,8 +46,9 @@ export interface SystemInput {
 
 export interface LevelInput {
   name: string;
-  order: number;
-  color?: string | undefined;
+  order?: number | undefined;
+  style: RopeStyle;
+  colors: string[];
 }
 
 export interface RegistrationInput {
@@ -50,7 +60,15 @@ export interface RegistrationInput {
 export interface LevelUpdate {
   name?: string;
   order?: number;
-  color?: string | null;
+  style?: RopeStyle;
+  colors?: string[];
+}
+
+export interface GraduationTemplate {
+  code: string;
+  name: string;
+  description: string;
+  levels: { name: string; style: RopeStyle; colors: string[] }[];
 }
 
 export interface RegistrationUpdate {
@@ -117,6 +135,57 @@ export function useCreateLevel() {
   });
 }
 
+/** POST /graduations/levels/:id/duplicate */
+export function useDuplicateLevel() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.post<GraduationLevel>(`/graduations/levels/${id}/duplicate`),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: systems.rootKey });
+      toast.success("Nível duplicado.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível duplicar o nível."),
+  });
+}
+
+/** PUT /graduations/systems/:id/levels/reorder — `order` = ids dos níveis na nova sequência. */
+export function useReorderLevels() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ systemId, order }: { systemId: number; order: number[] }) =>
+      api.put(`/graduations/systems/${systemId}/levels/reorder`, { order }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: systems.rootKey });
+      toast.success("Ordem dos níveis atualizada.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível reordenar os níveis."),
+  });
+}
+
+/** GET /graduations/templates — modelos prontos de sistema (cordas de capoeira etc.). */
+export function useTemplates(enabled = true) {
+  return useQuery({
+    queryKey: ["graduacoes", "templates"],
+    queryFn: () => api.get<GraduationTemplate[]>("/graduations/templates"),
+    enabled,
+    staleTime: 5 * 60_000,
+  });
+}
+
+/** POST /graduations/systems/from-template */
+export function useCreateFromTemplate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { code: string; name?: string | undefined }) =>
+      api.post<GraduationSystem>("/graduations/systems/from-template", data),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: systems.rootKey });
+      toast.success("Sistema criado a partir do modelo.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível criar o sistema a partir do modelo."),
+  });
+}
+
 const historyKey = (studentId: number | undefined) => ["graduacoes", "history", studentId];
 
 export function useStudentHistory(studentId: number | undefined) {
@@ -165,13 +234,20 @@ export function useRemoveGraduation(studentId: number | undefined) {
   });
 }
 
-/** Níveis de todos os sistemas ATIVOS num só select, rotulados "Sistema — Nível". */
+export interface LevelOption {
+  id: number;
+  label: string;
+  systemName: string;
+  level: GraduationLevel;
+}
+
+/** Níveis de todos os sistemas ATIVOS numa só lista, rotulados "Sistema — Nível". */
 export function levelOptions(list: GraduationSystem[] | undefined) {
-  const options: { id: number; label: string; color: string | null }[] = [];
+  const options: LevelOption[] = [];
   for (const system of list ?? []) {
     if (!system.isActive) continue;
     for (const level of [...system.levels].sort((a, b) => a.order - b.order)) {
-      options.push({ id: level.id, label: `${system.name} — ${level.name}`, color: level.color });
+      options.push({ id: level.id, label: `${system.name} — ${level.name}`, systemName: system.name, level });
     }
   }
   return options;

@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { StudentsService } from '../students/students.service';
+import { levelView } from '../graduations/rope';
 
 /**
  * Passaporte do Capoeirista (projeto.txt §50/§51, Jornada do Capoeirista parte 2 —
@@ -56,7 +57,8 @@ export class PassportService {
       student: { id: student.id, name: student.name },
       organization: { name: organization.name },
       unit: student.unit ? { name: student.unit.name } : null,
-      currentGraduation: currentGraduation ? { name: currentGraduation.graduationLevel.name } : null,
+      // Nível atual no contrato de corda: {id, name, order, color, style, colors} (name segue como antes).
+      currentGraduation: currentGraduation ? levelView(currentGraduation.graduationLevel) : null,
       stats: { aulas, rodas, eventos, graduacoes, certificados },
       publicProfile: publicProfile
         ? { isPublished: publicProfile.isPublished, publicCode: publicProfile.publicCode }

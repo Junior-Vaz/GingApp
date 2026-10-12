@@ -13,7 +13,7 @@ import {
   useStates,
   type Encounter,
 } from "@/lib/queries";
-import { EventCard, LoadMore, PageHeading, SectionHeading, StateMessage } from "./shared";
+import { EventCard, LoadMore, PageHeading, SectionHeading, StateMessage, TwoWayToggle } from "./shared";
 
 // Mapa: chunk separado (Google Maps + agrupador + UI do mapa), baixado só ao abrir a aba "Mapa".
 // Se o chunk não carregar (sem rede / deploy novo), mostra um aviso no lugar em vez de derrubar a página.
@@ -30,44 +30,15 @@ const MapExplorer = lazy(() =>
 
 type Mode = "community" | "events" | "rodas";
 
-const VIEWS: { value: CommunityView; label: string; icon: typeof List }[] = [
+type ViewOption = { value: CommunityView; label: string; icon: typeof List };
+const VIEWS: readonly [ViewOption, ViewOption] = [
   { value: "list", label: "Lista", icon: List },
   { value: "map", label: "Mapa", icon: MapIcon },
 ];
 
-/** Alternador animado "Lista | Mapa" (radiogroup com setas do teclado; a pílula desliza entre as opções). */
+/** Alternador animado "Lista | Mapa" (o genérico vive em shared.tsx). */
 function ViewToggle({ view, onChange }: { view: CommunityView; onChange: (view: CommunityView) => void }) {
-  return (
-    <div
-      className="view-toggle"
-      role="radiogroup"
-      aria-label="Modo de visualização da comunidade"
-      data-view={view}
-      onKeyDown={(event) => {
-        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
-        event.preventDefault();
-        const next = view === "list" ? "map" : "list";
-        onChange(next);
-        event.currentTarget.querySelector<HTMLElement>(`[data-value="${next}"]`)?.focus();
-      }}
-    >
-      <span className="view-toggle-pill" aria-hidden="true" />
-      {VIEWS.map(({ value, label, icon: Icon }) => (
-        <button
-          key={value}
-          type="button"
-          role="radio"
-          data-value={value}
-          aria-checked={view === value}
-          tabIndex={view === value ? 0 : -1}
-          onClick={() => onChange(value)}
-        >
-          <Icon aria-hidden="true" />
-          {label}
-        </button>
-      ))}
-    </div>
-  );
+  return <TwoWayToggle value={view} options={VIEWS} onChange={onChange} label="Modo de visualização da comunidade" />;
 }
 
 const FILTERS = [

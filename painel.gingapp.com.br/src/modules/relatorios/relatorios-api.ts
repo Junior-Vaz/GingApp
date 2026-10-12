@@ -79,6 +79,8 @@ export interface GraduationsReport {
     systemName: string;
     order: number;
     color: string | null;
+    style?: "SOLID" | "SPLIT" | "BRAIDED" | undefined;
+    colors?: string[] | undefined;
     count: number;
   }>;
 }

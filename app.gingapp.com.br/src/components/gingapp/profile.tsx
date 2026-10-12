@@ -28,6 +28,7 @@ import { QrDialog } from "./journey";
 import { TwoFactorSection } from "./two-factor";
 import { PageHeading, StateMessage } from "./shared";
 import { Avatar } from "./avatar";
+import { Rope } from "./rope";
 
 const ROLE_LABEL: Record<string, string> = {
   ALUNO: "Aluno",
@@ -226,6 +227,7 @@ export function ProfilePage() {
               <div className="flex gap-2 mt-6 items-center text-sm">
                 <Award size={17} />
                 {p.currentGraduation?.name ?? "Sem graduação"}
+                {p.currentGraduation && <Rope {...p.currentGraduation} orientation="horizontal" length={44} thickness={11} />}
               </div>
               {p.unit && <p className="mt-3">{p.unit.name}</p>}
               <div className="flex gap-4 mt-4 text-xs">

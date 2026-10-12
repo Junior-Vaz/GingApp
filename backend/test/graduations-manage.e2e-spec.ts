@@ -82,7 +82,10 @@ describe('Graduations manage (PATCH/DELETE) (e2e)', () => {
     await api().patch(`/api/graduations/levels/${levelAId}`).set(auth(mestreToken)).send({ name: `${tag} A2`, color: '#fff' }).expect(200);
     const db = await prisma.graduationLevel.findUniqueOrThrow({ where: { id: levelAId } });
     assert.equal(db.name, `${tag} A2`);
-    assert.equal(db.color, '#fff');
+    // color legado (#RGB) é normalizado para #RRGGBB maiúsculo e vira corda SOLID com colors = [color].
+    assert.equal(db.color, '#FFFFFF');
+    assert.deepEqual(db.colors, ['#FFFFFF']);
+    assert.equal(db.style, 'SOLID');
     await api().patch(`/api/graduations/levels/${levelAId}`).set(auth(mestreToken)).send({ order: 2 }).expect(409);
   });
 

@@ -1,22 +1,32 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
-import { Award, Download, Loader2 } from "lucide-react";
+import { Award, Download, Loader2, Network, Route } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { errorMessage } from "@/lib/api";
 import { downloadCertificatePdf } from "@/lib/certificate-pdf";
 import { dayOnly, fmt, readableIconColor, softenColor, verificationUrl } from "@/lib/format";
+import { readJourneyView, storeJourneyView, type JourneyView } from "@/lib/hierarchy";
 import {
   useAttendance,
   useCertificates,
   useGraduations,
+  useHierarchy,
   useMyStudent,
   usePassport,
   type Certificate,
 } from "@/lib/queries";
 import { MyClasses } from "./class-parts";
-import { PageHeading, SectionHeading, StateMessage } from "./shared";
+import { GraduationCard, RopeRuler } from "./graduation-parts";
+import { HierarchyCanvas } from "./hierarchy";
+import { Rope } from "./rope";
+import { PageHeading, SectionHeading, StateMessage, TwoWayToggle } from "./shared";
+
+const JOURNEY_VIEWS = [
+  { value: "timeline", label: "Linha do tempo", icon: Route },
+  { value: "hierarchy", label: "Hierarquia", icon: Network },
+] as const;
 
 export function QrDialog({
   open,
@@ -112,23 +122,34 @@ function CertificatePdfButton({ certificate }: { certificate: Certificate }) {
 
 export function JourneyPage() {
   const [certificate, setCertificate] = useState<Certificate | null>(null);
+  const [view, setView] = useState<JourneyView>(readJourneyView);
+  const changeView = (next: JourneyView) => {
+    setView(next);
+    storeJourneyView(next);
+  };
   const { student, isLoading: loadingStudent, error: studentError } = useMyStudent();
   const graduations = useGraduations(student?.id);
   const certificates = useCertificates();
+  const hierarchy = useHierarchy(); // mesma consulta da aba Hierarquia: alimenta a régua de cordas do sistema
   const passport = usePassport();
   const attendance = useAttendance({ limit: 1 }); // só precisa do % dos 30 dias (agregado no servidor)
 
   const list = graduations.data ?? [];
   const current = list[0] ?? null;
-  const color = softenColor(current?.graduationLevel.color);
   const percent = attendance.data?.last30dPercent ?? null;
   const stats = passport.data?.stats;
   const loading = loadingStudent || graduations.isLoading;
   const error = studentError ?? graduations.error;
 
+  const toggle = <TwoWayToggle value={view} options={JOURNEY_VIEWS} onChange={changeView} label="Modo de visualização da jornada" />;
+
+  // Modo Hierarquia: canvas em tela cheia (sem título nem rolagem; o alternador flutua sobre ele).
+  if (view === "hierarchy") return <HierarchyCanvas viewToggle={toggle} />;
+
   return (
     <>
       <PageHeading title="Minha jornada" subtitle="Sua história na capoeira, um passo de cada vez." />
+      <div className="view-bar">{toggle}</div>
       {error ? (
         <StateMessage tone="error">{errorMessage(error, "Não foi possível carregar sua jornada.")}</StateMessage>
       ) : !loading && !student ? (
@@ -136,24 +157,19 @@ export function JourneyPage() {
       ) : (
         <>
           <div className="journey-top">
-            <div
-              className="graduation-display"
-              style={color ? { background: color, color: readableIconColor(color) } : undefined}
-            >
-              <Award className="rope-icon" style={color ? { color: readableIconColor(color) } : undefined} />
-              <div>
-                <span className="eyebrow">Minha graduação</span>
-                <h2>{current ? current.graduationLevel.name : loading ? "Carregando…" : "Sem graduação"}</h2>
-                <p>
-                  {[
-                    passport.data?.organization.name,
-                    current ? `Desde ${fmt(dayOnly(current.graduatedAt), "MMMM 'de' yyyy")}` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ") || "Nenhuma graduação registrada ainda."}
-                </p>
-              </div>
-            </div>
+            <GraduationCard
+              name={current ? current.graduationLevel.name : null}
+              rope={current ? current.graduationLevel : null}
+              loading={loading}
+              subtitle={
+                [
+                  passport.data?.organization.name,
+                  current ? `Desde ${fmt(dayOnly(current.graduatedAt), "MMMM 'de' yyyy")}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "Nenhuma graduação registrada ainda."
+              }
+            />
             <div className="py-4">
               <div className="flex justify-between text-sm">
                 <strong>Sua constância faz a diferença</strong>
@@ -180,6 +196,9 @@ export function JourneyPage() {
           </div>
           <section className="content-band">
             <h2>Cada encontro conta uma história</h2>
+            {(hierarchy.data?.levels.length ?? 0) > 0 && (
+              <RopeRuler levels={hierarchy.data?.levels ?? []} currentOrder={current?.graduationLevel.order ?? null} />
+            )}
             {list.length > 0 ? (
               <div className="timeline">
                 {list.map((item) => {
@@ -193,7 +212,10 @@ export function JourneyPage() {
                         <Award />
                       </div>
                       <time>{fmt(dayOnly(item.graduatedAt), "MMMM 'de' yyyy")}</time>
-                      <h3>{item.graduationLevel.name}</h3>
+                      <div className="timeline-rope">
+                        <Rope {...item.graduationLevel} orientation="horizontal" length={52} thickness={12} />
+                        <h3>{item.graduationLevel.name}</h3>
+                      </div>
                       {item.notes && <p>{item.notes}</p>}
                     </article>
                   );

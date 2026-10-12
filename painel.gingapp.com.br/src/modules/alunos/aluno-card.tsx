@@ -1,7 +1,9 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Award, Building2, CalendarDays, Layers, Mail, Phone, Wallet } from "lucide-react";
+import { RopeSwatch } from "@/components/painel/rope-swatch";
 import { Badge } from "@/components/ui/badge";
 import { dayOnly, fmt, initials } from "@/lib/format";
+import { ropeOf } from "@/lib/rope";
 import { imageSrc } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { STUDENT_STATUS_LABEL, isMinor, type Student } from "./schema";
@@ -101,9 +103,12 @@ export function StudentCard({
               {s.classNames.join(", ")}
             </Info>
           )}
-          {s.currentCord && (
+          {(s.currentCord || s.currentLevel) && (
             <Info icon={Award} label="Corda atual">
-              {s.currentCord}
+              <span className="inline-flex items-center gap-1.5">
+                {s.currentLevel && <RopeSwatch {...ropeOf(s.currentLevel)} size="sm" orientation="horizontal" />}
+                {s.currentCord ?? s.currentLevel?.name}
+              </span>
             </Info>
           )}
           {s.birthDate && (

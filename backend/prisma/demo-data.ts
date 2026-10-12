@@ -317,25 +317,30 @@ export const STUDENTS: StudentSpec[] = [
 export interface LevelSpec {
   order: number;
   name: string;
+  /** Cor PRIMARIA (= colors[0]), mantida por compatibilidade. */
   color: string;
+  /** Estilo da corda: lisa, dividida (listras verticais) ou trancada (listras diagonais). */
+  style: 'SOLID' | 'SPLIT' | 'BRAIDED';
+  /** 1 a 3 cores hex #RRGGBB (a ordem importa). */
+  colors: string[];
 }
 
-/** Cordas do grupo (cores reais de corda de capoeira). */
+/** Cordas do grupo (lisas, divididas e trancadas, com cores reais de corda de capoeira). */
 export const GRADUATION_SYSTEM = {
   name: 'Cordas do Grupo Axé',
-  description: 'Sistema de graduação por cordas do Grupo Axé: da corda crua (iniciante) à vermelha (instrutor).',
+  description:
+    'Sistema de graduação por cordas do Grupo Axé: da corda crua (iniciante) à trançada de três cores (instrutor), passando por cordas divididas e trançadas.',
 };
 export const LEVELS: LevelSpec[] = [
-  { order: 1, name: 'Crua', color: '#E8DFC8' },
-  { order: 2, name: 'Amarela', color: '#FACC15' },
-  { order: 3, name: 'Laranja', color: '#F97316' },
-  { order: 4, name: 'Azul', color: '#2563EB' },
-  { order: 5, name: 'Verde', color: '#16A34A' },
-  { order: 6, name: 'Roxa', color: '#7C3AED' },
-  { order: 7, name: 'Marrom', color: '#78350F' },
-  { order: 8, name: 'Vermelha', color: '#DC2626' },
+  { order: 1, name: 'Crua', color: '#E8DFC8', style: 'SOLID', colors: ['#E8DFC8'] },
+  { order: 2, name: 'Verde', color: '#16A34A', style: 'SOLID', colors: ['#16A34A'] },
+  { order: 3, name: 'Verde/Amarela', color: '#16A34A', style: 'SPLIT', colors: ['#16A34A', '#FACC15'] },
+  { order: 4, name: 'Amarela', color: '#FACC15', style: 'SOLID', colors: ['#FACC15'] },
+  { order: 5, name: 'Amarela/Azul', color: '#FACC15', style: 'BRAIDED', colors: ['#FACC15', '#2563EB'] },
+  { order: 6, name: 'Azul', color: '#2563EB', style: 'SOLID', colors: ['#2563EB'] },
+  { order: 7, name: 'Azul/Branca', color: '#2563EB', style: 'SPLIT', colors: ['#2563EB', '#FFFFFF'] },
+  { order: 8, name: 'Verde/Amarela/Azul', color: '#16A34A', style: 'BRAIDED', colors: ['#16A34A', '#FACC15', '#2563EB'] },
 ];
-
 /** Imagem já usada pelo seed do projeto (unsplash). Único URL externo do demo. */
 export const DEMO_IMAGE_URL =
   'https://images.unsplash.com/photo-1583166614297-a97b68d5cead?q=80&w=800&auto=format&fit=crop';

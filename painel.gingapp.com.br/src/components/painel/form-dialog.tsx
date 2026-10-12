@@ -3,6 +3,7 @@ import { useForm, type DefaultValues, type FieldValues, type UseFormReturn } fro
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { z } from "zod";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Form } from "@/components/ui/form";
 import {
   Dialog,
@@ -36,6 +37,8 @@ interface FormDialogProps<T extends FieldValues> {
   submitLabel?: string;
   /** "dialog" (padrão) para formulários curtos; "sheet" para formulários longos. */
   as?: "dialog" | "sheet";
+  /** Classes extras do conteúdo (ex.: `sm:max-w-2xl` para formulários largos). */
+  className?: string | undefined;
 }
 
 /**
@@ -53,6 +56,7 @@ export function FormDialog<T extends FieldValues>({
   children,
   submitLabel = "Salvar",
   as = "dialog",
+  className,
 }: FormDialogProps<T>) {
   const form = useForm<T>({ resolver: zodResolver(schema), defaultValues });
   const { isSubmitting } = form.formState;
@@ -88,7 +92,7 @@ export function FormDialog<T extends FieldValues>({
   if (as === "sheet") {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="overflow-y-auto sm:max-w-md">
+        <SheetContent className={cn("overflow-y-auto sm:max-w-md", className)}>
           <SheetHeader>
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description ?? "Preencha os dados abaixo."}</SheetDescription>
@@ -101,7 +105,7 @@ export function FormDialog<T extends FieldValues>({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className={cn("max-h-[92dvh] overflow-y-auto", className)}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description ?? "Preencha os dados abaixo."}</DialogDescription>

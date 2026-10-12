@@ -244,6 +244,34 @@ describe('Grupo demo (prisma/demo.ts) (e2e)', () => {
       assert.equal(await prisma.subscription.count({ where: { organizationId: orgId } }), 1);
     });
 
+    it('demo antigo (cordas lisas) é convertido em divididas/trançadas, só onde a corda ainda é SOLID de 1 cor', async () => {
+      const level = (order: number) =>
+        prisma.graduationLevel.findFirstOrThrow({ where: { organizationId: orgId, order } });
+      const [l3, l5, l8] = [await level(3), await level(5), await level(8)];
+      // Simula o demo antigo (3 e 5 lisas) e uma corda 8 já editada pelo usuário (SPLIT personalizada).
+      await prisma.graduationLevel.update({ where: { id: l3.id }, data: { name: 'Laranja', color: '#F97316', style: 'SOLID', colors: ['#F97316'] } });
+      await prisma.graduationLevel.update({ where: { id: l5.id }, data: { name: 'Verde', color: '#16A34A', style: 'SOLID', colors: ['#16A34A'] } });
+      await prisma.graduationLevel.update({ where: { id: l8.id }, data: { name: 'Editada pelo mestre', style: 'SPLIT', colors: ['#111111', '#EEEEEE'], color: '#111111' } });
+      try {
+        const again = await runDemo(prisma, opts, silent);
+        assert.deepEqual(again.created, {}, `criou de novo: ${JSON.stringify(again.created)}`);
+        const [a3, a5, a8] = [await level(3), await level(5), await level(8)];
+        assert.deepEqual([a3.name, a3.style, a3.colors], ['Verde/Amarela', 'SPLIT', ['#16A34A', '#FACC15']]);
+        assert.deepEqual([a5.name, a5.style, a5.colors], ['Amarela/Azul', 'BRAIDED', ['#FACC15', '#2563EB']]);
+        assert.equal(a8.name, 'Editada pelo mestre', 'corda já editada (não SOLID) não é tocada');
+        assert.deepEqual(a8.colors, ['#111111', '#EEEEEE']);
+        // Idempotente: uma 3ª execução não muda mais nada.
+        const snapshot = JSON.stringify(await prisma.graduationLevel.findMany({ where: { organizationId: orgId }, orderBy: { order: 'asc' } }));
+        await runDemo(prisma, opts, silent);
+        assert.equal(JSON.stringify(await prisma.graduationLevel.findMany({ where: { organizationId: orgId }, orderBy: { order: 'asc' } })), snapshot);
+      } finally {
+        await prisma.graduationLevel.update({
+          where: { id: l8.id },
+          data: { name: l8.name, style: l8.style, colors: l8.colors, color: l8.color },
+        });
+      }
+    });
+
     it('rodar de novo com OUTRA senha atualiza só a senha das contas demo (sem duplicar)', async () => {
       const other = 'Capoeira-Nova#Roda2027';
       const third = await runDemo(prisma, { ...opts, password: other }, silent);
@@ -329,6 +357,11 @@ describe('Grupo demo (prisma/demo.ts) (e2e)', () => {
       const levels = await prisma.graduationLevel.findMany({ where: { organizationId: orgId }, orderBy: { order: 'asc' } });
       assert.deepEqual(levels.map((l) => l.order), [1, 2, 3, 4, 5, 6, 7, 8]);
       assert.ok(levels.every((l) => /^#[0-9A-F]{6}$/i.test(l.color ?? '')));
+      // Cordas multicoloridas: lisas, divididas e trançadas (1 a 3 cores, color = colors[0]).
+      assert.ok(levels.every((l) => l.colors.length >= 1 && l.colors.length <= 3 && l.color === l.colors[0]));
+      assert.ok(levels.every((l) => (l.style === 'SOLID' ? l.colors.length === 1 : l.colors.length >= 2)));
+      assert.ok(levels.some((l) => l.style === 'SPLIT') && levels.some((l) => l.style === 'BRAIDED'));
+      assert.ok(levels.some((l) => l.style === 'BRAIDED' && l.colors.length === 3));
       const grads = await prisma.studentGraduation.findMany({
         where: { organizationId: orgId },
         include: { graduationLevel: true },
@@ -532,7 +565,12 @@ describe('Grupo demo (prisma/demo.ts) (e2e)', () => {
 
       const passport = await get(app, 'passport/me', token);
       assert.equal(passport.status, 200);
-      assert.equal(passport.body.currentGraduation.name, 'Azul');
+      // 4ª corda do demo (nível 4): Amarela lisa — com o contrato completo da corda.
+      assert.equal(passport.body.currentGraduation.name, 'Amarela');
+      assert.deepEqual(
+        [passport.body.currentGraduation.order, passport.body.currentGraduation.style, passport.body.currentGraduation.colors],
+        [4, 'SOLID', ['#FACC15']],
+      );
       assert.ok(passport.body.stats.aulas > 10 && passport.body.stats.graduacoes === 4 && passport.body.stats.certificados >= 1);
       assert.equal(passport.body.publicProfile.isPublished, true);
       const pub = await request(app.getHttpServer()).get(`/api/public/passport/${passport.body.publicProfile.publicCode}`);

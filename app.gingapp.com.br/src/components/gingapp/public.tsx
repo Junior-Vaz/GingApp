@@ -5,6 +5,7 @@ import { api, ApiError } from "@/lib/api";
 import { dayOnly, fmt } from "@/lib/format";
 import { Brand } from "./app-shell";
 import { Avatar } from "./avatar";
+import { Rope } from "./rope";
 
 interface PublicCertificate {
   title: string;
@@ -17,7 +18,7 @@ interface PublicPassport {
   student: { name: string };
   organization: { name: string };
   unit: { name: string } | null;
-  currentGraduation: { name: string } | null;
+  currentGraduation: { name: string; color?: string | null; style?: "SOLID" | "SPLIT" | "BRAIDED"; colors?: string[] } | null;
   stats: { aulas: number; rodas: number; eventos: number; graduacoes: number; certificados: number };
 }
 
@@ -115,8 +116,9 @@ export function PassportVerificationPage({ code }: { code: string }) {
             {passport.unit ? ` · ${passport.unit.name}` : ""}
           </p>
           {passport.currentGraduation && (
-            <span className="rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-primary">
+            <span className="inline-flex items-center gap-2 rounded-full bg-secondary px-3 py-1 text-xs font-semibold text-primary">
               {passport.currentGraduation.name}
+              <Rope {...passport.currentGraduation} orientation="horizontal" length={40} thickness={10} />
             </span>
           )}
           <div className="mt-3 grid w-full grid-cols-3 gap-2.5 border-t border-border pt-4">

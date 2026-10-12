@@ -11,6 +11,7 @@ import { buildCsv } from '../../../shared/csv/csv';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { civilTodayStart } from '../finance/finance.service';
+import { LEVEL_SELECT, ropeOf } from '../graduations/rope';
 import { AttendanceReportQueryDto, ReportPeriodQueryDto } from './dto/report-query.dto';
 import {
   addDays,
@@ -471,7 +472,7 @@ export class ReportsService {
     const levels = levelCount.size
       ? await this.prisma.graduationLevel.findMany({
           where: { organizationId, id: { in: [...levelCount.keys()] } },
-          select: { id: true, name: true, order: true, color: true, graduationSystem: { select: { name: true } } },
+          select: { ...LEVEL_SELECT, graduationSystem: { select: { name: true } } },
         })
       : [];
     const byLevel = levels
@@ -480,7 +481,7 @@ export class ReportsService {
         levelName: l.name,
         systemName: l.graduationSystem.name,
         order: l.order,
-        color: l.color,
+        ...ropeOf(l),
         count: levelCount.get(l.id) ?? 0,
       }))
       .sort((a, b) => a.systemName.localeCompare(b.systemName, 'pt-BR') || a.order - b.order);

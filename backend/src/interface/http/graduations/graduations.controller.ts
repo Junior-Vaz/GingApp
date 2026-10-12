@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
@@ -10,10 +11,15 @@ import { CreateStudentGraduationDto } from './dto/create-student-graduation.dto'
 import { UpdateGraduationSystemDto } from './dto/update-graduation-system.dto';
 import { UpdateGraduationLevelDto } from './dto/update-graduation-level.dto';
 import { UpdateStudentGraduationDto } from './dto/update-student-graduation.dto';
+import { CreateSystemFromTemplateDto, HierarchyQueryDto, ReorderLevelsDto } from './dto/graduation-structure.dto';
+import { GraduationsHierarchyService } from './graduations-hierarchy.service';
 
 @Controller('graduations')
 export class GraduationsController {
-  constructor(private readonly graduationsService: GraduationsService) {}
+  constructor(
+    private readonly graduationsService: GraduationsService,
+    private readonly hierarchy: GraduationsHierarchyService,
+  ) {}
 
   @Get()
   @CanAccess('graduations', 'view')
@@ -25,6 +31,41 @@ export class GraduationsController {
   @CanAccess('graduations', 'view')
   findAllSystems(@CurrentOrganization() organizationId: number) {
     return this.graduationsService.findAllSystems(organizationId);
+  }
+
+  /**
+   * Modelos genéricos de sistema (estático, sem dado pessoal). Sem @CanAccess de propósito: qualquer usuário
+   * autenticado do grupo pode ler (o painel usa em "Novo sistema"; criar a partir dele exige graduations.create).
+   */
+  @Get('templates')
+  listTemplates() {
+    return this.graduationsService.listTemplates();
+  }
+
+  /**
+   * Hierarquia do grupo para o app (Jornada): mestres, professores e a escada de cordas com os alunos ativos de cada
+   * nível. Qualquer MEMBER autenticado (aluno/responsável/staff); `?studentId=` = dependente. Cache curto e PRIVADO.
+   */
+  @Get('hierarchy')
+  async getHierarchy(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: HierarchyQueryDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    res.set('Cache-Control', 'private, max-age=30');
+    return this.hierarchy.get(user, query.studentId);
+  }
+
+  @Get('systems/:systemId')
+  @CanAccess('graduations', 'view')
+  findSystem(@CurrentOrganization() organizationId: number, @Param('systemId', ParseIntPipe) systemId: number) {
+    return this.graduationsService.findSystem(organizationId, systemId);
+  }
+
+  @Post('systems/from-template')
+  @CanAccess('graduations', 'create')
+  createSystemFromTemplate(@CurrentOrganization() organizationId: number, @Body() dto: CreateSystemFromTemplateDto) {
+    return this.graduationsService.createSystemFromTemplate(organizationId, dto);
   }
 
   @Post('systems')
@@ -57,6 +98,24 @@ export class GraduationsController {
     @Body() dto: CreateGraduationLevelDto,
   ) {
     return this.graduationsService.createLevel(organizationId, systemId, dto);
+  }
+
+  /** Reordena os níveis do sistema (ids do mais baixo para o mais alto), de forma atômica. */
+  @Put('systems/:systemId/levels/reorder')
+  @CanAccess('graduations', 'edit')
+  reorderLevels(
+    @CurrentOrganization() organizationId: number,
+    @Param('systemId', ParseIntPipe) systemId: number,
+    @Body() dto: ReorderLevelsDto,
+  ) {
+    return this.graduationsService.reorderLevels(organizationId, systemId, dto);
+  }
+
+  /** Copia o nível para o fim da ordem do sistema (nome "<nome> (cópia)"). */
+  @Post('levels/:levelId/duplicate')
+  @CanAccess('graduations', 'create')
+  duplicateLevel(@CurrentOrganization() organizationId: number, @Param('levelId', ParseIntPipe) levelId: number) {
+    return this.graduationsService.duplicateLevel(organizationId, levelId);
   }
 
   @Patch('levels/:levelId')

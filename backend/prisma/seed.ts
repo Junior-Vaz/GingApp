@@ -239,7 +239,9 @@ async function main() {
       graduationSystemId: graduationSystem.id,
       name: 'Crua',
       order: 1,
-      color: '#e5e5e5',
+      color: '#E5E5E5',
+      style: 'SOLID',
+      colors: ['#E5E5E5'],
     },
   });
   await prisma.graduationLevel.upsert({
@@ -250,7 +252,9 @@ async function main() {
       graduationSystemId: graduationSystem.id,
       name: 'Verde',
       order: 2,
-      color: '#22c55e',
+      color: '#22C55E',
+      style: 'SOLID',
+      colors: ['#22C55E'],
     },
   });
   console.log(`✔ GraduationSystem: ${graduationSystem.name} (2 níveis)`);

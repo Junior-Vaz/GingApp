@@ -16,6 +16,8 @@ const level = (id: number, name: string, order: number, color: string | null, sy
   name,
   order,
   color,
+  style: "SOLID" as const,
+  colors: color ? [color] : [],
 });
 const systemsData: GraduationSystem[] = [
   {
@@ -86,7 +88,7 @@ describe("Graduações - sistemas e níveis", () => {
   it("lista sistemas com níveis ordenados por `order`, descrição e selo de inativo", async () => {
     setup();
     const list = await screen.findByRole("list", { name: "Níveis de Cordas" });
-    expect(within(list).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["0. Crua", "1. Amarela", "2. Verde"]);
+    expect(within(list).getAllByRole("listitem").map((li) => li.querySelector("p")!.textContent)).toEqual(["Crua", "Amarela", "Verde"]);
     expect(screen.getByText("Sistema de cordas")).toBeInTheDocument();
     expect(screen.getByText("Inativo")).toBeInTheDocument();
     expect(screen.getByText("Nenhum nível cadastrado neste sistema ainda.")).toBeInTheDocument();
@@ -127,7 +129,7 @@ describe("Graduações - sistemas e níveis", () => {
   it("adiciona nível: ordem sugerida = qtd de níveis, valida ordem e envia cor", async () => {
     const { calls } = setup();
     await screen.findByRole("list", { name: "Níveis de Cordas" });
-    fireEvent.click(screen.getByRole("button", { name: "Adicionar nível em Cordas" }));
+    fireEvent.click(screen.getByRole("button", { name: "Novo nível em Cordas" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByLabelText("Ordem")).toHaveValue(3);
 
@@ -140,35 +142,60 @@ describe("Graduações - sistemas e níveis", () => {
     expect(writes(calls)).toHaveLength(0);
 
     fireEvent.change(within(dialog).getByLabelText("Ordem"), { target: { value: "3" } });
-    fireEvent.change(within(dialog).getByLabelText("Cor do nível"), { target: { value: "#0000ff" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cor 1: Azul" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
     expect(writes(calls)[0]).toEqual({
       url: "/graduations/systems/1/levels",
       method: "POST",
-      body: { name: "Azul", order: 3, color: "#0000ff" },
+      body: { name: "Azul", order: 3, style: "SOLID", colors: ["#2563eb"] },
     });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Nível adicionado."));
   });
 
-  it("nível sem cor omite `color`; 'Remover cor' limpa a escolha", async () => {
+  it("validação por estilo: trançada 3 cores exige 3 hex válidos; envia {style, colors}", async () => {
     const { calls } = setup();
     await screen.findByRole("list", { name: "Níveis de Cordas" });
-    fireEvent.click(screen.getByRole("button", { name: "Adicionar nível em Vazio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Novo nível em Vazio" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Cor do nível"), { target: { value: "#ff0000" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Remover cor" }));
-    expect(within(dialog).getByText("Sem cor")).toBeInTheDocument();
-    fireEvent.change(within(dialog).getByLabelText("Nome do nível"), { target: { value: "Branca" } });
+    fireEvent.change(within(dialog).getByLabelText("Nome do nível"), { target: { value: "Verde-amarela-azul" } });
+    expect(within(dialog).getAllByRole("radio")).toHaveLength(5);
+    expect(within(dialog).getByRole("radio", { name: "Sólida" })).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Trançada 3 cores" }));
+    expect(within(dialog).getByLabelText("Hex da cor 3")).toBeInTheDocument(); // 3 campos de cor
+    expect(within(dialog).getByTestId("level-preview-label")).toHaveTextContent(/^Corda trançada /);
+
+    fireEvent.change(within(dialog).getByLabelText("Hex da cor 2"), { target: { value: "#zz" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    expect(await within(dialog).findByText("Cor 2 inválida (use o formato #RRGGBB).")).toBeInTheDocument();
+    expect(writes(calls)).toHaveLength(0);
+
+    fireEvent.change(within(dialog).getByLabelText("Hex da cor 2"), { target: { value: "FACC15" } }); // aceita sem '#'
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cor 3: Azul" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
-    expect(writes(calls)[0]!.body).toEqual({ name: "Branca", order: 0 });
+    expect(writes(calls)[0]).toEqual({
+      url: "/graduations/systems/3/levels",
+      method: "POST",
+      body: { name: "Verde-amarela-azul", order: 0, style: "BRAIDED", colors: ["#f5f1e6", "#facc15", "#2563eb"] },
+    });
   });
 
+  it("voltar para Sólida descarta as cores extras (1 cor)", async () => {
+    setup();
+    await screen.findByRole("list", { name: "Níveis de Cordas" });
+    fireEvent.click(screen.getByRole("button", { name: "Novo nível em Vazio" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Dividida 2 cores" }));
+    expect(within(dialog).getByLabelText("Hex da cor 2")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Sólida" }));
+    expect(within(dialog).queryByLabelText("Hex da cor 2")).not.toBeInTheDocument();
+  });
   it("erro do backend (sistema inexistente) vira toast e mantém o diálogo", async () => {
     setup({ write: () => json(404, { message: "Sistema de graduação não encontrado." }) });
     await screen.findByRole("list", { name: "Níveis de Cordas" });
-    fireEvent.click(screen.getByRole("button", { name: "Adicionar nível em Cordas" }));
+    fireEvent.click(screen.getByRole("button", { name: "Novo nível em Cordas" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Nome do nível"), { target: { value: "Azul" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
@@ -197,7 +224,7 @@ describe("Graduações - alunos", () => {
     await waitFor(() => expect(within(screen.getByLabelText("Aluno")).getAllByRole("option")).toHaveLength(3));
     expect(screen.getByRole("option", { name: "Beto (inativo)" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Aluno"), { target: { value: "5" } });
-    const row = (await screen.findByRole("cell", { name: "Amarela" })).closest("tr")!;
+    const row = (await screen.findByRole("cell", { name: /Amarela$/ })).closest("tr")!;
     expect(calls.some((c) => c.url === "/graduations/students/5" && c.method === "GET")).toBe(true);
     expect(within(row).getByText("Cordas")).toBeInTheDocument();
     expect(within(row).getByText("10/02/2026")).toBeInTheDocument();
@@ -217,19 +244,23 @@ describe("Graduações - alunos", () => {
     const { calls } = await openStudents();
     await waitFor(() => expect(within(screen.getByLabelText("Aluno")).getAllByRole("option")).toHaveLength(3));
     fireEvent.change(screen.getByLabelText("Aluno"), { target: { value: "5" } });
-    await screen.findByRole("cell", { name: "Amarela" });
+    await screen.findByRole("cell", { name: /Amarela$/ });
     fireEvent.click(screen.getByRole("button", { name: "Registrar graduação" }));
     const dialog = await screen.findByRole("dialog");
 
-    const labels = within(within(dialog).getByLabelText("Nível alcançado")).getAllByRole("option").map((o) => o.textContent);
-    expect(labels).toEqual(["Selecione…", "Cordas — Crua", "Cordas — Amarela", "Cordas — Verde"]);
+    const listbox = within(dialog).getByRole("listbox", { name: "Nível alcançado" });
+    // seletor customizado: cada opção traz a corda desenhada + nome do nível + sistema
+    const options = within(listbox).getAllByRole("option");
+    expect(options.map((o) => o.querySelector("span.truncate, span > span")?.textContent)).toEqual(["Crua", "Amarela", "Verde"]);
+    expect(options.every((o) => o.querySelector("svg[data-rope]"))).toBe(true);
+    expect(within(listbox).queryByText("Antigo")).not.toBeInTheDocument(); // sistema inativo fora da lista
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     expect(await within(dialog).findByText("Selecione o nível alcançado.")).toBeInTheDocument();
     expect(within(dialog).getByText("Informe a data da graduação.")).toBeInTheDocument();
     expect(writes(calls)).toHaveLength(0);
 
-    fireEvent.change(within(dialog).getByLabelText("Nível alcançado"), { target: { value: "3" } });
+    fireEvent.click(within(dialog).getByRole("option", { name: /Verde/ }));
     fireEvent.change(within(dialog).getByLabelText("Data"), { target: { value: "2026-06-15" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
@@ -248,10 +279,10 @@ describe("Graduações - alunos", () => {
     await goStudents();
     await waitFor(() => expect(within(screen.getByLabelText("Aluno")).getAllByRole("option")).toHaveLength(3));
     fireEvent.change(screen.getByLabelText("Aluno"), { target: { value: "5" } });
-    await screen.findByRole("cell", { name: "Amarela" });
+    await screen.findByRole("cell", { name: /Amarela$/ });
     fireEvent.click(screen.getByRole("button", { name: "Registrar graduação" }));
     const dialog = await screen.findByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Nível alcançado"), { target: { value: "1" } });
+    fireEvent.click(within(dialog).getByRole("option", { name: /Crua/ }));
     fireEvent.change(within(dialog).getByLabelText("Data"), { target: { value: "2026-06-15" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Nível de graduação inválido para esta organização."));
@@ -289,14 +320,14 @@ describe("Graduações - busca de aluno no servidor", () => {
       await goStudents();
       await waitFor(() => expect(optionNames()).toHaveLength(3));
       fireEvent.change(screen.getByLabelText("Aluno"), { target: { value: "5" } });
-      await screen.findByRole("cell", { name: "Amarela" });
+      await screen.findByRole("cell", { name: /Amarela$/ });
 
       fireEvent.change(screen.getByLabelText("Buscar aluno"), { target: { value: "zz" } });
       await act(async () => { await vi.advanceTimersByTimeAsync(350); });
       await waitFor(() => expect(optionNames()).toEqual(["Selecione…", "Ana"]));
       // a busca "zz" não casa ninguém; a Ana (selecionada) segue na lista
       expect(screen.getByLabelText("Aluno")).toHaveValue("5");
-      expect(screen.getByRole("cell", { name: "Amarela" })).toBeInTheDocument();
+      expect(screen.getByRole("cell", { name: /Amarela$/ })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Registrar graduação" })).toBeEnabled();
       expect(studentCalls(calls)).toContain("/students?q=zz&limit=20");
     } finally {
@@ -318,7 +349,7 @@ describe("helpers de graduações", () => {
   });
   it("conversores de formulário para payload", () => {
     expect(toSystemInput({ name: " A1 ", description: "  " })).toEqual({ name: "A1", description: undefined });
-    expect(toLevelInput({ name: " N ", order: "2", color: "" })).toEqual({ name: "N", order: 2, color: undefined });
+    expect(toLevelInput({ name: " N ", order: "2", style: "SOLID", colors: ["#AABBCC"] })).toEqual({ name: "N", order: 2, style: "SOLID", colors: ["#aabbcc"] });
     expect(toRegistrationInput({ graduationLevelId: "4", graduatedAt: "2026-01-01", notes: " ok " })).toEqual({
       graduationLevelId: 4,
       graduatedAt: "2026-01-01",

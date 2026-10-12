@@ -14,6 +14,9 @@ import { CreateStudentGraduationDto } from './dto/create-student-graduation.dto'
 import { UpdateGraduationSystemDto } from './dto/update-graduation-system.dto';
 import { UpdateGraduationLevelDto } from './dto/update-graduation-level.dto';
 import { UpdateStudentGraduationDto } from './dto/update-student-graduation.dto';
+import { CreateSystemFromTemplateDto, ReorderLevelsDto } from './dto/graduation-structure.dto';
+import { GRADUATION_TEMPLATES, findGraduationTemplate } from './graduation-templates';
+import { MAX_LEVELS_PER_SYSTEM, RopeFields, resolveRope, withRope } from './rope';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 
@@ -30,22 +33,81 @@ export class GraduationsService {
   ) {}
 
   /** Sistemas de graduação configuráveis do grupo, com seus níveis (projeto.txt §26). */
-  findAll(organizationId: number) {
-    return this.prisma.graduationSystem.findMany({
+  async findAll(organizationId: number) {
+    const systems = await this.prisma.graduationSystem.findMany({
       where: { organizationId },
       include: { levels: { orderBy: { order: 'asc' } } },
       orderBy: { id: 'desc' },
       take: 50,
     });
+    return systems.map(withLevelsRope);
   }
 
   /** Lista os sistemas de graduação da organização, cada um com seus níveis em ordem. */
-  findAllSystems(organizationId: number) {
-    return this.prisma.graduationSystem.findMany({
+  async findAllSystems(organizationId: number) {
+    const systems = await this.prisma.graduationSystem.findMany({
       where: { organizationId },
       include: { levels: { orderBy: { order: 'asc' } } },
       orderBy: { id: 'asc' },
     });
+    return systems.map(withLevelsRope);
+  }
+
+  /** Um sistema da organização com seus níveis ({id, name, order, color, style, colors}). 404 se de outro grupo. */
+  async findSystem(organizationId: number, systemId: number) {
+    const system = await this.prisma.graduationSystem.findFirst({
+      where: { id: systemId, organizationId },
+      include: { levels: { orderBy: { order: 'asc' } } },
+    });
+    if (!system) {
+      throw new NotFoundException('Sistema de graduação não encontrado.');
+    }
+    return withLevelsRope(system);
+  }
+
+  /** Modelos genéricos de sistema (estáticos) para o painel criar um sistema pronto. */
+  listTemplates() {
+    return GRADUATION_TEMPLATES;
+  }
+
+  /**
+   * Cria um sistema (e todos os níveis) a partir de um modelo, numa única transação. Mesma permissão do create de
+   * sistema (graduations.create, no controller). Código inexistente = 404.
+   */
+  async createSystemFromTemplate(organizationId: number, dto: CreateSystemFromTemplateDto) {
+    const template = findGraduationTemplate(dto.code);
+    if (!template) {
+      throw new NotFoundException('Modelo de graduação não encontrado.');
+    }
+    const name = dto.name?.trim() || template.name;
+    const system = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.graduationSystem.create({
+        data: { organizationId, name, description: template.description },
+      });
+      await tx.graduationLevel.createMany({
+        data: template.levels.map((level, index) => ({
+          organizationId,
+          graduationSystemId: created.id,
+          name: level.name,
+          order: index + 1,
+          style: level.style,
+          colors: level.colors,
+          color: level.colors[0],
+        })),
+      });
+      return tx.graduationSystem.findUniqueOrThrow({
+        where: { id: created.id },
+        include: { levels: { orderBy: { order: 'asc' } } },
+      });
+    });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.GRADUATION_SYSTEM_CREATE,
+      entity: AuditEntity.GRADUATION_SYSTEM,
+      entityId: system.id,
+      meta: { name: system.name, templateCode: template.code, levels: template.levels.length },
+    });
+    return withLevelsRope(system);
   }
 
   async createSystem(organizationId: number, dto: CreateGraduationSystemDto) {
@@ -72,6 +134,9 @@ export class GraduationsService {
       throw new BadRequestException('Sistema de graduação inativo: reative-o para criar níveis.');
     }
 
+    const rope = resolveRope({ style: dto.style, colors: dto.colors, color: dto.color });
+    await this.assertRoomForLevels(systemId, 1);
+
     const created = await this.prisma.graduationLevel
       .create({
         data: {
@@ -79,7 +144,9 @@ export class GraduationsService {
           graduationSystemId: systemId,
           name: dto.name,
           order: dto.order,
-          color: dto.color,
+          color: rope.color,
+          style: rope.style,
+          colors: rope.colors,
         },
       })
       .catch(rethrowDuplicateOrder);
@@ -88,9 +155,101 @@ export class GraduationsService {
       action: AuditAction.GRADUATION_LEVEL_CREATE,
       entity: AuditEntity.GRADUATION_LEVEL,
       entityId: created.id,
-      meta: { name: created.name, systemId, order: created.order },
+      meta: { name: created.name, systemId, order: created.order, style: created.style },
     });
-    return created;
+    return withRope(created);
+  }
+
+  /**
+   * Duplica um nível: cópia no FIM da ordem do sistema (maior order + 1), nome "<nome> (cópia)", mesma corda.
+   * Sistema inativo ou já no limite de níveis = 400.
+   */
+  async duplicateLevel(organizationId: number, levelId: number) {
+    const source = await this.assertLevelExists(organizationId, levelId);
+    const system = await this.assertSystemBelongsToOrganization(organizationId, source.graduationSystemId);
+    if (!system.isActive) {
+      throw new BadRequestException('Sistema de graduação inativo: reative-o para criar níveis.');
+    }
+    await this.assertRoomForLevels(system.id, 1);
+    const last = await this.prisma.graduationLevel.aggregate({
+      where: { graduationSystemId: system.id },
+      _max: { order: true },
+    });
+    const created = await this.prisma.graduationLevel
+      .create({
+        data: {
+          organizationId,
+          graduationSystemId: system.id,
+          name: `${source.name} (cópia)`,
+          order: (last._max.order ?? -1) + 1,
+          ...ropeData(withRope(source)),
+        },
+      })
+      .catch(rethrowDuplicateOrder);
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.GRADUATION_LEVEL_CREATE,
+      entity: AuditEntity.GRADUATION_LEVEL,
+      entityId: created.id,
+      meta: { name: created.name, systemId: system.id, order: created.order, duplicatedFrom: levelId },
+    });
+    return withRope(created);
+  }
+
+  /**
+   * Reordena TODOS os níveis do sistema de forma atômica. `order` = ids dos níveis do MAIS BAIXO para o mais alto e
+   * deve conter exatamente os níveis do sistema (sem faltar nem sobrar). Os valores de `order` já usados são
+   * redistribuídos na nova sequência (mantém lacunas/ponto zero; os pontos do Ginga Rank dependem do valor). Como
+   * (sistema, order) é único, a troca passa por ordens temporárias negativas dentro da mesma transação.
+   */
+  async reorderLevels(organizationId: number, systemId: number, dto: ReorderLevelsDto) {
+    await this.assertSystemBelongsToOrganization(organizationId, systemId);
+    const levels = await this.prisma.graduationLevel.findMany({
+      where: { graduationSystemId: systemId, organizationId },
+      orderBy: { order: 'asc' },
+    });
+    const known = new Set(levels.map((l) => l.id));
+    if (dto.order.length !== levels.length || dto.order.some((id) => !known.has(id))) {
+      throw new BadRequestException('A lista deve conter exatamente os níveis deste sistema, sem repetir.');
+    }
+    const slots = levels.map((l) => l.order); // já crescente
+    const previousOrder = new Map(levels.map((l) => [l.id, l.order]));
+    const target = new Map(dto.order.map((id, index) => [id, slots[index]]));
+    const changed = dto.order.filter((id) => previousOrder.get(id) !== target.get(id));
+
+    if (changed.length > 0) {
+      await this.prisma.$transaction(async (tx) => {
+        for (const [index, id] of changed.entries()) {
+          await tx.graduationLevel.update({ where: { id }, data: { order: -(index + 1) } });
+        }
+        for (const id of changed) {
+          await tx.graduationLevel.update({ where: { id }, data: { order: target.get(id) as number } });
+        }
+      });
+      await this.audit.record({
+        organizationId,
+        action: AuditAction.GRADUATION_SYSTEM_UPDATE,
+        entity: AuditEntity.GRADUATION_SYSTEM,
+        entityId: systemId,
+        meta: { reorderLevels: true, moved: changed.length },
+      });
+      // Pontos do Ginga Rank = 100 x ordem da corda: quem tem graduação em nível que mudou de ordem recalcula (fire-and-forget).
+      const affected = await this.prisma.studentGraduation.findMany({
+        where: { organizationId, graduationLevelId: { in: changed } },
+        select: { studentId: true },
+        distinct: ['studentId'],
+      });
+      for (const { studentId } of affected) this.ranking.queueSync(studentId);
+    }
+    return this.findSystem(organizationId, systemId);
+  }
+
+  /** Limite anti-abuso: no máximo MAX_LEVELS_PER_SYSTEM níveis por sistema. */
+  private async assertRoomForLevels(systemId: number, adding: number): Promise<void> {
+    const count = await this.prisma.graduationLevel.count({ where: { graduationSystemId: systemId } });
+    if (count + adding > MAX_LEVELS_PER_SYSTEM) {
+      throw new BadRequestException(`Limite de ${MAX_LEVELS_PER_SYSTEM} níveis por sistema de graduação.`);
+    }
   }
 
   async updateSystem(organizationId: number, systemId: number, dto: UpdateGraduationSystemDto) {
@@ -107,7 +266,7 @@ export class GraduationsService {
       entityId: systemId,
       meta: { fields: definedFields(dto), isActive: updated.isActive },
     });
-    return updated;
+    return withLevelsRope(updated);
   }
 
   /**
@@ -149,9 +308,16 @@ export class GraduationsService {
   }
 
   async updateLevel(organizationId: number, levelId: number, dto: UpdateGraduationLevelDto) {
-    await this.assertLevelExists(organizationId, levelId);
+    const current = await this.assertLevelExists(organizationId, levelId);
+    const ropeTouched = dto.style !== undefined || dto.colors !== undefined || (dto.color !== undefined && dto.color !== null);
+    const rope = ropeTouched
+      ? resolveRope({ style: dto.style, colors: dto.colors, color: dto.color }, withRope(current))
+      : undefined;
     const updated = await this.prisma.graduationLevel
-      .update({ where: { id: levelId }, data: { name: dto.name, order: dto.order, color: dto.color } })
+      .update({
+        where: { id: levelId },
+        data: { name: dto.name, order: dto.order, ...(rope ? ropeData(rope) : {}) },
+      })
       .catch(rethrowDuplicateOrder);
     await this.audit.record({
       organizationId,
@@ -160,7 +326,7 @@ export class GraduationsService {
       entityId: levelId,
       meta: { fields: definedFields(dto) },
     });
-    return updated;
+    return withRope(updated);
   }
 
   /**
@@ -200,11 +366,12 @@ export class GraduationsService {
       }
     }
 
-    return this.prisma.studentGraduation.findMany({
+    const rows = await this.prisma.studentGraduation.findMany({
       where: { studentId, organizationId },
       include: { graduationLevel: true },
       orderBy: { graduatedAt: 'desc' },
     });
+    return rows.map(withGraduationRope);
   }
 
   /** Registra uma nova graduação para o aluno. Nunca confia em FKs vindas do corpo sem
@@ -249,7 +416,7 @@ export class GraduationsService {
       meta: { studentId, graduationLevelId: dto.graduationLevelId },
     });
     this.ranking.queueSync(studentId); // Ginga Rank (fire-and-forget): 100 x ordem da corda
-    return graduation;
+    return withGraduationRope(graduation);
   }
 
   /** Corrige a graduação lançada (nível/data/observações). 404 se não for deste aluno/organização. */
@@ -282,7 +449,7 @@ export class GraduationsService {
       meta: { studentId, fields: definedFields(dto) },
     });
     this.ranking.queueSync(studentId); // Ginga Rank (nivel/data corrigidos mudam os pontos)
-    return updated;
+    return withGraduationRope(updated);
   }
 
   /**
@@ -361,6 +528,25 @@ export class GraduationsService {
       throw new BadRequestException('Nível de graduação inválido para esta organização.');
     }
   }
+}
+
+/** Campos de corda prontos para gravar no Prisma (color = colors[0]). */
+function ropeData(rope: RopeFields): { color: string; style: RopeFields['style']; colors: string[] } {
+  return { color: rope.color, style: rope.style, colors: rope.colors };
+}
+
+/** Sistema com todos os níveis no contrato {id, name, order, color, style, colors, ...}. */
+function withLevelsRope<S extends { levels: Array<{ color: string | null; style?: RopeFields['style'] | null; colors?: string[] | null }> }>(
+  system: S,
+) {
+  return { ...system, levels: system.levels.map((level) => withRope(level)) };
+}
+
+/** Graduação do aluno com o nível (graduationLevel) no contrato de corda. */
+function withGraduationRope<G extends { graduationLevel: { color: string | null; style?: RopeFields['style'] | null; colors?: string[] | null } }>(
+  graduation: G,
+) {
+  return { ...graduation, graduationLevel: withRope(graduation.graduationLevel) };
 }
 
 /** Nomes dos campos enviados no DTO (para o `meta` da auditoria: nunca os valores). */

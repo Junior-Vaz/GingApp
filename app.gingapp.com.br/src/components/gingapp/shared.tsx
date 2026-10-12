@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useState } from "react";
-import { ArrowUpRight, MapPin, Clock, Users, CalendarDays, Check, Share2, Download } from "lucide-react";
+import { ArrowUpRight, MapPin, Clock, Users, CalendarDays, Check, Share2, Download, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -248,5 +248,56 @@ export function EventCard({ event }: { event: Encounter }) {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * Alternador animado de DUAS opções (radiogroup com setas do teclado; a pílula desliza entre elas).
+ * Usado em "Lista | Mapa" (Comunidade) e "Linha do tempo | Hierarquia" (Jornada).
+ */
+export function TwoWayToggle<T extends string>({
+  value,
+  options,
+  onChange,
+  label,
+  className = "",
+}: {
+  value: T;
+  options: readonly [{ value: T; label: string; icon: LucideIcon }, { value: T; label: string; icon: LucideIcon }];
+  onChange: (value: T) => void;
+  label: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`view-toggle ${className}`.trim()}
+      role="radiogroup"
+      aria-label={label}
+      data-view={value}
+      data-pos={value === options[1].value ? "1" : "0"}
+      onKeyDown={(event) => {
+        if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+        event.preventDefault();
+        const next = value === options[0].value ? options[1].value : options[0].value;
+        onChange(next);
+        event.currentTarget.querySelector<HTMLElement>(`[data-value="${next}"]`)?.focus();
+      }}
+    >
+      <span className="view-toggle-pill" aria-hidden="true" />
+      {options.map(({ value: optionValue, label: optionLabel, icon: Icon }) => (
+        <button
+          key={optionValue}
+          type="button"
+          role="radio"
+          data-value={optionValue}
+          aria-checked={value === optionValue}
+          tabIndex={value === optionValue ? 0 : -1}
+          onClick={() => onChange(optionValue)}
+        >
+          <Icon aria-hidden="true" />
+          {optionLabel}
+        </button>
+      ))}
+    </div>
   );
 }

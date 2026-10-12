@@ -5,7 +5,6 @@ import {
   CalendarDays,
   Clock,
   MapPin,
-  Award,
   ChartNoAxesColumnIncreasing,
   CircleDot,
   Sprout,
@@ -14,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import rodaImage from "@/assets/capoeira-roda.jpg";
 import communityImage from "@/assets/capoeira-community.jpg";
 import { PageHeading, SectionHeading, EventCard, StateMessage } from "./shared";
-import { capitalize, dayOnly, fmt, relativeTime, softenColor, startOfToday } from "@/lib/format";
+import { capitalize, dayOnly, fmt, relativeTime, startOfToday } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
 import { errorMessage } from "@/lib/api";
 import {
@@ -31,6 +30,7 @@ import {
   usePassport,
 } from "@/lib/queries";
 import { Avatar } from "./avatar";
+import { GraduationCard } from "./graduation-parts";
 import { ClassCover, TeacherLine, UnitLine } from "./class-parts";
 import { monthRange, monthStats, nextLesson, resolveClassInfo, weekdayLabel } from "@/lib/derive";
 
@@ -51,7 +51,6 @@ export function HomePage() {
 
   const firstName = user?.name.split(" ")[0] ?? "capoeirista";
   const current = graduations.data?.[0] ?? null;
-  const cordColor = softenColor(current?.graduationLevel.color);
   const month = monthStats(attendance.data?.records ?? [], new Date());
   const upcoming = nextLesson(lessons.data ?? []);
   const upcomingClass = classes.data?.find((c) => c.id === upcoming?.classId);
@@ -93,28 +92,18 @@ export function HomePage() {
           </Button>
         </div>
       </section>
-      <section className="stats-grid" aria-label="Minha evolução">
-        <Link to="/jornada" className="stat no-underline">
-          <div>
-            <p className="stat-label">Minha graduação</p>
-            <div className="stat-value">
-              {current ? (
-                <>
-                  <span className="cord-dot" style={cordColor ? { background: cordColor } : undefined} />
-                  {current.graduationLevel.name}
-                </>
-              ) : (
-                "—"
-              )}
-            </div>
-            <p className="stat-sub">
-              {current ? `Desde ${fmt(dayOnly(current.graduatedAt), "MMMM 'de' yyyy")}` : "Nenhuma graduação registrada"}
-            </p>
-          </div>
-          <div className="stat-icon">
-            <Award />
-          </div>
-        </Link>
+      <Link to="/jornada" className="grad-link" aria-label="Minha graduação: ver minha jornada">
+        <GraduationCard
+          name={current ? current.graduationLevel.name : null}
+          rope={current ? current.graduationLevel : null}
+          loading={graduations.isLoading || loadingStudent}
+          subtitle={
+            [groupName, current ? `Desde ${fmt(dayOnly(current.graduatedAt), "MMMM 'de' yyyy")}` : null].filter(Boolean).join(" · ") ||
+            "Nenhuma graduação registrada"
+          }
+        />
+      </Link>
+      <section className="stats-grid stats-grid-2" aria-label="Minha evolução">
         <Link to="/frequencia" className="stat no-underline">
           <div>
             <p className="stat-label">Frequência no mês</p>

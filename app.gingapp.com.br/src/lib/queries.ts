@@ -34,6 +34,10 @@ export interface GraduationLevel {
   name: string;
   order: number;
   color: string | null;
+  /** Estilo da corda (só em backend novo; sem ele o app desenha a cor única `color`). */
+  style?: "SOLID" | "SPLIT" | "BRAIDED";
+  /** 1..3 cores hex da corda (SPLIT = faixas verticais iguais; BRAIDED = listras diagonais). */
+  colors?: string[];
 }
 
 export interface StudentGraduation {
@@ -57,7 +61,7 @@ export interface Passport {
   organization: { name: string };
   /** `id` e `photo` só em backend novo (opcionais: o app funciona sem eles). */
   unit: { name: string; id?: number; photo?: string | null } | null;
-  currentGraduation: { name: string } | null;
+  currentGraduation: { name: string; color?: string | null; style?: GraduationLevel["style"]; colors?: string[] } | null;
   stats: { aulas: number; rodas: number; eventos: number; graduacoes: number; certificados: number };
   publicProfile: { isPublished: boolean; publicCode: string } | null;
   /** O que ESTE usuário pode fazer com o passaporte (só em /passport/me; o público não traz). */
@@ -418,6 +422,59 @@ export const useGraduations = (studentId: number | undefined) =>
     queryFn: () => api.get<StudentGraduation[]>(`/graduations/students/${studentId}`),
     enabled: studentId !== undefined,
   });
+
+/* ---------- Hierarquia do grupo (GET /graduations/hierarchy) ---------- */
+
+export interface HierarchyPerson {
+  id: number;
+  displayName: string;
+  photo: string | null;
+  level: GraduationLevel | null;
+}
+
+export interface HierarchyTeacher extends HierarchyPerson {
+  /** Professor do aluno ativo (recebe o selo "Seu professor"). */
+  isMyTeacher: boolean;
+}
+
+export interface HierarchyLevelStudent {
+  studentId: number;
+  displayName: string;
+  photo: string | null;
+  isMe: boolean;
+}
+
+export interface HierarchyLevel extends GraduationLevel {
+  count: number;
+  isMine: boolean;
+  /** Até 12 alunos do nível (o resto vem só em `count`). */
+  students: HierarchyLevelStudent[];
+}
+
+export interface Hierarchy {
+  group: { id: number; name: string; logoUrl: string | null };
+  system: { id: number; name: string } | null;
+  masters: HierarchyPerson[];
+  teachers: HierarchyTeacher[];
+  /** Do nível MAIS ALTO para o mais baixo. */
+  levels: HierarchyLevel[];
+  me: { studentId: number; displayName: string; photo: string | null; level: GraduationLevel | null; order: number | null } | null;
+  higherCount: number;
+  totalStudents: number;
+}
+
+/** Árvore de cordas do grupo do aluno ATIVO (espera o aluno ser conhecido: senão iria sem `studentId`). */
+export function useHierarchy(enabled = true) {
+  const scope = useStudentScope();
+  const query = useQuery({
+    queryKey: ["graduations", "hierarchy", scope.studentId ?? null],
+    queryFn: () => api.get<Hierarchy>(withQuery("/graduations/hierarchy", { studentId: scope.studentId })),
+    enabled: enabled && scope.ready,
+    // Resposta fora do contrato (backend antigo/parcial) vira "sem cordas" em vez de quebrar a tela.
+    select: (data): Hierarchy => ({ ...data, levels: data?.levels ?? [], masters: data?.masters ?? [], teachers: data?.teachers ?? [] }),
+  });
+  return scoped(query, scope);
+}
 
 /** Certificados do aluno ATIVO (o servidor devolve os de todos os dependentes; filtra-se por studentId). */
 export function useCertificates() {

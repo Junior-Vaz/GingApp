@@ -14,6 +14,7 @@ import { UpdateCertificateDto } from './dto/update-certificate.dto';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { RankingService } from '../ranking/ranking.service';
+import { LEVEL_SELECT, withRope } from '../graduations/rope';
 
 const CERTIFICATE_NOT_FOUND = 'Certificado não encontrado.';
 
@@ -22,6 +23,22 @@ const PDF_INCLUDE = {
   organization: { select: { name: true } },
   studentGraduation: { select: { graduationLevel: { select: { name: true } } } },
 } satisfies Prisma.CertificateInclude;
+
+/** Leitura (lista, detalhe, /me): aluno + a graduação de origem com o nível no contrato de corda. */
+const LIST_INCLUDE = {
+  student: { select: { id: true, name: true } },
+  studentGraduation: { select: { id: true, graduatedAt: true, graduationLevel: { select: LEVEL_SELECT } } },
+} satisfies Prisma.CertificateInclude;
+
+/** studentGraduation.graduationLevel sempre com {id, name, order, color, style, colors}; sem graduação = null. */
+function withGraduationRope<C extends { studentGraduation: { graduationLevel: Parameters<typeof withRope>[0] } | null }>(certificate: C) {
+  return {
+    ...certificate,
+    studentGraduation: certificate.studentGraduation
+      ? { ...certificate.studentGraduation, graduationLevel: withRope(certificate.studentGraduation.graduationLevel) }
+      : null,
+  };
+}
 
 /**
  * Certificados (projeto.txt §52, Jornada do Capoeirista — PLANO_PROJETO.md §10.15). Cada
@@ -76,25 +93,25 @@ export class CertificatesService {
     const [items, total] = await Promise.all([
       this.prisma.certificate.findMany({
         where,
-        include: { student: { select: { id: true, name: true } } },
+        include: LIST_INCLUDE,
         orderBy: { id: 'desc' },
         ...pageArgs(query),
       }),
       this.prisma.certificate.count({ where }),
     ]);
-    return { items, total };
+    return { items: items.map(withGraduationRope), total };
   }
 
   async findOne(organizationId: number, id: number, user?: AuthenticatedUser) {
     const scope = await this.unitScope.resolve(user, organizationId);
     const certificate = await this.prisma.certificate.findFirst({
       where: { id, organizationId, student: unitScopeFilter(scope) },
-      include: { student: { select: { id: true, name: true } } },
+      include: LIST_INCLUDE,
     });
     if (!certificate) {
       throw new NotFoundException('Certificado não encontrado.');
     }
-    return certificate;
+    return withGraduationRope(certificate);
   }
 
   /** Certificados do usuário autenticado ou de seus dependentes — mesmo padrão de
@@ -104,11 +121,12 @@ export class CertificatesService {
     const studentIds = myStudents.map((s) => s.id);
     if (studentIds.length === 0) return [];
 
-    return this.prisma.certificate.findMany({
+    const rows = await this.prisma.certificate.findMany({
       where: { organizationId, studentId: { in: studentIds } },
-      include: { student: { select: { id: true, name: true } } },
+      include: LIST_INCLUDE,
       orderBy: { id: 'desc' },
     });
+    return rows.map(withGraduationRope);
   }
 
   /**

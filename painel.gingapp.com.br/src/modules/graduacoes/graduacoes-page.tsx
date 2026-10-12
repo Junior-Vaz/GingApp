@@ -1,11 +1,12 @@
 import { useState } from "react";
 import type { UseFormReturn } from "react-hook-form";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { LayoutTemplate, Pencil, Plus, Trash2 } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { ExportRowsButton } from "@/components/painel/export-csv-button";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { PageHeader } from "@/components/painel/page-header";
+import { RopeSwatch } from "@/components/painel/rope-swatch";
 import { StudentPicker, type StudentOption } from "@/components/painel/student-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,28 +17,34 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/api";
+import { ropeOf } from "@/lib/rope";
 import { useCan } from "@/lib/session";
 import { dayOnly, fmt } from "@/lib/format";
-import { NativeSelect } from "@/modules/aulas/native-select";
 import {
   levelOptions,
   systems,
+  useCreateFromTemplate,
   useCreateLevel,
+  useDuplicateLevel,
   useRegisterGraduation,
   useRemoveGraduation,
   useRemoveLevel,
   useRemoveSystem,
+  useReorderLevels,
   useStudentHistory,
   useUpdateGraduation,
   useUpdateLevel,
   type GraduationLevel,
   type GraduationSystem,
+  type LevelOption,
   type StudentGraduation,
 } from "./graduacoes-api";
 import {
+  levelDefaults,
   levelSchema,
   registrationSchema,
   systemSchema,
+  templateSchema,
   toLevelInput,
   toLevelUpdate,
   toRegistrationInput,
@@ -47,12 +54,12 @@ import {
   type LevelFormValues,
   type RegistrationFormValues,
   type SystemFormValues,
+  type TemplateFormValues,
 } from "./graduacoes-forms";
-
-function ColorDot({ color }: { color: string | null }) {
-  if (!color) return null;
-  return <span aria-hidden className="inline-block size-3 shrink-0 rounded-full border" style={{ backgroundColor: color }} />;
-}
+import { LevelFields } from "./level-editor";
+import { LevelRuler } from "./level-ruler";
+import { LevelSelect } from "./level-select";
+import { TemplateFields } from "./template-dialog";
 
 function SystemFields({ form }: { form: UseFormReturn<SystemFormValues> }) {
   return (
@@ -62,45 +69,6 @@ function SystemFields({ form }: { form: UseFormReturn<SystemFormValues> }) {
         )} />
         <FormField control={form.control} name="description" render={({ field }) => (
           <FormItem><FormLabel>Descrição (opcional)</FormLabel><FormControl><Textarea rows={2} {...field} /></FormControl><FormMessage /></FormItem>
-        )} />
-      </>
-  );
-}
-
-function LevelFields({ form }: { form: UseFormReturn<LevelFormValues> }) {
-  return (
-      <>
-        <FormField control={form.control} name="name" render={({ field }) => (
-          <FormItem><FormLabel>Nome do nível</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
-        )} />
-        <FormField control={form.control} name="order" render={({ field }) => (
-          <FormItem><FormLabel>Ordem</FormLabel><FormControl><Input type="number" min={0} {...field} /></FormControl><FormMessage /></FormItem>
-        )} />
-        <FormField control={form.control} name="color" render={({ field }) => (
-          <FormItem>
-            <FormLabel>Cor (opcional)</FormLabel>
-            <div className="flex items-center gap-2">
-              <FormControl>
-                <Input
-                  type="color"
-                  aria-label="Cor do nível"
-                  className="h-9 w-16 cursor-pointer p-1"
-                  value={field.value || "#000000"}
-                  onChange={(e) => field.onChange(e.target.value)}
-                  onBlur={field.onBlur}
-                  name={field.name}
-                  ref={field.ref}
-                />
-              </FormControl>
-              <span className="text-xs text-muted-foreground">{field.value || "Sem cor"}</span>
-              {field.value && (
-                <Button type="button" variant="ghost" size="sm" onClick={() => field.onChange("")}>
-                  Remover cor
-                </Button>
-              )}
-            </div>
-            <FormMessage />
-          </FormItem>
         )} />
       </>
   );
@@ -137,9 +105,14 @@ function SistemasTab() {
   const createLevel = useCreateLevel();
   const updateLevel = useUpdateLevel();
   const removeLevel = useRemoveLevel();
+  const duplicateLevel = useDuplicateLevel();
+  const reorderLevels = useReorderLevels();
+  const fromTemplate = useCreateFromTemplate();
   const canEdit = useCan("graduations", "edit");
+  const canCreate = useCan("graduations", "create");
   const canDelete = useCan("graduations", "delete");
   const [newSystem, setNewSystem] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
   const [levelFor, setLevelFor] = useState<GraduationSystem | null>(null);
   const [editingSystem, setEditingSystem] = useState<GraduationSystem | null>(null);
   const [removingSystem, setRemovingSystem] = useState<GraduationSystem | null>(null);
@@ -175,7 +148,6 @@ function SistemasTab() {
     return (
       <div className="space-y-4">
         {list.data.map((system) => {
-          const levels = [...system.levels].sort((a, b) => a.order - b.order);
           return (
             <Card key={system.id}>
               <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
@@ -187,8 +159,8 @@ function SistemasTab() {
                   {system.description && <CardDescription className="mt-1">{system.description}</CardDescription>}
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                  <Button variant="outline" size="sm" onClick={() => setLevelFor(system)} aria-label={`Adicionar nível em ${system.name}`}>
-                    <Plus /> Adicionar nível
+                  <Button variant="outline" size="sm" onClick={() => setLevelFor(system)} aria-label={`Novo nível em ${system.name}`}>
+                    <Plus /> Novo nível
                   </Button>
                   {canEdit && (
                     <Button variant="ghost" size="sm" onClick={() => setEditingSystem(system)} aria-label={`Editar sistema ${system.name}`}>
@@ -208,27 +180,20 @@ function SistemasTab() {
                 </div>
               </CardHeader>
               <CardContent>
-                {levels.length === 0 ? (
+                {system.levels.length === 0 ? (
                   <p className="text-sm text-muted-foreground">Nenhum nível cadastrado neste sistema ainda.</p>
                 ) : (
-                  <ul className="flex flex-wrap gap-2" aria-label={`Níveis de ${system.name}`}>
-                    {levels.map((level) => (
-                      <li key={level.id} className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium">
-                        <ColorDot color={level.color} />
-                        {level.order}. {level.name}
-                        {canEdit && (
-                          <button type="button" className="text-muted-foreground hover:text-foreground" aria-label={`Editar nível ${level.name}`} onClick={() => setEditingLevel(level)}>
-                            <Pencil className="size-3" aria-hidden />
-                          </button>
-                        )}
-                        {canDelete && (
-                          <button type="button" className="text-muted-foreground hover:text-destructive" aria-label={`Remover nível ${level.name}`} onClick={() => setRemovingLevel(level)}>
-                            <Trash2 className="size-3" aria-hidden />
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+                  <LevelRuler
+                    system={system}
+                    canCreate={canCreate}
+                    canEdit={canEdit}
+                    canDelete={canDelete}
+                    busy={reorderLevels.isPending || duplicateLevel.isPending}
+                    onEdit={setEditingLevel}
+                    onRemove={setRemovingLevel}
+                    onDuplicate={(level) => duplicateLevel.mutate(level.id)}
+                    onReorder={(systemId, order) => reorderLevels.mutate({ systemId, order })}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -240,7 +205,10 @@ function SistemasTab() {
 
   return (
     <>
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex flex-wrap justify-end gap-2">
+        <Button variant="outline" onClick={() => setTemplateOpen(true)}>
+          <LayoutTemplate /> Criar a partir de um modelo
+        </Button>
         <Button onClick={() => setNewSystem(true)}>Novo sistema</Button>
       </div>
       {renderBody()}
@@ -256,12 +224,27 @@ function SistemasTab() {
         {(form) => <SystemFields form={form} />}
       </FormDialog>
 
+      <FormDialog<TemplateFormValues>
+        open={templateOpen}
+        onOpenChange={setTemplateOpen}
+        title="Criar a partir de um modelo"
+        description="Escolha um modelo pronto: o sistema é criado já com todos os níveis e cordas, e você pode ajustar depois."
+        schema={templateSchema}
+        defaultValues={{ code: "", name: "" }}
+        submitLabel="Criar sistema"
+        className="sm:max-w-2xl"
+        onSubmit={(values) => fromTemplate.mutateAsync({ code: values.code, name: values.name.trim() })}
+      >
+        {(form) => <TemplateFields form={form} />}
+      </FormDialog>
+
       <FormDialog<LevelFormValues>
         open={levelFor !== null}
         onOpenChange={(open) => !open && setLevelFor(null)}
         title={levelFor ? `Novo nível em ${levelFor.name}` : "Novo nível"}
         schema={levelSchema}
-        defaultValues={{ name: "", order: String(levelFor?.levels.length ?? 0), color: "" }}
+        className="sm:max-w-2xl"
+        defaultValues={levelDefaults(null, levelFor?.levels.length ?? 0)}
         onSubmit={(values) => createLevel.mutateAsync({ systemId: levelFor!.id, data: toLevelInput(values) })}
       >
         {(form) => <LevelFields form={form} />}
@@ -283,11 +266,8 @@ function SistemasTab() {
         onOpenChange={(open) => !open && setEditingLevel(null)}
         title={editingLevel ? `Editar nível ${editingLevel.name}` : "Editar nível"}
         schema={levelSchema}
-        defaultValues={{
-          name: editingLevel?.name ?? "",
-          order: String(editingLevel?.order ?? 0),
-          color: editingLevel?.color ?? "",
-        }}
+        className="sm:max-w-2xl"
+        defaultValues={levelDefaults(editingLevel, 0)}
         onSubmit={(values) => updateLevel.mutateAsync({ id: editingLevel!.id, data: toLevelUpdate(values) })}
       >
         {(form) => <LevelFields form={form} />}
@@ -327,7 +307,7 @@ function RegistrationFields({
   options,
 }: {
   form: UseFormReturn<RegistrationFormValues>;
-  options: { id: number; label: string }[];
+  options: LevelOption[];
 }) {
   return (
       <>
@@ -335,12 +315,7 @@ function RegistrationFields({
           <FormItem>
             <FormLabel>Nível alcançado</FormLabel>
             <FormControl>
-              <NativeSelect {...field}>
-                <option value="">Selecione…</option>
-                {options.map((o) => (
-                  <option key={o.id} value={o.id}>{o.label}</option>
-                ))}
-              </NativeSelect>
+              <LevelSelect aria-label="Nível alcançado" options={options} value={field.value} onChange={field.onChange} />
             </FormControl>
             <FormMessage />
           </FormItem>
@@ -372,9 +347,17 @@ function AlunosTab() {
   const options = levelOptions(systemList.data);
   const systemName = (systemId: number) => systemList.data?.find((s) => s.id === systemId)?.name ?? "—";
   // Na edição, o nível atual segue selecionável mesmo que o sistema dele esteja inativo.
-  const editOptions =
+  const editOptions: LevelOption[] =
     editing && !options.some((o) => o.id === editing.graduationLevelId)
-      ? [...options, { id: editing.graduationLevelId, label: `${systemName(editing.graduationLevel.graduationSystemId)} — ${editing.graduationLevel.name}`, color: editing.graduationLevel.color }]
+      ? [
+          ...options,
+          {
+            id: editing.graduationLevelId,
+            label: `${systemName(editing.graduationLevel.graduationSystemId)} — ${editing.graduationLevel.name}`,
+            systemName: systemName(editing.graduationLevel.graduationSystemId),
+            level: editing.graduationLevel,
+          },
+        ]
       : options;
 
   const columns: Column<StudentGraduation>[] = [
@@ -384,7 +367,7 @@ function AlunosTab() {
       sortValue: (g) => g.graduationLevel.name,
       cell: (g) => (
         <span className="inline-flex items-center gap-2 font-medium">
-          <ColorDot color={g.graduationLevel.color} />
+          <RopeSwatch {...ropeOf(g.graduationLevel)} size="sm" orientation="horizontal" />
           {g.graduationLevel.name}
         </span>
       ),

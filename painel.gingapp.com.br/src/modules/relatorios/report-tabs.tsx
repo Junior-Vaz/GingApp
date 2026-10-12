@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Award, CheckCircle2, ClipboardCheck, Clock, AlertTriangle, UserCheck, UserPlus, Users, Wallet } from "lucide-react";
 import { ExportCsvButton, ExportRowsButton } from "@/components/painel/export-csv-button";
+import { RopeSwatch } from "@/components/painel/rope-swatch";
+import { ropeOf } from "@/lib/rope";
 import { StatCard } from "@/components/painel/stat-card";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -396,7 +398,12 @@ export function GraduationsTab({ filters }: { filters: ReportFilters }) {
               empty="Nenhuma graduação no período."
               items={d.byLevel.map((l) => ({
                 key: l.levelId,
-                label: `${l.systemName} — ${l.levelName}`,
+                label: (
+                  <span className="inline-flex items-center gap-2">
+                    <RopeSwatch {...ropeOf(l)} size="sm" orientation="horizontal" />
+                    {`${l.systemName} — ${l.levelName}`}
+                  </span>
+                ),
                 value: l.count,
                 ...(l.color ? { color: l.color } : {}),
               }))}

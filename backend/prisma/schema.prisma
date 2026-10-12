@@ -47,6 +47,13 @@ enum RecordStatus {
   INACTIVE
 }
 
+/// Estilo visual da corda de graduacao (GraduationLevel.style).
+enum RopeStyle {
+  SOLID
+  SPLIT
+  BRAIDED
+}
+
 enum StudentStatus {
   ACTIVE
   INACTIVE
@@ -690,7 +697,12 @@ model GraduationLevel {
   graduationSystemId Int
   name               String
   order              Int
+  /// Cor PRIMARIA da corda (= colors[0]); mantida por compatibilidade com clientes antigos.
   color              String?
+  /// Aparencia da corda: SOLID (1 cor), SPLIT (listras verticais/dividida, 2 ou 3 cores) ou BRAIDED (trancada: listras
+  /// diagonais, 2 ou 3 cores). `colors` = 1 a 3 hex #RRGGBB, a ORDEM importa (validado no service/DTO).
+  style              RopeStyle @default(SOLID)
+  colors             String[]  @default([])
   createdAt          DateTime @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id])

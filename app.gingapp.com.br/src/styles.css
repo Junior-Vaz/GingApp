@@ -98,7 +98,7 @@
 .view-bar { display:flex; margin:-8px 0 18px; }
 .view-toggle { position:relative; display:inline-grid; grid-template-columns:1fr 1fr; padding:4px; border-radius:999px; background:var(--muted); border:1px solid var(--border); isolation:isolate; }
 .view-toggle-pill { position:absolute; z-index:-1; top:4px; bottom:4px; left:4px; width:calc(50% - 4px); border-radius:999px; background:var(--primary); box-shadow:0 3px 10px oklch(.2 .03 155 / .28); transition:transform .3s cubic-bezier(.3,.8,.3,1); }
-.view-toggle[data-view="map"] .view-toggle-pill { transform:translateX(100%); }
+.view-toggle[data-view="map"] .view-toggle-pill,.view-toggle[data-pos="1"] .view-toggle-pill { transform:translateX(100%); }
 .view-toggle button { display:inline-flex; align-items:center; justify-content:center; gap:7px; min-width:104px; min-height:38px; padding:0 18px; border-radius:999px; border:0; background:transparent; color:var(--muted-foreground); font-size:13px; font-weight:600; cursor:pointer; transition:color .25s; }
 .view-toggle button svg { width:16px; height:16px; }
 .view-toggle button[aria-checked="true"] { color:var(--primary-foreground); }
@@ -513,3 +513,121 @@
 .location-label .gx-av { flex:none; }
 @media(max-width:767px) { .my-classes { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:420px) { .cls-cover { width:64px; height:64px; border-radius:14px; } .cls-cover-ini { font-size:21px; } .lesson-card { column-gap:12px; padding:16px; } .cls-cover.is-wide { width:auto; height:116px; margin:-16px -16px 14px; } .next-class { padding:16px; } .cls-cover.is-wide.in-dialog { margin:4px 0 0; height:130px; } }
+/* ---------- Cordas (Rope), cartão "Minha graduação" e régua do sistema ---------- */
+.gx-rope { display:block; flex:none; filter:drop-shadow(0 1px 1.5px rgb(0 0 0 / .22)); }
+.grad-link { display:block; color:inherit; text-decoration:none; margin-bottom:17px; border-radius:16px; }
+.grad-link:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }
+.grad-card { position:relative; display:flex; align-items:center; gap:16px; height:106px; padding:0 24px 0 20px; border-radius:16px; overflow:hidden; background:linear-gradient(135deg,color-mix(in oklch,var(--secondary) 92%,#fff),var(--secondary)); border:1px solid color-mix(in oklch,var(--primary) 14%,var(--border)); box-shadow:0 6px 18px oklch(.2 .03 155 / .08); }
+.grad-medal { flex:none; width:52px; height:52px; border-radius:50%; display:grid; place-items:center; background:var(--card); color:var(--primary); box-shadow:0 3px 10px oklch(.2 .03 155 / .14); }
+.grad-medal svg { width:28px; height:28px; }
+.grad-text { min-width:0; flex:1; }
+.grad-eyebrow { display:block; font-size:10px; font-weight:700; letter-spacing:.16em; text-transform:uppercase; color:var(--muted-foreground); }
+.grad-text h2 { font-family:var(--font-display); font-size:24px; line-height:1.12; font-weight:800; margin:4px 0 5px; color:var(--primary); overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; }
+.grad-text p { font-size:12px; color:var(--muted-foreground); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.grad-rope { margin-left:auto; }
+.stats-grid-2 { grid-template-columns:repeat(2,1fr); }
+.timeline-rope { display:flex; align-items:center; gap:10px; margin:8px 0; } .timeline-rope h3 { margin:0!important; }
+.rope-ruler { display:flex; gap:6px; overflow-x:auto; list-style:none; margin:16px 0 6px; padding:10px 4px 12px; scrollbar-width:thin; }
+.rope-ruler-item { flex:none; width:68px; display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px 4px; border-radius:12px; font-size:10px; text-align:center; color:var(--muted-foreground); }
+.rope-ruler-rope { position:relative; display:grid; place-items:center; }
+.rope-ruler-check { position:absolute; right:-9px; bottom:-4px; width:17px; height:17px; border-radius:50%; background:var(--primary); color:var(--primary-foreground); display:grid; place-items:center; border:2px solid var(--card); }
+.rope-ruler-check svg { width:10px; height:10px; stroke-width:3.5; }
+.rope-ruler-item[data-state="done"] .rope-ruler-name { color:var(--foreground); }
+.rope-ruler-item[data-state="current"] { background:var(--secondary); box-shadow:0 0 0 2px var(--primary); color:var(--primary); font-weight:800; transform:scale(1.06); }
+.rope-ruler-item[data-state="next"] { opacity:.42; }
+.rope-ruler-name { line-height:1.2; }
+
+/* ---------- Hierarquia do grupo (canvas em tela cheia; reaproveita .map-fullscreen/.map-float) ---------- */
+.hier { position:absolute; inset:0; overflow:hidden; background:linear-gradient(180deg,color-mix(in oklch,var(--secondary) 55%,var(--background)),var(--background)); }
+.hier-viewport { position:absolute; inset:0; touch-action:none; cursor:grab; user-select:none; -webkit-user-select:none; outline:none; background-image:radial-gradient(circle,color-mix(in oklch,var(--primary) 16%,transparent) 1.2px,transparent 1.5px); background-size:26px 26px; }
+.hier-viewport:active { cursor:grabbing; }
+.hier-viewport:focus-visible { box-shadow:inset 0 0 0 2px var(--primary); }
+.hier-world { position:absolute; left:0; top:0; transform-origin:0 0; will-change:transform; }
+.hier-world.is-animating { transition:transform .38s cubic-bezier(.3,.8,.3,1); }
+.hier-edges { position:absolute; left:0; top:0; pointer-events:none; overflow:visible; }
+.hier-edge { fill:none; stroke:color-mix(in oklch,var(--primary) 40%,transparent); stroke-width:2.5; stroke-linecap:round; animation:hier-fade .8s .15s both; }
+.hier-edge.is-mine { stroke:#e0a920; stroke-width:3.5; }
+.hier-edge.is-dim { stroke-dasharray:5 8; opacity:.6; }
+.hier-node { position:absolute; display:flex; animation:hier-in .55s cubic-bezier(.2,.8,.2,1) both; animation-delay:calc(var(--i,0) * 70ms); }
+.hier-node > * { width:100%; }
+@keyframes hier-in { from { opacity:0; transform:translateY(14px) scale(.96); } to { opacity:1; transform:none; } }
+@keyframes hier-fade { from { opacity:0; } to { opacity:1; } }
+@keyframes hier-glow { from { box-shadow:0 0 0 6px rgb(224 169 32 / .16),0 0 26px rgb(224 169 32 / .28),0 12px 30px oklch(.2 .03 155 / .14); } to { box-shadow:0 0 0 9px rgb(224 169 32 / .22),0 0 46px rgb(224 169 32 / .5),0 12px 30px oklch(.2 .03 155 / .14); } }
+.hier-card { position:relative; background:var(--card); border:1px solid var(--border); border-radius:18px; padding:14px; text-align:center; color:var(--foreground); font:inherit; box-shadow:0 8px 24px oklch(.2 .03 155 / .1),0 1px 3px oklch(.2 .03 155 / .08); }
+button.hier-card { appearance:none; cursor:pointer; transition:transform .2s,box-shadow .2s,border-color .2s; }
+button.hier-card:hover { transform:translateY(-2px); border-color:color-mix(in oklch,var(--primary) 45%,var(--border)); box-shadow:0 12px 30px oklch(.2 .03 155 / .16); }
+button.hier-card:focus-visible,button.hier-card.is-selected { outline:2px solid var(--primary); outline-offset:2px; }
+.hier-level { display:flex; align-items:center; gap:14px; text-align:left; padding:16px 18px; }
+.hier-level-body { display:flex; flex-direction:column; gap:4px; min-width:0; flex:1; }
+.hier-name { font-family:var(--font-display); font-weight:750; font-size:15px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; }
+.hier-role { font-size:11px; color:var(--muted-foreground); }
+.hier-empty-level { font-size:11px; color:var(--muted-foreground); font-style:italic; }
+.hier-stack { display:flex; align-items:center; margin-top:4px; }
+.hier-stack .hier-stack-av + .hier-stack-av { margin-left:-9px; }
+.hier-stack-av .gx-av-disc { box-shadow:0 0 0 2px var(--card); }
+.hier-more { margin-left:6px; font-size:11px; font-weight:800; color:var(--primary); }
+.hier-person { display:flex; flex-direction:column; align-items:center; gap:6px; padding-top:18px; }
+.hier-person .hier-name { max-width:100%; white-space:nowrap; }
+.hier-person.is-my-teacher { border-color:#e0a920; box-shadow:0 0 0 3px rgb(224 169 32 / .25),0 10px 26px oklch(.2 .03 155 / .14); }
+.hier-ribbon { position:absolute; top:-12px; left:50%; transform:translateX(-50%); display:inline-flex; align-items:center; gap:4px; padding:4px 11px; border-radius:999px; white-space:nowrap; font-size:10px; font-weight:800; color:#2b1f00; background:#e0a920; }
+.hier-ribbon svg { width:12px; height:12px; }
+.hier-ribbon-me { background:linear-gradient(135deg,#f8d24f,#e0a920); box-shadow:0 4px 12px rgb(224 169 32 / .55); font-size:11px; }
+.hier-mine { display:flex; flex-direction:column; align-items:center; gap:10px; padding:28px 18px 16px; border:2px solid #e0a920; background:linear-gradient(180deg,color-mix(in oklch,#f8d24f 14%,var(--card)),var(--card)); animation:hier-glow 2.6s ease-in-out infinite alternate; }
+.hier-me-body { align-items:center; text-align:center; flex:none; }
+.hier-me-body .hier-name { font-size:17px; }
+.hier-me-rope { display:inline-flex; align-items:center; gap:8px; }
+.hier-me-rope .hier-role { font-weight:700; color:var(--primary); font-size:12px; }
+.hier-me-avatar { display:inline-flex; filter:drop-shadow(0 4px 10px rgb(224 169 32 / .5)); }
+.hier-below { display:flex; flex-direction:column; align-items:center; gap:10px; opacity:.72; border-style:dashed; background:color-mix(in oklch,var(--card) 70%,transparent); box-shadow:none; }
+.hier-below-ropes { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
+.hier-below-item { display:flex; flex-direction:column; align-items:center; gap:2px; font-size:10px; color:var(--muted-foreground); }
+.hier-root { display:flex; align-items:center; gap:12px; text-align:left; background:var(--primary); color:var(--primary-foreground); border-color:transparent; }
+.hier-root .hier-role { color:color-mix(in oklch,var(--primary-foreground) 78%,transparent); }
+.hier-hud-top { position:absolute; top:14px; left:14px; right:76px; display:flex; align-items:center; gap:10px; pointer-events:none; }
+.hier-summary { padding:8px 14px; display:flex; flex-direction:column; gap:1px; font-size:11px; color:var(--muted-foreground); max-width:460px; }
+.hier-summary strong { font-size:13px; color:var(--primary); }
+.hier-controls { position:absolute; right:14px; bottom:22px; display:flex; flex-direction:column; gap:2px; padding:4px; border-radius:14px; }
+.hier-controls button { width:40px; height:40px; border:0; border-radius:10px; background:transparent; color:var(--primary); display:grid; place-items:center; cursor:pointer; }
+.hier-controls button:hover { background:var(--secondary); }
+.hier-controls button:focus-visible { outline:2px solid var(--primary); outline-offset:-2px; }
+.hier-controls svg { width:20px; height:20px; }
+.hier-legend { position:absolute; left:14px; bottom:22px; display:flex; flex-wrap:wrap; gap:6px 14px; list-style:none; margin:0; padding:8px 14px; border-radius:999px; font-size:11px; color:var(--muted-foreground); }
+.hier-legend li { display:inline-flex; align-items:center; gap:6px; }
+.hier-legend i { width:10px; height:10px; border-radius:50%; display:inline-block; }
+.hier-legend .lg-me { background:#e0a920; } .hier-legend .lg-teacher { background:#e0a920; box-shadow:0 0 0 2px rgb(224 169 32 / .35); } .hier-legend .lg-above { background:var(--primary); } .hier-legend .lg-below { background:transparent; border:1.5px dashed var(--muted-foreground); }
+.hier-sheet { position:absolute; left:50%; transform:translateX(-50%); bottom:18px; width:min(520px,calc(100% - 28px)); max-height:50%; overflow-y:auto; padding:14px 16px; border-radius:18px; }
+.hier-sheet header { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+.hier-sheet header div { flex:1; min-width:0; }
+.hier-sheet h3 { font-family:var(--font-display); font-size:16px; font-weight:800; }
+.hier-sheet p { font-size:11px; color:var(--muted-foreground); }
+.hier-close { width:34px; height:34px; border:0; border-radius:50%; background:var(--muted); color:var(--foreground); display:grid; place-items:center; cursor:pointer; }
+.hier-close svg { width:16px; height:16px; }
+.hier-sheet ul { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px 12px; }
+.hier-sheet li { display:flex; align-items:center; gap:9px; font-size:13px; font-weight:600; }
+.hier-sheet li em { font-style:normal; font-size:10px; font-weight:800; color:#2b1f00; background:#e0a920; border-radius:999px; padding:1px 7px; }
+.hier-sheet li.is-me { color:var(--primary); }
+.hier-sheet .hier-sheet-more,.hier-sheet-empty { grid-column:1 / -1; font-size:11px; color:var(--muted-foreground); font-weight:500; }
+.hier-skeleton { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+.hier-skeleton .sk { background:linear-gradient(90deg,var(--muted),var(--card),var(--muted)); background-size:200% 100%; animation:hier-sk 1.4s linear infinite; border-radius:16px; }
+.hier-skeleton .sk-root { width:240px; height:64px; } .hier-skeleton .sk-person { width:140px; height:130px; } .hier-skeleton .sk-level { width:280px; height:88px; }
+.hier-skeleton .sk-row { display:flex; gap:20px; } .hier-skeleton .sk-line { width:2px; height:26px; background:var(--border); }
+@keyframes hier-sk { to { background-position:-200% 0; } }
+@media(max-width:767px) {
+  .grad-card { height:106px; padding:0 18px 0 14px; gap:12px; } .grad-medal { width:44px; height:44px; } .grad-medal svg { width:24px; height:24px; } .grad-text h2 { font-size:22px; }
+  .stats-grid-2 { gap:8px; }
+  .hier-hud-top { left:10px; right:10px; top:10px; flex-direction:column; gap:6px; }
+  .hier-summary { max-width:100%; padding:6px 12px; font-size:10px; text-align:center; align-items:center; }
+  .hier-summary strong { font-size:12px; }
+  .hier-controls { right:10px; bottom:12px; } .hier-controls button { width:38px; height:38px; }
+  .hier-legend { left:10px; bottom:12px; padding:6px 10px; gap:4px 10px; font-size:10px; max-width:calc(100% - 76px); border-radius:14px; }
+  .hier[data-sheet="true"] .hier-controls { bottom:auto; top:104px; }
+  .hier-sheet { bottom:10px; max-height:46%; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .hier-node,.hier-edge,.hier-mine,.hier-skeleton .sk { animation:none; }
+  .hier-world.is-animating { transition:none; }
+  button.hier-card { transition:none; }
+}
+.view-toggle button { white-space:nowrap; }
+.map-switch-top { width:max-content; max-width:calc(100% - 20px); }
+@media(max-width:767px) { .hier-legend { flex-wrap:nowrap; gap:8px; font-size:9.5px; padding:6px 10px; } .hier-legend li:last-child { display:none; } }

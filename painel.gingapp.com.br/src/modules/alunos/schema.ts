@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RopeStyle } from "@/lib/rope";
 import { isImageRef } from "@/lib/uploads";
 import { billingFieldsError } from "@/modules/financeiro/collection";
 
@@ -21,6 +22,8 @@ export interface Student {
   /** Opcionais (exibidos no card quando o servidor os envia): turmas ativas e corda/graduação atual. */
   classNames?: string[] | undefined;
   currentCord?: string | null | undefined;
+  /** Corda atual completa (estilo + cores) para desenhar a corda; opcional. */
+  currentLevel?: { name: string; style?: RopeStyle | undefined; colors?: string[] | undefined; color?: string | null | undefined } | null | undefined;
 }
 
 /**
