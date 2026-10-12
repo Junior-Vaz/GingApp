@@ -54,6 +54,7 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/units/:id', 'idem /units, escopo organizationId'],
   ['/api/students/me', 'só o próprio Student e dependentes (StudentsService.findMine)'],
   ['/api/people/me/ficha', 'ficha única da PRÓPRIA pessoa (ou do dependente via ?studentId= conferido por resolveLink); CPF só mascarado'],
+  ['/api/people/me/transfers', 'pedidos de transferência da PRÓPRIA ficha e dos dependentes (StudentGuardian.userId do token); sem financeiro nem dados de terceiros'],
   ['/api/people/me/code', 'código GingApp + QR da PRÓPRIA ficha (ou do dependente via ?studentId= conferido por resolveLink)'],
   ['/api/classes/me', 'turmas em que o próprio/dependente está matriculado'],
   ['/api/lessons/me', 'aulas das turmas do próprio/dependente'],
@@ -579,7 +580,10 @@ describe('Privacidade de ALUNO/RESPONSAVEL — varredura de rotas GET + fluxo do
   it('painel: MESTRE e PROFESSOR continuam lendo alunos, aulas, presenças e turmas do grupo', async () => {
     for (const token of [mestreToken, professorToken]) {
       const students = await get(`/api/students?q=${encodeURIComponent(ZECA.name)}`, token).expect(200);
-      assert.ok(students.text.includes(ZECA.document));
+      // Ficha unica, Fase 2: o documento legado sai MASCARADO tambem para a equipe ('***' + 2 ultimos caracteres).
+      assert.ok(students.text.includes(ZECA.name));
+      assert.ok(students.text.includes(`"document":"***${ZECA.document.slice(-2)}"`));
+      assert.ok(!students.text.includes(ZECA.document));
       await get(`/api/students/${zecaStudentId}`, token).expect(200);
       const roster = await get(`/api/attendance/lessons/${zecaLessonId}`, token).expect(200);
       assert.ok(roster.text.includes(ZECA.name));

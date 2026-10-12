@@ -1,5 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { Prisma, StudentStatus } from '@prisma/client';
+import { OrgRole, Prisma, StudentStatus } from '@prisma/client';
+import { maskStudentDocument } from '../../../shared/security/person-document';
 import { buildCsv, EXPORT_MAX_ROWS } from '../../../shared/csv/csv';
 import { formatCivilDateBR } from '../../../shared/dates/format-br';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
@@ -293,7 +294,8 @@ export class StudentTransferService {
         s.birthDate ? formatCivilDateBR(s.birthDate) : '',
         s.email ?? '',
         s.phone ?? '',
-        s.document ?? '',
+        // CPF completo so para o MESTRE (a planilha volta pela importacao); os demais recebem a mascara.
+        (user.role === OrgRole.MESTRE ? s.document : maskStudentDocument(s.document)) ?? '',
         s.unitId !== null ? (unitName.get(s.unitId) ?? '') : '',
         STUDENT_STATUS_LABEL_BR[s.status],
         s.joinedAt ? formatCivilDateBR(s.joinedAt) : '',

@@ -59,3 +59,5 @@ process.env.RANKING_CRON = 'false';
 // Aulas continuas (geracao rolante diaria 01:30): sem o job nos testes (LessonsCronService/ClassLessonsRollingService sao chamados
 // direto pelos specs; so o job agendado fica desligado — criar/editar turma continua gerando aulas, fire-and-forget).
 process.env.LESSONS_CRON = 'false';
+// Transferencias (expiracao diaria 04:15): sem o job nos testes (TransferCronService/TransfersService.runMaintenance sao chamados direto).
+process.env.TRANSFER_CRON = 'false';

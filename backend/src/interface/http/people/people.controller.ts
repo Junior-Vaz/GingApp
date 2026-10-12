@@ -1,4 +1,6 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { UpdateMyPersonDto } from './dto/transfers.dto';
+import { TransfersService } from './transfers.service';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
@@ -22,6 +24,7 @@ export class PeopleController {
     private readonly ficha: PersonFichaService,
     private readonly admin: PeopleAdminService,
     private readonly students: StudentsService,
+    private readonly transfers: TransfersService,
   ) {}
 
   private async linkedStudentId(organizationId: number, userId: number, studentId?: number): Promise<number | undefined> {
@@ -45,6 +48,30 @@ export class PeopleController {
     @Query() query: PeopleMeQueryDto,
   ) {
     return this.ficha.myCode(organizationId, userId, await this.linkedStudentId(organizationId, userId, query.studentId));
+  }
+
+  /** A propria pessoa edita a ficha (nome, apelido, foto, contato); propaga as matriculas. */
+  @Patch('me')
+  updateMe(@CurrentUser('id') userId: number, @Body() dto: UpdateMyPersonDto) {
+    return this.ficha.updateMyPerson(userId, dto);
+  }
+
+  /** Pedidos de transferencia para a propria pessoa e para os dependentes (responsavel). */
+  @Get('me/transfers')
+  myTransfers(@CurrentUser('id') userId: number) {
+    return this.transfers.listMine(userId);
+  }
+
+  @Post('me/transfers/:id/approve')
+  @HttpCode(HttpStatus.OK)
+  approve(@CurrentUser('id') userId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.transfers.decide(userId, id, true);
+  }
+
+  @Post('me/transfers/:id/decline')
+  @HttpCode(HttpStatus.OK)
+  decline(@CurrentUser('id') userId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.transfers.decide(userId, id, false);
   }
 
   @Get('duplicates')

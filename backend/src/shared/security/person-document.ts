@@ -87,6 +87,23 @@ export function decryptPersonDocument(stored: string): string {
   return aesGcmDecrypt(encryptionKey(), stored, 'documento da ficha');
 }
 
+/**
+ * Documento LEGADO da matricula (Student.document, texto livre) como sai pela API (Fase 2): CPF valido vira
+ * `***.***.***-XX`; outro texto vira `***` + os 2 ultimos caracteres. null/vazio = null.
+ */
+export function maskStudentDocument(document: string | null | undefined): string | null {
+  if (!document || !document.trim()) return null;
+  const cpf = parseCpf(document);
+  if (cpf) return `***.***.***-${cpf.slice(-2)}`;
+  const text = document.trim();
+  return text.length <= 2 ? '***' : `***${text.slice(-2)}`;
+}
+
+/** Aplica maskStudentDocument a um aluno (ou lista/pagina) devolvido pela API, sem mexer no resto. */
+export function withMaskedDocument<T extends { document?: string | null }>(student: T): T {
+  return student && 'document' in student ? { ...student, document: maskStudentDocument(student.document) } : student;
+}
+
 /** Unica forma do documento que sai pela API: `***.***.***-XX` (2 ultimos digitos), ou null. */
 export function maskPersonDocument(last4: string | null | undefined): string | null {
   if (!last4 || !/^\d{2,4}$/.test(last4)) return null;

@@ -50,6 +50,7 @@ import { isAuditRetentionEnabled } from './jobs/audit-retention-cron.service';
 import { uploadsGcMode } from './jobs/uploads-gc-cron.service';
 import { isRankingCronEnabled } from './jobs/ranking-cron.service';
 import { isLessonsCronEnabled } from './jobs/lessons-cron.service';
+import { isTransferCronEnabled } from './jobs/transfer-cron.service';
 import { RankingModule } from './interface/http/ranking/ranking.module';
 import { PeopleModule } from './interface/http/people/people.module';
 
@@ -106,7 +107,7 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.
     // Ginga Rank (RANKING_CRON): recalculo noturno 02:30 + fechamento mensal 03:00 do dia 1, no mesmo agendador.
     // Aulas continuas (LESSONS_CRON): geracao rolante diaria 01:30 (LESSONS_HORIZON_DAYS a frente), no mesmo agendador.
-    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled() || isLessonsCronEnabled()
+    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled() || isLessonsCronEnabled() || isTransferCronEnabled()
       ? [ScheduleModule.forRoot(), JobsModule]
       : []),
   ],

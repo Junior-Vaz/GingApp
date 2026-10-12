@@ -27,6 +27,7 @@ import { Route as AppNotificacoesRouteImport } from './routes/_app.notificacoes'
 import { Route as AppPerfilRouteImport } from './routes/_app.perfil'
 import { Route as AppRankingRouteImport } from './routes/_app.ranking'
 import { Route as AppRodasRouteImport } from './routes/_app.rodas'
+import { Route as AppTransferenciasRouteImport } from './routes/_app.transferencias'
 import { Route as VerificarPassaporteCodeRouteImport } from './routes/verificar-passaporte.$code'
 import { Route as VerificarCodeRouteImport } from './routes/verificar.$code'
 
@@ -119,6 +120,11 @@ const AppRodasRoute = AppRodasRouteImport.update({
   path: '/rodas',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTransferenciasRoute = AppTransferenciasRouteImport.update({
+  id: '/transferencias',
+  path: '/transferencias',
+  getParentRoute: () => AppRoute,
+} as any)
 const VerificarPassaporteCodeRoute = VerificarPassaporteCodeRouteImport.update({
   id: '/verificar-passaporte/$code',
   path: '/verificar-passaporte/$code',
@@ -148,6 +154,7 @@ export interface FileRoutesByFullPath {
   '/perfil': typeof AppPerfilRoute
   '/ranking': typeof AppRankingRoute
   '/rodas': typeof AppRodasRoute
+  '/transferencias': typeof AppTransferenciasRoute
   '/verificar-passaporte/$code': typeof VerificarPassaporteCodeRoute
   '/verificar/$code': typeof VerificarCodeRoute
 }
@@ -168,6 +175,7 @@ export interface FileRoutesByTo {
   '/perfil': typeof AppPerfilRoute
   '/ranking': typeof AppRankingRoute
   '/rodas': typeof AppRodasRoute
+  '/transferencias': typeof AppTransferenciasRoute
   '/verificar-passaporte/$code': typeof VerificarPassaporteCodeRoute
   '/verificar/$code': typeof VerificarCodeRoute
   '/': typeof AppIndexRoute
@@ -191,6 +199,7 @@ export interface FileRoutesById {
   '/_app/perfil': typeof AppPerfilRoute
   '/_app/ranking': typeof AppRankingRoute
   '/_app/rodas': typeof AppRodasRoute
+  '/_app/transferencias': typeof AppTransferenciasRoute
   '/verificar-passaporte/$code': typeof VerificarPassaporteCodeRoute
   '/verificar/$code': typeof VerificarCodeRoute
   '/_app/': typeof AppIndexRoute
@@ -215,6 +224,7 @@ export interface FileRouteTypes {
     | '/perfil'
     | '/ranking'
     | '/rodas'
+    | '/transferencias'
     | '/verificar-passaporte/$code'
     | '/verificar/$code'
   fileRoutesByTo: FileRoutesByTo
@@ -235,6 +245,7 @@ export interface FileRouteTypes {
     | '/perfil'
     | '/ranking'
     | '/rodas'
+    | '/transferencias'
     | '/verificar-passaporte/$code'
     | '/verificar/$code'
     | '/'
@@ -257,6 +268,7 @@ export interface FileRouteTypes {
     | '/_app/perfil'
     | '/_app/ranking'
     | '/_app/rodas'
+    | '/_app/transferencias'
     | '/verificar-passaporte/$code'
     | '/verificar/$code'
     | '/_app/'
@@ -401,6 +413,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRodasRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/transferencias': {
+      id: '/_app/transferencias'
+      path: '/transferencias'
+      fullPath: '/transferencias'
+      preLoaderRoute: typeof AppTransferenciasRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/verificar-passaporte/$code': {
       id: '/verificar-passaporte/$code'
       path: '/verificar-passaporte/$code'
@@ -430,6 +449,7 @@ interface AppRouteChildren {
   AppPerfilRoute: typeof AppPerfilRoute
   AppRankingRoute: typeof AppRankingRoute
   AppRodasRoute: typeof AppRodasRoute
+  AppTransferenciasRoute: typeof AppTransferenciasRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -445,6 +465,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppPerfilRoute: AppPerfilRoute,
   AppRankingRoute: AppRankingRoute,
   AppRodasRoute: AppRodasRoute,
+  AppTransferenciasRoute: AppTransferenciasRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

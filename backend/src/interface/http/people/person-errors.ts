@@ -19,6 +19,15 @@ export const PersonErrorCode = {
   PERSON_ALREADY_MERGED: 'PERSON_ALREADY_MERGED',
   PERSON_MERGE_SAME_GROUP: 'PERSON_MERGE_SAME_GROUP',
   PERSON_MERGE_USER_CONFLICT: 'PERSON_MERGE_USER_CONFLICT',
+  // Fase 2 - transferencia
+  TRANSFER_TARGET_REQUIRED: 'TRANSFER_TARGET_REQUIRED',
+  PERSON_NOT_ENROLLED_ELSEWHERE: 'PERSON_NOT_ENROLLED_ELSEWHERE',
+  FROM_ORGANIZATION_REQUIRED: 'FROM_ORGANIZATION_REQUIRED',
+  TRANSFER_NOT_FOUND: 'TRANSFER_NOT_FOUND',
+  TRANSFER_NOT_PENDING: 'TRANSFER_NOT_PENDING',
+  TRANSFER_EXPIRED: 'TRANSFER_EXPIRED',
+  TRANSFER_CONTEST_CLOSED: 'TRANSFER_CONTEST_CLOSED',
+  TRANSFER_INVALID_UNIT: 'TRANSFER_INVALID_UNIT',
 } as const;
 
 export type PersonErrorCodeValue = (typeof PersonErrorCode)[keyof typeof PersonErrorCode];
@@ -30,7 +39,7 @@ export const PERSON_MESSAGES: Record<PersonErrorCodeValue, string> = {
   IDENTITY_MISMATCH: 'O código GingApp e o CPF informados pertencem a pessoas diferentes.',
   PERSON_ALREADY_IN_GROUP: 'Esta pessoa já está cadastrada no seu grupo.',
   PERSON_EXISTS_ELSEWHERE:
-    'Este capoeirista já tem ficha no GingApp em outro grupo. Ninguém é cadastrado duas vezes: a entrada no seu grupo será por transferência (pedido ao outro grupo, aprovado pela própria pessoa), disponível em breve.',
+    'Este capoeirista já tem ficha no GingApp em outro grupo. Ninguém é cadastrado duas vezes: solicite a transferência (a própria pessoa, ou o responsável se for menor, aprova pelo app).',
   POSSIBLE_DUPLICATE:
     'Encontramos fichas com o mesmo nome e data de nascimento em outros grupos. Confira se é a mesma pessoa antes de cadastrar.',
   DOCUMENT_BELONGS_TO_OTHER_PERSON:
@@ -43,6 +52,14 @@ export const PERSON_MESSAGES: Record<PersonErrorCodeValue, string> = {
   PERSON_MERGE_SAME_GROUP:
     'As duas fichas têm matrícula no mesmo grupo. Inative/resolva uma das matrículas nesse grupo antes de mesclar (nenhum dado é apagado).',
   PERSON_MERGE_USER_CONFLICT: 'As duas fichas têm logins diferentes; não é possível mesclar automaticamente.',
+  TRANSFER_TARGET_REQUIRED: 'Informe a pessoa (personId, código GingApp ou CPF).',
+  PERSON_NOT_ENROLLED_ELSEWHERE: 'Esta pessoa não tem matrícula em outro grupo; cadastre-a normalmente.',
+  FROM_ORGANIZATION_REQUIRED: 'Esta pessoa está matriculada em mais de um grupo: informe de qual grupo ela está saindo.',
+  TRANSFER_NOT_FOUND: 'Pedido de transferência não encontrado.',
+  TRANSFER_NOT_PENDING: 'Este pedido de transferência não está mais aguardando decisão.',
+  TRANSFER_EXPIRED: 'Este pedido de transferência expirou.',
+  TRANSFER_CONTEST_CLOSED: 'O prazo de contestação deste pedido terminou (ou o pedido foi encerrado).',
+  TRANSFER_INVALID_UNIT: 'Unidade inválida para este grupo.',
 };
 
 function body(code: PersonErrorCodeValue, status: number, error: string, extra: Record<string, unknown> = {}) {
@@ -55,3 +72,4 @@ export const personConflict = (code: PersonErrorCodeValue, extra?: Record<string
   new ConflictException(body(code, 409, 'Conflict', extra));
 export const personNotFound = (extra?: Record<string, unknown>) =>
   new NotFoundException(body(PersonErrorCode.PERSON_NOT_FOUND, 404, 'Not Found', extra));
+export const transferNotFound = () => new NotFoundException(body(PersonErrorCode.TRANSFER_NOT_FOUND, 404, 'Not Found'));

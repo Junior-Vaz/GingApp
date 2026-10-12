@@ -10,7 +10,9 @@ import { StudentsService } from './students.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
 import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
+import { withMaskedDocument } from '../../../shared/security/person-document';
 
+/** Fase 2 da ficha unica: o CPF legado (Student.document) sai MASCARADO em todas as respostas deste controller. */
 @Controller('students')
 export class StudentsController {
   constructor(private readonly studentsService: StudentsService) {}
@@ -23,36 +25,37 @@ export class StudentsController {
     @Query() query: ListStudentsQueryDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    return sendPage(res, await this.studentsService.findAll(organizationId, query, user));
+    const page = await this.studentsService.findAll(organizationId, query, user);
+    return sendPage(res, { ...page, items: page.items.map(withMaskedDocument) });
   }
 
   /** Não passa por @CanAccess: qualquer MEMBER autenticado pode ver os PRÓPRIOS vínculos —
    * a segurança vem da query sempre filtrar por userId do token (StudentsService.findMine),
    * não de uma checagem de papel. Precisa vir antes de `:id` para "me" não ser lido como id. */
   @Get('me')
-  findMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
-    return this.studentsService.findMine(organizationId, userId);
+  async findMine(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number) {
+    return (await this.studentsService.findMine(organizationId, userId)).map(withMaskedDocument);
   }
 
   /** Auto-atendimento do próprio perfil — precisa vir antes de `:id` pelo mesmo motivo de
    * `me` acima (path com 2 segmentos, mas mais seguro registrar antes por clareza). */
   @Patch('me/profile')
-  updateMyProfile(
+  async updateMyProfile(
     @CurrentOrganization() organizationId: number,
     @CurrentUser('id') userId: number,
     @Body() dto: UpdateMyProfileDto,
   ) {
-    return this.studentsService.updateMyProfile(organizationId, userId, dto);
+    return withMaskedDocument(await this.studentsService.updateMyProfile(organizationId, userId, dto));
   }
 
   @Get(':id')
   @CanAccess('students', 'view')
-  findOne(
+  async findOne(
     @CurrentOrganization() organizationId: number,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.studentsService.findOne(organizationId, id, user);
+    return withMaskedDocument(await this.studentsService.findOne(organizationId, id, user));
   }
 
   /** Ficha única (identidade + matrículas + graduações + frequência + certificados) vista pela equipe do grupo. */
@@ -68,32 +71,32 @@ export class StudentsController {
 
   @Post()
   @CanAccess('students', 'create')
-  create(
+  async create(
     @CurrentOrganization() organizationId: number,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateStudentDto,
   ) {
-    return this.studentsService.create(organizationId, dto, user);
+    return withMaskedDocument(await this.studentsService.create(organizationId, dto, user));
   }
 
   @Patch(':id')
   @CanAccess('students', 'edit')
-  update(
+  async update(
     @CurrentOrganization() organizationId: number,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateStudentDto,
   ) {
-    return this.studentsService.update(organizationId, id, dto, user);
+    return withMaskedDocument(await this.studentsService.update(organizationId, id, dto, user));
   }
 
   @Delete(':id')
   @CanAccess('students', 'delete')
-  remove(
+  async remove(
     @CurrentOrganization() organizationId: number,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.studentsService.remove(organizationId, id, user);
+    return withMaskedDocument(await this.studentsService.remove(organizationId, id, user));
   }
 }

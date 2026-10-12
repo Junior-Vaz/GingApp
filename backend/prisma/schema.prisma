@@ -162,6 +162,7 @@ model User {
   createdPlatformAnnouncements PlatformAnnouncement[] @relation("PlatformAnnouncementCreatedBy")
   studentLinks                 Student[]              @relation("StudentUser")
   person                       Person?                @relation("PersonUser")
+  requestedTransfers           TransferRequest[]      @relation("TransferRequestedBy")
   guardianLinks                StudentGuardian[]      @relation("StudentGuardianUser")
   taughtLessons                Lesson[]               @relation("LessonTeacher")
   taughtClasses                Class[]                @relation("ClassTeacher")
@@ -407,6 +408,8 @@ model Organization {
   rodas                 Roda[]
   uploads               Upload[]
   pointEvents           PointEvent[]
+  transfersOut          TransferRequest[] @relation("TransferFrom")
+  transfersIn           TransferRequest[] @relation("TransferTo")
 
   @@index([status])
 }
@@ -522,6 +525,9 @@ model Student {
   socialLinks    Json?
   status         StudentStatus @default(ACTIVE)
   joinedAt       DateTime?
+  /// Fim da matricula (Fase 2): preenchido quando a pessoa sai do grupo por transferencia (leftReason 'TRANSFER').
+  leftAt         DateTime?
+  leftReason     String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -589,9 +595,100 @@ model Person {
   mergedInto Person?   @relation("PersonMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
   mergedFrom Person[]  @relation("PersonMerge")
   students   Student[]
+  transfers  TransferRequest[]
 
   @@index([birthDate])
   @@index([mergedIntoId])
+}
+
+/// Situacao de um pedido de transferencia (docs/FICHA_UNICA.md, Fase 2). PENDING_PERSON = aguardando a pessoa (ou o
+/// responsavel do menor); APPROVED = aprovado, matricula nova criada e janela de contestacao do grupo antigo ainda
+/// aberta; COMPLETED = aprovado e janela encerrada (job diario); DECLINED/CANCELLED/EXPIRED = encerrado sem mudanca.
+enum TransferStatus {
+  PENDING_PERSON
+  APPROVED
+  DECLINED
+  CANCELLED
+  EXPIRED
+  COMPLETED
+}
+
+/// Motivo estruturado da contestacao do grupo antigo (nao bloqueia a transferencia).
+enum TransferContestReason {
+  PENDING_PAYMENT
+  EQUIPMENT
+  OTHER
+}
+
+/// Pedido de transferencia da PESSOA (ficha unica) de um grupo para outro. Feito pelo MESTRE do grupo novo; decidido
+/// pela pessoa (ou responsavel, se menor). 1 pedido PENDING_PERSON por pessoa+grupo destino (conferido em transacao
+/// com trava na Person).
+model TransferRequest {
+  id                 Int            @id @default(autoincrement())
+  personId           Int
+  fromOrganizationId Int
+  /// Matricula de origem (a mais recente da pessoa no grupo antigo).
+  fromStudentId      Int?
+  toOrganizationId   Int
+  /// Unidade desejada no grupo novo (opcional) e matricula criada na aprovacao.
+  toUnitId           Int?
+  toStudentId        Int?
+  requestedByUserId  Int
+  decidedByUserId    Int?
+  status             TransferStatus @default(PENDING_PERSON)
+  requestedAt        DateTime       @default(now())
+  decidedAt          DateTime?
+  expiresAt          DateTime
+  /// Ate quando o grupo antigo pode contestar pendencias (a partir do pedido; nao bloqueia a saida).
+  contestUntil       DateTime
+  note               String?
+  updatedAt          DateTime       @updatedAt
+
+  person           Person            @relation(fields: [personId], references: [id])
+  fromOrganization Organization      @relation("TransferFrom", fields: [fromOrganizationId], references: [id])
+  toOrganization   Organization      @relation("TransferTo", fields: [toOrganizationId], references: [id])
+  requestedBy      User              @relation("TransferRequestedBy", fields: [requestedByUserId], references: [id])
+  contests         TransferContest[]
+  shares           EnrollmentShare[]
+
+  @@index([personId, status])
+  @@index([toOrganizationId, status])
+  @@index([fromOrganizationId, status])
+  @@index([status, expiresAt])
+}
+
+/// Contestacao do grupo antigo (pendencia financeira, material, outro + texto curto). Informativa: a pessoa e o grupo
+/// novo veem; nunca bloqueia a transferencia.
+model TransferContest {
+  id             Int                   @id @default(autoincrement())
+  requestId      Int
+  organizationId Int
+  byUserId       Int
+  reason         TransferContestReason
+  note           String?
+  createdAt      DateTime              @default(now())
+
+  request TransferRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+}
+
+/// Compartilhamento (somente leitura) do historico de UMA matricula antiga com o grupo novo, criado na aprovacao da
+/// transferencia: frequencia por turma, graduacoes e certificados (nunca financeiro). revokedAt = deixa de valer.
+model EnrollmentShare {
+  id                 Int       @id @default(autoincrement())
+  personId           Int
+  fromStudentId      Int
+  fromOrganizationId Int
+  toOrganizationId   Int
+  requestId          Int
+  grantedAt          DateTime  @default(now())
+  revokedAt          DateTime?
+
+  request TransferRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([fromStudentId, toOrganizationId])
+  @@index([personId, toOrganizationId])
 }
 
 /// Cobranca mensal do aluno (E07): valor da mensalidade (centavos) e dia de vencimento (1..31; em meses

@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PersonDocumentKind, RopeStyle, StudentStatus } from '@prisma/client';
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { maskPersonDocument } from '../../../shared/security/person-document';
 import { LEVEL_SELECT, levelView } from '../graduations/rope';
 import { personNotFound } from './person-errors';
@@ -9,6 +11,21 @@ import { PersonIdentityService } from './person-identity.service';
 import { canonicalPerson, findPersonByUser } from './person-linker';
 
 type OrgRef = { id: number; name: string };
+
+type LevelOut = { id: number; name: string; order: number; color: string | null; style: RopeStyle; colors: string[] };
+
+export interface SharedEnrollment {
+  shareId: number;
+  organization: OrgRef & { logoUrl: string | null };
+  studentId: number;
+  since: Date;
+  until: Date | null;
+  leftReason: string | null;
+  sharedAt: Date;
+  graduations: { id: number; graduatedAt: Date; level: LevelOut; system: { id: number; name: string } }[];
+  attendanceByClass: { class: { id: number; name: string }; present: number; absent: number; total: number }[];
+  certificates: { id: number; title: string; issuedAt: Date | null }[];
+}
 
 /** Contrato de GET /students/:id/ficha e GET /people/me/ficha (docs/FICHA_UNICA.md secao 4). */
 export interface Ficha {
@@ -30,8 +47,9 @@ export interface Ficha {
     status: StudentStatus;
     /** joinedAt (ingresso informado) ou, na falta, a data do cadastro. */
     since: Date;
-    /** Fim da matricula: ainda nao registrado nesta fase (sempre null; Student.leftAt entra na fase 2). */
+    /** Fim da matricula (Student.leftAt: saida por transferencia); null = em aberto. */
     until: Date | null;
+    leftReason: string | null;
     /** Matricula do grupo do token. */
     isCurrent: boolean;
   }[];
@@ -45,8 +63,11 @@ export interface Ficha {
   }[];
   attendanceByGroup: { organization: OrgRef; present: number; absent: number; total: number }[];
   certificates: { id: number; title: string; issuedAt: Date | null; verificationCode: string; organization: OrgRef }[];
-  /** Fase 2: matriculas/historico de outros grupos compartilhados apos transferencia aprovada. Sempre [] agora. */
-  sharedFromOtherGroups: never[];
+  /**
+   * Fase 2: historico (somente leitura) das matriculas de OUTROS grupos compartilhado com o grupo do token apos uma
+   * transferencia aprovada (EnrollmentShare ativo). So na visao da equipe (OWN_GROUP); nunca financeiro.
+   */
+  sharedFromOtherGroups: SharedEnrollment[];
   /** OWN_GROUP = equipe do grupo (so as matriculas do grupo); SELF = a propria pessoa/responsavel (todas). */
   scope: 'OWN_GROUP' | 'SELF';
 }
@@ -57,6 +78,7 @@ export class PersonFichaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly identity: PersonIdentityService,
+    private readonly audit: AuditService,
   ) {}
 
   /** Equipe do grupo: matricula `studentId` (ja conferida no grupo/unidade) -> ficha so com as matriculas DO grupo. */
@@ -100,6 +122,8 @@ export class PersonFichaService {
         status: true,
         joinedAt: true,
         createdAt: true,
+        leftAt: true,
+        leftReason: true,
         organization: { select: { id: true, name: true, logo: true } },
         unit: { select: { id: true, name: true } },
       },
@@ -154,7 +178,8 @@ export class PersonFichaService {
         unit: s.unit,
         status: s.status,
         since: s.joinedAt ?? s.createdAt,
-        until: null,
+        until: s.leftAt,
+        leftReason: s.leftReason,
         isCurrent: s.organization.id === currentOrganizationId,
       })),
       graduations: graduations.map((g) => {
@@ -176,8 +201,117 @@ export class PersonFichaService {
         verificationCode: c.verificationCode,
         organization: orgOf.get(c.studentId)!,
       })),
-      sharedFromOtherGroups: [],
+      sharedFromOtherGroups: scope === 'OWN_GROUP' ? await this.shared(person.id, currentOrganizationId) : [],
       scope,
+    };
+  }
+
+  /** Matriculas de outros grupos compartilhadas com `organizationId` (EnrollmentShare sem revokedAt). */
+  private async shared(personId: number, organizationId: number): Promise<SharedEnrollment[]> {
+    const shares = await this.prisma.enrollmentShare.findMany({
+      where: { personId, toOrganizationId: organizationId, revokedAt: null },
+      orderBy: { id: 'asc' },
+    });
+    if (shares.length === 0) return [];
+    const ids = shares.map((s) => s.fromStudentId);
+    const [students, graduations, attendances, certificates] = await Promise.all([
+      this.prisma.student.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, joinedAt: true, createdAt: true, leftAt: true, leftReason: true, organization: { select: { id: true, name: true, logo: true } } },
+      }),
+      this.prisma.studentGraduation.findMany({
+        where: { studentId: { in: ids } },
+        select: {
+          id: true,
+          studentId: true,
+          graduatedAt: true,
+          graduationLevel: { select: { ...LEVEL_SELECT, graduationSystem: { select: { id: true, name: true } } } },
+        },
+        orderBy: [{ graduatedAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.attendance.findMany({
+        where: { studentId: { in: ids } },
+        select: { studentId: true, present: true, lesson: { select: { class: { select: { id: true, name: true } } } } },
+      }),
+      this.prisma.certificate.findMany({
+        where: { studentId: { in: ids } },
+        select: { id: true, studentId: true, title: true, issuedAt: true },
+        orderBy: { id: 'asc' },
+      }),
+    ]);
+    const byId = new Map(students.map((s) => [s.id, s]));
+    return shares
+      .filter((sh) => byId.has(sh.fromStudentId))
+      .map((sh) => {
+        const s = byId.get(sh.fromStudentId)!;
+        const perClass = new Map<number, { class: { id: number; name: string }; present: number; absent: number; total: number }>();
+        for (const a of attendances.filter((x) => x.studentId === s.id)) {
+          const cls = a.lesson.class;
+          const entry = perClass.get(cls.id) ?? { class: { id: cls.id, name: cls.name }, present: 0, absent: 0, total: 0 };
+          if (a.present) entry.present++;
+          else entry.absent++;
+          entry.total++;
+          perClass.set(cls.id, entry);
+        }
+        return {
+          shareId: sh.id,
+          organization: { id: s.organization.id, name: s.organization.name, logoUrl: s.organization.logo ?? null },
+          studentId: s.id,
+          since: s.joinedAt ?? s.createdAt,
+          until: s.leftAt,
+          leftReason: s.leftReason,
+          sharedAt: sh.grantedAt,
+          graduations: graduations
+            .filter((g) => g.studentId === s.id)
+            .map((g) => {
+              const { graduationSystem, ...level } = g.graduationLevel;
+              return { id: g.id, graduatedAt: g.graduatedAt, level: levelView(level), system: graduationSystem };
+            }),
+          attendanceByClass: [...perClass.values()],
+          certificates: certificates.filter((c) => c.studentId === s.id).map((c) => ({ id: c.id, title: c.title, issuedAt: c.issuedAt })),
+        };
+      });
+  }
+
+  /** PATCH /people/me: a propria pessoa (login ligado a ficha) edita a identidade; nome/foto/contato vao as matriculas. */
+  async updateMyPerson(
+    userId: number,
+    dto: { name?: string; nickname?: string | null; photo?: string | null; phone?: string | null; email?: string | null },
+  ) {
+    const person = await findPersonByUser(this.prisma, userId);
+    if (!person) throw personNotFound();
+    const data = {
+      name: dto.name?.trim(),
+      nickname: dto.nickname === undefined ? undefined : dto.nickname?.trim() || null,
+      photo: dto.photo,
+      phone: dto.phone === undefined ? undefined : dto.phone?.trim() || null,
+      email: dto.email === undefined ? undefined : dto.email?.trim().toLowerCase() || null,
+    };
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const p = await tx.person.update({ where: { id: person.id }, data });
+      await tx.student.updateMany({
+        where: { personId: person.id },
+        data: { name: data.name, photo: data.photo, phone: data.phone, email: data.email },
+      });
+      return p;
+    });
+    await this.audit.record({
+      action: AuditAction.PERSON_PROFILE_UPDATE,
+      entity: AuditEntity.PERSON,
+      entityId: person.id,
+      meta: { fields: Object.entries(dto).filter(([, v]) => v !== undefined).map(([k]) => k) },
+    });
+    return {
+      person: {
+        id: updated.id,
+        gingappCode: updated.gingappCode,
+        name: updated.name,
+        nickname: updated.nickname,
+        birthDate: updated.birthDate,
+        photo: updated.photo,
+        documentMasked: maskPersonDocument(updated.documentLast4),
+        documentKind: updated.documentKind,
+      },
     };
   }
 }

@@ -3,11 +3,14 @@ import { describe, it } from 'node:test';
 import { shouldRunPersonBackfill } from '../prisma/person-backfill';
 import { GINGAPP_CODE_ALPHABET, generateGingappCode, normalizeGingappCode } from '../src/interface/http/people/gingapp-code';
 import { namesLookAlike } from '../src/interface/http/people/person-linker';
+import { transferContestDays, transferExpiryDays } from '../src/interface/http/people/transfers.service';
+import { isTransferCronEnabled } from '../src/jobs/transfer-cron.service';
 import { parseStudentRow } from '../src/interface/http/students/student-import';
 import {
   decryptPersonDocument,
   hashPersonDocument,
   maskPersonDocument,
+  maskStudentDocument,
   parseCpf,
   personDocumentKey,
 } from '../src/shared/security/person-document';
@@ -91,6 +94,21 @@ describe('ficha unica - regras puras', () => {
     assert.equal(shouldRunPersonBackfill('auto', {}, 3), true);
     assert.equal(shouldRunPersonBackfill('manual', {}, 0), true);
     assert.equal(shouldRunPersonBackfill('manual', { PERSON_BACKFILL: 'false' }, 5), false);
+  });
+
+  it('fase 2: CPF legado mascarado; prazos de transferencia por env; job desligavel', () => {
+    assert.equal(maskStudentDocument('529.982.247-25'), '***.***.***-25');
+    assert.equal(maskStudentDocument('52998224725'), '***.***.***-25');
+    assert.equal(maskStudentDocument('RG 12.345'), '***45');
+    assert.equal(maskStudentDocument('  '), null);
+    assert.equal(maskStudentDocument(null), null);
+    assert.equal(transferExpiryDays({}), 14);
+    assert.equal(transferExpiryDays({ TRANSFER_EXPIRY_DAYS: '30' }), 30);
+    assert.equal(transferExpiryDays({ TRANSFER_EXPIRY_DAYS: 'x' }), 14);
+    assert.equal(transferContestDays({}), 7);
+    assert.equal(transferContestDays({ TRANSFER_CONTEST_DAYS: '0' }), 7);
+    assert.equal(isTransferCronEnabled({ TRANSFER_CRON: 'false' }), false);
+    assert.equal(isTransferCronEnabled({}), true);
   });
 
   it('linha do CSV: CPF do responsavel exige nascimento e CPF valido; codigo GingApp validado', () => {

@@ -83,10 +83,10 @@ describe("schema de alunos", () => {
       name: "Ab", unitId: 7, birthDate: undefined, document: undefined, phone: "1", email: undefined, status: "ACTIVE",
     });
   });
-  it("studentToUpdatePayload manda null nos opcionais esvaziados (nome/status nunca)", () => {
+  it("studentToUpdatePayload manda null nos opcionais esvaziados (nome/status nunca); documento vazio NÃO é enviado", () => {
     const empty = { name: " Ab ", unitId: "", birthDate: "", document: " ", phone: "", email: "", status: "ACTIVE" as const };
     expect(studentToUpdatePayload(empty)).toEqual({
-      name: "Ab", unitId: null, birthDate: null, document: null, phone: null, email: null, photo: null, status: "ACTIVE",
+      name: "Ab", unitId: null, birthDate: null, phone: null, email: null, photo: null, status: "ACTIVE",
     });
     expect(studentToUpdatePayload({ ...empty, unitId: "7", phone: "11" })).toMatchObject({ unitId: 7, phone: "11" });
   });
@@ -234,8 +234,9 @@ describe("AlunosPage", () => {
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     expect(calls.find((c) => c.method === "PATCH")).toMatchObject({
       path: "/students/1",
-      body: { name: "Ana Souza", unitId: 7, birthDate: "1990-05-10", phone: "11999", document: null, email: null, status: "SUSPENDED" },
+      body: { name: "Ana Souza", unitId: 7, birthDate: "1990-05-10", phone: "11999", email: null, status: "SUSPENDED" },
     });
+    expect(calls.find((c) => c.method === "PATCH")!.body).not.toHaveProperty("document");
   });
 
   it("edita: esvaziar telefone e unidade envia null (limpa no servidor)", async () => {

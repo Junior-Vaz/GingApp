@@ -1,6 +1,7 @@
 # Ficha única do capoeirista — desenho e fases
 
-> Status: **Fase 1 implementada** (2026-10-12, sem commit). Fases 2–5 desenhadas aqui, não implementadas.
+> Status: **Fase 1 implementada** (commit 1f28bec) e **Fase 2 implementada** (2026-10-12, sem commit; seção 4).
+> Fases 3–5 desenhadas aqui, não implementadas.
 > Visão do owner: *o cadastro de um aluno é único, vinculado ao CPF; uma pessoa tem uma única ficha no GingApp; quando ela
 > sai de um grupo e vai para outro, o outro grupo recebe a ficha inteira (aulas, faltas, punições, expulsões); nunca se
 > duplica; se ao cadastrar a pessoa já existe, faz-se uma TRANSFERÊNCIA. Mestre, professor, monitor e instrutor também são
@@ -170,20 +171,91 @@ A mantida herda o que não tem (login, CPF, nascimento, foto, apelido, contato);
 - **App/Perfil:** cartão "Meu código GingApp" (copiar + QR recolhível); some em 404/erro.
 - **Admin (Vue):** ainda **sem** tela de duplicatas/mescla (só API) — pendência.
 
-## 4. Fase 2 — Transferência entre grupos (próxima)
-- **Schema:** `TransferRequest`, `TransferContest`, `EnrollmentShare`; `Student.leftAt`, `Student.transferredToStudentId`.
-- **Fluxo:** grupo novo recebe `PERSON_EXISTS_ELSEWHERE` com `transferAvailable:true` → `POST /transfers {personId}` cria
-  `PENDING_PERSON` e notifica a pessoa (ou responsáveis, se menor) no app → `POST /transfers/:id/approve|reject` pela
-  pessoa → aprovado: cria o `Student` no grupo novo (mesma Person), a matrícula antiga vira `FORMER` com `leftAt`, grupo
-  antigo é notificado e tem `contestUntil` (ex.: 7 dias) para abrir `TransferContest` (não bloqueia), cria
-  `EnrollmentShare` (leitura do histórico antigo). Expira em N dias sem resposta.
-- **Ficha:** `sharedFromOtherGroups` passa a trazer as matrículas compartilhadas (aulas/faltas/graduações/certificados);
-  o staff só vê após `APPROVED`. Multi-grupo simultâneo (treinar em dois grupos) = "transferência" com `keepOrigin:true`.
-- **Arquivos:** novo `interface/http/transfers/*`, `people/person-ficha.service.ts` (compartilhamento),
-  `students.service.ts` (409 com `transferAvailable:true`), notificações/push, app (tela de aprovação), painel (pedido,
-  acompanhamento, contestação), `member-privacy` (rotas novas).
-- **Também na F2:** edição da identidade pela própria pessoa (`PATCH /people/me`), migration `Student.personId NOT NULL`,
-  parar de devolver `Student.document` inteiro (máscara para não-MESTRE).
+## 4. Fase 2 — Transferência entre grupos (IMPLEMENTADA, 2026-10-12)
+
+### 4.1 Schema (migration `20261012230000_transfers`, só adiciona)
+- `TransferRequest {id, personId, fromOrganizationId, fromStudentId?, toOrganizationId, toUnitId?, toStudentId?,
+  requestedByUserId, decidedByUserId?, status (PENDING_PERSON|APPROVED|DECLINED|CANCELLED|EXPIRED|COMPLETED),
+  requestedAt, decidedAt?, expiresAt (+TRANSFER_EXPIRY_DAYS, padrão 14), contestUntil (pedido + TRANSFER_CONTEST_DAYS,
+  padrão 7), note?, updatedAt}`.
+- `TransferContest {id, requestId, organizationId, byUserId, reason (PENDING_PAYMENT|EQUIPMENT|OTHER), note? (≤200), createdAt}`.
+- `EnrollmentShare {id, personId, fromStudentId, fromOrganizationId, toOrganizationId, requestId, grantedAt, revokedAt?}`
+  (único `fromStudentId+toOrganizationId`). `Student.leftAt`, `Student.leftReason`.
+- Semântica: **APPROVED** = aprovado, matrícula nova criada, contestação ainda aberta; **COMPLETED** = contestação encerrada
+  (job). Idempotência "1 pedido aberto por pessoa+grupo" por transação com `SELECT ... FOR UPDATE` na Person (sem índice
+  parcial, para não criar drift no Prisma).
+- **`Student.personId NOT NULL` ADIADO:** seed, demo e ~34 specs criam `Student` direto pelo Prisma sem ficha e não há
+  prova da contagem de nulos em produção; o backfill do boot + `ensurePersonForStudent` continuam cobrindo.
+
+### 4.2 Regras
+- Pede: só **MESTRE** do grupo novo (`MestreOnlyGuard` + `students:create`). Alvo por `personId`, `gingappCode` ou `document`.
+  Já tem matrícula no grupo → 409 `PERSON_ALREADY_IN_GROUP`; nenhuma matrícula em outro grupo → 409
+  `PERSON_NOT_ENROLLED_ELSEWHERE`. Origem: a matrícula **ativa** em outro grupo; se houver mais de uma ativa (ou o
+  `fromOrganizationId` não conferir) → 400 `FROM_ORGANIZATION_REQUIRED` com a lista; **se nenhuma estiver ativa** (a pessoa já
+  saiu do grupo antigo) a origem é a matrícula mais recente — decisão para não travar quem já saiu (sem transferência ela
+  nunca mais poderia ser cadastrada, pois o 409 da Fase 1 vale para qualquer matrícula em outro grupo).
+- Decide: **adulto = o próprio login** (`Person.userId`); **menor** (nascimento < 18 anos, regra `isMinor` do ranking) = só os
+  **responsáveis com login** de qualquer matrícula da pessoa (o menor não decide). Sem direito = 404 (não vaza).
+  Adulto sem login não consegue aprovar: o pedido expira (pendência: convite pelo app).
+- Contestação: só o MESTRE do grupo **antigo**, enquanto `status ∈ {PENDING_PERSON, APPROVED}` e `agora ≤ contestUntil`;
+  informativa (aparece para a pessoa ao decidir e para o grupo novo), **nunca bloqueia**.
+- Aprovação (uma transação): matrícula nova `ACTIVE` no grupo novo (mesma Person, `unitId` pedido, `joinedAt` = agora, nome/
+  foto/contato da ficha, CPF legado copiado), login ganha vínculo **ALUNO** no grupo novo (e o `Student.userId`), responsáveis
+  da matrícula de origem são copiados (com vínculo **RESPONSAVEL**; sem o consentimento público, que é por grupo); matrícula
+  de origem vira **FORMER** + `leftAt` + `leftReason='TRANSFER'` e as turmas dela ficam INACTIVE (o vínculo ALUNO do grupo
+  antigo passa a ser barrado pela regra existente de aluno inativo); `EnrollmentShare` para **todas** as matrículas
+  anteriores da pessoa em outros grupos.
+- O grupo novo **não vê nada** do grupo antigo antes da aprovação (a ficha do aluno do grupo antigo dá 404; o pedido só
+  mostra nome/foto/código e os nomes dos grupos). Depois, `sharedFromOtherGroups` traz, só leitura: período, motivo de
+  saída, graduações, **frequência por turma** e certificados. **Nunca** financeiro, contato, responsáveis ou notas.
+- Notificações (`Notification.type`, push cai na categoria "avisos"): `TRANSFER_REQUEST` (pessoa/responsáveis + mestres
+  do grupo antigo), `TRANSFER_CONTESTED` (pessoa + mestres do grupo novo), `TRANSFER_APPROVED` (mestres dos dois grupos),
+  `TRANSFER_DECLINED` (mestres do grupo novo), `TRANSFER_CANCELLED` (pessoa), `TRANSFER_EXPIRED` (mestres do grupo novo).
+  As da pessoa vão com `organizationId` nulo (o pedido envolve dois grupos).
+- Auditoria: `TRANSFER_REQUEST/APPROVE/DECLINE/CONTEST/CANCEL/EXPIRE` (+ `PERSON_PROFILE_UPDATE`).
+- Job `TransferCronService` 04:15 SP (`TRANSFER_CRON=false` desliga): PENDING vencido → EXPIRED (audita, avisa);
+  APPROVED com `contestUntil` passado → COMPLETED. Decidir um pedido vencido ainda não processado → 409 `TRANSFER_EXPIRED`
+  (e ele vira EXPIRED na hora).
+
+### 4.3 Contrato exato
+- **POST /api/transfers** (MESTRE) `{personId?|gingappCode?|document?, fromOrganizationId?, unitId?, note? (≤280)}` →
+  **201** TransferView (novo) | **200** TransferView (já havia pendente). Erros: 400 `TRANSFER_TARGET_REQUIRED`,
+  `INVALID_CPF`, `GINGAPP_CODE_NOT_FOUND`, `FROM_ORGANIZATION_REQUIRED` (`organizations:[{id,name}]`),
+  `TRANSFER_INVALID_UNIT`; 404 `PERSON_NOT_FOUND`; 409 `PERSON_ALREADY_IN_GROUP` (`studentId`, `studentStatus`),
+  `PERSON_NOT_ENROLLED_ELSEWHERE`; 403 não-MESTRE.
+- **GET /api/transfers[?direction=sent|received]** (MESTRE) → TransferView[] (máx. 200, mais novo primeiro).
+- **GET /api/transfers/:id** (MESTRE de origem ou destino; outro grupo 404).
+- **POST /api/transfers/:id/cancel** (MESTRE do destino; origem 403) → 200 TransferView; 409 `TRANSFER_NOT_PENDING`.
+- **POST /api/transfers/:id/contest** (MESTRE da origem; destino 403) `{reason: PENDING_PAYMENT|EQUIPMENT|OTHER, note?}` →
+  **201** `{id, reason, note, createdAt, organization:{id,name}}`; 409 `TRANSFER_CONTEST_CLOSED`.
+- `TransferView = {id, status, direction:'SENT'|'RECEIVED', person:{id,name,nickname,photo,gingappCode}, fromOrganization:
+  {id,name,logoUrl}, toOrganization:{...}, toUnit:{id,name}|null, requestedAt, expiresAt, contestUntil, decidedAt, note,
+  toStudentId (só SENT), canCancel, canContest, contests:[{id,reason,note,createdAt,organization:{id,name}}]}`.
+- **GET /api/people/me/transfers** → PersonTransferView[] (própria ficha + dependentes): mesmos campos base +
+  `person:{id,name,photo}`, `canDecide`, `decidingAs:'SELF'|'GUARDIAN'|null`, `sharedOnApproval:['ATTENDANCE','GRADUATIONS','CERTIFICATES']`.
+- **POST /api/people/me/transfers/:id/approve | /decline** → 200 PersonTransferView; 404 sem direito/inexistente;
+  409 `TRANSFER_NOT_PENDING` | `TRANSFER_EXPIRED` | `PERSON_ALREADY_IN_GROUP`.
+- **PATCH /api/people/me** `{name?, nickname?|null, photo?|null, phone?|null, email?|null}` → `{person:{id,gingappCode,name,
+  nickname,birthDate,photo,documentMasked,documentKind}}`; propaga nome/foto/telefone/e-mail a todas as matrículas; 404
+  `PERSON_NOT_FOUND`.
+- **POST /api/students** 409 `PERSON_EXISTS_ELSEWHERE` agora: `transferAvailable:true`, `transfer:{method:'POST',
+  path:'/api/transfers', body:{personId}}`.
+- **Ficha da equipe:** `enrollments[].until` = `leftAt`, `+leftReason`; `sharedFromOtherGroups:[{shareId, organization:
+  {id,name,logoUrl}, studentId, since, until, leftReason, sharedAt, graduations:[{id,graduatedAt,level,system}],
+  attendanceByClass:[{class:{id,name},present,absent,total}], certificates:[{id,title,issuedAt}]}]`.
+- **CPF legado mascarado:** todas as respostas de `/api/students*` trazem `document` como `***.***.***-XX` (CPF) ou
+  `***` + 2 últimos caracteres; reenviar a máscara no PATCH não muda nada. CSV: completo só para o MESTRE.
+- **LGPD:** `GET /api/auth/me/export` ganhou `people:[{id,gingappCode,name,nickname,birthDate,photo,gender,email,phone,
+  documentKind,documentMasked,createdAt,updatedAt,transfers:[...]}]`.
+
+### 4.4 Riscos/limites da Fase 2
+- Adulto sem login (cadastro sem acesso) não consegue aprovar → o grupo antigo precisa criar o acesso, ou o pedido expira.
+- Nascimento ausente = tratado como adulto (só o próprio login decide).
+- Aprovar encerra a matrícula de origem mesmo com contestação aberta (decisão do owner: não bloquear); a cobrança é assunto
+  entre os grupos.
+- Não há "desfazer transferência" nem revogação de `EnrollmentShare` por tela (campo `revokedAt` pronto).
+- Treinar em dois grupos ao mesmo tempo continua sem fluxo próprio (a transferência sempre encerra a origem).
+- Push de `TRANSFER_*` abre `/notificacoes` (categoria "avisos"); o app leva de lá para `/transferencias`.
 
 ## 5. Fase 3 — Cargos (todo mundo é aluno)
 - `PersonRole` + `GraduationRoleRule`; o `OrgRole` atual (MESTRE/PROFESSOR/ALUNO/RESPONSAVEL) continua sendo a
@@ -220,12 +292,12 @@ A mantida herda o que não tem (login, CPF, nascimento, foto, apelido, contato);
 - **Desligar só o backfill:** `PERSON_BACKFILL=false`.
 
 ## 10. Riscos e limites (Fase 1)
-- **R1 — Bloqueio de cadastro entre grupos até a Fase 2:** quem já tem ficha (CPF/código) em outro grupo **não pode** ser
+- **R1 — RESOLVIDO na Fase 2 (transferência).** Texto original: bloqueio de cadastro entre grupos até a Fase 2: quem já tem ficha (CPF/código) em outro grupo **não pode** ser
   cadastrado no grupo novo (409, `transferAvailable:false`). Saída provisória: cadastrar **sem** CPF → `POSSIBLE_DUPLICATE`
   → "cadastrar mesmo assim" (fica auditado) e o super admin mescla depois. Prioridade: entregar a Fase 2 logo.
 - **R2 — Chaves:** trocar `PERSON_DOC_PEPPER` (ou o `JWT_SECRET` sem ele) quebra a busca por CPF; trocar `PERSON_DOC_KEY`
   torna `documentEnc` ilegível. Sem ferramenta de re-hash ainda.
-- **R3 — CPF legado em claro:** `Student.document` continua em claro e visível à equipe (como antes). F2: máscara/remoção.
+- **R3 — (Fase 2: agora mascarado nas respostas da API; continua em claro no banco)** CPF legado em claro: `Student.document` continua em claro e visível à equipe (como antes). F2: máscara/remoção.
 - **R4 — Enumeração:** staff pode testar CPFs para descobrir se alguém tem ficha (o preview mostra nome/foto/grupo). Mitigado
   por auditoria de toda consulta que acha alguém + rate limit global; avaliar limite específico.
 - **R5 — Gêmeos** pelo CPF do responsável e **nomes muito diferentes** (apelido no cadastro) escapam da sugestão.

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { formatCpf, isValidCpf, onlyDigits } from "@/lib/cpf";
+import { isValidCpf, onlyDigits } from "@/lib/cpf";
 import type { RopeStyle } from "@/lib/rope";
 import { isImageRef } from "@/lib/uploads";
 import { billingFieldsError } from "@/modules/financeiro/collection";
@@ -141,18 +141,14 @@ export const emptyStudentForm: StudentFormValues = {
   gingappCode: "",
 };
 
-/** Documento no formulário: 11 dígitos aparecem com máscara de CPF; qualquer outro valor legado fica como veio. */
-function documentToForm(document: string | null): string {
-  const value = (document ?? "").trim();
-  return /^[\d.\-\s]*$/.test(value) && onlyDigits(value).length === 11 ? formatCpf(value) : value;
-}
-
 export function studentToForm(student: Student): StudentFormValues {
   return {
     name: student.name,
     unitId: student.unitId ? String(student.unitId) : "",
     birthDate: student.birthDate ? student.birthDate.slice(0, 10) : "",
-    document: documentToForm(student.document),
+    // O servidor devolve o CPF MASCARADO (***.***.***-25): o formulário de edição começa SEMPRE vazio neste campo e só
+    // envia `document` no PATCH se o usuário digitar um CPF novo (o valor mascarado é mostrado à parte, somente leitura).
+    document: "",
     phone: student.phone ?? "",
     email: student.email ?? "",
     status: student.status,
@@ -179,15 +175,18 @@ export function studentToPayload(values: StudentFormValues): StudentInput {
 /**
  * EDITAR (PATCH): campos opcionais que o usuário esvaziou vão como `null` (o backend limpa a
  * coluna). `name` e `status` são obrigatórios e nunca vão `null`.
+ *
+ * `document` é a exceção: o servidor devolve o CPF mascarado, então a chave só vai no corpo se o usuário digitou um CPF
+ * novo. Campo vazio, ou igual ao valor atual (mascarado), NÃO envia `document` (nunca reenvia o mascarado).
  */
 export function studentToUpdatePayload(values: StudentFormValues, originalDocument?: string | null): StudentInput {
+  const typedDocument = values.document.trim();
+  const documentChanged = typedDocument !== "" && !isDocumentUnchanged(values.document, originalDocument);
   return {
     name: values.name.trim(),
     unitId: values.unitId ? Number(values.unitId) : null,
     birthDate: values.birthDate || null,
-    // Documento não alterado: reenvia o valor ORIGINAL do servidor (sem a máscara do formulário), para o backend não
-    // tratar como mudança nem revalidar um documento legado.
-    document: isDocumentUnchanged(values.document, originalDocument) ? (originalDocument ?? "").trim() : values.document.trim() || null,
+    ...(documentChanged ? { document: typedDocument } : {}),
     phone: values.phone.trim() || null,
     email: values.email.trim() || null,
     photo: (values.photo ?? "").trim() || null,

@@ -13,13 +13,16 @@ import {
 import { initials } from "@/lib/format";
 import { ropeOf } from "@/lib/rope";
 import { imageSrc } from "@/lib/uploads";
+import { SolicitarTransferenciaForm } from "@/modules/transferencias/solicitar-transferencia-form";
 import type { PersonPreview, StudentConflict } from "./aluno-conflito";
 import { STUDENT_STATUS_LABEL } from "./schema";
 
-const COMING_SOON =
-  "A transferência (pedido ao outro grupo, aprovado pela própria pessoa) estará disponível em breve. Por enquanto, nada foi criado.";
+const TRANSFER_INFO =
+  "Para trazê-la ao seu grupo, solicite a transferência: a própria pessoa (ou o responsável, se for menor) precisa aprovar pelo app. Enquanto isso, nada foi criado.";
+const NO_TRANSFER =
+  "A transferência não está disponível para esta pessoa agora. Nenhum aluno novo foi criado.";
 
-function GroupLogo({ name, logoUrl }: { name: string; logoUrl: string | null }) {
+export function GroupLogo({ name, logoUrl }: { name: string; logoUrl: string | null }) {
   const src = imageSrc(logoUrl?.trim());
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full border bg-card py-0.5 pl-0.5 pr-2.5 text-xs">
@@ -77,22 +80,45 @@ export function AlunoConflitoDialog({
   onClose,
   onOpenExisting,
   onConfirmNew,
+  onTransferSent,
 }: {
   conflict: StudentConflict | null;
   confirming: boolean;
   onClose: () => void;
+  /** Pedido de transferência enviado (POST /transfers): o pai fecha o diálogo e o formulário de cadastro. */
+  onTransferSent?: () => void;
   /** PERSON_ALREADY_IN_GROUP: abre a matrícula existente para editar/reativar. */
   onOpenExisting: (studentId: number) => void;
   /** POSSIBLE_DUPLICATE: "Cadastrar mesmo assim". */
   onConfirmNew: () => void;
 }) {
   const [sameVerdict, setSameVerdict] = useState(false);
-  useEffect(() => setSameVerdict(false), [conflict]);
+  // Pessoa para a qual o mini-formulário de transferência está aberto (null = ainda vendo o aviso).
+  const [transferFor, setTransferFor] = useState<PersonPreview | null>(null);
+  useEffect(() => {
+    setSameVerdict(false);
+    setTransferFor(null);
+  }, [conflict]);
 
   return (
     <Dialog open={conflict !== null} onOpenChange={(o) => !o && !confirming && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        {conflict?.kind === "ALREADY_IN_GROUP" && (
+        {conflict && transferFor && (
+          <>
+            <DialogHeader>
+              <DialogTitle>Solicitar transferência</DialogTitle>
+              <DialogDescription>Pedido de transferência de {transferFor.name} para o seu grupo.</DialogDescription>
+            </DialogHeader>
+            <SolicitarTransferenciaForm
+              personId={transferFor.personId}
+              personName={transferFor.name}
+              onBack={() => setTransferFor(null)}
+              onSent={() => (onTransferSent ?? onClose)()}
+            />
+          </>
+        )}
+
+        {conflict?.kind === "ALREADY_IN_GROUP" && !transferFor && (
           <>
             <DialogHeader>
               <DialogTitle>Esta pessoa já está cadastrada no seu grupo</DialogTitle>
@@ -112,22 +138,29 @@ export function AlunoConflitoDialog({
           </>
         )}
 
-        {conflict?.kind === "EXISTS_ELSEWHERE" && (
+        {conflict?.kind === "EXISTS_ELSEWHERE" && !transferFor && (
           <>
             <DialogHeader>
               <DialogTitle>Esta pessoa já tem ficha em outro grupo</DialogTitle>
-              <DialogDescription>{COMING_SOON}</DialogDescription>
+              <DialogDescription>
+                {conflict.transferAvailable ? TRANSFER_INFO : NO_TRANSFER}
+              </DialogDescription>
             </DialogHeader>
             <PersonPreviewCard person={conflict.person} />
             <DialogFooter>
-              <Button type="button" onClick={onClose}>
+              <Button type="button" variant={conflict.transferAvailable ? "outline" : "default"} onClick={onClose}>
                 Fechar
               </Button>
+              {conflict.transferAvailable && (
+                <Button type="button" onClick={() => setTransferFor(conflict.person)}>
+                  Solicitar transferência
+                </Button>
+              )}
             </DialogFooter>
           </>
         )}
 
-        {conflict?.kind === "POSSIBLE_DUPLICATE" && !sameVerdict && (
+        {conflict?.kind === "POSSIBLE_DUPLICATE" && !sameVerdict && !transferFor && (
           <>
             <DialogHeader>
               <DialogTitle>É a mesma pessoa?</DialogTitle>
@@ -154,12 +187,31 @@ export function AlunoConflitoDialog({
           </>
         )}
 
-        {conflict?.kind === "POSSIBLE_DUPLICATE" && sameVerdict && (
+        {conflict?.kind === "POSSIBLE_DUPLICATE" && sameVerdict && !transferFor && (
           <>
             <DialogHeader>
               <DialogTitle>Cadastro não criado</DialogTitle>
-              <DialogDescription>{COMING_SOON}</DialogDescription>
+              <DialogDescription>
+                {conflict.matches.length > 0 ? TRANSFER_INFO : NO_TRANSFER}
+              </DialogDescription>
             </DialogHeader>
+            <div className="grid gap-2">
+              {conflict.matches.map((p) => (
+                <div key={p.personId} className="grid gap-2">
+                  <PersonPreviewCard person={p} />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="justify-self-end"
+                    aria-label={`Solicitar transferência de ${p.name}`}
+                    onClick={() => setTransferFor(p)}
+                  >
+                    Solicitar transferência
+                  </Button>
+                </div>
+              ))}
+            </div>
             <DialogFooter>
               <Button type="button" onClick={onClose}>
                 Fechar

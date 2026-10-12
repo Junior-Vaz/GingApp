@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { LEGAL_VERSION } from '../../../shared/legal/legal-documents';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { maskPersonDocument } from '../../../shared/security/person-document';
 
 export const EXPORT_FORMAT_VERSION = 1;
 
@@ -108,6 +109,8 @@ export class AccountExportService {
       guardianLinks,
     );
 
+    const people = await this.loadPeople(userId, [...ownStudents.map((s) => s.id), ...guardianLinks.map((g) => g.studentId)]);
+
     return {
       formatVersion: EXPORT_FORMAT_VERSION,
       exportedAt: new Date().toISOString(),
@@ -125,7 +128,49 @@ export class AccountExportService {
       publishedAnnouncements: announcements,
       student: students.own,
       dependents: students.dependents,
+      // Ficha unica (Person): a do proprio usuario e a dos dependentes, com os pedidos de transferencia. CPF so mascarado
+      // (a ficha guarda o CPF cifrado; nao ha decifragem para resposta de API).
+      people,
     };
+  }
+
+  private async loadPeople(userId: number, studentIds: number[]): Promise<unknown[]> {
+    const students = studentIds.length
+      ? await this.prisma.student.findMany({ where: { id: { in: studentIds }, personId: { not: null } }, select: { personId: true } })
+      : [];
+    const ids = [...new Set(students.map((s) => s.personId!))];
+    const rows = await this.prisma.person.findMany({
+      where: { OR: [{ userId }, { id: { in: ids } }] },
+      orderBy: { id: 'asc' },
+      select: {
+        id: true,
+        gingappCode: true,
+        name: true,
+        nickname: true,
+        birthDate: true,
+        photo: true,
+        gender: true,
+        email: true,
+        phone: true,
+        documentKind: true,
+        documentLast4: true,
+        createdAt: true,
+        updatedAt: true,
+        transfers: {
+          orderBy: { id: 'asc' },
+          select: {
+            id: true,
+            status: true,
+            fromOrganizationId: true,
+            toOrganizationId: true,
+            requestedAt: true,
+            decidedAt: true,
+            contests: { select: { reason: true, note: true, createdAt: true } },
+          },
+        },
+      },
+    });
+    return rows.map(({ documentLast4, ...p }) => ({ ...p, documentMasked: maskPersonDocument(documentLast4) }));
   }
 
   /**

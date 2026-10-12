@@ -104,6 +104,14 @@ export const AuditAction = {
   PERSON_DUPLICATE_CONFIRMED: 'PERSON_DUPLICATE_CONFIRMED',
   PERSON_MERGE: 'PERSON_MERGE',
   PERSON_LINK_CONFLICT: 'PERSON_LINK_CONFLICT',
+  PERSON_PROFILE_UPDATE: 'PERSON_PROFILE_UPDATE',
+  // Transferencia entre grupos (ficha unica, Fase 2)
+  TRANSFER_REQUEST: 'TRANSFER_REQUEST',
+  TRANSFER_APPROVE: 'TRANSFER_APPROVE',
+  TRANSFER_DECLINE: 'TRANSFER_DECLINE',
+  TRANSFER_CONTEST: 'TRANSFER_CONTEST',
+  TRANSFER_CANCEL: 'TRANSFER_CANCEL',
+  TRANSFER_EXPIRE: 'TRANSFER_EXPIRE',
 } as const;
 
 export type AuditActionCode = (typeof AuditAction)[keyof typeof AuditAction];
@@ -140,4 +148,5 @@ export const AuditEntity = {
   DATA_DELETION_REQUEST: 'data_deletion_request',
   RANKING_PROFILE: 'ranking_profile',
   PERSON: 'person',
+  TRANSFER: 'transfer',
 } as const;

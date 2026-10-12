@@ -98,6 +98,11 @@ services:
       PERSON_DOC_KEY: "${PERSON_DOC_KEY:-}"
       PERSON_DOC_PEPPER: "${PERSON_DOC_PEPPER:-}"
       PERSON_BACKFILL: "${PERSON_BACKFILL:-}"
+      # Transferencia entre grupos (ficha unica, Fase 2): job diario 04:15 que expira pedidos sem resposta e fecha as
+      # contestacoes (false = desliga); prazo da pessoa decidir e janela de contestacao do grupo antigo, em dias.
+      TRANSFER_CRON: "${TRANSFER_CRON:-true}"
+      TRANSFER_EXPIRY_DAYS: "${TRANSFER_EXPIRY_DAYS:-14}"
+      TRANSFER_CONTEST_DAYS: "${TRANSFER_CONTEST_DAYS:-7}"
       # TERMS_ENFORCEMENT=true: o servidor tambem barra (403) quem nao aceitou a versao vigente dos Termos/Politica.
       # Padrao false: so o frontend exige o aceite.
       TERMS_ENFORCEMENT: "${TERMS_ENFORCEMENT:-false}"

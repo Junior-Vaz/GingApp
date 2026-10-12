@@ -103,16 +103,17 @@ describe("CPF no schema do aluno", () => {
     expect(studentToPayload({ ...ok, gingappCode: " ging-7k3q-9xpm " })).toMatchObject({ gingappCode: "GING-7K3Q-9XPM" });
   });
 
-  it("edição: documento legado inválido NÃO bloqueia se não foi alterado (e reenvia o original); alterado, valida", () => {
-    const edit = makeStudentSchema("AB-123456");
-    const values = { name: "Ab", unitId: "", birthDate: "", document: "AB-123456", phone: "", email: "", status: "ACTIVE" as const };
+  it("edição: documento (mascarado) não alterado NÃO bloqueia e NÃO é reenviado; alterado, valida e vai no corpo", () => {
+    const edit = makeStudentSchema("***.***.***-25");
+    const values = { name: "Ab", unitId: "", birthDate: "", document: "", phone: "", email: "", status: "ACTIVE" as const };
     expect(edit.safeParse(values).success).toBe(true);
-    expect(edit.safeParse({ ...values, document: "AB-654321" }).success).toBe(false);
-    expect(studentToUpdatePayload(values, "AB-123456")).toMatchObject({ document: "AB-123456" });
-    // CPF armazenado sem máscara e exibido com máscara continua "não alterado"
-    const legacy = makeStudentSchema("11111111111");
-    expect(legacy.safeParse({ ...values, document: "111.111.111-11" }).success).toBe(true);
-    expect(studentToUpdatePayload({ ...values, document: "111.111.111-11" }, "11111111111")).toMatchObject({ document: "11111111111" });
+    expect(studentToUpdatePayload(values, "***.***.***-25")).not.toHaveProperty("document");
+    // se o valor mascarado voltar no campo, continua "não alterado": a chave não vai no PATCH
+    expect(edit.safeParse({ ...values, document: "***.***.***-25" }).success).toBe(true);
+    expect(studentToUpdatePayload({ ...values, document: "***.***.***-25" }, "***.***.***-25")).not.toHaveProperty("document");
+    // CPF novo digitado: valida e é enviado
+    expect(edit.safeParse({ ...values, document: "529.982.247-24" }).success).toBe(false);
+    expect(studentToUpdatePayload({ ...values, document: VALID_CPF }, "***.***.***-25")).toMatchObject({ document: VALID_CPF });
   });
 });
 
@@ -153,7 +154,8 @@ describe("Cadastro de aluno: conflitos de pessoa existente", () => {
     expect(preview).toHaveTextContent("Grupo Outro Axé");
     expect(preview).toHaveTextContent("Corda Verde e Amarela");
     expect(within(preview).getByRole("img", { name: /trançada/i })).toBeInTheDocument();
-    expect(dialog).toHaveTextContent(/estará disponível em breve/);
+    expect(dialog).toHaveTextContent(/transferência não está disponível/);
+    expect(within(dialog).queryByRole("button", { name: "Solicitar transferência" })).not.toBeInTheDocument();
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
     expect(toast.success).not.toHaveBeenCalledWith("Aluno cadastrado.");
     fireEvent.click(within(dialog).getByRole("button", { name: "Fechar" }));
@@ -189,7 +191,7 @@ describe("Cadastro de aluno: conflitos de pessoa existente", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
-  it("POSSIBLE_DUPLICATE: 'É a mesma pessoa' explica a transferência e não cria", async () => {
+  it("POSSIBLE_DUPLICATE: 'É a mesma pessoa' oferece a transferência e não cria", async () => {
     const calls = mockApi({
       ...base(),
       "POST /students": () =>
@@ -199,7 +201,8 @@ describe("Cadastro de aluno: conflitos de pessoa existente", () => {
     await submitNewStudent();
     const dialog = await screen.findByRole("dialog", { name: "É a mesma pessoa?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "É a mesma pessoa" }));
-    expect(await screen.findByText(/estará disponível em breve/)).toBeInTheDocument();
+    expect(await screen.findByText(/solicite a transferência/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Solicitar transferência de Joana Mestra" })).toBeInTheDocument();
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
 
@@ -298,6 +301,183 @@ describe("Ficha única do aluno", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fechar" }));
     await waitFor(() => expect(screen.queryByTestId("ficha-error")).not.toBeInTheDocument());
     expect(screen.getByText("Ana Souza")).toBeInTheDocument();
+  });
+
+  it("histórico de outros grupos (compartilhado após transferência): grupo, período, corda, frequência por turma e certificado; matrícula mostra 'até'", async () => {
+    const shared = {
+      shareId: 1,
+      organization: { id: 3, name: "Grupo Antigo Axé", logoUrl: null },
+      studentId: 40,
+      since: "2022-01-10T00:00:00.000Z",
+      until: "2024-01-31T00:00:00.000Z",
+      leftReason: "Mudança de cidade",
+      sharedAt: "2026-10-01T12:00:00.000Z",
+      graduations: [
+        { id: 9, graduatedAt: "2023-06-01T00:00:00.000Z", level: { id: 2, name: "Corda Verde e Amarela", order: 2, color: "#16a34a", style: "BRAIDED", colors: ["#16a34a", "#facc15"] }, system: { id: 5, name: "Sistema Antigo" } },
+      ],
+      attendanceByClass: [{ class: { id: 8, name: "Turma Noite" }, present: 30, absent: 4, total: 34 }],
+      certificates: [{ id: 3, title: "Batizado Antigo", issuedAt: "2023-06-01T00:00:00.000Z" }],
+    };
+    const ficha = {
+      ...FICHA,
+      enrollments: [
+        ...FICHA.enrollments,
+        { studentId: 40, organization: { id: 3, name: "Grupo Antigo Axé", logoUrl: null }, unit: null, status: "FORMER", since: "2022-01-10T00:00:00.000Z", until: "2024-01-31T00:00:00.000Z", isCurrent: false },
+      ],
+      sharedFromOtherGroups: [shared],
+    };
+    mockApi({ ...base(), "GET /students/1/ficha": () => json(200, ficha) });
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    fireEvent.click(screen.getByRole("button", { name: "Ficha de Ana Souza" }));
+    const dialog = await screen.findByRole("dialog");
+    const section = await within(dialog).findByTestId("ficha-shared");
+    expect(section).toHaveTextContent("Histórico de outros grupos (compartilhado após transferência)");
+    expect(section).toHaveTextContent("Grupo Antigo Axé");
+    expect(section).toHaveTextContent("Mudança de cidade");
+    expect(section).toHaveTextContent("Corda Verde e Amarela");
+    expect(within(section).getByRole("img", { name: /trançada/i })).toBeInTheDocument();
+    expect(section).toHaveTextContent("Turma Noite");
+    expect(section).toHaveTextContent("30 presença(s)");
+    expect(section).toHaveTextContent("Batizado Antigo");
+    expect(dialog).toHaveTextContent("até 31/01/2024");
+  });
+
+  it("sem histórico compartilhado, a seção não aparece", async () => {
+    mockApi({ ...base(), "GET /students/1/ficha": () => json(200, FICHA) });
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    fireEvent.click(screen.getByRole("button", { name: "Ficha de Ana Souza" }));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByTestId("ficha-content");
+    expect(within(dialog).queryByTestId("ficha-shared")).not.toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent("Histórico de outros grupos");
+  });
+});
+
+describe("Transferência: pedido a partir do cadastro", () => {
+  const elsewhere = () =>
+    json(409, {
+      statusCode: 409,
+      error: "Conflict",
+      code: "PERSON_EXISTS_ELSEWHERE",
+      message: "Esta pessoa já tem ficha em outro grupo.",
+      transferAvailable: true,
+      transfer: { method: "POST", path: "/api/transfers", body: { personId: 77 } },
+      person: PREVIEW,
+    });
+  const transferView = { id: 31, status: "PENDING_PERSON", direction: "SENT" };
+
+  it("'Solicitar transferência' abre o mini-formulário e envia POST /transfers {personId, note}; sucesso mostra o aviso e fecha tudo", async () => {
+    const calls = mockApi({
+      ...base(),
+      "POST /students": () => elsewhere(),
+      "POST /transfers": () => json(201, transferView),
+    });
+    renderPage(<AlunosPage />);
+    await submitNewStudent();
+    const dialog = await screen.findByRole("dialog", { name: /já tem ficha em outro grupo/i });
+    expect(dialog).toHaveTextContent(/solicite a transferência/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Solicitar transferência" }));
+
+    const form = await screen.findByTestId("transfer-request-form");
+    fireEvent.change(within(form).getByLabelText("Observação (opcional)"), { target: { value: "  Combinado na aula  " } });
+    fireEvent.click(within(form).getByRole("button", { name: "Enviar pedido" }));
+
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/transfers")).toBe(true));
+    const post = calls.find((c) => c.path === "/transfers")!;
+    expect(post.body).toEqual({ personId: 77, note: "Combinado na aula" });
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith("Pedido enviado; a pessoa (ou responsável) precisa aprovar no app."),
+    );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // nenhum aluno foi criado: só o POST /students original (409) e o POST /transfers
+    expect(calls.filter((c) => c.method === "POST" && c.path === "/students")).toHaveLength(1);
+  });
+
+  it("FROM_ORGANIZATION_REQUIRED: deixa escolher o grupo de origem e reenvia com fromOrganizationId", async () => {
+    const calls = mockApi({
+      ...base(),
+      "POST /students": () => elsewhere(),
+      "POST /transfers": (c) =>
+        (c.body as { fromOrganizationId?: number }).fromOrganizationId
+          ? json(200, transferView)
+          : json(400, {
+              code: "FROM_ORGANIZATION_REQUIRED",
+              message: "Informe o grupo de origem.",
+              organizations: [
+                { id: 3, name: "Grupo Outro Axé" },
+                { id: 4, name: "Grupo Terceiro" },
+              ],
+            }),
+    });
+    renderPage(<AlunosPage />);
+    await submitNewStudent();
+    const dialog = await screen.findByRole("dialog", { name: /já tem ficha em outro grupo/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Solicitar transferência" }));
+    const form = await screen.findByTestId("transfer-request-form");
+    fireEvent.click(within(form).getByRole("button", { name: "Enviar pedido" }));
+
+    const select = await within(form).findByLabelText("Grupo de origem");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Selecione…", "Grupo Outro Axé", "Grupo Terceiro"]);
+    fireEvent.click(within(form).getByRole("button", { name: "Enviar pedido" })); // sem escolher: não reenvia
+    expect(await within(form).findByText("Escolha o grupo de origem da pessoa.")).toBeInTheDocument();
+    expect(calls.filter((c) => c.path === "/transfers")).toHaveLength(1);
+
+    fireEvent.change(select, { target: { value: "4" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Enviar pedido" }));
+    await waitFor(() => expect(calls.filter((c) => c.path === "/transfers")).toHaveLength(2));
+    expect(calls.filter((c) => c.path === "/transfers")[1]!.body).toEqual({ personId: 77, fromOrganizationId: 4 });
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/Pedido enviado/)));
+  });
+
+  it("erro do pedido (409 PERSON_ALREADY_IN_GROUP) aparece no formulário, que continua aberto", async () => {
+    mockApi({
+      ...base(),
+      "POST /students": () => elsewhere(),
+      "POST /transfers": () => json(409, { code: "PERSON_ALREADY_IN_GROUP", message: "x", studentId: 9, studentStatus: "ACTIVE" }),
+    });
+    renderPage(<AlunosPage />);
+    await submitNewStudent();
+    const dialog = await screen.findByRole("dialog", { name: /já tem ficha em outro grupo/i });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Solicitar transferência" }));
+    const form = await screen.findByTestId("transfer-request-form");
+    fireEvent.click(within(form).getByRole("button", { name: "Enviar pedido" }));
+    expect(await within(form).findByTestId("transfer-error")).toHaveTextContent(/já está matriculada no seu grupo/);
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+});
+
+describe("Edição de aluno com CPF mascarado", () => {
+  const masked = { id: 1, unitId: null, name: "Ana Souza", birthDate: "1990-05-10T00:00:00.000Z", document: "***.***.***-25", phone: null, email: null, status: "ACTIVE", joinedAt: null };
+  const withMasked = () => ({ ...base(), "GET /students": () => json(200, [masked], { "X-Total-Count": "1" }) });
+
+  it("mostra o CPF mascarado somente leitura e NÃO reenvia o documento no PATCH", async () => {
+    const calls = mockApi({ ...withMasked(), "PATCH /students/1": () => json(200, {}) });
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    const sheet = await screen.findByRole("dialog");
+    expect(within(sheet).getByTestId("student-document-masked")).toHaveTextContent("***.***.***-25");
+    expect(within(sheet).queryByLabelText("CPF")).not.toBeInTheDocument();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(calls.find((c) => c.method === "PATCH")!.body).not.toHaveProperty("document");
+  });
+
+  it("'Alterar CPF' libera o campo; o CPF novo vai no PATCH", async () => {
+    const calls = mockApi({ ...withMasked(), "PATCH /students/1": () => json(200, {}) });
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    const sheet = await screen.findByRole("dialog");
+    fireEvent.click(within(sheet).getByRole("button", { name: "Alterar CPF" }));
+    const input = within(sheet).getByLabelText("CPF");
+    expect(input).toHaveValue("");
+    fireEvent.change(input, { target: { value: "52998224725" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    expect(calls.find((c) => c.method === "PATCH")!.body).toMatchObject({ document: VALID_CPF });
   });
 });
 

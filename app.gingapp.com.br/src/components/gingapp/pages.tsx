@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Clock, Download, Bell, ShieldCheck, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
@@ -13,6 +14,7 @@ import {
   useClasses,
   useFinance,
   useFinanceSummary,
+  isTransferNotification,
   useMyStudent,
   useMyUnit,
   useNotifications,
@@ -27,6 +29,7 @@ import {
 } from "@/lib/queries";
 import { ClassCover, MyClasses, TeacherLine, UnitLine } from "./class-parts";
 import { PushSettings } from "./push-settings";
+import { TransfersShortcut } from "./transfers";
 import { LoadMore, PageHeading, SectionHeading, StateMessage } from "./shared";
 
 /* ------------------------------ Minhas aulas ------------------------------ */
@@ -424,6 +427,7 @@ export function NotificationsPage() {
   const passport = usePassport();
   const { student } = useMyStudent();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["notifications"] });
   const markAll = useMutation({
     mutationFn: () => api.patch("/notifications/read-all"),
@@ -450,6 +454,7 @@ export function NotificationsPage() {
     <>
       <PageHeading title="Meus recados" subtitle="O que acontece no seu grupo e na sua jornada." />
       <PushSettings />
+      <TransfersShortcut className="mb-5 rounded-md border border-border bg-card p-4" />
       {notifications.error ? (
         <StateMessage tone="error">{errorMessage(notifications.error, "Não foi possível carregar as notificações.")}</StateMessage>
       ) : (
@@ -469,7 +474,11 @@ export function NotificationsPage() {
                 <article
                   className="notice-item cursor-pointer"
                   key={notice.id}
-                  onClick={() => notice.readAt === null && markOne.mutate(notice.id)}
+                  onClick={() => {
+                    if (notice.readAt === null) markOne.mutate(notice.id);
+                    // Avisos de transferência levam direto à tela onde o pedido é decidido.
+                    if (isTransferNotification(notice.type)) void navigate({ to: "/transferencias" });
+                  }}
                 >
                   <div className="notice-meta">
                     <Bell size={15} />
@@ -479,6 +488,18 @@ export function NotificationsPage() {
                   </div>
                   <h3>{notice.title}</h3>
                   <p>{notice.body}</p>
+                  {isTransferNotification(notice.type) && (
+                    <Link
+                      to="/transferencias"
+                      className="mt-2 inline-block text-sm font-medium"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (notice.readAt === null) markOne.mutate(notice.id);
+                      }}
+                    >
+                      Ver pedido de transferência
+                    </Link>
+                  )}
                 </article>
               ))}
             </div>

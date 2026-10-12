@@ -31,6 +31,7 @@ import { Route as AppProfessoresRouteImport } from './routes/_app.professores'
 import { Route as AppRankingRouteImport } from './routes/_app.ranking'
 import { Route as AppRelatoriosRouteImport } from './routes/_app.relatorios'
 import { Route as AppRodasRouteImport } from './routes/_app.rodas'
+import { Route as AppTransferenciasRouteImport } from './routes/_app.transferencias'
 import { Route as AppTurmasRouteImport } from './routes/_app.turmas'
 import { Route as AppUnidadesRouteImport } from './routes/_app.unidades'
 import { Route as AppCheckinKindIdRouteImport } from './routes/_app.checkin.$kind.$id'
@@ -144,6 +145,11 @@ const AppRodasRoute = AppRodasRouteImport.update({
   path: '/rodas',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTransferenciasRoute = AppTransferenciasRouteImport.update({
+  id: '/transferencias',
+  path: '/transferencias',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTurmasRoute = AppTurmasRouteImport.update({
   id: '/turmas',
   path: '/turmas',
@@ -182,6 +188,7 @@ export interface FileRoutesByFullPath {
   '/ranking': typeof AppRankingRoute
   '/relatorios': typeof AppRelatoriosRoute
   '/rodas': typeof AppRodasRoute
+  '/transferencias': typeof AppTransferenciasRoute
   '/turmas': typeof AppTurmasRoute
   '/unidades': typeof AppUnidadesRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
@@ -208,6 +215,7 @@ export interface FileRoutesByTo {
   '/ranking': typeof AppRankingRoute
   '/relatorios': typeof AppRelatoriosRoute
   '/rodas': typeof AppRodasRoute
+  '/transferencias': typeof AppTransferenciasRoute
   '/turmas': typeof AppTurmasRoute
   '/unidades': typeof AppUnidadesRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
@@ -236,6 +244,7 @@ export interface FileRoutesById {
   '/_app/ranking': typeof AppRankingRoute
   '/_app/relatorios': typeof AppRelatoriosRoute
   '/_app/rodas': typeof AppRodasRoute
+  '/_app/transferencias': typeof AppTransferenciasRoute
   '/_app/turmas': typeof AppTurmasRoute
   '/_app/unidades': typeof AppUnidadesRoute
   '/_app/checkin/$kind/$id': typeof AppCheckinKindIdRoute
@@ -264,6 +273,7 @@ export interface FileRouteTypes {
     | '/ranking'
     | '/relatorios'
     | '/rodas'
+    | '/transferencias'
     | '/turmas'
     | '/unidades'
     | '/checkin/$kind/$id'
@@ -290,6 +300,7 @@ export interface FileRouteTypes {
     | '/ranking'
     | '/relatorios'
     | '/rodas'
+    | '/transferencias'
     | '/turmas'
     | '/unidades'
     | '/checkin/$kind/$id'
@@ -317,6 +328,7 @@ export interface FileRouteTypes {
     | '/_app/ranking'
     | '/_app/relatorios'
     | '/_app/rodas'
+    | '/_app/transferencias'
     | '/_app/turmas'
     | '/_app/unidades'
     | '/_app/checkin/$kind/$id'
@@ -488,6 +500,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRodasRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/transferencias': {
+      id: '/_app/transferencias'
+      path: '/transferencias'
+      fullPath: '/transferencias'
+      preLoaderRoute: typeof AppTransferenciasRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/turmas': {
       id: '/_app/turmas'
       path: '/turmas'
@@ -528,6 +547,7 @@ interface AppRouteChildren {
   AppRankingRoute: typeof AppRankingRoute
   AppRelatoriosRoute: typeof AppRelatoriosRoute
   AppRodasRoute: typeof AppRodasRoute
+  AppTransferenciasRoute: typeof AppTransferenciasRoute
   AppTurmasRoute: typeof AppTurmasRoute
   AppUnidadesRoute: typeof AppUnidadesRoute
   AppCheckinKindIdRoute: typeof AppCheckinKindIdRoute
@@ -549,6 +569,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppRankingRoute: AppRankingRoute,
   AppRelatoriosRoute: AppRelatoriosRoute,
   AppRodasRoute: AppRodasRoute,
+  AppTransferenciasRoute: AppTransferenciasRoute,
   AppTurmasRoute: AppTurmasRoute,
   AppUnidadesRoute: AppUnidadesRoute,
   AppCheckinKindIdRoute: AppCheckinKindIdRoute,

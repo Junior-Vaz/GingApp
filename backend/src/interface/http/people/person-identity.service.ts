@@ -3,7 +3,7 @@ import { Person, Prisma, PrismaClient, RopeStyle, StudentStatus } from '@prisma/
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
-import { parseCpf, personDocumentKey, PersonDocumentKey } from '../../../shared/security/person-document';
+import { maskStudentDocument, parseCpf, personDocumentKey, PersonDocumentKey } from '../../../shared/security/person-document';
 import { ropeOf } from '../graduations/rope';
 import { normalizeGingappCode } from './gingapp-code';
 import { PersonErrorCode, PersonErrorCodeValue, personBadRequest, personConflict } from './person-errors';
@@ -139,7 +139,11 @@ export class PersonIdentityService {
       const elsewhere = await db.student.count({ where: { personId: person.id } });
       if (elsewhere > 0) {
         const [preview] = await this.previews([person.id], db);
-        return error(409, PersonErrorCode.PERSON_EXISTS_ELSEWHERE, { transferAvailable: false, person: preview });
+        return error(409, PersonErrorCode.PERSON_EXISTS_ELSEWHERE, {
+          transferAvailable: true,
+          transfer: { method: 'POST', path: '/api/transfers', body: { personId: person.id } },
+          person: preview,
+        });
       }
       // Ficha sem nenhuma matricula (ex.: todas as matriculas foram removidas): reaproveita, nunca duplica.
       return { kind: 'LINK', person, key: person.documentHash ? null : key };
@@ -316,6 +320,8 @@ export class PersonIdentityService {
       }
       return null;
     }
+    // A API devolve o documento MASCARADO (Fase 2): o formulario que reenvia a mascara nao esta mudando nada.
+    if (current && next.trim() === maskStudentDocument(current)) return undefined;
     const cpf = parseCpf(next);
     if (cpf && cpf === currentCpf) return undefined; // mesmo CPF (talvez com outra mascara): nada muda
     if (!cpf) {

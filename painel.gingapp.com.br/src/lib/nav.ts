@@ -16,6 +16,7 @@ import {
   Settings,
   History,
   Trophy,
+  ArrowRightLeft,
   type LucideIcon,
 } from "lucide-react";
 import type { OrgRole } from "@/lib/session";
@@ -45,6 +46,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/ranking", label: "Ranking", icon: Trophy, roles: ["MESTRE", "PROFESSOR"] },
   // Financeiro é só do MESTRE (backend: RolePermission PROFESSOR/finance = tudo false).
   { to: "/financeiro", label: "Financeiro", icon: Wallet, roles: ["MESTRE"] },
+  // Transferências entre grupos (GET/POST /transfers): só o MESTRE (backend: 403 para os demais papéis).
+  { to: "/transferencias", label: "Transferências", icon: ArrowRightLeft, roles: ["MESTRE"] },
   { to: "/eventos", label: "Eventos", icon: PartyPopper },
   { to: "/rodas", label: "Rodas", icon: CircleDot },
   { to: "/certificados", label: "Certificados", icon: BadgeCheck },

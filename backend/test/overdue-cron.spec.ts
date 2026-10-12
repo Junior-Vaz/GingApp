@@ -154,8 +154,8 @@ describe('job diário de mensalidade vencida (unidade)', () => {
     `;
     const run = (value: string | undefined) => {
       const env: NodeJS.ProcessEnv = { ...process.env, TS_NODE_COMPILER_OPTIONS: '{"rootDir":"."}' };
-      // Os 5 jobs (mensalidade, auditoria, imagens, Ginga Rank, aulas continuas) compartilham o agendador: o JobsModule so sai quando TODOS estao desligados.
-      for (const key of ['OVERDUE_CRON', 'AUDIT_RETENTION_CRON', 'UPLOADS_GC', 'RANKING_CRON', 'LESSONS_CRON']) {
+      // Os 6 jobs (mensalidade, auditoria, imagens, Ginga Rank, aulas continuas, transferencias) compartilham o agendador: o JobsModule so sai quando TODOS estao desligados.
+      for (const key of ['OVERDUE_CRON', 'AUDIT_RETENTION_CRON', 'UPLOADS_GC', 'RANKING_CRON', 'LESSONS_CRON', 'TRANSFER_CRON']) {
         if (value === undefined) delete env[key];
         else env[key] = value;
       }

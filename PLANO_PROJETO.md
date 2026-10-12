@@ -3314,3 +3314,37 @@ O que NAO deu certo / decisoes
 4. `Student.document` legado continua em claro e visível à equipe; `Student.personId` ainda nullable (NOT NULL na F2).
 5. Definir `PERSON_DOC_KEY`/`PERSON_DOC_PEPPER` no Easypanel ANTES do deploy e nunca trocar.
 6. Specs antigos podem deixar `Person` órfã no banco de dev (limpeza geral opcional).
+
+### Ficha única — Fase 2: transferência entre grupos (backend + painel + app) - 2026-10-12
+
+**Estado:** concluída (sem commit). Contrato exato, regras e riscos em [`docs/FICHA_UNICA.md`](docs/FICHA_UNICA.md) §4.
+Migration `20261012230000_transfers` (aplicada com `migrate deploy`).
+
+#### O que deu certo
+- `TransferRequest`/`TransferContest`/`EnrollmentShare` + `Student.leftAt/leftReason`; `TransfersService` (pedido idempotente com
+  trava `FOR UPDATE` na Person, decisão pela pessoa ou responsável do menor, contestação informativa, aprovação em uma transação:
+  matrícula nova + login/responsáveis no grupo novo + origem FORMER + shares), `TransferCronService` 04:15 (`TRANSFER_CRON`),
+  auditoria `TRANSFER_*`, notificações aos dois grupos e à pessoa.
+- Ficha: `sharedFromOtherGroups` (frequência por turma, graduações, certificados; nunca financeiro) e `until/leftReason`.
+- Higiene: `PATCH /people/me`, CPF legado mascarado em `/students*` (CSV completo só p/ MESTRE), Person (+ transferências) na
+  exportação LGPD, 409 `PERSON_EXISTS_ELSEWHERE` com `transferAvailable:true`.
+- Painel: "Solicitar transferência" no conflito, página Transferências (MESTRE), histórico compartilhado na ficha, CPF mascarado
+  sem reenvio. App: tela `/transferencias` (aprovar/recusar com explicação, responsável decide pelo menor), selo, edição de
+  apelido/telefone.
+- Gates: backend build limpo OK, `test:unit` 163/163, `test:quick` completo **924/924** (77 specs), conjunto pedido 224 (1 falha
+  corrigida, ver abaixo), smoke 74/74, `transfers` 10/10; painel lint OK, 546/546, build OK; app lint OK, 217/217, build OK.
+
+#### O que NÃO deu certo e a solução
+- `transfers` 1ª execução 7/10: `toUnit` nulo na resposta do POST (faltava carregar a unidade: corrigido) e o token do grupo
+  antigo passou a dar 401 depois da aprovação — comportamento correto (a matrícula de origem vira FORMER e a regra existente de
+  aluno inativo barra o vínculo ALUNO); o teste passou a usar o token do grupo novo.
+- `member-privacy` (MESTRE lê alunos) esperava o documento cru na lista; agora sai mascarado: teste ajustado.
+- `person-ficha` esperava `transferAvailable:false`: ajustado para `true` + `transfer`.
+- `Student.personId NOT NULL` adiado (seed/demo/specs criam aluno sem ficha; sem prova da contagem em produção).
+
+#### Pendências (numeradas)
+1. Adulto sem login não consegue aprovar (pedido expira); faltam convite/acesso guiado.
+2. Sem "desfazer transferência"/revogar compartilhamento por tela; sem fluxo para treinar em dois grupos ao mesmo tempo.
+3. Push `TRANSFER_*` abre `/notificacoes` (sem categoria própria).
+4. Painel: limpar o CPF pela edição deixou de ser possível (campo vazio = não mexer).
+5. `Student.personId NOT NULL` e remoção do CPF em claro do banco (Fase futura).

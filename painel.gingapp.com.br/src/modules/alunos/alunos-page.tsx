@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
 import { IdCard, KeyRound, LayoutGrid, Plus, Table2, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -104,6 +104,8 @@ export function AlunosPage() {
   // 409 do cadastro (já no grupo / em outro grupo / possível duplicado) + os valores do formulário que o originaram.
   const [conflict, setConflict] = useState<{ conflict: StudentConflict; values: StudentFormValues } | null>(null);
   const [confirmingNew, setConfirmingNew] = useState(false);
+  // Edição: o CPF chega MASCARADO do servidor; só aparece o campo de digitação se o usuário clicar em "Alterar CPF".
+  const [changingCpf, setChangingCpf] = useState(false);
   const [view, setView] = useStudentsView();
   // Importação em massa é só do Mestre (backend: POST /students/import exige o MESTRE).
   const isMestre = useSessionUser()?.role === "MESTRE";
@@ -170,6 +172,8 @@ export function AlunosPage() {
   ];
 
   const isEdit = editing !== null && editing !== "new";
+  useEffect(() => setChangingCpf(false), [editing]);
+  const currentDocument = editing && editing !== "new" ? (editing.document ?? "").trim() : "";
   // Na edição, o CPF só é validado se o usuário o alterou (aluno legado com documento que não é CPF não fica preso).
   const originalDocument = editing && editing !== "new" ? editing.document : undefined;
   const formSchema = useMemo(() => makeStudentSchema(originalDocument), [originalDocument]);
@@ -401,24 +405,55 @@ export function AlunosPage() {
                 </FormItem>
               )}
             />
-            <FormField
-              control={form.control}
-              name="document"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>CPF</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="000.000.000-00"
-                      autoComplete="off"
-                      {...field}
-                      onChange={(e) => field.onChange(maskCpfInput(e.target.value))}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {currentDocument !== "" && !changingCpf ? (
+              <div className="grid gap-1.5">
+                <p className="text-sm font-medium">CPF</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span data-testid="student-document-masked" className="font-mono text-sm">
+                    {currentDocument}
+                  </span>
+                  <Button type="button" variant="outline" size="sm" onClick={() => setChangingCpf(true)}>
+                    Alterar CPF
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Por segurança, o CPF cadastrado aparece mascarado e só é enviado de novo se você alterá-lo.
+                </p>
+              </div>
+            ) : (
+              <FormField
+                control={form.control}
+                name="document"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>CPF</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="000.000.000-00"
+                        autoComplete="off"
+                        {...field}
+                        onChange={(e) => field.onChange(maskCpfInput(e.target.value))}
+                      />
+                    </FormControl>
+                    {currentDocument !== "" && (
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto p-0 text-xs"
+                        onClick={() => {
+                          form.setValue("document", "");
+                          setChangingCpf(false);
+                        }}
+                      >
+                        Manter o CPF atual ({currentDocument})
+                      </Button>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
             {!isEdit && (
               <>
                 <FormField
@@ -546,6 +581,10 @@ export function AlunosPage() {
         onClose={() => setConflict(null)}
         onOpenExisting={(id) => void openExistingStudent(id)}
         onConfirmNew={() => void confirmNewStudent()}
+        onTransferSent={() => {
+          setConflict(null);
+          setEditing(null);
+        }}
       />
 
       <ConfirmDialog

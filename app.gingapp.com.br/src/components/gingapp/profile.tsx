@@ -23,6 +23,7 @@ import {
 import { ChangePasswordSection } from "./change-password";
 import { UnitLine } from "./class-parts";
 import { PersonCodeCard } from "./ficha-code-card";
+import { FichaEditSection } from "./ficha-edit";
 import { ImageUploadControl } from "./image-upload";
 import { MyDataSection } from "./legal";
 import { QrDialog } from "./journey";
@@ -30,6 +31,7 @@ import { TwoFactorSection } from "./two-factor";
 import { PageHeading, StateMessage } from "./shared";
 import { Avatar } from "./avatar";
 import { Rope } from "./rope";
+import { TransfersShortcut } from "./transfers";
 
 const ROLE_LABEL: Record<string, string> = {
   ALUNO: "Aluno",
@@ -207,6 +209,8 @@ export function ProfilePage() {
             </p>
           )}
           {!user?.mustChangePassword && <PersonCodeCard />}
+          {!user?.mustChangePassword && <TransfersShortcut />}
+          {!user?.mustChangePassword && own && student?.id === own.id && <FichaEditSection />}
           <ChangePasswordSection />
           {!user?.mustChangePassword && <TwoFactorSection />}
           {!user?.mustChangePassword && <MyDataSection />}

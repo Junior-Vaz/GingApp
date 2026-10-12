@@ -16,7 +16,7 @@ import {
 import { errorMessage } from "@/lib/api";
 import { dayOnly, fmt } from "@/lib/format";
 import { ropeOf } from "@/lib/rope";
-import { DOCUMENT_KIND_LABEL, useStudentFicha } from "./ficha";
+import { DOCUMENT_KIND_LABEL, useStudentFicha, type SharedFromOtherGroup } from "./ficha";
 import { STUDENT_STATUS_LABEL, type Student } from "./schema";
 
 const date = (iso: string) => fmt(dayOnly(iso), "dd/MM/yyyy");
@@ -26,6 +26,70 @@ function Section({ title, empty, children }: { title: string; empty?: string | u
     <section className="grid gap-2">
       <h3 className="text-sm font-semibold">{title}</h3>
       {children ?? <p className="text-sm text-muted-foreground">{empty}</p>}
+    </section>
+  );
+}
+
+/**
+ * "Histórico de outros grupos (compartilhado após transferência)": o que o grupo anterior tinha da pessoa e passou a
+ * ser visível aqui depois que ela aprovou a transferência. Somente leitura; some quando não há nada compartilhado.
+ */
+function SharedHistory({ shared }: { shared: SharedFromOtherGroup[] }) {
+  return (
+    <section className="grid gap-2" data-testid="ficha-shared">
+      <h3 className="text-sm font-semibold">Histórico de outros grupos (compartilhado após transferência)</h3>
+      <p className="text-xs text-muted-foreground">Somente leitura: dados da matrícula anterior, liberados pela transferência.</p>
+      <div className="grid gap-3">
+        {shared.map((s) => (
+          <div key={s.shareId} className="grid gap-2 rounded-lg border bg-card p-3" data-testid="ficha-shared-item">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <span className="font-semibold">{s.organization.name}</span>
+              <span className="text-xs text-muted-foreground">
+                de {date(s.since)} {s.until ? `até ${date(s.until)}` : "até hoje"}
+                {s.leftReason ? ` · saída: ${s.leftReason}` : ""}
+              </span>
+            </div>
+
+            {s.graduations.length > 0 && (
+              <ul className="grid gap-1" aria-label={`Graduações em ${s.organization.name}`}>
+                {s.graduations.map((g) => (
+                  <li key={g.id} className="flex flex-wrap items-center gap-2 text-sm">
+                    <RopeSwatch {...ropeOf(g.level)} size="sm" orientation="horizontal" />
+                    <span className="font-medium">{g.level.name}</span>
+                    <span className="text-muted-foreground">
+                      {g.system.name} · {date(g.graduatedAt)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {s.attendanceByClass.length > 0 && (
+              <ul className="grid gap-1" aria-label={`Frequência em ${s.organization.name}`}>
+                {s.attendanceByClass.map((a) => (
+                  <li key={a.class.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="font-medium">{a.class.name}</span>
+                    <span className="text-muted-foreground">
+                      {a.present} presença(s) · {a.absent} falta(s) · {a.total} no total
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {s.certificates.length > 0 && (
+              <ul className="grid gap-1" aria-label={`Certificados em ${s.organization.name}`}>
+                {s.certificates.map((c) => (
+                  <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                    <span className="font-medium">{c.title}</span>
+                    <span className="text-xs text-muted-foreground">{date(c.issuedAt)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ))}
+      </div>
     </section>
   );
 }
@@ -171,6 +235,10 @@ export function FichaAlunoDialog({ student, onClose }: { student: Student | null
                 </ul>
               )}
             </Section>
+
+            {(data.sharedFromOtherGroups ?? []).length > 0 && (
+              <SharedHistory shared={data.sharedFromOtherGroups} />
+            )}
           </div>
         )}
 

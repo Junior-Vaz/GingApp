@@ -122,7 +122,8 @@ describe('ficha unica do capoeirista - fase 1 (e2e)', () => {
     ]) {
       const res = await create(orgB.token, body).expect(409);
       assert.equal(res.body.code, 'PERSON_EXISTS_ELSEWHERE');
-      assert.equal(res.body.transferAvailable, false);
+      assert.equal(res.body.transferAvailable, true); // Fase 2: o grupo novo pode pedir a transferencia
+      assert.deepEqual(res.body.transfer, { method: 'POST', path: '/api/transfers', body: { personId: ana.person.id } });
       assert.deepEqual(Object.keys(res.body.person).sort(), PREVIEW_KEYS);
       assert.equal(res.body.person.personId, ana.person.id);
       assert.equal(res.body.person.name, `${PREFIX} Ana Ficha`);

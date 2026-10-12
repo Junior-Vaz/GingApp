@@ -559,6 +559,76 @@ export function useFicha(enabled = true) {
   });
 }
 
+/* ---------- Transferência entre grupos (Ficha única, Fase 2) ---------- */
+
+export type TransferStatus = "PENDING_PERSON" | "APPROVED" | "DECLINED" | "CANCELLED" | "EXPIRED" | "COMPLETED";
+export type TransferContestReason = "PENDING_PAYMENT" | "EQUIPMENT" | "OTHER";
+export type TransferShared = "ATTENDANCE" | "GRADUATIONS" | "CERTIFICATES";
+
+export interface TransferOrganization {
+  id: number;
+  name: string;
+  logoUrl: string | null;
+}
+
+export interface PersonTransferView {
+  id: number;
+  status: TransferStatus;
+  person: { id: number; name: string; photo: string | null };
+  fromOrganization: TransferOrganization;
+  toOrganization: TransferOrganization;
+  toUnit: { id: number; name: string } | null;
+  requestedAt: string;
+  expiresAt: string;
+  contestUntil: string;
+  decidedAt: string | null;
+  note: string | null;
+  contests: {
+    id: number;
+    reason: TransferContestReason;
+    note: string | null;
+    createdAt: string;
+    organization: { id: number; name: string };
+  }[];
+  /** true quando ESTE usuário pode aprovar/recusar agora (adulto por si; menor só o responsável). */
+  canDecide: boolean;
+  decidingAs: "SELF" | "GUARDIAN" | null;
+  sharedOnApproval: TransferShared[];
+}
+
+/** Tipos de notificação que levam à tela de pedidos de transferência. */
+export const isTransferNotification = (type: string | null | undefined): boolean => !!type && type.startsWith("TRANSFER_");
+
+/**
+ * Pedidos de transferência da própria pessoa e dos dependentes do responsável (sem filtro de aluno
+ * ativo: o servidor já devolve tudo o que o usuário enxerga). Erro (ex.: backend antigo) não é repetido.
+ */
+export function useTransfers() {
+  return useQuery({
+    queryKey: ["people", "me", "transfers"],
+    queryFn: () => api.get<PersonTransferView[]>("/people/me/transfers"),
+    retry: false,
+  });
+}
+
+/** Pedidos que ESTE usuário ainda precisa decidir (alimenta selos do Perfil e do menu). */
+export const pendingTransfersOf = (list: PersonTransferView[] | undefined): PersonTransferView[] =>
+  (list ?? []).filter((t) => t.status === "PENDING_PERSON" && t.canDecide);
+
+export function usePendingTransferCount(): number {
+  const { data } = useTransfers();
+  return pendingTransfersOf(data).length;
+}
+
+/** Atualiza a ficha do aluno (PATCH /people/me): apelido, telefone etc. */
+export interface FichaPatch {
+  name?: string;
+  nickname?: string | null;
+  photo?: string | null;
+  phone?: string;
+  email?: string;
+}
+
 /* ---------- Listagens paginadas (limit/offset + X-Total-Count) ----------
  * Os endpoints "/me", /events, /calendar e /notifications devolvem 50 por padrão (teto 200) e o
  * total real no header X-Total-Count. NUNCA calcule totais/contagens em cima da lista carregada:

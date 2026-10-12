@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { logout } from "@/lib/auth";
 import { useSessionUser } from "@/lib/session";
-import { useMyIdentity, useMyStudent, useMyUnit, usePassport, useUnreadCount } from "@/lib/queries";
+import { useMyIdentity, useMyStudent, useMyUnit, usePassport, usePendingTransferCount, useUnreadCount } from "@/lib/queries";
 import { Avatar } from "./avatar";
 
 const mainNav = [
@@ -97,10 +97,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const passport = usePassport();
   const me = useMyIdentity();
   const unread = useUnreadCount().data ?? 0; // contado no banco, não pela lista de notificações
+  const pendingTransfers = usePendingTransferCount(); // pedidos de transferência que o usuário precisa decidir
   const groupName = passport.data?.organization.name ?? user?.organizationSlug ?? "Seu grupo";
   const myUnit = useMyUnit();
   const unitName = myUnit?.name ?? passport.data?.unit?.name ?? "";
-  const current = [...mainNav, ...communityNav, ...personalNav].find((item) => item.to === pathname)?.label ?? "GingApp";
+  const current = [...mainNav, ...communityNav, ...personalNav].find((item) => item.to === pathname)?.label ?? (pathname === "/transferencias" ? "Pedidos de transferência" : "GingApp");
 
   function handleLogout() {
     logout(queryClient);
@@ -119,6 +120,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         <item.icon />
         <span>{item.label}</span>
         {item.to === "/notificacoes" && unread > 0 && <span className="nav-count">{unread > 9 ? "9+" : unread}</span>}
+        {item.to === "/perfil" && pendingTransfers > 0 && (
+          <span className="nav-count" data-testid="nav-transfers-badge" title="Pedidos de transferência aguardando sua decisão">
+            {pendingTransfers > 9 ? "9+" : pendingTransfers}
+          </span>
+        )}
       </Link>
     ));
 
@@ -203,6 +209,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <span>
               {item.to === "/jornada" ? "Jornada" : item.to === "/aulas" ? "Aulas" : item.to === "/perfil" ? "Perfil" : item.label}
             </span>
+            {item.to === "/perfil" && pendingTransfers > 0 && <span className="bottom-nav-dot" aria-label="Pedido de transferência aguardando" />}
           </Link>
         ))}
       </nav>

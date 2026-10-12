@@ -41,8 +41,27 @@ export interface StudentFicha {
     verificationCode: string;
     organization: { id: number; name: string };
   }[];
-  sharedFromOtherGroups: unknown[];
+  /** Histórico de matrículas antigas, compartilhado (só leitura) com o grupo novo após uma transferência aprovada. */
+  sharedFromOtherGroups: SharedFromOtherGroup[];
   scope: "OWN_GROUP" | "SELF";
+}
+
+export interface SharedFromOtherGroup {
+  shareId: number;
+  organization: { id: number; name: string; logoUrl: string | null };
+  studentId: number;
+  since: string;
+  until: string | null;
+  leftReason: string | null;
+  sharedAt: string;
+  graduations: {
+    id: number;
+    graduatedAt: string;
+    level: { id: number; name: string; order: number; color?: string | null; style?: RopeStyle | null; colors?: string[] | null };
+    system: { id: number; name: string };
+  }[];
+  attendanceByClass: { class: { id: number; name: string }; present: number; absent: number; total: number }[];
+  certificates: { id: number; title: string; issuedAt: string }[];
 }
 
 export const DOCUMENT_KIND_LABEL: Record<NonNullable<StudentFicha["person"]["documentKind"]>, string> = {

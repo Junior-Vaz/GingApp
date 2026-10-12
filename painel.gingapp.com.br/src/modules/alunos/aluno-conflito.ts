@@ -15,7 +15,7 @@ export interface PersonPreview {
 /** 409 de POST /students: o que o painel precisa para decidir o diálogo. */
 export type StudentConflict =
   | { kind: "ALREADY_IN_GROUP"; message: string; studentId: number; studentStatus: StudentStatus }
-  | { kind: "EXISTS_ELSEWHERE"; message: string; person: PersonPreview }
+  | { kind: "EXISTS_ELSEWHERE"; message: string; person: PersonPreview; transferAvailable: boolean }
   | { kind: "POSSIBLE_DUPLICATE"; message: string; matches: PersonPreview[]; canConfirmNew: boolean };
 
 const STATUSES: StudentStatus[] = ["ACTIVE", "INACTIVE", "SUSPENDED", "FORMER"];
@@ -66,7 +66,9 @@ export function parseStudentConflict(error: unknown): StudentConflict | null {
   }
   if (error.code === "PERSON_EXISTS_ELSEWHERE") {
     const person = asPreview(body["person"]);
-    return person ? { kind: "EXISTS_ELSEWHERE", message: error.message, person } : null;
+    return person
+      ? { kind: "EXISTS_ELSEWHERE", message: error.message, person, transferAvailable: body["transferAvailable"] === true }
+      : null;
   }
   if (error.code === "POSSIBLE_DUPLICATE") {
     const raw = Array.isArray(body["possibleMatches"]) ? body["possibleMatches"] : [];
