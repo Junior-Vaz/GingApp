@@ -113,37 +113,37 @@ enum RodaRecurrence {
 // =========================================================================
 
 model User {
-  id                   Int       @id @default(autoincrement())
-  email                String    @unique
-  passwordHash         String
-  name                 String
-  phone                String?
-  photo                String?
-  userType             UserType  @default(MEMBER)
-  isSuperAdmin         Boolean   @default(false)
-  status               String    @default("ACTIVE")
+  id                      Int       @id @default(autoincrement())
+  email                   String    @unique
+  passwordHash            String
+  name                    String
+  phone                   String?
+  photo                   String?
+  userType                UserType  @default(MEMBER)
+  isSuperAdmin            Boolean   @default(false)
+  status                  String    @default("ACTIVE")
   /// 2FA TOTP (RFC 6238), opt-in. O segredo fica CIFRADO em repouso (AES-256-GCM, ver
   /// shared/security/two-factor-crypto.ts) e nunca e' devolvido depois do setup. Enquanto
   /// twoFactorEnabled=false o segredo e' so' um setup pendente (ainda nao confirmado com um codigo).
-  twoFactorSecret      String?
-  twoFactorEnabled     Boolean   @default(false)
+  twoFactorSecret         String?
+  twoFactorEnabled        Boolean   @default(false)
   /// Hashes (HMAC-SHA256) dos codigos de recuperacao ainda NAO usados; cada um vale uma unica vez.
-  twoFactorRecoveryHashes String[] @default([])
+  twoFactorRecoveryHashes String[]  @default([])
   /// Ultimo passo de 30 s de TOTP aceito (anti-replay: o mesmo codigo nao vale duas vezes).
-  twoFactorLastStep    Int?
-  tokenValidAfter      DateTime?
+  twoFactorLastStep       Int?
+  tokenValidAfter         DateTime?
   /// true quando a senha atual foi definida por outra pessoa (conta de aluno/responsavel criada pelo
   /// Mestre/Professor, ou senha redefinida por ele): os frontends devem exigir a troca no proximo login.
   /// Limpo por POST /auth/change-password.
-  mustChangePassword   Boolean   @default(false)
+  mustChangePassword      Boolean   @default(false)
   /// Aceite dos Termos de Uso + Politica de Privacidade (LGPD, E10): versao do texto aceita pelo titular
   /// (ver backend/src/shared/legal) e quando. NULL = nunca aceitou. Um texto novo (versao diferente da
   /// atual) volta a exigir o aceite. O servidor so BLOQUEIA o uso se TERMS_ENFORCEMENT=true; por padrao
   /// quem barra e o frontend (modal bloqueante), para nao quebrar seed/demo/e2e.
-  acceptedTermsVersion String?
-  acceptedTermsAt      DateTime?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  acceptedTermsVersion    String?
+  acceptedTermsAt         DateTime?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
 
   memberships                  OrganizationUser[]
   unitAccess                   UserUnitAccess[]
@@ -398,6 +398,7 @@ model Organization {
   certificates          Certificate[]
   rodas                 Roda[]
   uploads               Upload[]
+  pointEvents           PointEvent[]
 
   @@index([status])
 }
@@ -522,6 +523,9 @@ model Student {
   publicProfile       PublicProfile?      @relation("PublicProfileStudent")
   certificates        Certificate[]
   billing             StudentBilling?
+  pointEvents         PointEvent[]
+  rankingProfile      RankingProfile?
+  achievements        Achievement[]
 
   @@unique([organizationId, userId])
   @@index([organizationId, status])
@@ -746,35 +750,35 @@ model FinancialRecord {
 /// stateId/cityId: mesmos campos que Roda já tinha desde a fundação — permitem o Calendário
 /// estadual (projeto.txt §42, Fase 2 §10.17) agregar Roda+Event num só feed público filtrável.
 model Event {
-  id             Int      @id @default(autoincrement())
-  organizationId Int
-  unitId         Int?
-  stateId        Int?
-  cityId         Int?
-  title          String
-  type           String   @default("OUTRO")
-  description    String?
-  date           DateTime
-  location       String?
+  id                   Int         @id @default(autoincrement())
+  organizationId       Int
+  unitId               Int?
+  stateId              Int?
+  cityId               Int?
+  title                String
+  type                 String      @default("OUTRO")
+  description          String?
+  date                 DateTime
+  location             String?
   /// Coordenadas do local para o mapa da comunidade (opcionais; ver Unit.latitude).
-  latitude       Float?
-  longitude      Float?
-  isPublic       Boolean  @default(false)
+  latitude             Float?
+  longitude            Float?
+  isPublic             Boolean     @default(false)
   /// URL de uma imagem de capa (sem upload de arquivo — mesmo padrão leve de Student.photo/
   /// PublicProfile.photo). Usada nos cards do feed (Home/Calendário, PLANO_PROJETO.md §10.21/
   /// §10.22); sem ela, o card usa um placeholder ilustrado com o ícone do tipo.
-  imageUrl       String?
+  imageUrl             String?
   /// Vagas (null = ilimitado). Contam CONFIRMED + ATTENDED; acima disso a inscricao vai para a lista de espera
   /// (ParticipantStatus.WAITLIST) so a pedido do inscrito.
-  capacity       Int?
+  capacity             Int?
   /// Valor de inscricao em centavos (null/0 = gratuito). INFORMATIVO: nao ha cobranca online nesta versao.
-  priceCents     Int?
+  priceCents           Int?
   /// DRAFT/PUBLISHED/CANCELLED/CLOSED (ver enum EventStatus). Eventos antigos nascem PUBLISHED.
-  status         EventStatus @default(PUBLISHED)
+  status               EventStatus @default(PUBLISHED)
   /// Prazo das inscricoes feitas pelo proprio aluno/responsavel (a equipe inscreve a qualquer momento).
   registrationDeadline DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   organization Organization       @relation(fields: [organizationId], references: [id])
   unit         Unit?              @relation(fields: [unitId], references: [id])
@@ -940,20 +944,20 @@ model Community {
 /// gap identificado: o schema original não tinha essa FK e não dava para restringir quem
 /// pode editar/apagar uma roda de outro grupo).
 model Roda {
-  id             Int      @id @default(autoincrement())
-  organizationId Int?
-  communityId    Int?
-  stateId        Int?
-  cityId         Int?
-  title          String
-  description    String?
-  date           DateTime
-  location       String?
+  id              Int            @id @default(autoincrement())
+  organizationId  Int?
+  communityId     Int?
+  stateId         Int?
+  cityId          Int?
+  title           String
+  description     String?
+  date            DateTime
+  location        String?
   /// Coordenadas do local para o mapa da comunidade (opcionais; ver Unit.latitude).
-  latitude       Float?
-  longitude      Float?
+  latitude        Float?
+  longitude       Float?
   /// Mesma convenção de Event.imageUrl acima — URL de capa opcional, sem upload de arquivo.
-  imageUrl       String?
+  imageUrl        String?
   /// Recorrencia ("roda mensal"): a roda MAE guarda a regra (derivada de `date`: dia da semana, n-esimo dia da
   /// semana do mes ou dia do mes) e POST /rodas/:id/generate-occurrences cria as proximas ocorrencias como rodas
   /// filhas (parentRodaId), de forma idempotente. As filhas tem recurrence NONE.
@@ -961,8 +965,8 @@ model Roda {
   /// Ultimo dia (inclusive) em que a serie pode gerar ocorrencias; null = sem fim.
   recurrenceUntil DateTime?
   parentRodaId    Int?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   organization Organization?     @relation(fields: [organizationId], references: [id])
   community    Community?        @relation(fields: [communityId], references: [id])
@@ -1046,4 +1050,90 @@ model Certificate {
 
   @@index([organizationId])
   @@index([studentId])
+}
+
+// =========================================================================
+// GINGA RANK (ranking de alunos e grupos)
+// =========================================================================
+
+/// Tipo de ponto do Ginga Rank. Os valores e as regras ficam em src/interface/http/ranking/ranking-rules.ts (SSOT).
+/// Mensalidade/financeiro NUNCA gera ponto.
+enum PointEventType {
+  CLASS_ATTENDANCE
+  STREAK_BONUS
+  EVENT_ATTENDANCE
+  RODA_PARTICIPATION
+  MONTHLY_CONSISTENCY
+  GRADUATION
+  CERTIFICATE
+}
+
+/// Ponto ganho por um aluno, DERIVADO das tabelas de origem (presenca, evento, roda, graduacao, certificado) por
+/// RankingService.syncStudent (idempotente: upsert pela chave unica + remocao do que deixou de existir na origem).
+/// refType/refId identificam a origem (ex.: 'Lesson'/'123', 'Week'/'2026-10-05', 'Month'/'2026-09'). season = 'YYYY-MM'
+/// (mes do ponto; data civil UTC para aula/graduacao, America/Sao_Paulo para instantes).
+model PointEvent {
+  id             Int            @id @default(autoincrement())
+  organizationId Int
+  studentId      Int
+  type           PointEventType
+  points         Int
+  refType        String
+  refId          String
+  occurredAt     DateTime
+  season         String
+  createdAt      DateTime       @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, type, refType, refId])
+  @@index([season, organizationId])
+  @@index([studentId, season])
+}
+
+/// Preferencias do aluno no ranking. Sem linha = opt-in desligado e sem apelido. optInPublic liga a aparicao nos
+/// rankings ABERTOS (cidade/estado/Brasil); menor de idade so aparece la com o consentimento do responsavel
+/// (StudentGuardian.consentPublicProfile, o MESMO consentimento do Passaporte). No ranking do proprio grupo todos
+/// os alunos ATIVOS aparecem sempre.
+model RankingProfile {
+  id          Int      @id @default(autoincrement())
+  studentId   Int      @unique
+  optInPublic Boolean  @default(false)
+  nickname    String?
+  updatedAt   DateTime @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+}
+
+/// Conquista do aluno (codigos em ranking-rules.ts). Codigos 'LEAGUE_*' sao marcadores internos de "liga ja
+/// notificada" (nao aparecem como conquista), para nunca notificar a mesma liga duas vezes.
+model Achievement {
+  id        Int      @id @default(autoincrement())
+  studentId Int
+  code      String
+  earnedAt  DateTime
+  createdAt DateTime @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, code])
+}
+
+/// Resultado de uma temporada FECHADA (snapshot dos top 10). scope: GROUP (scopeKey = id do grupo; alunos do grupo),
+/// COUNTRY (scopeKey 'BR'; alunos com opt-in) ou GROUPS_COUNTRY (scopeKey 'BR'; grupos, points = media por aluno).
+/// Sem FK de proposito: e' historico imutavel. Idempotente: o fechamento pula (season, scope, scopeKey) ja gravado.
+model SeasonResult {
+  id             Int      @id @default(autoincrement())
+  season         String
+  scope          String
+  scopeKey       String
+  rank           Int
+  studentId      Int?
+  organizationId Int?
+  points         Int
+  createdAt      DateTime @default(now())
+
+  @@unique([season, scope, scopeKey, rank])
+  @@index([season])
 }

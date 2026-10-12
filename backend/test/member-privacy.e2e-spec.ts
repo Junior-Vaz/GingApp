@@ -76,6 +76,12 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/map/places', 'mapa da comunidade: unidades/treinos/eventos públicos/rodas de grupos visíveis; sem pessoas (nenhum aluno, professor, e-mail ou telefone)'],
   ['/api/push/config', 'config pública do Web Push: só { enabled, publicKey VAPID (pública) }'],
   ['/api/push/preferences', 'preferências de aviso do PRÓPRIO usuário (escopo do token)'],
+  ['/api/ranking/students', 'Ginga Rank: GROUP = só alunos ATIVOS do próprio grupo (nome curto/apelido + avatar); CITY/STATE/COUNTRY só opt-in (menor só com consentimento do responsável)'],
+  ['/api/ranking/groups', 'Ginga Rank: agregado por grupo (média de pontos), sem dado de pessoa'],
+  ['/api/ranking/me', 'Ginga Rank: progresso do PRÓPRIO aluno/dependente (vínculo conferido por resolveLink)'],
+  ['/api/ranking/seasons', 'Ginga Rank: campeões de temporadas fechadas (Brasil só com opt-in vigente; e do próprio grupo)'],
+  ['/api/ranking/hall-of-fame', 'Ginga Rank: alias de /ranking/students com season=ALL (mesmas regras de privacidade)'],
+  // '/api/ranking/group-overview' NÃO entra: é da equipe (students.view) — ALUNO/RESPONSAVEL recebem 403.
   ['/api/rodas', 'pública (comunidade): sem participantes; agregados de contagem'],
   ['/api/rodas/:id', 'pública (comunidade)'],
   ['/api/rodas/reference/states', 'dado de referência público'],

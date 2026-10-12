@@ -71,6 +71,8 @@ interface DataTableProps<T> {
    * LOCAL, só entre as linhas da página corrente (o backend ainda não ordena).
    */
   server?: ServerTableState;
+  /** Classe extra por linha (ex.: destacar a linha do usuário). */
+  rowClassName?: ((row: T) => string | undefined) | undefined;
 }
 
 /** `take` fixo das listagens do backend; ver LACUNAS no README. */
@@ -109,6 +111,7 @@ export function DataTable<T>({
   toolbar,
   serverLimit = SERVER_LIST_LIMIT,
   server,
+  rowClassName,
 }: DataTableProps<T>) {
   const [localQuery, setLocalQuery] = useState("");
   const [sort, setSort] = useState<{ id: string; dir: "asc" | "desc" } | null>(null);
@@ -212,7 +215,7 @@ export function DataTable<T>({
       );
     }
     return visible.map((row) => (
-      <TableRow key={getRowId(row)}>
+      <TableRow key={getRowId(row)} className={rowClassName?.(row)}>
         {columns.map((column) => (
           <TableCell key={column.id} className={column.className}>
             {column.cell ? column.cell(row) : String(column.sortValue?.(row) ?? "")}

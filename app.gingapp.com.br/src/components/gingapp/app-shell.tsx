@@ -19,6 +19,7 @@ import {
   Menu,
   LogOut,
   QrCode,
+  Trophy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -39,12 +40,13 @@ const communityNav = [
   { to: "/comunidade", label: "Comunidade", icon: Users },
   { to: "/eventos", label: "Eventos", icon: CalendarDays },
   { to: "/rodas", label: "Rodas de capoeira", icon: CircleDot },
+  { to: "/ranking", label: "Ranking", icon: Trophy },
 ] as const;
 const personalNav = [
   { to: "/notificacoes", label: "Notificações", icon: Bell },
   { to: "/perfil", label: "Meu perfil", icon: UserRound },
 ] as const;
-const bottomNav = [mainNav[0], mainNav[1], communityNav[0], mainNav[2], personalNav[1]];
+const bottomNav = [mainNav[0], mainNav[1], communityNav[0], communityNav[3], mainNav[2], personalNav[1]];
 type NavItem = (typeof mainNav)[number] | (typeof communityNav)[number] | (typeof personalNav)[number];
 
 export function Brand({ mobile = false, large = false }: { mobile?: boolean; large?: boolean }) {

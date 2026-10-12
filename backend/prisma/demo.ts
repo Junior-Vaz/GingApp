@@ -410,6 +410,7 @@ export async function runDemo(
   await stepRodas(ctx);
   await stepAnnouncements(ctx);
   await stepCertificatesAndPassports(ctx);
+  await stepRanking(ctx);
 
   const counts = await countEntities(prisma, ctx.orgId);
   const accounts = ACCOUNTS.map((a) => demoEmail(a.local, emailDomain));
@@ -1735,6 +1736,30 @@ async function stepCertificatesAndPassports(ctx: Ctx): Promise<void> {
       });
       bump(ctx, 'publicProfiles', 1);
     }
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// 14. Ginga Rank: opt-in nos rankings abertos (para a demonstracao)
+// ---------------------------------------------------------------------------------------------
+
+/** Adultos com opt-in aberto (cidade/estado/Brasil) + 1 menor cujo responsavel ja consentiu (Passaporte). */
+const RANKING_OPT_IN_ADULTS = ['rafael', 'juliana', 'bruno', 'thais', 'renata', 'leonardo'];
+const RANKING_OPT_IN_MINOR = 'maria-clara'; // responsavel Marcia Souza, consent: true (demo-data)
+const RANKING_NICKNAMES: Record<string, string> = { juliana: 'Ju da Roda', rafael: 'Rafa Axé' };
+
+async function stepRanking(ctx: Ctx): Promise<void> {
+  await block(ctx, 'ranking (opt-in aberto)', async (tx) => {
+    const rows: Prisma.RankingProfileCreateManyInput[] = [];
+    for (const key of [...RANKING_OPT_IN_ADULTS, RANKING_OPT_IN_MINOR]) {
+      const entry = ctx.roster.find((e) => e.spec.key === key);
+      if (!entry?.id) continue;
+      if (key === RANKING_OPT_IN_MINOR && !entry.spec.guardian?.consent) continue; // menor so com consentimento
+      rows.push({ studentId: entry.id, optInPublic: true, nickname: RANKING_NICKNAMES[key] ?? null });
+    }
+    // skipDuplicates: quem ja tem perfil de ranking (o aluno mexeu nas configuracoes) nunca e' alterado.
+    const { count } = await tx.rankingProfile.createMany({ data: rows, skipDuplicates: true });
+    bump(ctx, 'rankingOptIns', count);
   });
 }
 

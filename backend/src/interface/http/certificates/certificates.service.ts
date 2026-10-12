@@ -13,6 +13,7 @@ import { CreateCertificateDto } from './dto/create-certificate.dto';
 import { UpdateCertificateDto } from './dto/update-certificate.dto';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
+import { RankingService } from '../ranking/ranking.service';
 
 const CERTIFICATE_NOT_FOUND = 'Certificado não encontrado.';
 
@@ -40,6 +41,7 @@ export class CertificatesService {
     private readonly unitScope: UnitScopeService,
     private readonly permissions: PermissionsService,
     private readonly audit: AuditService,
+    private readonly ranking: RankingService,
   ) {}
 
   /** Antes SEM limite; agora paginado (padrão 50, igual aos demais módulos) — `limit`/`offset` e
@@ -221,6 +223,7 @@ export class CertificatesService {
       entityId: created.id,
       meta: { studentId: dto.studentId, studentGraduationId: dto.studentGraduationId ?? null },
     });
+    this.ranking.queueSync(dto.studentId); // Ginga Rank (fire-and-forget): +20 por certificado
     return created;
   }
 
@@ -239,7 +242,8 @@ export class CertificatesService {
   }
 
   async remove(organizationId: number, id: number, user?: AuthenticatedUser): Promise<void> {
-    await this.findOne(organizationId, id, user);
+    const certificate = await this.findOne(organizationId, id, user);
     await this.prisma.certificate.delete({ where: { id } });
+    this.ranking.queueSync(certificate.studentId); // Ginga Rank (remove os pontos do certificado)
   }
 }

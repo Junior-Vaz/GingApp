@@ -94,6 +94,8 @@ export const AuditAction = {
   TWO_FACTOR_RECOVERY_USED: 'TWO_FACTOR_RECOVERY_USED',
   TWO_FACTOR_FAILURE: 'TWO_FACTOR_FAILURE',
   TWO_FACTOR_RESET: 'TWO_FACTOR_RESET',
+  // Ginga Rank: opt-in nos rankings abertos / apelido do aluno
+  RANKING_SETTINGS: 'RANKING_SETTINGS',
   // Retencao: limpeza automatica de registros antigos (job semanal)
   AUDIT_PURGE: 'AUDIT_PURGE',
 } as const;
@@ -130,4 +132,5 @@ export const AuditEntity = {
   LESSON: 'lesson',
   RODA: 'roda',
   DATA_DELETION_REQUEST: 'data_deletion_request',
+  RANKING_PROFILE: 'ranking_profile',
 } as const;

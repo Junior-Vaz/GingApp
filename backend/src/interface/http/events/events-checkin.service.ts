@@ -10,6 +10,7 @@ import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interf
 import { frontendBaseUrl } from '../../../shared/mail/mail.config';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RankingService } from '../ranking/ranking.service';
 import { StudentsService } from '../students/students.service';
 import { EventsService } from './events.service';
 import { EventCheckinSelfDto } from './dto/event-checkin-self.dto';
@@ -29,6 +30,7 @@ export class EventsCheckinService {
     private readonly studentsService: StudentsService,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
+    private readonly ranking: RankingService,
   ) {}
 
   /** Token + QR (data URL PNG) do evento, para a equipe imprimir/exibir. 404 se o evento nao e do grupo/escopo. */
@@ -108,6 +110,7 @@ export class EventsCheckinService {
     }
 
     await this.prisma.eventParticipant.update({ where: { id: participant.id }, data: { status: ParticipantStatus.ATTENDED } });
+    this.ranking.queueSync(participant.studentId); // Ginga Rank (fire-and-forget)
     await this.audit.record({
       organizationId,
       action: AuditAction.EVENT_CHECKIN_SELF,

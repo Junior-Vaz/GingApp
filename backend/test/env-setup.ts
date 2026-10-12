@@ -53,3 +53,6 @@ process.env.AUDIT_RETENTION_CRON = 'false';
 process.env.UPLOADS_GC = 'false';
 process.env.REQUEST_LOG = 'false';
 process.env.TWO_FACTOR_THROTTLE_LIMIT = '1000';
+// Ginga Rank: sem o recalculo noturno (02:30) nem o fechamento mensal de temporada nos testes (RankingCronService e' chamado direto
+// pelos specs; o motor RankingService tambem).
+process.env.RANKING_CRON = 'false';

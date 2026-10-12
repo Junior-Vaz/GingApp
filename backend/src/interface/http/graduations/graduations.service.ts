@@ -6,6 +6,7 @@ import { UnitScopeService, unitScopeFilter } from '../../../shared/access/unit-s
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { StudentsService } from '../students/students.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RankingService } from '../ranking/ranking.service';
 import { formatCivilDateBR } from '../../../shared/dates/format-br';
 import { CreateGraduationSystemDto } from './dto/create-graduation-system.dto';
 import { CreateGraduationLevelDto } from './dto/create-graduation-level.dto';
@@ -25,6 +26,7 @@ export class GraduationsService {
     private readonly notifications: NotificationsService,
     private readonly unitScope: UnitScopeService,
     private readonly audit: AuditService,
+    private readonly ranking: RankingService,
   ) {}
 
   /** Sistemas de graduação configuráveis do grupo, com seus níveis (projeto.txt §26). */
@@ -246,6 +248,7 @@ export class GraduationsService {
       entityId: graduation.id,
       meta: { studentId, graduationLevelId: dto.graduationLevelId },
     });
+    this.ranking.queueSync(studentId); // Ginga Rank (fire-and-forget): 100 x ordem da corda
     return graduation;
   }
 
@@ -278,6 +281,7 @@ export class GraduationsService {
       entityId: graduationId,
       meta: { studentId, fields: definedFields(dto) },
     });
+    this.ranking.queueSync(studentId); // Ginga Rank (nivel/data corrigidos mudam os pontos)
     return updated;
   }
 
@@ -307,6 +311,7 @@ export class GraduationsService {
       entityId: graduationId,
       meta: { studentId },
     });
+    this.ranking.queueSync(studentId); // Ginga Rank (remove os pontos da graduacao desfeita)
     return { id: graduationId, deleted: true };
   }
 

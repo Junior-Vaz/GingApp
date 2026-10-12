@@ -25,6 +25,7 @@ import { Route as AppFrequenciaRouteImport } from './routes/_app.frequencia'
 import { Route as AppJornadaRouteImport } from './routes/_app.jornada'
 import { Route as AppNotificacoesRouteImport } from './routes/_app.notificacoes'
 import { Route as AppPerfilRouteImport } from './routes/_app.perfil'
+import { Route as AppRankingRouteImport } from './routes/_app.ranking'
 import { Route as AppRodasRouteImport } from './routes/_app.rodas'
 import { Route as VerificarPassaporteCodeRouteImport } from './routes/verificar-passaporte.$code'
 import { Route as VerificarCodeRouteImport } from './routes/verificar.$code'
@@ -108,6 +109,11 @@ const AppPerfilRoute = AppPerfilRouteImport.update({
   path: '/perfil',
   getParentRoute: () => AppRoute,
 } as any)
+const AppRankingRoute = AppRankingRouteImport.update({
+  id: '/ranking',
+  path: '/ranking',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppRodasRoute = AppRodasRouteImport.update({
   id: '/rodas',
   path: '/rodas',
@@ -140,6 +146,7 @@ export interface FileRoutesByFullPath {
   '/jornada': typeof AppJornadaRoute
   '/notificacoes': typeof AppNotificacoesRoute
   '/perfil': typeof AppPerfilRoute
+  '/ranking': typeof AppRankingRoute
   '/rodas': typeof AppRodasRoute
   '/verificar-passaporte/$code': typeof VerificarPassaporteCodeRoute
   '/verificar/$code': typeof VerificarCodeRoute
@@ -159,6 +166,7 @@ export interface FileRoutesByTo {
   '/jornada': typeof AppJornadaRoute
   '/notificacoes': typeof AppNotificacoesRoute
   '/perfil': typeof AppPerfilRoute
+  '/ranking': typeof AppRankingRoute
   '/rodas': typeof AppRodasRoute
   '/verificar-passaporte/$code': typeof VerificarPassaporteCodeRoute
   '/verificar/$code': typeof VerificarCodeRoute
@@ -181,6 +189,7 @@ export interface FileRoutesById {
   '/_app/jornada': typeof AppJornadaRoute
   '/_app/notificacoes': typeof AppNotificacoesRoute
   '/_app/perfil': typeof AppPerfilRoute
+  '/_app/ranking': typeof AppRankingRoute
   '/_app/rodas': typeof AppRodasRoute
   '/verificar-passaporte/$code': typeof VerificarPassaporteCodeRoute
   '/verificar/$code': typeof VerificarCodeRoute
@@ -204,6 +213,7 @@ export interface FileRouteTypes {
     | '/jornada'
     | '/notificacoes'
     | '/perfil'
+    | '/ranking'
     | '/rodas'
     | '/verificar-passaporte/$code'
     | '/verificar/$code'
@@ -223,6 +233,7 @@ export interface FileRouteTypes {
     | '/jornada'
     | '/notificacoes'
     | '/perfil'
+    | '/ranking'
     | '/rodas'
     | '/verificar-passaporte/$code'
     | '/verificar/$code'
@@ -244,6 +255,7 @@ export interface FileRouteTypes {
     | '/_app/jornada'
     | '/_app/notificacoes'
     | '/_app/perfil'
+    | '/_app/ranking'
     | '/_app/rodas'
     | '/verificar-passaporte/$code'
     | '/verificar/$code'
@@ -375,6 +387,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPerfilRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/ranking': {
+      id: '/_app/ranking'
+      path: '/ranking'
+      fullPath: '/ranking'
+      preLoaderRoute: typeof AppRankingRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/rodas': {
       id: '/_app/rodas'
       path: '/rodas'
@@ -409,6 +428,7 @@ interface AppRouteChildren {
   AppJornadaRoute: typeof AppJornadaRoute
   AppNotificacoesRoute: typeof AppNotificacoesRoute
   AppPerfilRoute: typeof AppPerfilRoute
+  AppRankingRoute: typeof AppRankingRoute
   AppRodasRoute: typeof AppRodasRoute
   AppIndexRoute: typeof AppIndexRoute
 }
@@ -423,6 +443,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppJornadaRoute: AppJornadaRoute,
   AppNotificacoesRoute: AppNotificacoesRoute,
   AppPerfilRoute: AppPerfilRoute,
+  AppRankingRoute: AppRankingRoute,
   AppRodasRoute: AppRodasRoute,
   AppIndexRoute: AppIndexRoute,
 }

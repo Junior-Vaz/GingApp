@@ -7,6 +7,7 @@ import { civilTodayStart } from '../finance/finance.service';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { lessonScopeFilter, UnitScopeService } from '../../../shared/access/unit-scope';
+import { RankingService } from '../ranking/ranking.service';
 import { StudentsService } from '../students/students.service';
 import { ListMyAttendanceQueryDto } from './dto/list-my-attendance-query.dto';
 import { AttendanceEntryDto } from './dto/mark-attendance.dto';
@@ -39,6 +40,7 @@ export class AttendanceService {
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
     private readonly unitScope: UnitScopeService,
+    private readonly ranking: RankingService,
   ) {}
 
   /**
@@ -208,6 +210,9 @@ export class AttendanceService {
         }),
       ),
     );
+
+    // Ginga Rank: recalcula os pontos dos alunos da chamada (fire-and-forget: nunca atrasa nem derruba a chamada).
+    this.ranking.queueSync(studentIds);
 
     return { count: entries.length };
   }

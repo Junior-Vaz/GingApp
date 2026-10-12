@@ -10,6 +10,7 @@ import { frontendBaseUrl } from '../../../shared/mail/mail.config';
 import { lessonScopeFilter, UnitScopeService } from '../../../shared/access/unit-scope';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RankingService } from '../ranking/ranking.service';
 import { StudentsService } from '../students/students.service';
 import { EventCheckinSelfDto } from '../events/dto/event-checkin-self.dto';
 
@@ -27,6 +28,7 @@ export class AttendanceCheckinService {
     private readonly unitScope: UnitScopeService,
     private readonly notifications: NotificationsService,
     private readonly audit: AuditService,
+    private readonly ranking: RankingService,
   ) {}
 
   async issueToken(organizationId: number, lessonId: number, requester: AuthenticatedUser) {
@@ -116,6 +118,7 @@ export class AttendanceCheckinService {
       create: { organizationId, lessonId: lesson.id, studentId, present: true },
       update: { present: true, justification: null },
     });
+    this.ranking.queueSync(studentId); // Ginga Rank (fire-and-forget)
     await this.audit.record({
       organizationId,
       action: AuditAction.LESSON_CHECKIN_SELF,

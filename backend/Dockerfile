@@ -110,4 +110,7 @@ ENV NODE_ENV=production
 RUN mkdir -p /app/uploads
 ENV UPLOADS_DIR=/app/uploads
 EXPOSE 3000
-CMD ["sh", "-c", "npx prisma migrate deploy && npx ts-node prisma/bootstrap.ts && { [ \"$DEMO_GROUP\" != true ] || npx ts-node prisma/demo.ts || echo '[demo] ERRO: o grupo demo nao foi criado (veja as linhas acima); a API sobe mesmo assim.'; } && exec node dist/main.js"]
+#   3b. prisma/ranking-backfill.ts --auto - Ginga Rank: deriva os pontos do historico (idempotente, sem notificar).
+#      RANKING_BACKFILL=true roda sempre; =false nunca; sem a variavel roda UMA vez (tabela PointEvent vazia). Roda DEPOIS
+#      do demo para o grupo demo ja entrar no ranking. Falha so' vai para o log (o recalculo noturno cobre).
+CMD ["sh", "-c", "npx prisma migrate deploy && npx ts-node prisma/bootstrap.ts && { [ \"$DEMO_GROUP\" != true ] || npx ts-node prisma/demo.ts || echo '[demo] ERRO: o grupo demo nao foi criado (veja as linhas acima); a API sobe mesmo assim.'; } && { [ \"$RANKING_BACKFILL\" = false ] || npx ts-node prisma/ranking-backfill.ts --auto || echo '[ranking] ERRO: o backfill do ranking falhou (veja as linhas acima); a API sobe mesmo assim.'; } && exec node dist/main.js"]

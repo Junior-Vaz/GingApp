@@ -15,6 +15,7 @@ import {
   Building2,
   Settings,
   History,
+  Trophy,
   type LucideIcon,
 } from "lucide-react";
 import type { OrgRole } from "@/lib/session";
@@ -40,6 +41,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/aulas", label: "Aulas", icon: CalendarDays },
   { to: "/frequencia", label: "Frequência", icon: ClipboardCheck },
   { to: "/graduacoes", label: "Graduações", icon: Award },
+  // Ranking do grupo (GET /ranking/*): quem vê alunos (students:view) = MESTRE e PROFESSOR.
+  { to: "/ranking", label: "Ranking", icon: Trophy, roles: ["MESTRE", "PROFESSOR"] },
   // Financeiro é só do MESTRE (backend: RolePermission PROFESSOR/finance = tudo false).
   { to: "/financeiro", label: "Financeiro", icon: Wallet, roles: ["MESTRE"] },
   { to: "/eventos", label: "Eventos", icon: PartyPopper },

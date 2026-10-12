@@ -145,7 +145,7 @@ describe('job diário de mensalidade vencida (unidade)', () => {
     assert.equal(started, 1);
   });
 
-  it('fiação do AppModule: ScheduleModule + JobsModule só entram quando algum job (OVERDUE_CRON / AUDIT_RETENTION_CRON / UPLOADS_GC) não é "false"', () => {
+  it('fiação do AppModule: ScheduleModule + JobsModule só entram quando algum job (OVERDUE_CRON / AUDIT_RETENTION_CRON / UPLOADS_GC / RANKING_CRON) não é "false"', () => {
     const root = path.join(__dirname, '..');
     const script = `
       const { AppModule } = require('./src/app.module');
@@ -154,8 +154,8 @@ describe('job diário de mensalidade vencida (unidade)', () => {
     `;
     const run = (value: string | undefined) => {
       const env: NodeJS.ProcessEnv = { ...process.env, TS_NODE_COMPILER_OPTIONS: '{"rootDir":"."}' };
-      // Os 3 jobs semanais/diarios compartilham o agendador: o JobsModule so sai quando TODOS estao desligados.
-      for (const key of ['OVERDUE_CRON', 'AUDIT_RETENTION_CRON', 'UPLOADS_GC']) {
+      // Os 4 jobs (mensalidade, auditoria, imagens, Ginga Rank) compartilham o agendador: o JobsModule so sai quando TODOS estao desligados.
+      for (const key of ['OVERDUE_CRON', 'AUDIT_RETENTION_CRON', 'UPLOADS_GC', 'RANKING_CRON']) {
         if (value === undefined) delete env[key];
         else env[key] = value;
       }

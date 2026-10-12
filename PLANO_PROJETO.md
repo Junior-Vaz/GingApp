@@ -3209,3 +3209,23 @@ O que NAO deu certo / decisoes
 2. Login com 2+ vÃ­nculos onde um estÃ¡ bloqueado por aluno inativo ignora o slug pedido (decisÃ£o de produto: 401?); exportaÃ§Ã£o LGPD nÃ£o lista perfis pÃºblicos (leitura por `userId` nunca gravado).
 3. `npm audit`: 4 altas no app (`@grpc/grpc-js`, via `firebase`, nÃ£o usado) e 4 no backend (`sharp`).
 4. CabeÃ§alho mobile do painel sem logo e com ~8px de estouro horizontal; admin sem layout responsivo.
+
+### 10.47 Ginga Rank (backend): pontos, ligas, rankings, temporadas
+
+**Data:** 2026-10-12 · **Status:** ✅ backend concluído, sem commit (app e painel são de outros agentes). Gate: build OK, 141 unit, `test:quick` completo 842/842 (19 novos do ranking), `member-privacy` + ranking 28/28, smoke 74/74.
+
+- **Dados:** migration `20261012150000_add_ginga_rank` (`PointEvent`, `RankingProfile`, `Achievement`, `SeasonResult` + enum `PointEventType`). Pontos **derivados** das tabelas de origem por `RankingService.syncStudent` (idempotente: cria/corrige/remove pela chave única `studentId+type+refType+refId`), chamado em segundo plano (`queueSync`, nunca derruba a ação) após chamada, check-in de aula/evento, graduação, certificado, roda e presença de evento marcada pela equipe. Job noturno 02:30 e fechamento mensal 03:00 do dia 1 (`RANKING_CRON`), `npm run ranking:backfill` e no boot do Docker (`RANKING_BACKFILL`).
+- **API:** `GET /ranking/students|groups|me|seasons|hall-of-fame|group-overview`, `PUT /ranking/me/settings` (contrato em `ranking.controller.ts` / `dto/ranking.dto.ts`; docs §17 do EASYPANEL).
+- **Decisões:** consentimento do menor = `StudentGuardian.consentPublicProfile` (Passaporte), sem campo novo; cidade/UF de um aluno = sede do grupo (`Organization.city/state`); `mapVisible` = "aparece em rankings abertos" no ranking de grupos (não filtra alunos); streak = +5 × (semanas seguidas − 1), teto 25; consistência mensal só em mês encerrado; aluno não pode se inscrever como `ATTENDED` (403) — antes qualquer aluno conseguia, o que viraria pontos grátis.
+- **Demo:** `seed:demo` cria opt-in aberto para 6 adultos e 1 menor com consentimento; o backfill deu **26 alunos ativos, 25 com pontos, 397 pontos, 42 conquistas, 10 temporadas fechadas** no grupo demo.
+
+#### O que NÃO deu certo e a solução
+- O backfill standalone falhou ao subir o contexto Nest (`UserThrottlerGuard` sem `ThrottlerModule`): o módulo do script importa `ThrottlerModule.forRoot` com limite alto.
+- `overdue-cron.spec` (fiação do `AppModule`) passou a falhar porque `RANKING_CRON` também liga o agendador: o spec agora desliga os 4 jobs.
+- O 1º rascunho do e2e assumia `rankDelta = null` para quem tem pontos na temporada anterior (é `0`): o dado do teste passou a ser determinístico (graduação no 1º dia do mês anterior).
+
+#### Pendências (numeradas)
+1. Push de ranking cai na categoria `announcements` (`pushCategoryOf`) e abre `/notificacoes`: falta categoria/URL própria no app.
+2. Recálculo noturno é sequencial por aluno (5 em paralelo): para milhares de alunos medir o tempo antes de aumentar a base.
+3. Rodas futuras só pontuam no recálculo noturno; graduação/evento alterados direto no banco idem.
+4. Textos do Passaporte/app devem avisar que o consentimento do responsável também libera o aluno nos rankings abertos.

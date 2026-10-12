@@ -15,6 +15,7 @@ import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { ListEventsQueryDto } from './dto/list-events-query.dto';
 import { StudentsService } from '../students/students.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RankingService } from '../ranking/ranking.service';
 import { formatInstantBR } from '../../../shared/dates/format-br';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { MyParticipation, redactParticipant } from '../../../shared/access/participant-privacy';
@@ -60,6 +61,7 @@ export class EventsService {
     private readonly unitScope: UnitScopeService,
     private readonly geocoding: GeocodingService,
     private readonly audit: AuditService,
+    private readonly ranking: RankingService,
   ) {}
 
   /**
@@ -498,6 +500,11 @@ export class EventsService {
     if (hasStudent === hasGuest) {
       throw new BadRequestException('Informe studentId ou guestName.');
     }
+    // Ginga Rank (anti-fraude): "compareceu" so' vale se registrado pela equipe ou pelo check-in na janela do evento;
+    // o proprio aluno/responsavel nunca se marca como ATTENDED ao se inscrever.
+    if (dto.status === ParticipantStatus.ATTENDED && !this.isOrgAdmin(requester)) {
+      throw new ForbiddenException('Só MESTRE/PROFESSOR pode marcar presença; use o check-in do evento.');
+    }
 
     if (hasStudent) {
       // Escopo por unidade (E08): professor restrito so inscreve aluno das suas unidades (ou sem unidade) — aluno de
@@ -561,6 +568,7 @@ export class EventsService {
     if (dto.status && !occupiesSpot(dto.status) && dto.status !== ParticipantStatus.WAITLIST) {
       await this.promoteWaitlist(organizationId, eventId);
     }
+    this.ranking.queueSync(dto.studentId); // Ginga Rank (fire-and-forget): ATTENDED marcado pela equipe pontua
     return result;
   }
 
@@ -602,6 +610,7 @@ export class EventsService {
     await this.prisma.eventParticipant.delete({ where: { id: participantId } });
     // Liberou uma vaga: o primeiro da lista de espera e promovido (e avisado).
     if (occupiesSpot(participant.status)) await this.promoteWaitlist(organizationId, eventId);
+    if (participant.status === ParticipantStatus.ATTENDED) this.ranking.queueSync(participant.studentId); // Ginga Rank
   }
 
   /**
@@ -626,11 +635,13 @@ export class EventsService {
       throw new NotFoundException('Participante não encontrado.');
     }
 
-    return this.prisma.eventParticipant.update({
+    const updated = await this.prisma.eventParticipant.update({
       where: { id: participantId },
       data: { status: 'ATTENDED' },
       include: { student: { select: { id: true, name: true } } },
     });
+    this.ranking.queueSync(updated.studentId); // Ginga Rank (fire-and-forget)
+    return updated;
   }
 
   private isOrgAdmin(user: AuthenticatedUser): boolean {

@@ -48,6 +48,8 @@ import { JobsModule } from './jobs/jobs.module';
 import { isOverdueCronEnabled } from './jobs/overdue-cron.service';
 import { isAuditRetentionEnabled } from './jobs/audit-retention-cron.service';
 import { uploadsGcMode } from './jobs/uploads-gc-cron.service';
+import { isRankingCronEnabled } from './jobs/ranking-cron.service';
+import { RankingModule } from './interface/http/ranking/ranking.module';
 
 const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
 
@@ -94,11 +96,13 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     MapModule,
     PushModule,
     DataDeletionRequestsModule,
+    RankingModule,
     AuditModule,
 
     // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador
     // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.
-    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off'
+    // Ginga Rank (RANKING_CRON): recalculo noturno 02:30 + fechamento mensal 03:00 do dia 1, no mesmo agendador.
+    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled()
       ? [ScheduleModule.forRoot(), JobsModule]
       : []),
   ],

@@ -6,6 +6,7 @@ import { ListRodasQueryDto } from './dto/list-rodas-query.dto';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PermissionsService } from '../../../shared/access/permissions.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RankingService } from '../ranking/ranking.service';
 import { formatInstantBR } from '../../../shared/dates/format-br';
 import { MyParticipation, redactParticipant } from '../../../shared/access/participant-privacy';
 import { GeocodingService } from '../../../shared/geo/geocoding.service';
@@ -32,6 +33,7 @@ export class RodasService {
     private readonly permissions: PermissionsService,
     private readonly notifications: NotificationsService,
     private readonly geocoding: GeocodingService,
+    private readonly ranking: RankingService,
   ) {}
 
   /** Lista PÚBLICA (todas as organizações, sem filtro de tenant — regra existente): o total
@@ -257,9 +259,12 @@ export class RodasService {
     const existing = await this.prisma.rodaParticipant.findFirst({ where: { rodaId, userId } });
     if (existing) return existing;
 
-    return this.prisma.rodaParticipant.create({
+    const created = await this.prisma.rodaParticipant.create({
       data: { rodaId, userId, status: ParticipantStatus.CONFIRMED },
     });
+    // Ginga Rank (fire-and-forget): so' roda JA realizada pontua; a de data futura e' contada pelo recalculo noturno.
+    this.ranking.queueSyncForUser(userId);
+    return created;
   }
 
   /**
@@ -282,6 +287,8 @@ export class RodasService {
     }
 
     await this.prisma.rodaParticipant.delete({ where: { id: participantId } });
+    this.ranking.queueSync(participant.studentId); // Ginga Rank
+    this.ranking.queueSyncForUser(participant.userId);
     return { success: true };
   }
 
