@@ -861,10 +861,10 @@ describe('Senha: change-password, reset de MESTRE, login normalizado e GET /orga
         const { mestres, ...organization } = res.body;
         assert.deepEqual(organization, dbOrg, 'mesmas colunas de uma linha de GET /organizations');
         assert.deepEqual(mestres, [
-          { id: m1.id, name: (await row(m1.id)).name, email: m1.email, status: 'ACTIVE' },
-          { id: m2.id, name: (await row(m2.id)).name, email: m2.email, status: 'INACTIVE' },
+          { id: m1.id, name: (await row(m1.id)).name, email: m1.email, status: 'ACTIVE', twoFactorEnabled: false },
+          { id: m2.id, name: (await row(m2.id)).name, email: m2.email, status: 'INACTIVE', twoFactorEnabled: false },
         ]);
-        for (const m of mestres) assert.deepEqual(Object.keys(m).sort(), ['email', 'id', 'name', 'status']);
+        for (const m of mestres) assert.deepEqual(Object.keys(m).sort(), ['email', 'id', 'name', 'status', 'twoFactorEnabled']);
         for (const forbidden of ['passwordHash', 'tokenValidAfter', 'twoFactorSecret', '$2b$', '$2a$', 'userType', 'isSuperAdmin']) {
           assert.ok(!res.text.includes(forbidden), `vazou ${forbidden}`);
         }

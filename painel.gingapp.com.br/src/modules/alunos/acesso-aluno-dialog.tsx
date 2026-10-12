@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { KeyRound, UserPlus } from "lucide-react";
+import { KeyRound, ShieldOff, UserPlus } from "lucide-react";
 import { CreateAccountDialog, ResetPasswordDialog } from "@/components/painel/account-dialogs";
+import { ResetTwoFactorDialog } from "@/components/painel/reset-two-factor-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -12,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { errorMessage } from "@/lib/api";
+import { useSessionUser } from "@/lib/session";
 import { useStudentAccessMutations, useStudentAccount } from "./acesso-api";
 import type { Student } from "./schema";
 
@@ -25,6 +27,9 @@ export function AcessoAlunoDialog({ student, onClose }: { student: Student | nul
   const mutations = useStudentAccessMutations(student?.id ?? 0);
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [resetting2fa, setResetting2fa] = useState(false);
+  // Redefinir o 2FA é só do Mestre do grupo (o servidor responde 403 aos demais).
+  const isMestre = useSessionUser()?.role === "MESTRE";
 
   const account = query.data?.hasAccount ? query.data.account : undefined;
 
@@ -61,6 +66,7 @@ export function AcessoAlunoDialog({ student, onClose }: { student: Student | nul
                   {account.status === "ACTIVE" ? "Conta ativa" : "Conta inativa"}
                 </Badge>
                 {account.mustChangePassword && <Badge variant="outline">Troca de senha pendente</Badge>}
+                {account.twoFactorEnabled && <Badge variant="outline">2FA ativo</Badge>}
               </div>
             </dl>
           )}
@@ -74,6 +80,11 @@ export function AcessoAlunoDialog({ student, onClose }: { student: Student | nul
                 <UserPlus /> Criar acesso
               </Button>
             )}
+            {account && isMestre && account.twoFactorEnabled && (
+              <Button variant="outline" onClick={() => setResetting2fa(true)}>
+                <ShieldOff /> Redefinir 2FA
+              </Button>
+            )}
             {account && (
               <Button onClick={() => setResetting(true)}>
                 <KeyRound /> Redefinir senha
@@ -82,6 +93,11 @@ export function AcessoAlunoDialog({ student, onClose }: { student: Student | nul
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ResetTwoFactorDialog
+        target={resetting2fa && account ? { userId: account.userId, name: account.name } : null}
+        onClose={() => setResetting2fa(false)}
+      />
 
       {student && (
         <>

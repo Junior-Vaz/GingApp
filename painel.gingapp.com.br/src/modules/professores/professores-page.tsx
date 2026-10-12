@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { KeyRound, MapPin, Plus } from "lucide-react";
+import { KeyRound, MapPin, Plus, ShieldOff } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ResetPasswordDialog } from "@/components/painel/account-dialogs";
+import { ResetTwoFactorDialog } from "@/components/painel/reset-two-factor-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
@@ -14,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { createCrud, notifyError } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
-import { useCan } from "@/lib/session";
+import { useCan, useSessionUser } from "@/lib/session";
 import { NativeSelect } from "@/modules/alunos/native-select";
 import { units as unitsCrud } from "@/modules/unidades/units";
 import { UnidadesAtuacaoDialog } from "./unidades-atuacao-dialog";
@@ -53,6 +54,9 @@ export function ProfessoresPage() {
   const [editing, setEditing] = useState<Teacher | "new" | null>(null);
   const [deleting, setDeleting] = useState<Teacher | null>(null);
   const [resetting, setResetting] = useState<Teacher | null>(null);
+  const [resetting2fa, setResetting2fa] = useState<Teacher | null>(null);
+  // Redefinir o 2FA de alguém é só do Mestre do grupo (o servidor responde 403 aos demais).
+  const isMestre = useSessionUser()?.role === "MESTRE";
   const [assigningUnits, setAssigningUnits] = useState<Teacher | null>(null);
   // Unidades do grupo (nomes da coluna e checkboxes do diálogo "Unidades de atuação").
   const unitsQuery = unitsCrud.useList({ limit: 200 });
@@ -160,6 +164,11 @@ export function ProfessoresPage() {
                   {canEdit && t.role === "PROFESSOR" && t.status === "ACTIVE" && (
                     <Button variant="ghost" size="sm" onClick={() => setResetting(t)} aria-label={`Redefinir senha de ${t.user.name}`}>
                       <KeyRound /> Redefinir senha
+                    </Button>
+                  )}
+                  {isMestre && t.role === "PROFESSOR" && t.status === "ACTIVE" && t.user.twoFactorEnabled && (
+                    <Button variant="ghost" size="sm" onClick={() => setResetting2fa(t)} aria-label={`Redefinir 2FA de ${t.user.name}`}>
+                      <ShieldOff /> Redefinir 2FA
                     </Button>
                   )}
                   {canDelete && t.status === "ACTIVE" && (
@@ -294,6 +303,11 @@ export function ProfessoresPage() {
             : undefined
         }
         onSubmit={(newPassword) => resetPassword.mutateAsync({ id: resetting!.id, newPassword })}
+      />
+
+      <ResetTwoFactorDialog
+        target={resetting2fa ? { userId: resetting2fa.user.id, name: resetting2fa.user.name } : null}
+        onClose={() => setResetting2fa(null)}
       />
 
       <ConfirmDialog

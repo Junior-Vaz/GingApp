@@ -29,6 +29,8 @@ export interface MemberAccountView {
   role: OrgRole | null;
   /** A senha atual foi definida por outra pessoa: o titular deve trocá-la no próximo login. */
   mustChangePassword: boolean;
+  /** 2FA ativo na conta (so' a flag): o painel oferece "Redefinir 2FA". */
+  twoFactorEnabled: boolean;
 }
 
 export interface StudentAccountResult {
@@ -159,6 +161,7 @@ export class StudentAccessService {
         email: true,
         status: true,
         mustChangePassword: true,
+        twoFactorEnabled: true,
         memberships: { where: { organizationId }, select: { role: true } },
       },
     });
@@ -169,6 +172,7 @@ export class StudentAccessService {
       status: user.status,
       role: user.memberships[0]?.role ?? null,
       mustChangePassword: user.mustChangePassword,
+      twoFactorEnabled: user.twoFactorEnabled,
     };
   }
 }

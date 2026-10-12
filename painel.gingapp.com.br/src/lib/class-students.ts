@@ -9,6 +9,7 @@ export interface ClassStudent {
   studentId: number;
   name: string;
   studentStatus: "ACTIVE" | "INACTIVE";
+  photo?: string | null;
   enrolledAt: string;
 }
 

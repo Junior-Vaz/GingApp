@@ -31,6 +31,8 @@ const PUBLIC_SELECT = {
   isSuperAdmin: true,
   createdAt: true,
   tokenValidAfter: true,
+  /** Flag do 2FA (nunca o segredo): a tela decide se oferece "Redefinir 2FA". */
+  twoFactorEnabled: true,
 } satisfies Prisma.UserSelect;
 
 export type PlatformTeamMember = Prisma.UserGetPayload<{ select: typeof PUBLIC_SELECT }>;

@@ -195,7 +195,7 @@ model DataDeletionRequest {
   userId         Int
   /// Grupo do token no momento do pedido (NULL para equipe PLATFORM).
   organizationId Int?
-  /// PENDING | RESOLVED | REJECTED (texto livre de proposito, como Notification.type).
+  /// PENDING | IN_PROGRESS | DONE | REJECTED (texto livre de proposito, como Notification.type).
   status         String    @default("PENDING")
   reason         String?
   requestedAt    DateTime  @default(now())

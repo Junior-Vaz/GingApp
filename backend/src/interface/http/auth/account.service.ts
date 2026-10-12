@@ -11,6 +11,8 @@ export const TERMS_VERSION_MISMATCH_MESSAGE =
   'Os Termos de Uso e a Política de Privacidade foram atualizados. Recarregue a página e leia a versão vigente.';
 
 export const DELETION_STATUS_PENDING = 'PENDING';
+/** Pedido sem decisao (a equipe pode ja ter comecado a tratar): conta como pendente para o usuario. */
+const OPEN_STATUSES = ['PENDING', 'IN_PROGRESS'];
 
 export interface DeletionRequestView {
   id: number;
@@ -45,7 +47,7 @@ export class AccountService {
       where: { id: actor.id },
       include: {
         dataDeletionRequests: {
-          where: { status: DELETION_STATUS_PENDING },
+          where: { status: { in: OPEN_STATUSES } },
           orderBy: { requestedAt: 'desc' },
           take: 1,
         },
@@ -127,7 +129,7 @@ export class AccountService {
     ipAddress: string | undefined,
   ): Promise<DeletionRequestView> {
     const existing = await this.prisma.dataDeletionRequest.findFirst({
-      where: { userId: actor.id, status: DELETION_STATUS_PENDING },
+      where: { userId: actor.id, status: { in: OPEN_STATUSES } },
       orderBy: { requestedAt: 'desc' },
     });
     if (existing) {

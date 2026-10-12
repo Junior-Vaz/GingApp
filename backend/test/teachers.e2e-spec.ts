@@ -239,7 +239,7 @@ describe('Teachers: paginacao, filtros e limpar campos (e2e)', () => {
     assert.equal(r.total, 57);
     assert.deepEqual(r.body.map((t: { id: number }) => t.id), expected.map((t) => t.id));
     assert.deepEqual(Object.keys(r.body[0]).sort(), ['createdAt', 'id', 'role', 'status', 'unitIds', 'user']); // unitIds: E08
-    assert.deepEqual(Object.keys(r.body[0].user).sort(), ['email', 'id', 'name', 'phone', 'photo']);
+    assert.deepEqual(Object.keys(r.body[0].user).sort(), ['email', 'id', 'name', 'phone', 'photo', 'twoFactorEnabled']);
   });
 
   it('limit=201, limit=0 e offset=-1 retornam 400', async () => {

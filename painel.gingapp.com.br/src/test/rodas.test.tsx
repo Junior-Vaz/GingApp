@@ -397,8 +397,32 @@ describe("RodasPage - recorrência", () => {
     renderPage();
     await screen.findByText("Roda Mensal");
     fireEvent.click(screen.getByRole("button", { name: "Gerar próximas ocorrências de Roda Mensal" }));
+    // Abre o diálogo com a quantidade (padrão 3); o POST só sai ao confirmar.
+    expect(await screen.findByLabelText("Quantidade de ocorrências")).toHaveValue(3);
+    expect(sent("POST", "/rodas/4/generate-occurrences")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Gerar" }));
     await waitFor(() => expect(sent("POST", "/rodas/4/generate-occurrences")).toHaveLength(1));
+    expect(sent("POST", "/rodas/4/generate-occurrences")[0]!.body).toEqual({ count: 3 });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("3 ocorrências criadas (toda 1ª sexta do mês)."));
+  });
+
+  it("'Gerar próximas ocorrências' aceita a quantidade 1-12: 5 vai no corpo; 0 e 13 são barrados sem chamar a API", async () => {
+    rodas = [MAE];
+    overrides["POST /rodas/4/generate-occurrences"] = () => json(200, { rule: null, created: 5, occurrences: [] });
+    renderPage();
+    await screen.findByText("Roda Mensal");
+    fireEvent.click(screen.getByRole("button", { name: "Gerar próximas ocorrências de Roda Mensal" }));
+    const input = await screen.findByLabelText("Quantidade de ocorrências");
+    for (const bad of ["0", "13"]) {
+      fireEvent.change(input, { target: { value: bad } });
+      fireEvent.click(screen.getByRole("button", { name: "Gerar" }));
+      expect(await screen.findByText("Informe um número inteiro de 1 a 12.")).toBeInTheDocument();
+    }
+    expect(sent("POST", "/rodas/4/generate-occurrences")).toHaveLength(0);
+    fireEvent.change(input, { target: { value: "5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Gerar" }));
+    await waitFor(() => expect(sent("POST", "/rodas/4/generate-occurrences")).toHaveLength(1));
+    expect(sent("POST", "/rodas/4/generate-occurrences")[0]!.body).toEqual({ count: 5 });
   });
 
   it("roda mãe: oferece 'Excluir a série inteira' (DELETE ?series=true); roda comum só tem 'Excluir'", async () => {

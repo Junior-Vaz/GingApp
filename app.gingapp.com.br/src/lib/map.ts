@@ -46,6 +46,9 @@ export interface MapPlace {
   organization: PlaceOrganization;
   distanceKm?: number | null;
   imageUrl?: string | null;
+  /** EVENT: total de vagas (null = ilimitado) e vagas restantes (0 = lotado); ausentes = backend antigo / não é evento. */
+  capacity?: number | null;
+  spotsLeft?: number | null;
   isMine: boolean;
 }
 

@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { api, ApiError } from '@/utils/api'
+import { api, ApiError, errorMessage } from '@/utils/api'
 import { takeFlash } from '@/utils/flash'
 import { organizationTypeLabel } from '@/utils/format'
 import {
@@ -13,6 +13,7 @@ import {
   passwordProblem,
   resetMestrePassword,
 } from '@/utils/password'
+import { resetUserTwoFactor } from '@/utils/twoFactor'
 
 interface FeatureOverride {
   id: number
@@ -27,6 +28,7 @@ interface Mestre {
   name: string
   email: string
   status: string
+  twoFactorEnabled?: boolean
 }
 
 interface Organization {
@@ -246,6 +248,20 @@ async function cancelSubscription(): Promise<void> {
     actionError.value = error instanceof ApiError ? error.message : 'Não foi possível cancelar a assinatura.'
   } finally {
     isSaving.value = false
+  }
+}
+
+/** Perdeu o aparelho e os códigos de recuperação: o super admin zera o 2FA do MESTRE (sessões dele encerradas). */
+async function resetMestreTwoFactor(mestre: Mestre): Promise<void> {
+  if (!canReset.value) return
+  if (!confirm(`Redefinir o 2FA de ${mestre.email}? O 2FA é desativado, as sessões dele são encerradas e ele poderá ativá-lo de novo.`)) return
+  statusError.value = ''
+  try {
+    await resetUserTwoFactor(mestre.id)
+    notice.value = `2FA de ${mestre.email} redefinido; as sessões dele foram encerradas.`
+    organization.value = (await api.get<Organization>(`/organizations/${organizationId}`)) ?? organization.value
+  } catch (error) {
+    statusError.value = errorMessage(error, 'Não foi possível redefinir o 2FA.')
   }
 }
 
@@ -525,6 +541,15 @@ onMounted(() => {
               @click="openReset(mestre)"
             >
               Redefinir senha
+            </button>
+            <button
+              v-if="canReset && mestre.twoFactorEnabled"
+              type="button"
+              data-action="reset-2fa"
+              class="font-medium text-slate-600 hover:text-slate-900"
+              @click="resetMestreTwoFactor(mestre)"
+            >
+              Redefinir 2FA
             </button>
           </div>
         </div>

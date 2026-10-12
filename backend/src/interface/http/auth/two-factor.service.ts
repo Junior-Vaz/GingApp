@@ -1,19 +1,23 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   HttpException,
   HttpStatus,
   Injectable,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { User } from '@prisma/client';
+import { OrgRole, User, UserType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as QRCode from 'qrcode';
+import { isActiveSuperAdmin } from '../../../shared/access/super-admin';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { revocationCutoff } from '../../../shared/security/token-revocation';
 import { buildOtpAuthUri, generateTotpSecret, verifyTotp } from '../../../shared/security/totp';
 import {
   challengeJwtSecret,
@@ -29,6 +33,8 @@ export const CHALLENGE_TTL_SECONDS = 5 * 60;
 export const WRONG_CODE = 'Código de verificação incorreto.';
 export const CHALLENGE_EXPIRED = 'Sessão de verificação expirada ou inválida. Faça login novamente.';
 export const TOO_MANY_FAILURES = 'Muitas tentativas incorretas. Aguarde alguns minutos e tente novamente.';
+export const SHARED_2FA_MESSAGE =
+  'Esta conta também pertence a outro grupo; o 2FA só pode ser redefinido pelo próprio usuário ou pela equipe GingApp.';
 const FAILURE_WINDOW_MS = 15 * 60 * 1000;
 
 /** Falhas de codigo toleradas por usuario na janela de 15 min (TWO_FACTOR_MAX_FAILURES; padrao 5). */
@@ -144,6 +150,91 @@ export class TwoFactorService {
       action: AuditAction.TWO_FACTOR_DISABLE,
       entity: AuditEntity.USER,
       entityId: user.id,
+    });
+    return { twoFactorEnabled: false };
+  }
+
+  /**
+   * Redefinicao administrativa do 2FA de OUTRO usuario (perdeu o aparelho E os codigos de recuperacao). Zera segredo,
+   * flag, codigos de recuperacao e anti-replay, e REVOGA as sessoes dele (tokenValidAfter): no proximo login ele entra
+   * so com a senha e pode ativar o 2FA de novo. Quem pode:
+   *  - super admin ATIVO da plataforma: qualquer usuario;
+   *  - MESTRE: so' usuarios com vinculo ATIVO no PROPRIO grupo (do token), exceto outro MESTRE (so' a equipe GingApp, como
+   *    na senha) e contas que tambem pertencem a OUTRO grupo (409: o 2FA e' do usuario, nao do grupo — mesma regra da senha).
+   * Nunca no proprio usuario (400: ele usa /auth/2fa/disable, que exige senha + segundo fator). Alvo inexistente/de outro
+   * grupo = 404; sem 2FA ativo = 400. Auditoria em TWO_FACTOR_RESET.
+   */
+  async reset(actor: AuthenticatedUser, userId: number): Promise<{ twoFactorEnabled: false }> {
+    if (actor.id === userId) {
+      throw new BadRequestException('Para desativar o seu próprio 2FA use "Desativar" (exige senha e código).');
+    }
+    const platform = isActiveSuperAdmin(actor);
+    const mestreOrgId =
+      actor.userType === UserType.MEMBER && actor.role === OrgRole.MESTRE && actor.organizationId != null
+        ? actor.organizationId
+        : null;
+    if (!platform && mestreOrgId === null) {
+      throw new ForbiddenException('Apenas o Mestre do grupo ou a equipe GingApp podem redefinir o 2FA de um usuário.');
+    }
+
+    const NOT_FOUND = 'Usuário não encontrado.';
+    let target: User | null;
+    if (platform) {
+      target = await this.prisma.user.findUnique({ where: { id: userId } });
+    } else {
+      const organizationId = mestreOrgId as number;
+      const membership = await this.prisma.organizationUser.findFirst({
+        where: {
+          organizationId,
+          userId,
+          status: 'ACTIVE',
+          user: { userType: UserType.MEMBER, isSuperAdmin: false },
+        },
+        include: { user: true },
+      });
+      if (!membership) throw new NotFoundException(NOT_FOUND);
+      if (membership.role === OrgRole.MESTRE) {
+        throw new ForbiddenException('O 2FA de um Mestre só pode ser redefinido pela equipe GingApp.');
+      }
+      const otherGroups = await this.prisma.organizationUser.count({ where: { userId, organizationId: { not: organizationId } } });
+      if (otherGroups > 0) throw new ConflictException(SHARED_2FA_MESSAGE);
+      target = membership.user;
+    }
+    if (!target) throw new NotFoundException(NOT_FOUND);
+    if (!target.twoFactorEnabled && !target.twoFactorSecret) {
+      throw new BadRequestException('A verificação em duas etapas não está ativa para este usuário.');
+    }
+
+    const { count } = await this.prisma.user.updateMany({
+      where: {
+        id: userId,
+        ...(platform
+          ? {}
+          : {
+              userType: UserType.MEMBER,
+              isSuperAdmin: false,
+              memberships: {
+                some: { organizationId: mestreOrgId as number, role: { not: OrgRole.MESTRE }, status: 'ACTIVE' },
+                none: { organizationId: { not: mestreOrgId as number } },
+              },
+            }),
+      },
+      data: {
+        twoFactorEnabled: false,
+        twoFactorSecret: null,
+        twoFactorRecoveryHashes: [],
+        twoFactorLastStep: null,
+        tokenValidAfter: revocationCutoff(),
+      },
+    });
+    if (count !== 1) throw new ConflictException('A conta foi alterada enquanto o 2FA era redefinido. Tente novamente.');
+    await this.audit.record({
+      organizationId: platform ? null : mestreOrgId,
+      userId: actor.id,
+      action: AuditAction.TWO_FACTOR_RESET,
+      entity: AuditEntity.USER,
+      entityId: userId,
+      meta: { by: platform ? 'PLATFORM' : 'MESTRE' },
     });
     return { twoFactorEnabled: false };
   }

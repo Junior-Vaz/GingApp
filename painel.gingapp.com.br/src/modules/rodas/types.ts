@@ -34,6 +34,10 @@ export interface Roda {
 /** Roda "mãe" de uma série (recorrente e que não é ela mesma uma ocorrência gerada). */
 export const isSeriesParent = (roda: Roda): boolean => !roda.parentRodaId && !!roda.recurrence && roda.recurrence !== "NONE";
 
+/** Ocorrências futuras mantidas abertas por padrão e o máximo aceito por POST /rodas/:id/generate-occurrences. */
+export const DEFAULT_OCCURRENCES = 3;
+export const MAX_OCCURRENCES = 12;
+
 /** POST /rodas/:id/generate-occurrences (idempotente). */
 export interface GenerateOccurrencesResult {
   rule: string | null;

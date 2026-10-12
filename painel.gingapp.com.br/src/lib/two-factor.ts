@@ -27,6 +27,10 @@ export type DisableProof = { code: string } | { recoveryCode: string };
 export const disableTwoFactor = (password: string, proof: DisableProof) =>
   api.post<{ twoFactorEnabled: boolean }>("/auth/2fa/disable", { password, ...proof });
 
+/** Redefine o 2FA de OUTRO usuário do grupo (só Mestre): POST /auth/2fa/reset/:userId; encerra as sessões dele. */
+export const resetUserTwoFactor = (userId: number) =>
+  api.post<{ twoFactorEnabled: boolean }>(`/auth/2fa/reset/${String(userId)}`);
+
 export const TWO_FACTOR_CODE_PATTERN = /^\d{6}$/;
 /** Código de recuperação: dois grupos de 5 caracteres separados por hífen (xxxxx-xxxxx). */
 export const RECOVERY_CODE_PATTERN = /^[A-Za-z0-9]{5}-[A-Za-z0-9]{5}$/;

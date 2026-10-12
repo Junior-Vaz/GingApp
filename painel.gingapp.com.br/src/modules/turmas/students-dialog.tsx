@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
+import { StudentAvatar } from "@/components/painel/student-avatar";
 import { StudentPicker } from "@/components/painel/student-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,7 +69,8 @@ export function ClassStudentsDialog({ turma, onClose }: { turma: ClassItem | nul
             <ul className="divide-y rounded-md border">
               {list.data.map((s) => (
                 <li key={s.id} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
-                  <span className="min-w-0 truncate font-medium">
+                  <span className="flex min-w-0 items-center gap-2 truncate font-medium">
+                    <StudentAvatar name={s.name} photo={s.photo} />
                     {s.name}
                     {s.studentStatus === "INACTIVE" && (
                       <Badge variant="secondary" className="ml-2">

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { EventStatus, OrganizationType, Prisma, RecordStatus } from '@prisma/client';
 import { isRestricted, UnitScopeService } from '../../../shared/access/unit-scope';
 import { haversineKm } from '../../../shared/geo/coordinates';
+import { OCCUPYING_STATUSES, spotsLeft } from '../events/event-registration';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import {
@@ -46,6 +47,9 @@ export interface MapPlace {
   /** Presente (km, 2 casas) somente quando a query traz lat/lng. */
   distanceKm: number | null;
   imageUrl: string | null;
+  /** EVENT: total de vagas (null = ilimitado ou nao e' evento) e vagas restantes (0 = lotado). */
+  capacity: number | null;
+  spotsLeft: number | null;
   /** O ponto e' do grupo do usuario do token. */
   isMine: boolean;
 }
@@ -335,6 +339,17 @@ export class MapService {
       orderBy: [{ date: 'asc' }, { id: 'asc' }],
       take: SOURCE_FETCH_CAP,
     });
+    // Vagas restantes so' dos eventos COM capacidade (uma consulta agregada; sem dados de pessoas).
+    const capped = rows.filter((e) => e.capacity !== null);
+    const occupiedByEvent = new Map<number, number>();
+    if (capped.length > 0) {
+      const counts = await this.prisma.eventParticipant.groupBy({
+        by: ['eventId'],
+        where: { eventId: { in: capped.map((e) => e.id) }, status: { in: OCCUPYING_STATUSES } },
+        _count: { _all: true },
+      });
+      for (const c of counts) occupiedByEvent.set(c.eventId, c._count._all);
+    }
     return rows.flatMap((e) => {
       const latitude = e.latitude ?? e.unit?.latitude ?? null;
       const longitude = e.longitude ?? e.unit?.longitude ?? null;
@@ -354,6 +369,8 @@ export class MapService {
           unitName: e.unit?.name ?? null,
           organization: e.organization,
           imageUrl: e.imageUrl,
+          capacity: e.capacity,
+          spotsLeft: spotsLeft(e.capacity, occupiedByEvent.get(e.id) ?? 0),
           ownOrgId,
         }),
       ];
@@ -431,6 +448,8 @@ export class MapService {
     unitName?: string | null;
     organization: OrgRow | null;
     imageUrl?: string | null;
+    capacity?: number | null;
+    spotsLeft?: number | null;
     ownOrgId?: number;
   }): MapPlace {
     const org = input.organization;
@@ -455,6 +474,8 @@ export class MapService {
         : null,
       distanceKm: null,
       imageUrl: input.imageUrl ?? null,
+      capacity: input.capacity ?? null,
+      spotsLeft: input.spotsLeft ?? null,
       isMine: org !== null && input.ownOrgId !== undefined && org.id === input.ownOrgId,
     };
   }

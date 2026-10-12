@@ -151,7 +151,7 @@ interface Route {
 }
 let root: Root | null = null;
 let container: HTMLDivElement | null = null;
-let calls: { url: URL; method: string }[] = [];
+let calls: { url: URL; method: string; body: unknown }[] = [];
 
 function mockApi(options: { config?: Route; places?: (url: URL) => MapPlace[] } = {}) {
   calls = [];
@@ -160,7 +160,7 @@ function mockApi(options: { config?: Route; places?: (url: URL) => MapPlace[] } 
   };
   const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input).replace(/^.*\/api/, "http://x"));
-    calls.push({ url, method: init?.method ?? "GET" });
+    calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : undefined });
     let route: Route = { body: [] };
     if (url.pathname === "/map/config") route = config;
     else if (url.pathname === "/map/places") {
@@ -526,6 +526,43 @@ describe("cartão do local", () => {
     expect(
       container!.querySelector('[data-place-id="EVENT:7"]')!.getAttribute("aria-current"),
     ).toBe("true");
+  });
+});
+
+describe("cartão do evento: vagas, lista de espera e capa", () => {
+  const withEvent = (extra: Partial<MapPlace>) => (): MapPlace[] => [
+    place("EVENT:7", "EVENT", "Batizado 2026", { startsAt: "2026-11-21T13:00:00.000Z", ...extra }),
+  ];
+
+  it("evento lotado: mostra 'Lotado' e a capa; o botão vira 'Entrar na lista de espera' (POST com joinWaitlist)", async () => {
+    mockApi({ places: withEvent({ capacity: 20, spotsLeft: 0, imageUrl: "https://cdn.test/batizado.png" }) });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await click(container!.querySelector<HTMLElement>('[data-place-id="EVENT:7"]')!);
+
+    const card = container!.querySelector('[data-testid="map-card"]')!;
+    expect(card.querySelector<HTMLImageElement>('[data-testid="map-card-cover"]')?.src).toBe("https://cdn.test/batizado.png");
+    expect(card.querySelector('[data-testid="map-card-spots"]')?.textContent).toBe("Lotado");
+    await waitFor(() => expect(button(/Entrar na lista de espera/)).toBeTruthy());
+    expect(button(/Quero participar/)).toBeUndefined();
+    await click(button(/Entrar na lista de espera/));
+    await waitFor(() => {
+      const post = calls.find((c) => c.url.pathname === "/events/7/participants" && c.method === "POST");
+      expect(post?.body).toMatchObject({ joinWaitlist: true });
+    });
+  });
+
+  it("evento com vagas: mostra quantas restam e mantém 'Quero participar'; sem imageUrl não há capa", async () => {
+    mockApi({ places: withEvent({ capacity: 20, spotsLeft: 5 }) });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await click(container!.querySelector<HTMLElement>('[data-place-id="EVENT:7"]')!);
+
+    const card = container!.querySelector('[data-testid="map-card"]')!;
+    expect(card.querySelector('[data-testid="map-card-spots"]')?.textContent).toBe("5 vagas restantes");
+    expect(card.querySelector('[data-testid="map-card-cover"]')).toBeNull();
+    await waitFor(() => expect(button(/Quero participar/)).toBeTruthy());
+    expect(button(/lista de espera/)).toBeUndefined();
   });
 });
 

@@ -65,6 +65,11 @@ export function CheckinQrPage({ kind, id }: Props) {
           </Button>
         </div>
       </div>
+      <p className="no-print mb-4 text-sm text-muted-foreground" data-testid="checkin-hint">
+        Este código não muda enquanto o check-in {kind === "evento" ? "do evento" : "da aula"} estiver aberto. Prefira
+        exibir o QR na tela durante {kind === "evento" ? "o evento" : "a aula"} (tela cheia) em vez de fixar uma cópia
+        impressa.
+      </p>
 
       <div
         ref={stageRef}

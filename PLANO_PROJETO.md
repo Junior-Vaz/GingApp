@@ -3177,3 +3177,17 @@ O que NAO deu certo / decisoes
 3. Push real e jobs semanais (retenÃ§Ã£o, GC) nunca rodaram no relÃ³gio real: comeÃ§ar com `UPLOADS_GC=dry-run`.
 4. Mapa nÃ£o mostra vagas/fila; sem tela de detalhe de evento/roda/grupo no app; token do QR nÃ£o gira.
 5. Fora de escopo: refresh token, CI bloqueante, pagamento online, billing real da assinatura, cadastro self-service de grupo.
+
+### 10.45 Fechamento das pendÃªncias pequenas + mapa validado com a chave real
+
+**Data:** 2026-10-12 Â· **Status:** âœ… concluÃ­do. Gate: backend 122 unit + 801 e2e rÃ¡pido + 14 bootstrap, admin 138, painel 467, app 137.
+
+- **Mapa real VISTO** (app local + backend com `GOOGLE_MAPS_API_KEY`): tiles, clusters em GoiÃ¢nia/AnÃ¡polis/BrasÃ­lia, 17 locais na lista, cartÃ£o com tÃ­tulo/descriÃ§Ã£o/endereÃ§o, zoom ao selecionar. Grupo demo sem logo â†’ pin com iniciais.
+- Reset de 2FA (`POST /auth/2fa/reset/:userId`; super admin qualquer um, MESTRE sÃ³ professor/aluno do grupo; MESTRE nÃ£o reseta MESTRE), tela "Pedidos LGPD" no admin (`/data-deletion-requests`, DONE nÃ£o apaga nada), avatar de aluno nas listas, quantidade de ocorrÃªncias das rodas, vagas/lista de espera/capa no cartÃ£o do mapa.
+- Check-in QR: token continua determinÃ­stico (sem rotaÃ§Ã£o); documentado exibir na tela e nÃ£o imprimir fixo (`docs/EASYPANEL.md` Â§16).
+
+#### PendÃªncias (numeradas)
+1. Chave do Google: restringir por referrer (`https://app.gingapp.com.br/*`) e Ã s APIs Maps JavaScript/Geocoding; chave de servidor separada para geocodificar endereÃ§os.
+2. Flake nÃ£o reproduzido em `audit.spec`/`two-factor.spec` (1 de 5 execuÃ§Ãµes): provÃ¡vel borda de passo TOTP.
+3. Avatar ainda ausente em frequÃªncia/financeiro/certificados; "Ver detalhes" no mapa oculto (sem tela de detalhe).
+4. Sem prova em produÃ§Ã£o: build Docker (sharp/bcrypt 6 no Alpine), backup `restore.sh verify`, push real, SMTP real, jobs semanais.

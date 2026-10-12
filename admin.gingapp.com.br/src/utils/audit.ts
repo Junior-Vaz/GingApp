@@ -70,6 +70,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   TWO_FACTOR_DISABLE: 'Verificação em duas etapas desativada',
   TWO_FACTOR_RECOVERY_USED: 'Código de recuperação usado',
   TWO_FACTOR_FAILURE: 'Código de duas etapas incorreto',
+  TWO_FACTOR_RESET: 'Verificação em duas etapas redefinida',
+  DATA_DELETION_REQUEST_UPDATE: 'Pedido de exclusão de dados tratado',
   AUDIT_PURGE: 'Limpeza automática da auditoria',
 }
 

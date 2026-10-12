@@ -16,11 +16,12 @@ export function occurrencesMessage(result: GenerateOccurrencesResult): string {
   return result.rule ? `${created} (${result.rule}).` : `${created}.`;
 }
 
-/** POST /rodas/:id/generate-occurrences (idempotente; padrão = próximas 3). Só roda "mãe" recorrente. */
+/** POST /rodas/:id/generate-occurrences { count } (idempotente; 1 a 12, padrão 3). Só roda "mãe" recorrente. */
 export function useGenerateOccurrences() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => api.post<GenerateOccurrencesResult>(`/rodas/${String(id)}/generate-occurrences`, {}),
+    mutationFn: ({ id, count }: { id: number; count: number }) =>
+      api.post<GenerateOccurrencesResult>(`/rodas/${String(id)}/generate-occurrences`, { count }),
     onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: rodas.rootKey });
       toast.success(occurrencesMessage(result));

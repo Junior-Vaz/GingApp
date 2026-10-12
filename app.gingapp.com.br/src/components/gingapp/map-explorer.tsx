@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/api";
+import { pickEventInfo, spotsLabel } from "@/lib/event-info";
 import { initials, toDate } from "@/lib/format";
 import {
   DEFAULT_RADIUS_KM,
@@ -78,12 +79,30 @@ function OrgLogo({ place, className }: { place: MapPlace; className: string }) {
   );
 }
 
-/** Inscrição em evento/roda: o mesmo estado/ação do card da lista (useEncounterParticipation, SSOT em queries.ts). */
+/** Vagas de um EVENT com limite ("12 vagas restantes" / "Lotado", texto do SSOT de event-info); sem limite, nada. */
+function placeSpotsLabel(place: MapPlace): string | null {
+  if (place.type !== "EVENT" || place.capacity === null || place.capacity === undefined) return null;
+  return spotsLabel(pickEventInfo({ capacity: place.capacity, spotsLeft: place.spotsLeft ?? null }));
+}
+
+/**
+ * Inscrição em evento/roda: o mesmo estado/ação do card da lista (useEncounterParticipation, SSOT em queries.ts).
+ * Evento lotado: mostra "Lotado" e troca o botão por "Entrar na lista de espera" (quem já está na fila vê
+ * "Sair da lista de espera"). O resumo de vagas vem do mapa (`spotsLeft`); se o servidor responder 409 EVENT_FULL
+ * o hook também passa a oferecer a fila.
+ */
 function ParticipateAction({ place }: { place: MapPlace }) {
-  const { count, canJoin, joined, join, pending } = useEncounterParticipation(
-    { source: place.type === "RODA" ? "RODA" : "EVENTO", id: placeEntityId(place) },
+  const isEvent = place.type === "EVENT";
+  const { count, canJoin, joined, waitlisted, full, join, joinWaitlist, pending } = useEncounterParticipation(
+    {
+      source: isEvent ? "EVENTO" : "RODA",
+      id: placeEntityId(place),
+      ...(isEvent && place.spotsLeft !== undefined ? { spotsLeft: place.spotsLeft } : {}),
+    },
     true,
   );
+  const spots = placeSpotsLabel(place);
+  const showFull = full || (!joined && spots === "Lotado");
   return (
     <>
       {count !== undefined && count > 0 && (
@@ -92,20 +111,55 @@ function ParticipateAction({ place }: { place: MapPlace }) {
           {count} na roda
         </li>
       )}
+      {spots && !waitlisted && (
+        <li data-testid="map-card-spots">
+          <Users />
+          {spots}
+        </li>
+      )}
+      {waitlisted && (
+        <li role="status">
+          <Users />
+          Você está na lista de espera
+        </li>
+      )}
       {canJoin && (
         <li className="map-card-join">
           <Button
-            variant={joined ? "soft" : "hero"}
+            variant={joined ? "soft" : showFull ? "outline" : "hero"}
             size="sm"
-            onClick={() => void join()}
+            onClick={() => void (!joined && showFull ? joinWaitlist() : join())}
             disabled={pending}
           >
             {joined ? <Check /> : <Users />}
-            {joined ? "Cancelar participação" : "Quero participar"}
+            {waitlisted
+              ? "Sair da lista de espera"
+              : joined
+                ? "Cancelar participação"
+                : showFull
+                  ? "Entrar na lista de espera"
+                  : "Quero participar"}
           </Button>
         </li>
       )}
     </>
+  );
+}
+
+/** Capa do cartão: a imagem do evento/roda (`imageUrl`); some se não existir ou falhar ao carregar. */
+function PlaceCover({ place }: { place: MapPlace }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [place.id]);
+  if (!place.imageUrl || failed) return null;
+  return (
+    <img
+      className="map-card-cover"
+      data-testid="map-card-cover"
+      src={imageSrc(place.imageUrl)}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+    />
   );
 }
 
@@ -149,6 +203,7 @@ function PlaceCard({
       <button type="button" className="map-card-close" aria-label="Fechar cartão" onClick={onClose}>
         <X />
       </button>
+      <PlaceCover place={place} />
       <header className="map-card-head">
         <OrgLogo place={place} className="map-logo is-large" />
         <div>

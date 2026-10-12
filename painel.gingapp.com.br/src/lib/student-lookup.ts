@@ -6,6 +6,8 @@ export interface StudentOption {
   id: number;
   name: string;
   status?: "ACTIVE" | "INACTIVE";
+  /** Foto (caminho de /uploads ou URL http(s)); quando existir, o seletor mostra a miniatura. */
+  photo?: string | null;
 }
 
 /** Resultados por busca de aluno (o backend aceita 1..200). */

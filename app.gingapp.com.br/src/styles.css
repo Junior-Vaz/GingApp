@@ -152,6 +152,7 @@
 .map-mine svg { width:10px; height:10px; }
 /* Cartão do local: popover sobre o mapa (desktop) / bottom sheet (celular) */
 .map-card { --pin:var(--primary); position:absolute; z-index:5; left:14px; bottom:14px; width:min(380px,calc(100% - 28px)); max-height:calc(100% - 28px); overflow-y:auto; padding:16px; background:var(--card); border-radius:16px; border-top:4px solid var(--pin); box-shadow:0 14px 44px oklch(.2 .03 155 / .3); animation:map-card-in .25s ease-out; outline:none; }
+.map-card-cover { display:block; width:calc(100% + 32px); max-width:none; height:128px; margin:-16px -16px 12px; object-fit:cover; background:var(--muted); }
 .map-card-handle { display:none; width:38px; height:4px; border-radius:2px; background:var(--border); margin:0 auto 10px; }
 .map-card-close { position:absolute; top:10px; right:10px; width:30px; height:30px; display:grid; place-items:center; border-radius:50%; border:0; background:var(--muted); color:var(--muted-foreground); cursor:pointer; }
 .map-card-close svg { width:15px; height:15px; }

@@ -22,7 +22,7 @@ import { createTestApp } from './utils/test-app';
  * Nunca altera o owner do seed; cria os próprios usuários (sufixo @e2e-team.local) e os apaga.
  * Nada depende de contagem global: X-Total-Count é comparado com o Prisma no mesmo instante.
  */
-const FIELDS = ['createdAt', 'email', 'id', 'isSuperAdmin', 'name', 'phone', 'status', 'tokenValidAfter'];
+const FIELDS = ['createdAt', 'email', 'id', 'isSuperAdmin', 'name', 'phone', 'status', 'tokenValidAfter', 'twoFactorEnabled'];
 const FORBIDDEN_FIELDS = ['passwordHash', 'twoFactorSecret', 'password', 'userType'];
 
 describe('Platform team — acesso, listagem e criação (e2e)', () => {

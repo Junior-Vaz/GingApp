@@ -5,7 +5,7 @@ describe('router do admin', () => {
   it('tem a rota /audit e o item de menu "Auditoria" (em português)', () => {
     expect(routes.find((r) => r.path === '/audit')?.name).toBe('audit')
     const labels = routes.filter((r) => r.meta?.navLabel).map((r) => r.meta!.navLabel)
-    expect(labels).toEqual(['Painel', 'Grupos', 'Planos', 'Equipe', 'Configurações', 'Avisos', 'Auditoria'])
+    expect(labels).toEqual(['Painel', 'Grupos', 'Planos', 'Equipe', 'Configurações', 'Avisos', 'Auditoria', 'Pedidos LGPD'])
   })
 
   it('"/" e rotas desconhecidas (como /logs) caem no dashboard', () => {

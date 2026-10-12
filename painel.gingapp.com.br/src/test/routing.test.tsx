@@ -152,6 +152,25 @@ describe("guard de rotas", () => {
     for (const role of [undefined, "ALUNO", "RESPONSAVEL"] as const) expect(roleCan(role, "students", "view")).toBe(false);
   });
 
+  it("/checkin/:kind/:id (fora do menu): sem sessão vai ao login com ?redirect; com sessão resolve kind e id nos params", async () => {
+    const anon = makeRouter("/checkin/evento/7");
+    await anon.load();
+    expect(anon.state.location.pathname).toBe("/login");
+    expect(anon.state.location.search).toMatchObject({ redirect: "/checkin/evento/7" });
+
+    for (const [role, path, kind, id] of [
+      ["MESTRE", "/checkin/evento/7", "evento", "7"],
+      ["PROFESSOR", "/checkin/aula/12", "aula", "12"],
+    ] as const) {
+      localStorage.clear();
+      saveSession("t", makeUser(role));
+      const router = makeRouter(path);
+      await router.load();
+      expect(router.state.location.pathname).toBe(path);
+      expect(router.state.matches.at(-1)?.params).toEqual({ kind, id });
+    }
+  });
+
   it("todas as 16 rotas do menu existem na árvore", async () => {
     expect(NAV_ITEMS).toHaveLength(16);
     saveSession("t", makeUser("MESTRE"));

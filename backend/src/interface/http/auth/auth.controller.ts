@@ -6,6 +6,8 @@ import {
   Header,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseIntPipe,
   Post,
   Req,
   UseFilters,
@@ -142,6 +144,21 @@ export class AuthController {
     @Body() dto: DisableTwoFactorDto,
   ): Promise<{ twoFactorEnabled: false }> {
     return this.twoFactor.disable(user, dto.password, { code: dto.code, recoveryCode: dto.recoveryCode });
+  }
+
+  /**
+   * Redefine o 2FA de OUTRO usuario (super admin ativo: qualquer um; MESTRE: so' usuarios do proprio grupo). Nunca no
+   * proprio usuario (400, este usa /2fa/disable). Zera o 2FA e revoga as sessoes do alvo; auditado.
+   */
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(TWO_FACTOR_THROTTLE)
+  @HttpCode(HttpStatus.OK)
+  @Post('2fa/reset/:userId')
+  resetTwoFactor(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('userId', ParseIntPipe) userId: number,
+  ): Promise<{ twoFactorEnabled: false }> {
+    return this.twoFactor.reset(user, userId);
   }
 
   /** O frontend só mostra "Esqueci minha senha" quando o e-mail transacional (SMTP_*) está habilitado. */

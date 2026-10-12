@@ -280,7 +280,7 @@ export class ClassesService {
     await this.findOne(organizationId, classId, user);
     const enrollments = await this.prisma.classStudent.findMany({
       where: { organizationId, classId, status: 'ACTIVE' },
-      include: { student: { select: { id: true, name: true, status: true } } },
+      include: { student: { select: { id: true, name: true, status: true, photo: true } } },
       orderBy: { student: { name: 'asc' } },
     });
     return enrollments.map((e) => ({
@@ -288,6 +288,7 @@ export class ClassesService {
       studentId: e.studentId,
       name: e.student.name,
       studentStatus: e.student.status,
+      photo: e.student.photo,
       enrolledAt: e.enrolledAt,
     }));
   }

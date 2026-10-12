@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 import { Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { StudentAvatar } from "@/components/painel/student-avatar";
 import { Input } from "@/components/ui/input";
 import { errorMessage } from "@/lib/api";
 import { useDebouncedValue } from "@/lib/list-params";
@@ -138,7 +139,7 @@ export function StudentPicker({
     </div>
   );
 
-  const select = (
+  const nativeSelect = (
     <NativeSelect
       id={selectId}
       aria-label={isFilter ? selectLabel : undefined}
@@ -159,6 +160,16 @@ export function StudentPicker({
         </option>
       ))}
     </NativeSelect>
+  );
+
+  // Miniatura do aluno escolhido (foto ou iniciais) ao lado do select.
+  const select = current ? (
+    <div className={cn("flex items-center gap-2", !isFilter && "[&>select]:flex-1")}>
+      <StudentAvatar name={current.name} photo={current.photo} />
+      {nativeSelect}
+    </div>
+  ) : (
+    nativeSelect
   );
 
   const messages = (

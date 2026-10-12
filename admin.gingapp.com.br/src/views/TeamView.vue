@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { api, errorMessage } from '@/utils/api'
 import { formatDateTime } from '@/utils/format'
 import { NEW_PASSWORD_MIN_LENGTH, PASSWORD_MAX_BYTES, passwordProblem } from '@/utils/password'
+import { resetUserTwoFactor } from '@/utils/twoFactor'
 
 type MemberStatus = 'ACTIVE' | 'INACTIVE'
 
@@ -18,6 +19,7 @@ interface TeamMember {
   isSuperAdmin: boolean
   createdAt: string
   tokenValidAfter: string | null
+  twoFactorEnabled?: boolean
 }
 
 interface CreateFormState {
@@ -277,6 +279,19 @@ async function revokeSessions(member: TeamMember): Promise<void> {
   }
 }
 
+async function resetTwoFactor(member: TeamMember): Promise<void> {
+  if (!confirm(`Redefinir o 2FA de ${member.email}? O 2FA é desativado, as sessões dele são encerradas e ele poderá ativá-lo de novo.`)) return
+  listError.value = ''
+  notice.value = ''
+  try {
+    await resetUserTwoFactor(member.id)
+    notice.value = `2FA de ${member.email} redefinido; as sessões dele foram encerradas.`
+    await load()
+  } catch (error) {
+    listError.value = errorMessage(error, 'Não foi possível redefinir o 2FA.')
+  }
+}
+
 async function submitPassword(): Promise<void> {
   const member = target.value
   if (!member) return
@@ -428,6 +443,15 @@ onBeforeUnmount(() => {
               </button>
               <button type="button" data-action="password" class="text-sm font-medium text-slate-600 hover:text-slate-900" @click="openPassword(member)">
                 Redefinir senha
+              </button>
+              <button
+                v-if="!isSelf(member) && member.twoFactorEnabled"
+                type="button"
+                data-action="reset-2fa"
+                class="text-sm font-medium text-slate-600 hover:text-slate-900"
+                @click="resetTwoFactor(member)"
+              >
+                Redefinir 2FA
               </button>
               </div>
             </td>

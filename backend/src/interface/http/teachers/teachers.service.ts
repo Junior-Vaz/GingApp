@@ -20,7 +20,7 @@ const TEACHER_SELECT = {
   role: true,
   status: true,
   createdAt: true,
-  user: { select: { id: true, name: true, email: true, phone: true, photo: true } },
+  user: { select: { id: true, name: true, email: true, phone: true, photo: true, twoFactorEnabled: true } },
 } as const;
 
 /**

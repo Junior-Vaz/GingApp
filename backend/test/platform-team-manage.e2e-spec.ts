@@ -163,7 +163,7 @@ describe('Platform team — mutações e regras de segurança (e2e)', () => {
     assert.ok(res.body.tokenValidAfter);
     assert.ok(Math.abs(Date.now() - new Date(res.body.tokenValidAfter).getTime()) < 10_000);
     assert.deepEqual(Object.keys(res.body).sort(), [
-      'createdAt', 'email', 'id', 'isSuperAdmin', 'name', 'phone', 'status', 'tokenValidAfter',
+      'createdAt', 'email', 'id', 'isSuperAdmin', 'name', 'phone', 'status', 'tokenValidAfter', 'twoFactorEnabled',
     ]);
     await call('get', '', oldToken).expect(401);
 

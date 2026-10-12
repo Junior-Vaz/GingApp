@@ -42,6 +42,7 @@ import { LegalModule } from './interface/http/legal/legal.module';
 import { UploadsModule } from './interface/http/uploads/uploads.module';
 import { MapModule } from './interface/http/map/map.module';
 import { PushModule } from './interface/http/push/push.module';
+import { DataDeletionRequestsModule } from './interface/http/data-deletion-requests/data-deletion-requests.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { JobsModule } from './jobs/jobs.module';
 import { isOverdueCronEnabled } from './jobs/overdue-cron.service';
@@ -92,6 +93,7 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     UploadsModule,
     MapModule,
     PushModule,
+    DataDeletionRequestsModule,
     AuditModule,
 
     // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador

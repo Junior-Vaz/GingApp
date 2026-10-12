@@ -6,6 +6,7 @@ import { FormDialog } from "@/components/painel/form-dialog";
 import { ImageUploadField } from "@/components/painel/image-upload-field";
 import { ExportCsvButton } from "@/components/painel/export-csv-button";
 import { PageHeader } from "@/components/painel/page-header";
+import { StudentAvatar } from "@/components/painel/student-avatar";
 import { UnitPicker } from "@/components/painel/unit-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -84,13 +85,16 @@ export function AlunosPage() {
       header: "Nome",
       sortValue: (s) => s.name,
       cell: (s) => (
-        <span className="font-medium">
-          {s.name}
-          {isMinor(s.birthDate) && (
-            <Badge variant="outline" className="ml-2">
-              Menor
-            </Badge>
-          )}
+        <span className="flex items-center gap-2 font-medium">
+          <StudentAvatar name={s.name} photo={s.photo} />
+          <span>
+            {s.name}
+            {isMinor(s.birthDate) && (
+              <Badge variant="outline" className="ml-2">
+                Menor
+              </Badge>
+            )}
+          </span>
         </span>
       ),
     },

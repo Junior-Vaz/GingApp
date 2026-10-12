@@ -96,6 +96,12 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, navLabel: 'Auditoria' },
   },
   {
+    path: '/lgpd',
+    name: 'lgpd',
+    component: () => import('@/views/DataDeletionRequestsView.vue'),
+    meta: { requiresAuth: true, navLabel: 'Pedidos LGPD' },
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/dashboard',
   },

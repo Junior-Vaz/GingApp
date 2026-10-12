@@ -9,6 +9,7 @@ import { useListParams } from "@/lib/list-params";
 import { useCan, useSessionUser } from "@/lib/session";
 import { rodas, useGenerateOccurrences, useRemoveSeries } from "./api";
 import { DeleteRodaDialog } from "./delete-roda-dialog";
+import { GenerateOccurrencesDialog } from "./generate-occurrences-dialog";
 import { NativeSelect } from "./native-select";
 import { useCities, useStates } from "./reference";
 import { RodaForm } from "./roda-form";
@@ -41,6 +42,7 @@ export function RodasPage() {
   const [editing, setEditing] = useState<Roda | "new" | null>(null);
   const [deleting, setDeleting] = useState<Roda | null>(null);
   const [viewing, setViewing] = useState<Roda | null>(null);
+  const [generating, setGenerating] = useState<Roda | null>(null);
 
   const stateName = useMemo(() => {
     const map = new Map(states.data?.map((state) => [state.id, state.name]));
@@ -157,7 +159,7 @@ export function RodasPage() {
                     variant="ghost"
                     size="sm"
                     disabled={generate.isPending}
-                    onClick={() => generate.mutate(r.id)}
+                    onClick={() => setGenerating(r)}
                     aria-label={`Gerar próximas ocorrências de ${r.title}`}
                   >
                     <CalendarPlus /> Gerar próximas ocorrências
@@ -188,6 +190,11 @@ export function RodasPage() {
         roda={viewing}
         canManage={viewing !== null && isOwner(viewing)}
         onClose={() => setViewing(null)}
+      />
+      <GenerateOccurrencesDialog
+        roda={generating}
+        onClose={() => setGenerating(null)}
+        onGenerate={(id, count) => generate.mutateAsync({ id, count })}
       />
       <DeleteRodaDialog
         roda={deleting}

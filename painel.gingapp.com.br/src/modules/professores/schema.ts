@@ -11,7 +11,15 @@ export interface Teacher {
   createdAt?: string;
   /** Unidades de atuação (E08): vazio = sem restrição (vê todas). Só vem em GET /teachers e /teachers/:id. */
   unitIds?: number[];
-  user: { id: number; name: string; email: string; phone: string | null; photo?: string | null };
+  user: {
+    id: number;
+    name: string;
+    email: string;
+    phone: string | null;
+    photo?: string | null;
+    /** 2FA ativo na conta (só a flag): habilita "Redefinir 2FA" para o Mestre. */
+    twoFactorEnabled?: boolean;
+  };
 }
 
 /** POST /teachers exige email, password e role; PATCH /teachers/:id aceita name, phone, role e status (não o e-mail). */

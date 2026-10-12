@@ -61,7 +61,7 @@ export type CreatedGroup = Prisma.OrganizationGetPayload<object> & {
  * + os seus MESTREs sem NENHUM segredo. `id` = id do USUÁRIO (o mesmo de .../members/:userId/reset-password);
  * `status` = status do vínculo (OrganizationUser) — ACTIVE é o que o reset exige. */
 export type OrganizationDetail = Prisma.OrganizationGetPayload<object> & {
-  mestres: Array<{ id: number; name: string; email: string; status: string }>;
+  mestres: Array<{ id: number; name: string; email: string; status: string; twoFactorEnabled: boolean }>;
 };
 
 /** 404 único do reset: alvo inexistente, de outra organização, de outro papel ou inativo são indistinguíveis. */
@@ -102,11 +102,17 @@ export class OrganizationsService {
     const memberships = await this.prisma.organizationUser.findMany({
       where: { organizationId: id, role: OrgRole.MESTRE },
       orderBy: { id: 'asc' },
-      select: { status: true, user: { select: { id: true, name: true, email: true } } },
+      select: { status: true, user: { select: { id: true, name: true, email: true, twoFactorEnabled: true } } },
     });
     return {
       ...organization,
-      mestres: memberships.map((m) => ({ id: m.user.id, name: m.user.name, email: m.user.email, status: m.status })),
+      mestres: memberships.map((m) => ({
+        id: m.user.id,
+        name: m.user.name,
+        email: m.user.email,
+        status: m.status,
+        twoFactorEnabled: m.user.twoFactorEnabled,
+      })),
     };
   }
 

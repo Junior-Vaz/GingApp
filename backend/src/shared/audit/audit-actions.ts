@@ -11,6 +11,7 @@ export const AuditAction = {
   PASSWORD_RESET: 'PASSWORD_RESET',
   ACCEPT_TERMS: 'ACCEPT_TERMS',
   REQUEST_DATA_DELETION: 'REQUEST_DATA_DELETION',
+  DATA_DELETION_REQUEST_UPDATE: 'DATA_DELETION_REQUEST_UPDATE',
   // Grupos (organizacoes)
   ORGANIZATION_CREATE: 'ORGANIZATION_CREATE',
   ORGANIZATION_UPDATE: 'ORGANIZATION_UPDATE',
@@ -92,6 +93,7 @@ export const AuditAction = {
   TWO_FACTOR_DISABLE: 'TWO_FACTOR_DISABLE',
   TWO_FACTOR_RECOVERY_USED: 'TWO_FACTOR_RECOVERY_USED',
   TWO_FACTOR_FAILURE: 'TWO_FACTOR_FAILURE',
+  TWO_FACTOR_RESET: 'TWO_FACTOR_RESET',
   // Retencao: limpeza automatica de registros antigos (job semanal)
   AUDIT_PURGE: 'AUDIT_PURGE',
 } as const;
@@ -127,4 +129,5 @@ export const AuditEntity = {
   EVENT: 'event',
   LESSON: 'lesson',
   RODA: 'roda',
+  DATA_DELETION_REQUEST: 'data_deletion_request',
 } as const;

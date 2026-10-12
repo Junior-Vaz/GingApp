@@ -13,6 +13,8 @@ export interface MemberAccount {
   role: string | null;
   /** A senha atual foi definida pelo Mestre/Professor: a pessoa deve trocá-la no primeiro acesso. */
   mustChangePassword: boolean;
+  /** 2FA ativo na conta (só a flag): habilita "Redefinir 2FA" para o Mestre. */
+  twoFactorEnabled?: boolean;
 }
 
 /** GET /students/:id/account */

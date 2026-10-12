@@ -75,7 +75,7 @@ describe('Mapa da comunidade (e2e)', () => {
     classId = turma.id;
     const base = { organizationId: orgB.organizationId, type: 'OUTRO' };
     publicEventId = (
-      await prisma.event.create({ data: { ...base, title: `Batizado Mapa ${TAG}`, date: new Date(Date.now() + 3 * DAY), isPublic: true, location: 'Ginasio X', ...SP_EVENT } })
+      await prisma.event.create({ data: { ...base, title: `Batizado Mapa ${TAG}`, date: new Date(Date.now() + 3 * DAY), isPublic: true, location: 'Ginasio X', capacity: 2, ...SP_EVENT } })
     ).id;
     privateEventId = (
       await prisma.event.create({ data: { ...base, title: `Reuniao Privada ${TAG}`, date: new Date(Date.now() + 3 * DAY), isPublic: false, ...SP_EVENT } })
@@ -188,8 +188,8 @@ describe('Mapa da comunidade (e2e)', () => {
 
       const unit = items.find((i: { id: string }) => i.id === `UNIT:${unitId}`);
       assert.deepEqual(Object.keys(unit).sort(), [
-        'address', 'city', 'description', 'distanceKm', 'endTime', 'endsAt', 'id', 'imageUrl', 'isMine', 'latitude', 'longitude',
-        'organization', 'startTime', 'startsAt', 'state', 'title', 'type', 'unitName', 'weekday',
+        'address', 'capacity', 'city', 'description', 'distanceKm', 'endTime', 'endsAt', 'id', 'imageUrl', 'isMine', 'latitude', 'longitude',
+        'organization', 'spotsLeft', 'startTime', 'startsAt', 'state', 'title', 'type', 'unitName', 'weekday',
       ]);
       assert.equal(unit.type, 'UNIT');
       assert.equal(unit.title, `E2E Mapa ${TAG}`); // matriz = nome do grupo
@@ -222,6 +222,9 @@ describe('Mapa da comunidade (e2e)', () => {
       assert.equal(evento.address, 'Ginasio X');
       assert.equal(new Date(evento.startsAt).getTime() > Date.now(), true);
       assert.equal(evento.latitude, SP_EVENT.latitude);
+      assert.equal(evento.capacity, 2);
+      assert.equal(evento.spotsLeft, 2, 'evento com capacidade 2 e ninguem inscrito');
+      assert.equal(unit.spotsLeft, null);
 
       const roda = items.find((i: { id: string }) => i.id === `RODA:${rodaId}`);
       assert.equal(roda.longitude, RIO.longitude);

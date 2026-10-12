@@ -70,6 +70,14 @@ export async function enableTwoFactor(code: string): Promise<string[]> {
   return Array.isArray(data?.recoveryCodes) ? data.recoveryCodes : []
 }
 
+/**
+ * Redefine o 2FA de OUTRO usuário (POST /auth/2fa/reset/:userId; super admin ativo: qualquer um). Zera o 2FA e
+ * encerra as sessões dele; nunca no próprio usuário (400, este usa "desativar").
+ */
+export async function resetUserTwoFactor(userId: number): Promise<void> {
+  await api.post(`/auth/2fa/reset/${userId}`)
+}
+
 export async function disableTwoFactor(password: string, value: string, useRecovery: boolean): Promise<void> {
   await api.post('/auth/2fa/disable', { password, ...proofBody(value, useRecovery) })
 }
