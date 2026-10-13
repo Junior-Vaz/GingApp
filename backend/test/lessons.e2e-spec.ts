@@ -168,6 +168,35 @@ describe('Lessons CRUD (e2e)', () => {
     assert.ok(Array.isArray(res.body));
     assert.ok(res.body.some((l: { id: number }) => l.id === created.body.id));
   });
+
+  it('aula CANCELADA some da lista do aluno 2 dias depois do cancelamento (a equipe continua vendo)', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/api/lessons')
+      .set('Authorization', `Bearer ${mestreToken}`)
+      .send({ classId: seedClassId, date: new Date(Date.now() + 12 * 86400000).toISOString(), notes: '[e2e-lessons] cancelada' })
+      .expect(201);
+    createdLessonIds.push(created.body.id);
+    const id = created.body.id as number;
+    const ids = async () =>
+      (await request(app.getHttpServer()).get('/api/lessons/me').set('Authorization', `Bearer ${alunoToken}`).expect(200)).body.map(
+        (l: { id: number }) => l.id,
+      );
+
+    await request(app.getHttpServer()).patch(`/api/lessons/${id}`).set('Authorization', `Bearer ${mestreToken}`).send({ status: 'INACTIVE' }).expect(200);
+    assert.ok((await prisma.lesson.findUniqueOrThrow({ where: { id } })).cancelledAt, 'cancelledAt gravado ao cancelar');
+    assert.ok((await ids()).includes(id), 'recém-cancelada ainda aparece (com status INACTIVE)');
+
+    // 3 dias depois do cancelamento: some para o aluno, mas continua para a equipe.
+    await prisma.lesson.update({ where: { id }, data: { cancelledAt: new Date(Date.now() - 3 * 86400000) } });
+    assert.ok(!(await ids()).includes(id), 'cancelada há 3 dias não aparece para o aluno');
+    const staff = await request(app.getHttpServer()).get(`/api/lessons/${id}`).set('Authorization', `Bearer ${mestreToken}`).expect(200);
+    assert.equal(staff.body.status, 'INACTIVE');
+
+    // Reativar limpa o cancelamento e a aula volta.
+    await request(app.getHttpServer()).patch(`/api/lessons/${id}`).set('Authorization', `Bearer ${mestreToken}`).send({ status: 'ACTIVE' }).expect(200);
+    assert.equal((await prisma.lesson.findUniqueOrThrow({ where: { id } })).cancelledAt, null);
+    assert.ok((await ids()).includes(id));
+  });
 });
 
 
@@ -360,7 +389,8 @@ describe('Lessons /me — paginação, período, status e ordem (e2e)', () => {
     app = await createTestApp();
     fx = await createMeFixture(app, prisma, 'lesme');
     const org = fx.organizationId;
-    // Turma do aluno: 60 passadas (-60..-1), hoje e 9 futuras (+1..+9) = 70; duas INACTIVE (-3 e +2).
+    // Turma do aluno: 60 passadas (-60..-1), hoje e 9 futuras (+1..+9) = 70; duas INACTIVE (-1 e +2).
+    // (A cancelada passada fica em -1: aulas canceladas há mais de 2 dias somem da lista do aluno.)
     const offsets = [...Array.from({ length: 60 }, (_, i) => i - 60), 0, ...Array.from({ length: 9 }, (_, i) => i + 1)];
     await prisma.lesson.createMany({
       data: offsets.map((o) => ({
@@ -368,7 +398,7 @@ describe('Lessons /me — paginação, período, status e ordem (e2e)', () => {
         classId: fx.classMineId,
         date: civil(o),
         notes: `lesme ${o}`,
-        status: o === -3 || o === 2 ? ('INACTIVE' as const) : ('ACTIVE' as const),
+        status: o === -1 || o === 2 ? ('INACTIVE' as const) : ('ACTIVE' as const),
       })),
     });
     // Turma alheia: nunca pode aparecer.
@@ -421,11 +451,11 @@ describe('Lessons /me — paginação, período, status e ordem (e2e)', () => {
     const past = await get(`/lessons/me?to=${day(-1)}&order=desc&limit=10`, fx.self.token).expect(200);
     assert.equal(past.headers['x-total-count'], '60');
     assert.deepEqual(past.body.map(dateOf), Array.from({ length: 10 }, (_, i) => day(-1 - i)));
-    const one = await get(`/lessons/me?from=${day(-3)}&to=${day(-3)}`, fx.self.token).expect(200);
+    const one = await get(`/lessons/me?from=${day(-1)}&to=${day(-1)}`, fx.self.token).expect(200);
     assert.equal(one.body.length, 1);
     assert.equal(one.body[0].status, 'INACTIVE');
     const inactive = await get(`/lessons/me?status=INACTIVE&limit=200`, fx.self.token).expect(200);
-    assert.deepEqual(inactive.body.map(dateOf), [day(-3), day(2)]);
+    assert.deepEqual(inactive.body.map(dateOf), [day(-1), day(2)]);
   });
 
   it('isolamento: nunca vem aula da turma alheia; responsável vê as da turma do dependente; sem vínculo nada', async () => {

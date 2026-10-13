@@ -1002,6 +1002,8 @@ model Lesson {
   endTime        String?
   notes          String?
   status         RecordStatus @default(ACTIVE)
+  /// Quando a aula foi cancelada (status INACTIVE); o app esconde a aula cancelada 2 dias depois.
+  cancelledAt    DateTime?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 

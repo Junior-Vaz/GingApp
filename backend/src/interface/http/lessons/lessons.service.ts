@@ -16,6 +16,9 @@ import {
 } from '../../../shared/access/unit-scope';
 import { NotificationsService, type NotificationPayload } from '../notifications/notifications.service';
 import { civilTodayStart } from '../finance/finance.service';
+
+/** Quanto tempo uma aula cancelada continua aparecendo para o aluno (2 dias). */
+const CANCELLED_VISIBLE_MS = 2 * 24 * 60 * 60 * 1000;
 import { ListLessonsQueryDto } from './dto/list-lessons-query.dto';
 import { ListMyLessonsQueryDto } from './dto/list-my-lessons-query.dto';
 import { ClassesService } from '../classes/classes.service';
@@ -139,6 +142,24 @@ export class LessonsService {
     if (query.status) where.status = query.status;
     const date = civilDateRange(query.from, query.to);
     if (date) where.date = date;
+    // Aula CANCELADA não fica mais de 2 dias na lista do aluno: some 2 dias depois do cancelamento
+    // (cancelledAt) ou 2 dias depois da data da própria aula, o que vier primeiro. O painel (equipe)
+    // continua vendo o histórico completo em /lessons.
+    const cutoff = new Date(Date.now() - CANCELLED_VISIBLE_MS);
+    const dateCutoff = new Date(civilTodayStart().getTime() - CANCELLED_VISIBLE_MS);
+    // Regra POSITIVA (evita o NOT com NULL do SQL, que descartaria canceladas sem cancelledAt): ativa sempre
+    // aparece; cancelada só se o cancelamento é recente (ou sem data) E a data da aula não passou de 2 dias.
+    where.AND = [
+      {
+        OR: [
+          { status: 'ACTIVE' },
+          {
+            status: 'INACTIVE',
+            AND: [{ OR: [{ cancelledAt: null }, { cancelledAt: { gte: cutoff } }] }, { date: { gte: dateCutoff } }],
+          },
+        ],
+      },
+    ];
 
     const dir = query.order ?? 'asc';
     const [items, total] = await Promise.all([
@@ -218,6 +239,9 @@ export class LessonsService {
         endTime: dto.endTime,
         notes: dto.notes,
         status: dto.status,
+        // Marca o momento do cancelamento (ACTIVE -> INACTIVE) e limpa ao reativar.
+        cancelledAt:
+          dto.status === 'INACTIVE' && current.status !== 'INACTIVE' ? new Date() : dto.status === 'ACTIVE' ? null : undefined,
       },
       include: LESSON_INCLUDE,
     });
@@ -235,7 +259,7 @@ export class LessonsService {
     const current = await this.findOne(organizationId, id, user);
     const updated = await this.prisma.lesson.update({
       where: { id },
-      data: { status: 'INACTIVE' },
+      data: { status: 'INACTIVE', cancelledAt: current.status === 'INACTIVE' ? undefined : new Date() },
       include: LESSON_INCLUDE,
     });
     const view = toLessonView(updated);
