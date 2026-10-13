@@ -189,8 +189,8 @@ describe('Graduations hierarchy (e2e)', () => {
     const top = h.levels[0];
     assert.deepEqual(Object.keys(top).sort(), ['color', 'colors', 'count', 'id', 'isMine', 'name', 'order', 'students', 'style', 'tipEnd', 'tipStart']);
     assert.deepEqual([top.style, top.colors, top.color], ['BRAIDED', ['#16A34A', '#FACC15', '#2563EB'], '#16A34A']);
-    // Contagens: nível 3 = mestre-aluno + Dino (o inativo NÃO conta); nível 2 = Bia + Cida; nível 1 = Ana + 13 (Bia migrou p/ nível 2).
-    assert.deepEqual(h.levels.map((l: { count: number }) => l.count), [2, 2, 14]);
+    // Contagens: nível 3 = só o Dino (o mestre-aluno é EQUIPE e o inativo NÃO contam); nível 2 = Bia + Cida; nível 1 = Ana + 13 (Bia migrou p/ nível 2).
+    assert.deepEqual(h.levels.map((l: { count: number }) => l.count), [1, 2, 14]);
     assert.deepEqual(h.levels.map((l: { isMine: boolean }) => l.isMine), [false, false, true]);
     // me
     assert.equal(h.me.studentId, ids.ana);
@@ -203,11 +203,11 @@ describe('Graduations hierarchy (e2e)', () => {
 
   it('higherCount e totalStudents: alunos acima da Ana e total de ATIVOS do grupo', async () => {
     const h = (await get('/api/graduations/hierarchy', tokens.ana).expect(200)).body;
-    assert.equal(h.higherCount, 4, 'mestre-aluno + Dino (nível 3) + Bia + Cida (nível 2)');
-    // ativos: mestre-aluno, Ana, 13, Bia, Cida, Dino, Novato = 19 (Velho está INATIVO; Forasteiro é de outro grupo)
-    assert.equal(h.totalStudents, 19);
-    const dbActive = await prisma.student.count({ where: { organizationId: orgAId, status: 'ACTIVE' } });
-    assert.equal(h.totalStudents, dbActive, '2ª via: contagem direta no banco');
+    assert.equal(h.higherCount, 3, 'Dino (nível 3) + Bia + Cida (nível 2); o mestre-aluno é equipe e não conta');
+    // ativos NÃO-equipe: Ana, 13, Bia, Cida, Dino, Novato = 18 (Velho está INATIVO; Forasteiro é de outro grupo; mestre-aluno é equipe)
+    assert.equal(h.totalStudents, 18);
+    const dbActive = await prisma.student.count({ where: { organizationId: orgAId, status: 'ACTIVE', id: { not: ids.mestreStudent } } });
+    assert.equal(h.totalStudents, dbActive, '2ª via: contagem direta no banco (sem a matrícula da equipe)');
   });
 
   it('limite de 12 alunos por nível, com a Ana (a mais antiga) SEMPRE incluída e marcada isMe', async () => {
@@ -220,8 +220,8 @@ describe('Graduations hierarchy (e2e)', () => {
     assert.equal(me[0].studentId, ids.ana);
     assert.equal(lvl1.students[0].studentId, ids.ana, 'o próprio aluno vem primeiro');
     assert.equal(new Set(lvl1.students.map((s: { studentId: number }) => s.studentId)).size, 12);
-    // os demais níveis cabem inteiros
-    assert.equal(h.levels[0].students.length, 2);
+    // os demais níveis cabem inteiros (nível 3 = só o Dino)
+    assert.equal(h.levels[0].students.length, 1);
     assert.ok(h.levels[0].students.every((s: { isMe: boolean }) => !s.isMe));
   });
 
@@ -280,7 +280,7 @@ describe('Graduations hierarchy (e2e)', () => {
     assert.equal(h.higherCount, 0);
     assert.deepEqual(h.system, { id: systemId, name: `${tag} sistema` }, 'primeiro sistema ATIVO do grupo (o inativo é ignorado)');
     assert.ok(h.levels.every((l: { isMine: boolean; students: Array<{ isMe: boolean }> }) => !l.isMine && l.students.every((s) => !s.isMe)));
-    assert.deepEqual(h.levels.map((l: { count: number }) => l.count), [2, 2, 14]);
+    assert.deepEqual(h.levels.map((l: { count: number }) => l.count), [1, 2, 14]);
     // professora vê isMyTeacher=false para todos (não é aluna)
     assert.ok(h.teachers.every((t: { isMyTeacher: boolean }) => t.isMyTeacher === false));
   });
@@ -312,6 +312,46 @@ describe('Graduations hierarchy (e2e)', () => {
     }
   });
 
+  it('EQUIPE nunca duplica: staff (mestre-aluno e matrícula isStaff) não entra em levels[].students/count/higherCount/totalStudents, só em staff[].people com level', async () => {
+    // Matrícula marcada isStaff SEM login/cargo (Fase 3) com corda no nível 2: também é equipe.
+    const flagged = await prisma.student.create({
+      data: { organizationId: orgAId, name: `Equipe Marcada ${tag}`, status: 'ACTIVE', isStaff: true },
+    });
+    studentIds.push(flagged.id);
+    await graduate(flagged.id, l2, 5);
+    try {
+      const h = (await get('/api/graduations/hierarchy', tokens.ana).expect(200)).body;
+      const allIds = h.levels.flatMap((l: { students: Array<{ studentId: number }> }) => l.students.map((s) => s.studentId));
+      assert.ok(!allIds.includes(ids.mestreStudent), 'mestre-aluno (cargo ativo) fora dos alunos');
+      assert.ok(!allIds.includes(flagged.id), 'matrícula isStaff fora dos alunos');
+      assert.deepEqual(h.levels.map((l: { count: number }) => l.count), [1, 2, 14], 'count não inclui equipe');
+      assert.equal(h.higherCount, 3);
+      assert.equal(h.totalStudents, 18);
+      assert.ok(!JSON.stringify(h.levels).includes('Mestre Treinador'), 'o nome do mestre não aparece em nenhum nível');
+      // ...mas o mestre APARECE na equipe, com a corda (nível 3)
+      const staffPeople = h.staff.flatMap((g: { people: Array<{ id: number }> }) => g.people);
+      const mestre = staffPeople.find((p: { id: number }) => p.id === orgA.userId);
+      assert.ok(mestre, 'mestre em staff[].people');
+      assert.equal(mestre.level.id, l3);
+      assert.equal(mestre.isMe, false, 'a Ana não é o mestre');
+      assert.equal(h.me.isStaff, false);
+      // 2ª via: o banco diz que o mestre-aluno TEM graduação ativa no nível 3 (e mesmo assim não foi contado)
+      assert.equal(await prisma.studentGraduation.count({ where: { studentId: ids.mestreStudent, graduationLevelId: l3 } }), 1);
+
+      // O MESTRE consultando a própria hierarquia: "me" é da equipe, cartão com isMe, nenhum nível isMine, ninguém acima.
+      const hm = (await get('/api/graduations/hierarchy', tokens.mestre).expect(200)).body;
+      assert.equal(hm.me.isStaff, true);
+      assert.equal(hm.me.level.id, l3);
+      const eu = hm.staff.flatMap((g: { people: Array<{ id: number; isMe: boolean }> }) => g.people).filter((p: { isMe: boolean }) => p.isMe);
+      assert.deepEqual(eu.map((p: { id: number }) => p.id), [orgA.userId], 'exatamente 1 cartão "Você" na equipe');
+      assert.ok(hm.levels.every((l: { isMine: boolean; students: Array<{ isMe: boolean }> }) => !l.isMine && l.students.every((s) => !s.isMe)));
+      assert.equal(hm.higherCount, 0);
+      assert.deepEqual(hm.levels.map((l: { count: number }) => l.count), [1, 2, 14]);
+    } finally {
+      await prisma.studentGraduation.deleteMany({ where: { studentId: flagged.id } });
+      await prisma.student.delete({ where: { id: flagged.id } });
+    }
+  });
   it('GET /graduations/templates: qualquer MEMBER lê (estático, sem dado pessoal); sem token 401', async () => {
     const res = await get('/api/graduations/templates', tokens.ana).expect(200);
     assert.ok(res.body.length >= 5);

@@ -3579,3 +3579,32 @@ Novo tipo de corda: corpo (SOLID/SPLIT/BRAIDED, como antes) com as DUAS PONTAS p
 
 #### Pendências
 1. O app consome `tipStart`/`tipEnd` (outro agente, em paralelo). 2. O admin (`admin.gingapp.com.br`) não desenha cordas, nada a fazer. 3. Sem teste visual automatizado do SVG (só estrutura/atributos).
+
+### Hierarquia da Jornada — equipe sem duplicar + cartão de pessoa único (backend + app) - 2026-10-13
+Correção do canvas em árvore: a equipe aparecia nos cards do topo E de novo como "aluno" no nível da corda. Estado: **concluído**. Sem commit.
+
+#### Causa e decisões
+1. Causa: desde a Fase 3 toda a equipe tem matrícula (`Student.isStaff=true`) e `GET /graduations/hierarchy` listava essas matrículas como alunos do nível.
+2. Backend (`graduations-hierarchy.service.ts`): "equipe" = matrícula `isStaff` OU login com cargo ativo (OrganizationUser de equipe da lista `staff` OU `PersonRole` sem `revokedAt`). Essas matrículas ficam FORA de `levels[].students`, `levels[].count`, `higherCount` e `totalStudents`; aparecem só em `staff[].people` (com `level` = corda).
+3. "Eu" da equipe (decisão mínima coerente): `me.isStaff=true`, o cartão dele em `staff[].people` vem com `isMe=true` (selo "Você") e NENHUM nível fica `isMine` (`higherCount=0`). Nunca duplicado. Se a matrícula é isStaff mas a pessoa NÃO tem cartão em `staff` (cargo revogado), ela segue como aluno comum para si mesma (não some).
+4. App: `PersonCard` é UM componente (mestre, professor, instrutor, aluno e "eu"): avatar 80px com selo do grupo, nome em negrito (2 linhas), selo (cargo colorido na equipe / nível no aluno) e corda desenhada embaixo; só muda selo/anel (aluno "Você" = anel dourado + "Você está aqui"; equipe "eu" = "Você"). O nível virou cartão-título compacto (corda + nome + "N alunos", abre a lista) seguido de GRADE de PersonCards (`--cols`: 3 no celular, 4 até 1100px, 6 no desktop; `+N` como cartão final quando há mais que os 12 do backend). Layout recalculado (`PERSON_W=124`, `PERSON_H=208`, `groupSize()`); `layout.mine` = largura do cartão do meu nível na altura do meu cartão (vizinhos de fileira aparecem), `layout.meCard` = o cartão em si. Conectores SVG ligam equipe -> níveis (topo-centro de cada cartão de nível); os alunos ficam dentro do cartão do nível (sem conectores internos). `MIN_SCALE` 0.25 -> 0.1 porque a árvore ficou mais alta ("Ver tudo" não cabia).
+5. Removidos `AvatarStack`/`MineNode`/`LevelNode` (mini-avatares de 28px).
+
+#### Validação (backend real 3100 + vite 5193, aluno1/aluno4 do demo)
+1. API: nenhum nome da equipe em `levels[].students`; staff com `level` (ex.: Formado = Verde/Amarela, Monitor = Amarela/Azul) e fora dos alunos; `totalStudents` 24.
+2. 375x812: cartões em 3 colunas, avatar/nome grandes, "Você está aqui" com anel dourado; pan (arrastar), zoom +/-, "Centralizar em mim" (0.827, cartão visível) e "Ver tudo" funcionam. Medidas por JS: altura/largura de cada nó do DOM == layout calculado, 0 cartões com overflow, 0 sobreposições.
+3. 1280x800: escala 0.92, cartão 114x191px (avatar 74px), 0 sobreposições, "Ver tudo" cabe (0.142) e "Centralizar em mim" volta a 0.92. **Não consegui screenshot confiável no desktop** (timeouts repetidos do painel): só medidas por JS.
+4. NÃO validado visualmente: o cartão `+N` e a grade de 12 alunos (o demo só tem até 7 por nível; cobertos por teste unitário de layout com 40 alunos em 3/4/6 colunas).
+
+#### O que deu certo / não deu certo e a solução
+1. Certo: `groupSize()` puro => o DOM bate com o layout (conferido em runtime).
+2. Não certo: no teste de banco usei `userId: { not }` (SQL ignora NULL) e a 2ª via deu 1 em vez de 18. Solução: `id: { not: ids.mestreStudent }`.
+3. Não certo: 1º login automatizado falhou porque naveguei no meio do login; refeito esperando o token.
+4. Efeito colateral aceito: a árvore ficou bem mais alta (1 cartão de pessoa de 208px por cargo + cartões de nível); "Ver tudo" no celular fica pequeno (escala ~0.1-0.25).
+
+#### Testes
+1. Backend: `graduations-hierarchy.e2e-spec` ajustado (equipe fora de contagens: níveis [1,2,14], `higherCount` 3, `totalStudents` 18) + 1 teste novo (mestre-aluno e matrícula `isStaff` sem cargo não entram em students/count; aparecem em `staff[].people` com `level`; o próprio mestre consultando recebe `me.isStaff`, 1 cartão `isMe`, nenhum nível `isMine`). Gate: build ok; test:unit 175/175; `test:quick -- graduations demo-seed member-privacy staff-roles group-roles` 108/108. Smoke (`npm run test:quick smoke`) 75/75 (nota: com npm 11 `-- --smoke` roda a suíte inteira; usar a palavra `smoke`; 2 corridas completas que disparei por engano foram interrompidas no meio - podem ter deixado resíduo de spec no banco de teste, não no seed/demo).
+2. App: `ropes-hierarchy.test.tsx` atualizado + 3 testes novos (PersonCard único em todos os cartões, equipe consultando sem duplicar, layout sem sobreposição em 3/4/6 colunas). lint ok, tsc ok, 263 testes (29 arquivos) ok, build ok.
+
+#### Pendências
+1. Screenshot do desktop e do cartão `+N` com dados reais (precisa nível com 13+ alunos). 2. Equipe com 1 pessoa por cargo ocupa uma linha por cargo (comportamento antigo mantido): avaliar agrupar cargos lado a lado.

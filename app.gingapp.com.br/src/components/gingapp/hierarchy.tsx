@@ -6,9 +6,11 @@ import {
   buildLayout,
   centerOn,
   clampScale,
+  columnsFor,
   cssTransform,
   fitScale,
   hasMyTeacher,
+  PERSON_AVATAR,
   progressOf,
   shortName,
   zoomAt,
@@ -16,7 +18,7 @@ import {
   type LayoutNode,
   type Transform,
 } from "@/lib/hierarchy";
-import { useHierarchy, type Hierarchy, type HierarchyLevel, type HierarchyPerson, type HierarchyTeacher } from "@/lib/queries";
+import { useHierarchy, type GraduationLevel, type Hierarchy, type HierarchyLevel, type HierarchyPerson, type HierarchyTeacher } from "@/lib/queries";
 import type { Badge } from "@/lib/roles";
 import { Avatar } from "./avatar";
 import { Rope } from "./rope";
@@ -24,101 +26,139 @@ import { RoleChip } from "./roles";
 import { plural } from "@/lib/plural";
 
 const ZOOM_STEP = 1.25;
-const MAX_AVATARS = 6;
+const GOLD = "#e0a920";
 
 /* ---------- Nós ---------- */
 
-function AvatarStack({ students, total, className = "" }: { students: HierarchyLevel["students"]; total: number; className?: string }) {
-  const shown = students.slice(0, MAX_AVATARS);
-  const rest = Math.max(0, total - shown.length);
-  if (total === 0) return <p className="hier-empty-level">Ninguém neste nível ainda</p>;
-  return (
-    <div className={`hier-stack ${className}`.trim()} data-testid="hier-stack">
-      {shown.map((s) => (
-        <Avatar key={s.studentId} decorative name={s.displayName} src={s.photo} size={30} className="hier-stack-av" />
-      ))}
-      {rest > 0 && <span className="hier-more">+{rest}</span>}
-    </div>
-  );
+interface PersonCardProps {
+  name: string;
+  photo: string | null;
+  group: Hierarchy["group"];
+  /** "staff" = cargo do grupo (selo colorido); "student" = aluno (selo do nível). Só muda selos/anéis. */
+  variant: "staff" | "student";
+  /** Selo sob o nome: cargo do grupo (equipe) ou nível (aluno). */
+  chip: ReactNode;
+  /** Corda desenhada embaixo (null = sem graduação). */
+  rope: GraduationLevel | null;
+  isMe?: boolean;
+  isMyTeacher?: boolean;
 }
 
-function PersonNode({ person, badge, group }: { person: HierarchyPerson | HierarchyTeacher; badge: Badge; group: Hierarchy["group"] }) {
-  const mine = "isMyTeacher" in person && person.isMyTeacher;
+/**
+ * Cartão de PESSOA único da árvore (mestre, professor, instrutor, aluno e "eu"): avatar grande redondo com o selo do
+ * grupo, nome em negrito, selo (cargo ou nível) e a corda embaixo. As variantes só trocam selos e anéis.
+ */
+function PersonCard({ name, photo, group, variant, chip, rope, isMe = false, isMyTeacher = false }: PersonCardProps) {
+  const teacher = isMyTeacher && !isMe;
   return (
-    <div className={`hier-card hier-person ${mine ? "is-my-teacher" : ""}`} data-testid={mine ? "my-teacher" : undefined}>
-      {mine && (
+    <div
+      className={`hier-card hier-person is-${variant} ${isMe ? "is-me" : ""} ${teacher ? "is-my-teacher" : ""}`.replace(/\s+/g, " ").trim()}
+      data-testid={isMe ? "hier-me" : teacher ? "my-teacher" : undefined}
+    >
+      {isMe && (
+        <span className="hier-ribbon hier-ribbon-me">
+          <Sparkles aria-hidden="true" /> {variant === "student" ? "Você está aqui" : "Você"}
+        </span>
+      )}
+      {teacher && (
         <span className="hier-ribbon hier-ribbon-teacher">
           <ShieldCheck aria-hidden="true" /> Seu professor
         </span>
       )}
-      <Avatar name={person.displayName} src={person.photo} size={badge.accessRole === "MESTRE" ? 78 : 68} groupName={group.name} groupLogoUrl={group.logoUrl} badgeLetters={1} />
-      <strong className="hier-name">{person.displayName}</strong>
-      <RoleChip badge={badge} />
-      {person.level && <Rope {...person.level} orientation="horizontal" length={56} thickness={12} />}
+      <Avatar name={name} src={photo} size={PERSON_AVATAR} ringColor={isMe ? GOLD : undefined} groupName={group.name} groupLogoUrl={group.logoUrl} badgeLetters={1} />
+      <strong className="hier-name">{name}</strong>
+      {chip}
+      <span className="hier-person-rope">{rope && <Rope {...rope} orientation="horizontal" length={72} thickness={13} />}</span>
     </div>
   );
 }
 
-function LevelNode({ level, onOpen, selected }: { level: HierarchyLevel; onOpen: (level: HierarchyLevel) => void; selected: boolean }) {
+function LevelChip({ level }: { level: GraduationLevel }) {
   return (
-    <button
-      type="button"
-      className={`hier-card hier-level ${selected ? "is-selected" : ""}`}
-      onClick={() => onOpen(level)}
-      aria-label={`${level.name}: ${plural(level.count, "aluno", "alunos")}. Ver alunos`}
-      aria-haspopup="dialog"
-    >
-      <Rope {...level} orientation="vertical" length={58} thickness={16} />
-      <span className="hier-level-body">
-        <strong className="hier-name">{level.name}</strong>
-        <span className="hier-role">{plural(level.count, "aluno", "alunos")}</span>
-        <AvatarStack students={level.students} total={level.count} />
-      </span>
-    </button>
+    <span className="hier-level-chip" title={level.name} data-testid="level-chip">
+      <i aria-hidden="true" style={{ background: level.color ?? undefined }} />
+      <span>{level.name}</span>
+    </span>
   );
 }
 
-function MineNode({ level, me, group, onOpen, selected }: { level: HierarchyLevel | undefined; me: Hierarchy["me"]; group: Hierarchy["group"]; onOpen: (level: HierarchyLevel) => void; selected: boolean }) {
-  const others = level ? level.students.filter((s) => !s.isMe) : [];
-  const body = (
-    <>
-      <span className="hier-ribbon hier-ribbon-me">
-        <Sparkles aria-hidden="true" /> Você está aqui
-      </span>
-      <span className="hier-me-avatar">
-        <Avatar name={me?.displayName} src={me?.photo} size={88} ringColor="#e0a920" groupName={group.name} groupLogoUrl={group.logoUrl} badgeLetters={1} />
-      </span>
-      <span className="hier-level-body hier-me-body">
-        <strong className="hier-name">{me?.displayName ?? "Você"}</strong>
-        {level ? (
-          <>
-            <span className="hier-me-rope">
-              <Rope {...level} orientation="horizontal" length={92} thickness={16} />
-              <span className="hier-role">{level.name}</span>
-            </span>
-            <span className="hier-role">
-              {level.count > 1 ? `com mais ${plural(level.count - 1, "aluno", "alunos")} neste nível` : "único aluno neste nível"}
-            </span>
-            <AvatarStack students={others} total={Math.max(0, level.count - 1)} />
-          </>
-        ) : (
-          <span className="hier-role">Sem graduação ainda</span>
-        )}
-      </span>
-    </>
-  );
-  if (!level) return <div className="hier-card hier-mine" data-testid="hier-me">{body}</div>;
+function StaffCard({ person, badge, group }: { person: HierarchyPerson | HierarchyTeacher; badge: Badge; group: Hierarchy["group"] }) {
   return (
-    <button
-      type="button"
-      className={`hier-card hier-mine ${selected ? "is-selected" : ""}`}
-      data-testid="hier-me"
-      onClick={() => onOpen(level)}
-      aria-label={`Você está aqui: ${level.name}. Ver alunos do nível`}
-      aria-haspopup="dialog"
-    >
-      {body}
-    </button>
+    <PersonCard
+      name={person.displayName}
+      photo={person.photo}
+      group={group}
+      variant="staff"
+      chip={<RoleChip badge={badge} />}
+      rope={person.level}
+      isMe={"isMe" in person && person.isMe === true}
+      isMyTeacher={"isMyTeacher" in person && person.isMyTeacher}
+    />
+  );
+}
+
+/**
+ * Um NÍVEL da escada: cabeçalho compacto (corda + nome + "N alunos", abre a lista) e a grade de cartões de aluno do
+ * mesmo estilo da equipe, com o cartão final "+N" quando há mais alunos do que os listados.
+ */
+function LevelGroup({ level, cols, group, onOpen, selected }: { level: HierarchyLevel; cols: number; group: Hierarchy["group"]; onOpen: (level: HierarchyLevel) => void; selected: boolean }) {
+  const hidden = Math.max(0, level.count - level.students.length);
+  return (
+    <section className={`hier-group ${level.isMine ? "is-mine" : ""}`.trim()} aria-label={`Nível ${level.name}`} data-testid="hier-level">
+      <button
+        type="button"
+        className={`hier-level hier-level-head ${selected ? "is-selected" : ""}`.trim()}
+        onClick={() => onOpen(level)}
+        aria-label={`${level.name}: ${plural(level.count, "aluno", "alunos")}. Ver alunos`}
+        aria-haspopup="dialog"
+      >
+        <Rope {...level} orientation="horizontal" length={76} thickness={16} />
+        <span className="hier-level-body">
+          <strong className="hier-name">{level.name}</strong>
+          <span className="hier-role">{plural(level.count, "aluno", "alunos")}</span>
+        </span>
+      </button>
+      {level.students.length > 0 ? (
+        <ul className="hier-grid" style={{ "--cols": cols } as CSSProperties} aria-label={`Alunos de ${level.name}`}>
+          {level.students.map((s) => (
+            <li key={s.studentId}>
+              <PersonCard name={s.displayName} photo={s.photo} group={group} variant="student" chip={<LevelChip level={level} />} rope={level} isMe={s.isMe} />
+            </li>
+          ))}
+          {hidden > 0 && (
+            <li>
+              <button
+                type="button"
+                className="hier-card hier-person hier-more-card"
+                onClick={() => onOpen(level)}
+                aria-label={`Mais ${plural(hidden, "aluno", "alunos")} em ${level.name}. Ver alunos`}
+                aria-haspopup="dialog"
+              >
+                <strong className="hier-more-num">+{hidden}</strong>
+                <span className="hier-role">{hidden === 1 ? "aluno" : "alunos"}</span>
+              </button>
+            </li>
+          )}
+        </ul>
+      ) : (
+        <p className="hier-empty-level">Ninguém neste nível ainda</p>
+      )}
+    </section>
+  );
+}
+
+/** "Eu" avulso: aluno sem corda no sistema exibido (o mesmo cartão de pessoa, com a frase "Sem graduação ainda"). */
+function MeCard({ me, group }: { me: NonNullable<Hierarchy["me"]>; group: Hierarchy["group"] }) {
+  return (
+    <PersonCard
+      name={me.displayName}
+      photo={me.photo}
+      group={group}
+      variant="student"
+      chip={me.level ? <LevelChip level={me.level} /> : <span className="hier-level-chip is-empty">Sem graduação ainda</span>}
+      rope={me.level}
+      isMe
+    />
   );
 }
 
@@ -161,16 +201,15 @@ function renderNode(node: LayoutNode, h: Hierarchy, selectedId: number | null, o
     case "master":
     case "teacher":
     case "staff":
-      return node.person && node.badge ? <PersonNode person={node.person} badge={node.badge} group={h.group} /> : null;
+      return node.person && node.badge ? <StaffCard person={node.person} badge={node.badge} group={h.group} /> : null;
     case "level":
-      return node.level ? <LevelNode level={node.level} onOpen={open} selected={selectedId === node.level.id} /> : null;
+      return node.level ? <LevelGroup level={node.level} cols={node.cols ?? 1} group={h.group} onOpen={open} selected={selectedId === node.level.id} /> : null;
     case "mine":
-      return <MineNode level={node.level} me={node.me ?? h.me} group={h.group} onOpen={open} selected={node.level?.id === selectedId} />;
+      return node.me ? <MeCard me={node.me} group={h.group} /> : null;
     case "below":
       return <BelowNode h={h} count={below} />;
   }
 }
-
 /* ---------- Cartão com os alunos de um nível ---------- */
 
 function LevelSheet({ level, onClose }: { level: HierarchyLevel; onClose: () => void }) {
@@ -265,8 +304,20 @@ export function HierarchyCanvas({ viewToggle }: { viewToggle: ReactNode }) {
   );
 }
 
+/** Colunas de cartões por fileira conforme a largura da janela (muda só ao cruzar um limite: não reconstrói à toa). */
+function useColumns(): number {
+  const [cols, setCols] = useState(() => columnsFor(window.innerWidth));
+  useEffect(() => {
+    const onResize = () => setCols(columnsFor(window.innerWidth));
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return cols;
+}
+
 function HierarchyTree({ h, viewToggle }: { h: Hierarchy; viewToggle: ReactNode }) {
-  const layout: Layout = useMemo(() => buildLayout(h), [h]);
+  const cols = useColumns();
+  const layout: Layout = useMemo(() => buildLayout(h, cols), [h, cols]);
   const progress = useMemo(() => progressOf(h), [h]);
   const off = layout.width / 2;
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -445,7 +496,12 @@ function HierarchyTree({ h, viewToggle }: { h: Hierarchy; viewToggle: ReactNode 
 
   const below = progress.belowCount;
   const nextName = progress.next?.name;
-  const summary = h.me ? (
+  const summary = h.me?.isStaff ? (
+    <>
+      <strong>Você faz parte da equipe do grupo</strong>
+      <span>{plural(h.totalStudents, "aluno no grupo", "alunos no grupo")}</span>
+    </>
+  ) : h.me ? (
     <>
       <strong>{plural(h.higherCount, "pessoa acima de você", "pessoas acima de você")}</strong>
       <span>

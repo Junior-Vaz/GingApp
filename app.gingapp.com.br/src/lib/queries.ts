@@ -439,6 +439,8 @@ export interface HierarchyPerson {
 export interface HierarchyTeacher extends HierarchyPerson {
   /** Professor do aluno ativo (recebe o selo "Seu professor"). */
   isMyTeacher: boolean;
+  /** Eu (da equipe) consultando a hierarquia: o cartão ganha o selo "Você". Ausente em backend antigo. */
+  isMe?: boolean;
 }
 
 export interface HierarchyLevelStudent {
@@ -472,7 +474,7 @@ export interface Hierarchy {
   teachers: HierarchyTeacher[];
   /** Do nível MAIS ALTO para o mais baixo. */
   levels: HierarchyLevel[];
-  me: { studentId: number; displayName: string; photo: string | null; level: GraduationLevel | null; order: number | null } | null;
+  me: { studentId: number; displayName: string; photo: string | null; level: GraduationLevel | null; order: number | null; isStaff?: boolean } | null;
   higherCount: number;
   totalStudents: number;
 }

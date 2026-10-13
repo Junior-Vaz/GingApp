@@ -559,28 +559,37 @@
 button.hier-card { appearance:none; cursor:pointer; transition:transform .2s,box-shadow .2s,border-color .2s; }
 button.hier-card:hover { transform:translateY(-2px); border-color:color-mix(in oklch,var(--primary) 45%,var(--border)); box-shadow:0 12px 30px oklch(.2 .03 155 / .16); }
 button.hier-card:focus-visible,button.hier-card.is-selected { outline:2px solid var(--primary); outline-offset:2px; }
-.hier-level { display:flex; align-items:center; gap:14px; text-align:left; padding:16px 18px; }
-.hier-level-body { display:flex; flex-direction:column; gap:4px; min-width:0; flex:1; }
-.hier-name { font-family:var(--font-display); font-weight:750; font-size:15px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; }
-.hier-role { font-size:11px; color:var(--muted-foreground); }
-.hier-empty-level { font-size:11px; color:var(--muted-foreground); font-style:italic; }
-.hier-stack { display:flex; align-items:center; margin-top:4px; }
-.hier-stack .hier-stack-av + .hier-stack-av { margin-left:-9px; }
-.hier-stack-av .gx-av-disc { box-shadow:0 0 0 2px var(--card); }
-.hier-more { margin-left:6px; font-size:11px; font-weight:800; color:var(--primary); }
-.hier-person { display:flex; flex-direction:column; align-items:center; gap:6px; padding-top:18px; }
-.hier-person .hier-name { max-width:100%; white-space:nowrap; }
+.hier-level-body { display:flex; flex-direction:column; gap:3px; min-width:0; flex:1; }
+.hier-name { font-family:var(--font-display); font-weight:800; font-size:15px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; }
+.hier-role { font-size:12px; color:var(--muted-foreground); }
+.hier-empty-level { margin:12px 0 0; height:22px; font-size:12px; color:var(--muted-foreground); font-style:italic; text-align:center; }
+/* Cartão de NÍVEL: cabeçalho compacto (corda + nome + N alunos) e a grade de cartões de aluno */
+.hier-group { box-sizing:border-box; width:100%; padding:14px; border:1px solid var(--border); border-radius:20px; background:color-mix(in oklch,var(--secondary) 55%,var(--card)); box-shadow:0 8px 24px oklch(.2 .03 155 / .08); }
+.hier-group.is-mine { border:2px solid #e0a920; padding:13px; background:linear-gradient(180deg,color-mix(in oklch,#f8d24f 12%,var(--card)),color-mix(in oklch,var(--secondary) 55%,var(--card))); }
+.hier-level-head { box-sizing:border-box; display:flex; align-items:center; gap:14px; width:100%; height:56px; padding:0 14px; text-align:left; background:var(--card); border:1px solid var(--border); border-radius:14px; color:var(--foreground); font:inherit; appearance:none; cursor:pointer; transition:transform .2s,box-shadow .2s,border-color .2s; }
+.hier-level-head:hover { border-color:color-mix(in oklch,var(--primary) 45%,var(--border)); box-shadow:0 6px 18px oklch(.2 .03 155 / .12); }
+.hier-level-head:focus-visible,.hier-level-head.is-selected { outline:2px solid var(--primary); outline-offset:2px; }
+.hier-level-head .hier-name { font-size:16px; white-space:nowrap; }
+.hier-grid { list-style:none; margin:16px 0 0; padding:0; display:grid; grid-template-columns:repeat(var(--cols,1),124px); gap:22px 12px; justify-content:center; }
+.hier-grid > li { width:124px; height:208px; }
+.hier-grid > li > * { width:100%; height:100%; }
+/* Cartão de PESSOA (único): avatar grande + selo do grupo, nome em negrito, selo de cargo/nível e a corda embaixo */
+.hier-person { box-sizing:border-box; display:flex; flex-direction:column; align-items:center; gap:6px; width:124px; height:208px; padding:16px 8px 12px; }
+.hier-person .hier-name { display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; max-width:100%; min-height:2.4em; font-size:15px; overflow-wrap:anywhere; }
+.hier-person .badge { max-width:100%; font-size:11px; padding:4px 9px; white-space:nowrap; overflow:hidden; }
+.hier-person-rope { display:flex; align-items:center; justify-content:center; min-height:13px; margin-top:auto; }
+.hier-level-chip { display:inline-flex; align-items:center; gap:5px; max-width:100%; padding:4px 9px; border-radius:4px; background:var(--secondary); color:var(--primary); font-size:11px; font-weight:700; line-height:1.1; }
+.hier-level-chip i { flex:none; width:8px; height:8px; border-radius:50%; box-shadow:0 0 0 1px rgb(0 0 0 / .2); }
+.hier-level-chip span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hier-level-chip.is-empty { color:var(--muted-foreground); font-weight:600; }
 .hier-person.is-my-teacher { border-color:#e0a920; box-shadow:0 0 0 3px rgb(224 169 32 / .25),0 10px 26px oklch(.2 .03 155 / .14); }
-.hier-ribbon { position:absolute; top:-12px; left:50%; transform:translateX(-50%); display:inline-flex; align-items:center; gap:4px; padding:4px 11px; border-radius:999px; white-space:nowrap; font-size:10px; font-weight:800; color:#2b1f00; background:#e0a920; }
+.hier-person.is-me { border:2px solid #e0a920; padding:15px 7px 11px; background:linear-gradient(180deg,color-mix(in oklch,#f8d24f 14%,var(--card)),var(--card)); animation:hier-glow 2.6s ease-in-out infinite alternate; }
+.hier-person.is-me .gx-av { filter:drop-shadow(0 4px 10px rgb(224 169 32 / .5)); }
+.hier-more-card { justify-content:center; gap:2px; color:var(--primary); background:color-mix(in oklch,var(--secondary) 70%,var(--card)); border-style:dashed; }
+.hier-more-num { font-family:var(--font-display); font-size:30px; font-weight:800; line-height:1; }
+.hier-ribbon { position:absolute; top:-12px; left:50%; transform:translateX(-50%); display:inline-flex; align-items:center; gap:4px; padding:4px 10px; border-radius:999px; white-space:nowrap; font-size:10px; font-weight:800; color:#2b1f00; background:#e0a920; z-index:2; }
 .hier-ribbon svg { width:12px; height:12px; }
-.hier-ribbon-me { background:linear-gradient(135deg,#f8d24f,#e0a920); box-shadow:0 4px 12px rgb(224 169 32 / .55); font-size:11px; }
-.hier-mine { display:flex; flex-direction:column; align-items:center; gap:10px; padding:28px 18px 16px; border:2px solid #e0a920; background:linear-gradient(180deg,color-mix(in oklch,#f8d24f 14%,var(--card)),var(--card)); animation:hier-glow 2.6s ease-in-out infinite alternate; }
-.hier-me-body { align-items:center; text-align:center; flex:none; }
-.hier-me-body .hier-name { font-size:17px; }
-.hier-me-rope { display:inline-flex; align-items:center; gap:8px; }
-.hier-me-rope .hier-role { font-weight:700; color:var(--primary); font-size:12px; }
-.hier-me-avatar { display:inline-flex; filter:drop-shadow(0 4px 10px rgb(224 169 32 / .5)); }
-.hier-below { display:flex; flex-direction:column; align-items:center; gap:10px; opacity:.72; border-style:dashed; background:color-mix(in oklch,var(--card) 70%,transparent); box-shadow:none; }
+.hier-ribbon-me { background:linear-gradient(135deg,#f8d24f,#e0a920); box-shadow:0 4px 12px rgb(224 169 32 / .55); }.hier-below { display:flex; flex-direction:column; align-items:center; gap:10px; opacity:.72; border-style:dashed; background:color-mix(in oklch,var(--card) 70%,transparent); box-shadow:none; }
 .hier-below-ropes { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; }
 .hier-below-item { display:flex; flex-direction:column; align-items:center; gap:2px; font-size:10px; color:var(--muted-foreground); }
 .hier-root { display:flex; align-items:center; gap:12px; text-align:left; background:var(--primary); color:var(--primary-foreground); border-color:transparent; }
@@ -626,7 +635,7 @@ button.hier-card:focus-visible,button.hier-card.is-selected { outline:2px solid 
   .hier-sheet { bottom:10px; max-height:46%; }
 }
 @media(prefers-reduced-motion:reduce) {
-  .hier-node,.hier-edge,.hier-mine,.hier-skeleton .sk { animation:none; }
+  .hier-node,.hier-edge,.hier-person.is-me,.hier-skeleton .sk { animation:none; }
   .hier-world.is-animating { transition:none; }
   button.hier-card { transition:none; }
 }

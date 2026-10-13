@@ -23,6 +23,11 @@ export interface HierarchyPerson {
  * os alunos ATIVOS de cada nível. Mesma privacidade do ranking de grupo: só alunos ACTIVE do MESMO grupo, nome curto
  * ("Nome S.") ou apelido do RankingProfile, foto = Student.photo; nada de e-mail/telefone/nascimento/documento.
  * Mestres e professores têm nome e foto públicos no grupo (User.name / User.photo). Sem escopo de unidade.
+ *
+ * A EQUIPE (matrícula isStaff OU pessoa com cargo ativo - OrganizationUser de equipe / PersonRole sem revokedAt) NUNCA
+ * entra em levels[].students, levels[].count, higherCount nem 	otalStudents: aparece SÓ em staff[].people
+ * (com a level dela, para desenhar a corda). Se quem consulta é da equipe, me.isStaff=true, o cartão dele em
+ * staff[].people vem com isMe=true (selo "Você") e nenhum nível fica isMine (nunca duplicado como aluno).
  */
 @Injectable()
 export class GraduationsHierarchyService {
@@ -53,14 +58,17 @@ export class GraduationsHierarchyService {
         : await this.firstLinkedStudent(organizationId, user.id);
 
     // Graduação ATUAL de cada aluno ativo = a mais recente (data, depois id).
-    const [latest, totalStudents, activeSystems, staff, viewerLatest] = await Promise.all([
+    const [latest, activeRows, activeSystems, staff, viewerLatest, roleHolders] = await Promise.all([
       this.prisma.studentGraduation.findMany({
         where: { organizationId, student: { status: StudentStatus.ACTIVE } },
         orderBy: [{ graduatedAt: 'desc' }, { id: 'desc' }],
         distinct: ['studentId'],
         select: { studentId: true, graduatedAt: true, graduationLevelId: true },
       }),
-      this.prisma.student.count({ where: { organizationId, status: StudentStatus.ACTIVE } }),
+      this.prisma.student.findMany({
+        where: { organizationId, status: StudentStatus.ACTIVE },
+        select: { id: true, userId: true, isStaff: true },
+      }),
       this.prisma.graduationSystem.findMany({
         where: { organizationId, isActive: true },
         orderBy: { id: 'asc' },
@@ -83,6 +91,12 @@ export class GraduationsHierarchyService {
             select: { graduationLevelId: true },
           })
         : Promise.resolve(null),
+      // Cargo ativo (PersonRole sem revokedAt) = equipe, mesmo que a matrícula não esteja marcada isStaff.
+      this.prisma.personRole.findMany({
+        where: { organizationId, revokedAt: null },
+        distinct: ['userId'],
+        select: { userId: true },
+      }),
     ]);
 
     const staffUserIds = staff.map((s) => s.user.id);
@@ -92,6 +106,15 @@ export class GraduationsHierarchyService {
           select: { id: true, userId: true, photo: true },
         })
       : [];
+
+    // Matrículas da EQUIPE (isStaff OU login com cargo ativo): nunca viram "aluno" de um nível (só aparecem em `staff`).
+    const staffLogins = new Set<number>([...staffUserIds, ...roleHolders.map((r) => r.userId)]);
+    const isStaffRow = (s: { userId: number | null; isStaff: boolean }) => s.isStaff || (s.userId !== null && staffLogins.has(s.userId));
+    const staffStudentIds = new Set<number>(activeRows.filter(isStaffRow).map((s) => s.id));
+    // Quem consulta é da equipe? Só conta se de fato tem cartão em `staff` (senão segue como aluno comum, sem sumir).
+    const viewerIsStaff = !!viewer && staffStudentIds.has(viewer.id) && viewer.userId !== null && staffUserIds.includes(viewer.userId);
+    if (viewer && staffStudentIds.has(viewer.id) && !viewerIsStaff) staffStudentIds.delete(viewer.id);
+    const totalStudents = activeRows.filter((s) => !staffStudentIds.has(s.id)).length;
 
     // Detalhe de TODOS os níveis citados (inclusive de sistemas inativos: mestre/aluno mostram a corda que têm).
     const levelIds = new Set<number>(latest.map((g) => g.graduationLevelId));
@@ -118,7 +141,10 @@ export class GraduationsHierarchyService {
     // Alunos ativos por nível do sistema exibido.
     const byLevel = new Map<number, Array<{ studentId: number; graduatedAt: Date }>>();
     for (const level of system?.levels ?? []) byLevel.set(level.id, []);
-    for (const g of latest) byLevel.get(g.graduationLevelId)?.push({ studentId: g.studentId, graduatedAt: g.graduatedAt });
+    for (const g of latest) {
+      if (staffStudentIds.has(g.studentId)) continue; // equipe só aparece no bloco `staff`
+      byLevel.get(g.graduationLevelId)?.push({ studentId: g.studentId, graduatedAt: g.graduatedAt });
+    }
 
     // Seleção: o próprio aluno sempre entra; os demais, os mais recentemente graduados, até o limite.
     const selectedByLevel = new Map<number, number[]>();
@@ -152,7 +178,8 @@ export class GraduationsHierarchyService {
     const myOrder = myLevel?.order ?? null;
     const myLevelInSystem = !!system && !!viewerRow && viewerRow.graduationSystemId === system.id;
     let higherCount = 0;
-    if (myLevelInSystem && myOrder !== null) {
+    // Equipe consultando: não é "aluno de um nível" (nenhum nível isMine, ninguém "acima" de um aluno que não existe).
+    if (myLevelInSystem && myOrder !== null && !viewerIsStaff) {
       for (const level of system?.levels ?? []) {
         if (level.order > myOrder) higherCount += byLevel.get(level.id)?.length ?? 0;
       }
@@ -174,7 +201,7 @@ export class GraduationsHierarchyService {
         return {
           ...levelView(level),
           count: entries.length,
-          isMine: myLevelInSystem && level.id === viewerLatest?.graduationLevelId,
+          isMine: myLevelInSystem && !viewerIsStaff && level.id === viewerLatest?.graduationLevelId,
           students,
         };
       });
@@ -217,12 +244,16 @@ export class GraduationsHierarchyService {
 
     // Secao 13: a arvore POR CARGO DO GRUPO (maior rank primeiro); cada pessoa entra no seu cargo de MAIOR rank.
     const badges = await badgesByUser(this.prisma, organizationId, staffUserIds, new Map(staff.map((s) => [s.user.id, s.role])));
-    const groups = new Map<number, { groupRole: GroupRoleBadge; people: (HierarchyPerson & { isMyTeacher: boolean })[] }>();
+    const groups = new Map<number, { groupRole: GroupRoleBadge; people: (HierarchyPerson & { isMyTeacher: boolean; isMe: boolean })[] }>();
     for (const s of staff) {
       const top = badges.get(s.user.id)?.[0];
       if (!top) continue;
       const entry = groups.get(top.id) ?? { groupRole: top, people: [] };
-      entry.people.push({ ...personOf(s.user), isMyTeacher: myTeacherIds.has(s.user.id) });
+      entry.people.push({
+        ...personOf(s.user),
+        isMyTeacher: myTeacherIds.has(s.user.id),
+        isMe: viewerIsStaff && viewer?.userId === s.user.id,
+      });
       groups.set(top.id, entry);
     }
     const staffByRole = sortBadges([...groups.values()].map((g) => ({ ...g, id: g.groupRole.id, rank: g.groupRole.rank }))).map(({ groupRole, people }) => ({
@@ -245,6 +276,8 @@ export class GraduationsHierarchyService {
             photo: personById.get(viewer.id)?.photo ?? null,
             level: myLevel,
             order: myOrder,
+            /** Da equipe: aparece só no cartão de `staff[].people` (isMe), nunca como aluno de um nível. */
+            isStaff: viewerIsStaff,
           }
         : null,
       higherCount,
