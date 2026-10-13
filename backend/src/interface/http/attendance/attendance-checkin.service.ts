@@ -4,12 +4,12 @@ import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { buildCheckinToken, peekCheckinToken, verifyCheckinToken } from '../../../shared/checkin/checkin-token';
 import { isInsideWindow, lessonCheckinWindow } from '../../../shared/checkin/checkin-window';
-import { formatCivilDateBR, formatInstantBR } from '../../../shared/dates/format-br';
+import { formatInstantBR } from '../../../shared/dates/format-br';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { frontendBaseUrl } from '../../../shared/mail/mail.config';
 import { lessonScopeFilter, monitorLessonFilter, UnitScopeService } from '../../../shared/access/unit-scope';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
-import { NotificationsService } from '../notifications/notifications.service';
+import { AttendanceNoticeService } from './attendance-notice.service';
 import { RankingService } from '../ranking/ranking.service';
 import { StudentsService } from '../students/students.service';
 import { EventCheckinSelfDto } from '../events/dto/event-checkin-self.dto';
@@ -26,7 +26,7 @@ export class AttendanceCheckinService {
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
     private readonly unitScope: UnitScopeService,
-    private readonly notifications: NotificationsService,
+    private readonly notice: AttendanceNoticeService,
     private readonly audit: AuditService,
     private readonly ranking: RankingService,
   ) {}
@@ -126,11 +126,8 @@ export class AttendanceCheckinService {
       entityId: lesson.id,
       meta: { studentId, classId: lesson.classId, via: 'qr', hadAbsence: existing ? true : false },
     });
-    await this.notifications.notifyStudents(organizationId, [studentId], {
-      title: 'Presença registrada',
-      body: `Check-in na aula de ${lesson.class.name} (${formatCivilDateBR(lesson.date)}).`,
-      type: 'LESSON_CHECKIN',
-    });
+    // Mesmo aviso da chamada ("Presença registrada", idempotente por aula/aluno, desligável pelo grupo); nunca lança.
+    await this.notice.notifyPresent(organizationId, lesson.id, [studentId]);
     return { lessonId: lesson.id, studentId, present: true, alreadyCheckedIn: false };
   }
 }

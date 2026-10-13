@@ -80,6 +80,8 @@ export const AuditAction = {
   CERTIFICATE_DOWNLOAD: 'CERTIFICATE_DOWNLOAD',
   ANNOUNCEMENT_CREATE: 'ANNOUNCEMENT_CREATE',
   ANNOUNCEMENT_UPDATE: 'ANNOUNCEMENT_UPDATE',
+  // Envio rapido de aviso (POST /notifications/send): so contagem/alcance, nunca o texto
+  NOTIFICATION_SEND: 'NOTIFICATION_SEND',
   UPLOAD_CREATE: 'UPLOAD_CREATE',
   // Conta de aluno ligada a um usuario ja existente
   STUDENT_ACCOUNT_LINK: 'STUDENT_ACCOUNT_LINK',
@@ -160,6 +162,7 @@ export const AuditEntity = {
   STUDENT_GRADUATION: 'student_graduation',
   CERTIFICATE: 'certificate',
   ANNOUNCEMENT: 'announcement',
+  NOTIFICATION: 'notification',
   UPLOAD: 'upload',
   AUDIT_LOG: 'audit_log',
   EVENT: 'event',

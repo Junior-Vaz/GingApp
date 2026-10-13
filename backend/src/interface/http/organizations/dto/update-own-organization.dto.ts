@@ -156,6 +156,11 @@ export class UpdateOwnOrganizationDto {
   @IsBoolean({ message: 'mapVisible deve ser true ou false.' })
   mapVisible?: boolean;
 
+  /** Aviso "Presença registrada" (push/sino) ao aluno e responsáveis quando a chamada o marca presente. false desliga. Não aceita null. */
+  @ValidateIf((_, v) => v !== undefined)
+  @IsBoolean({ message: 'attendanceNotifications deve ser true ou false.' })
+  attendanceNotifications?: boolean;
+
   /** `null` ou `{}` (sem nenhuma rede) => coluna volta a NULL; objeto com redes => substitui por inteiro. */
   @IsOptional()
   @IsObject()

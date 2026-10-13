@@ -1,6 +1,8 @@
 import { Outlet, createFileRoute, redirect } from "@tanstack/react-router";
 import { AppShell } from "@/components/painel/app-shell";
 import { MustChangePasswordScreen, TermsGate } from "@/components/painel/legal";
+import { FloatingActions } from "@/components/painel/floating-actions";
+import { QuickNotice } from "@/modules/avisos/aviso-rapido";
 import { QuickAttendance } from "@/modules/frequencia/chamada-rapida";
 import { clearSession, isAuthenticated, useSessionUser } from "@/lib/session";
 
@@ -24,7 +26,10 @@ function AppLayout() {
     <AppShell>
       <Outlet />
       <TermsGate />
-      <QuickAttendance />
+      <FloatingActions>
+        <QuickAttendance />
+        <QuickNotice />
+      </FloatingActions>
     </AppShell>
   );
 }

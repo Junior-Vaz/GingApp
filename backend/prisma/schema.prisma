@@ -365,34 +365,37 @@ model AuditLog {
 // =========================================================================
 
 model Organization {
-  id                  Int              @id @default(autoincrement())
-  name                String
-  slug                String           @unique
-  type                OrganizationType @default(GROUP)
-  status              RecordStatus     @default(ACTIVE)
-  document            String?
-  email               String?
-  phone               String?
-  logo                String?
+  id                      Int              @id @default(autoincrement())
+  name                    String
+  slug                    String           @unique
+  type                    OrganizationType @default(GROUP)
+  status                  RecordStatus     @default(ACTIVE)
+  document                String?
+  email                   String?
+  phone                   String?
+  logo                    String?
   /// Perfil institucional do grupo (projeto.txt §13), editado pelo MESTRE em PATCH /organizations/me.
   /// description = apresentacao curta; history = historia do grupo; foundedYear = ano de fundacao;
   /// city/state = cidade e UF-sede (texto livre, nao FK); website = site; socialLinks = redes
   /// ({ instagram?, youtube?, tiktok?, facebook?, whatsapp? }, todas opcionais, so URLs).
-  description         String?
-  history             String?
-  foundedYear         Int?
-  city                String?
-  state               String?
-  website             String?
-  socialLinks         Json?
+  description             String?
+  history                 String?
+  foundedYear             Int?
+  city                    String?
+  state                   String?
+  website                 String?
+  socialLinks             Json?
   /// "Como pagar" (E07): texto livre (chave PIX, dados bancarios, link, orientacoes) mostrado ao aluno/
   /// responsavel no app. Editado pelo MESTRE em PATCH /organizations/me.
-  paymentInstructions String?
+  paymentInstructions     String?
   /// Mapa da comunidade (GET /map/places): o MESTRE controla se o grupo (unidades, treinos, eventos publicos e
   /// rodas organizadas por ele) aparece no mapa. Padrao true; grupo INACTIVE nunca aparece, qualquer que seja o valor.
-  mapVisible          Boolean          @default(true)
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
+  mapVisible              Boolean          @default(true)
+  /// Aviso de presenca (push/sino): quando a chamada de uma aula marca o aluno PRESENTE, ele e os responsaveis com
+  /// login recebem "Presenca registrada". O MESTRE liga/desliga em PATCH /organizations/me. Padrao true.
+  attendanceNotifications Boolean          @default(true)
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
 
   studentBillings       StudentBilling[]
   users                 OrganizationUser[]
@@ -404,6 +407,7 @@ model Organization {
   classStudents         ClassStudent[]
   lessons               Lesson[]
   attendances           Attendance[]
+  attendanceNotices     AttendanceNotice[]
   graduationSystems     GraduationSystem[]
   graduationLevels      GraduationLevel[]
   studentGraduations    StudentGraduation[]
@@ -422,8 +426,8 @@ model Organization {
   rodas                 Roda[]
   uploads               Upload[]
   pointEvents           PointEvent[]
-  transfersOut          TransferRequest[] @relation("TransferFrom")
-  transfersIn           TransferRequest[] @relation("TransferTo")
+  transfersOut          TransferRequest[]             @relation("TransferFrom")
+  transfersIn           TransferRequest[]             @relation("TransferTo")
   personRoles           PersonRole[]
   groupRoles            GroupRole[]
 
@@ -552,18 +556,19 @@ model Student {
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  organization        Organization        @relation(fields: [organizationId], references: [id])
-  unit                Unit?               @relation(fields: [unitId], references: [id])
-  user                User?               @relation("StudentUser", fields: [userId], references: [id])
-  person              Person?             @relation(fields: [personId], references: [id], onDelete: SetNull)
+  organization        Organization           @relation(fields: [organizationId], references: [id])
+  unit                Unit?                  @relation(fields: [unitId], references: [id])
+  user                User?                  @relation("StudentUser", fields: [userId], references: [id])
+  person              Person?                @relation(fields: [personId], references: [id], onDelete: SetNull)
   guardians           StudentGuardian[]
   classStudents       ClassStudent[]
   attendances         Attendance[]
+  attendanceNotices   AttendanceNotice[]
   graduations         StudentGraduation[]
   financialRecords    FinancialRecord[]
   eventParticipations EventParticipant[]
   rodaParticipations  RodaParticipant[]
-  publicProfile       PublicProfile?      @relation("PublicProfileStudent")
+  publicProfile       PublicProfile?         @relation("PublicProfileStudent")
   certificates        Certificate[]
   billing             StudentBilling?
   pointEvents         PointEvent[]
@@ -617,9 +622,9 @@ model Person {
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
-  user       User?     @relation("PersonUser", fields: [userId], references: [id], onDelete: SetNull)
-  mergedInto Person?   @relation("PersonMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
-  mergedFrom Person[]  @relation("PersonMerge")
+  user       User?             @relation("PersonUser", fields: [userId], references: [id], onDelete: SetNull)
+  mergedInto Person?           @relation("PersonMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom Person[]          @relation("PersonMerge")
   students   Student[]
   transfers  TransferRequest[]
   roles      PersonRole[]
@@ -671,10 +676,10 @@ model TransferRequest {
   note               String?
   updatedAt          DateTime       @updatedAt
 
-  person           Person            @relation(fields: [personId], references: [id])
-  fromOrganization Organization      @relation("TransferFrom", fields: [fromOrganizationId], references: [id])
-  toOrganization   Organization      @relation("TransferTo", fields: [toOrganizationId], references: [id])
-  requestedBy      User              @relation("TransferRequestedBy", fields: [requestedByUserId], references: [id])
+  person           Person                  @relation(fields: [personId], references: [id])
+  fromOrganization Organization            @relation("TransferFrom", fields: [fromOrganizationId], references: [id])
+  toOrganization   Organization            @relation("TransferTo", fields: [toOrganizationId], references: [id])
+  requestedBy      User                    @relation("TransferRequestedBy", fields: [requestedByUserId], references: [id])
   contests         TransferContest[]
   shares           EnrollmentShare[]
   approvalTokens   TransferApprovalToken[]
@@ -937,27 +942,27 @@ model StudentGuardian {
 }
 
 model Class {
-  id             Int          @id @default(autoincrement())
-  organizationId Int
-  unitId         Int?
-  name           String
-  description    String?
-  weekday        Int?
-  startTime      String?
-  endTime        String?
+  id                  Int          @id @default(autoincrement())
+  organizationId      Int
+  unitId              Int?
+  name                String
+  description         String?
+  weekday             Int?
+  startTime           String?
+  endTime             String?
   /// Professor responsavel pela turma: User.id de um membro ATIVO MESTRE/PROFESSOR do mesmo
   /// grupo (validado no service, mesmo padrao de Lesson.teacherUserId). Copiado para as aulas
   /// geradas por POST /classes/:id/generate-lessons.
-  teacherUserId  Int?
+  teacherUserId       Int?
   /// Foto da turma (URL http(s) ou /api/uploads/<uuid>.<ext>, validada por IsImageRef).
-  photo          String?
+  photo               String?
   /// Aulas continuas (sem data final): true = o job diario (e o ensureHorizon ao criar/editar a turma) mantem as
   /// aulas geradas ate LESSONS_HORIZON_DAYS a frente, a partir do weekday/horario da turma. Turmas ja existentes
   /// migram com true (passam a ter aulas geradas automaticamente); false = so geracao manual por periodo.
-  autoGenerateLessons Boolean  @default(true)
-  status         RecordStatus @default(ACTIVE)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  autoGenerateLessons Boolean      @default(true)
+  status              RecordStatus @default(ACTIVE)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
 
   organization  Organization   @relation(fields: [organizationId], references: [id])
   unit          Unit?          @relation(fields: [unitId], references: [id])
@@ -1000,11 +1005,12 @@ model Lesson {
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  class        Class        @relation(fields: [classId], references: [id])
-  unit         Unit?        @relation(fields: [unitId], references: [id])
-  teacher      User?        @relation("LessonTeacher", fields: [teacherUserId], references: [id])
-  attendances  Attendance[]
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  class             Class              @relation(fields: [classId], references: [id])
+  unit              Unit?              @relation(fields: [unitId], references: [id])
+  teacher           User?              @relation("LessonTeacher", fields: [teacherUserId], references: [id])
+  attendances       Attendance[]
+  attendanceNotices AttendanceNotice[]
 
   @@index([organizationId, date])
   @@index([classId, date])
@@ -1027,6 +1033,24 @@ model Attendance {
   @@index([studentId, createdAt])
 }
 
+/// Idempotencia do aviso "Presenca registrada": uma linha por (aula, aluno) JA avisado. A chamada so notifica quando
+/// consegue INSERIR a linha (INSERT ... ON CONFLICT DO NOTHING ... RETURNING) — re-salvar a chamada, o check-in por QR
+/// depois da chamada ou duas requisicoes simultaneas nunca avisam duas vezes. Em cascata com aula/aluno/grupo.
+model AttendanceNotice {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  lessonId       Int
+  studentId      Int
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lesson       Lesson       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([lessonId, studentId])
+  @@index([organizationId])
+}
+
 /// Sistema de graduacao configuravel por grupo (PLANO_PROJETO.md §2.3 e projeto.txt §26).
 model GraduationSystem {
   id             Int      @id @default(autoincrement())
@@ -1037,7 +1061,7 @@ model GraduationSystem {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization      @relation(fields: [organizationId], references: [id])
+  organization Organization         @relation(fields: [organizationId], references: [id])
   levels       GraduationLevel[]
   roleRules    GraduationRoleRule[]
 
@@ -1045,7 +1069,7 @@ model GraduationSystem {
 }
 
 model GraduationLevel {
-  id                 Int      @id @default(autoincrement())
+  id                 Int       @id @default(autoincrement())
   organizationId     Int
   graduationSystemId Int
   name               String
@@ -1056,7 +1080,7 @@ model GraduationLevel {
   /// diagonais, 2 ou 3 cores). `colors` = 1 a 3 hex #RRGGBB, a ORDEM importa (validado no service/DTO).
   style              RopeStyle @default(SOLID)
   colors             String[]  @default([])
-  createdAt          DateTime @default(now())
+  createdAt          DateTime  @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id])
   graduationSystem   GraduationSystem    @relation(fields: [graduationSystemId], references: [id])
@@ -1069,15 +1093,15 @@ model GraduationLevel {
 }
 
 model StudentGraduation {
-  id                Int      @id @default(autoincrement())
-  organizationId    Int
-  studentId         Int
-  graduationLevelId Int
-  graduatedAt       DateTime
-  notes             String?
+  id                    Int      @id @default(autoincrement())
+  organizationId        Int
+  studentId             Int
+  graduationLevelId     Int
+  graduatedAt           DateTime
+  notes                 String?
   /// Fase 5: graduacao RECONHECIDA pelo grupo a partir da corda de origem (outro grupo) desta pessoa; null = graduacao normal.
   recognizedFromLevelId Int?
-  createdAt         DateTime @default(now())
+  createdAt             DateTime @default(now())
 
   organization    Organization    @relation(fields: [organizationId], references: [id])
   student         Student         @relation(fields: [studentId], references: [id])

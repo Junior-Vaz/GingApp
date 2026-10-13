@@ -170,7 +170,15 @@ export class AnnouncementsService {
     return announcement;
   }
 
-  async create(organizationId: number, createdByUserId: number, dto: CreateAnnouncementDto, requester?: AuthenticatedUser) {
+  /** `options.notify = false`: o chamador (envio rapido, POST /notifications/send) notifica por conta propria, uma vez por
+   * destinatario, e NAO quer o aviso duplicado do comunicado. */
+  async create(
+    organizationId: number,
+    createdByUserId: number,
+    dto: CreateAnnouncementDto,
+    requester?: AuthenticatedUser,
+    options: { notify?: boolean } = {},
+  ) {
     // Professor restrito: publica para uma das suas unidades (a única, por padrão), nunca para o grupo inteiro.
     const unitId = resolveWriteUnit(await this.unitScope.resolve(requester, organizationId), dto.unitId);
     if (unitId) {
@@ -196,16 +204,18 @@ export class AnnouncementsService {
 
     // Público-alvo e gravação em lote: SSOT em NotificationsService (unitId nulo = todo membro ativo), afinado pelo
     // alcance extra do comunicado (turma / UF / papel — announcement-audience.ts).
-    await this.notifications.notifyUsers(
-      organizationId,
-      await announcementAudienceUserIds(this.prisma, this.notifications, organizationId, {
-        unitId: unitId ?? null,
-        classId: announcement.classId,
-        stateUf: announcement.stateUf,
-        audienceRole: announcement.audienceRole,
-      }),
-      { title: announcement.title, body: announcement.body, type: 'ANNOUNCEMENT' },
-    );
+    if (options.notify !== false) {
+      await this.notifications.notifyUsers(
+        organizationId,
+        await announcementAudienceUserIds(this.prisma, this.notifications, organizationId, {
+          unitId: unitId ?? null,
+          classId: announcement.classId,
+          stateUf: announcement.stateUf,
+          audienceRole: announcement.audienceRole,
+        }),
+        { title: announcement.title, body: announcement.body, type: 'ANNOUNCEMENT' },
+      );
+    }
 
     await this.audit.record({
       organizationId,

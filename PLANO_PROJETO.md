@@ -3529,3 +3529,25 @@ Estado: **concluído, sem commit**. Detalhe/contrato: `docs/FICHA_UNICA.md` seç
 1. Revisão visual (painel e app) com o backend real. 2. `POST/PATCH /teachers` continuam por perfil (`role`), criando o cargo
 padrão; aceitar `groupRoleId` ali é opcional. 3. "Promover a…" no painel só oferece cargos de rank maior que o atual (decisão de UI).
 4. Rodar o demo no ambiente com `DEMO_PASSWORD` para ganhar Contramestre/Formado (o spec demo-seed já cobre em grupo isolado).
+
+
+### Aviso de presença + envio rápido de avisos (backend) - 2026-10-13
+
+#### O que foi feito
+1. **Aviso "Presença registrada"** (`AttendanceNoticeService`): `POST /attendance/lessons/:id` (página Frequência e Chamada rápida) e `POST /attendance/self-checkin` avisam o aluno presente (login próprio) e os responsáveis com login. Tipo `ATTENDANCE_PRESENT`, corpo "`<Nome curto>` esteve presente em `<Turma>` — `<dia da semana>, dd/mm às HH:mm`" (aluno: "Você esteve presente..."; horário = o da aula, ou o da turma; sem nenhum, omite "às HH:mm"). Push FCM/Web Push pelo `NotificationsService` (SSOT, `createMany`): `pushCategoryOf` mapeia `ATTENDANCE*` para "lessons" e `buildPushPayload` abre `/frequencia`.
+2. **Idempotência:** tabela `AttendanceNotice {lessonId, studentId} unique` (cascata com aula/aluno/grupo), reservada por `INSERT ... ON CONFLICT DO NOTHING RETURNING` — só quem foi inserido é avisado (resistente a requisições simultâneas). Presente -> ausente -> presente na mesma aula NÃO reavisa; a linha é gravada mesmo com o aviso desligado (religar não dispara avisos atrasados).
+3. **Configuração:** `Organization.attendanceNotifications` (padrão true), editável pelo Mestre em `PATCH /organizations/me` e devolvida em `GET /organizations` (own).
+4. **Envio rápido:** `POST /notifications/send` e `GET /notifications/audiences` (`QuickSendService`, módulo de comunicados; `@CanAccess('announcements','create')`, 10/min por usuário). Audiência = `announcementAudienceUserIds` (SSOT); `alsoPublish` cria o comunicado via `AnnouncementsService.create(..., {notify:false})` e notifica uma única vez. Auditoria `NOTIFICATION_SEND`.
+5. Migration `20261016000000_attendance_notifications`; specs `attendance-notice.e2e-spec.ts` (6) e `quick-send.e2e-spec.ts` (10) no `test:e2e`.
+
+#### O que deu certo
+build limpo; `test:unit` 171/171; `test:quick` (attendance-notice, quick-send, attendance, announcements, notification-triggers, push, organizations-own, member-privacy, demo-seed, checkin-self, monitor-attendance, quick-sessions, audit-coverage, dto-hardening, unit-scope) 211/211; smoke 75/75. Migration aplicada com `migrate deploy` e `migrate diff` sem diferenças.
+
+#### O que NÃO deu certo / decisões
+1. 1ª versão do teste esperava "sem horário" no check-in de aula sem horário própria; o texto herda o horário da turma (correto) — teste ajustado.
+2. Auditoria grava em `AuditLog.metadata` (não `meta`) — teste ajustado.
+3. O check-in por QR deixou de gerar o tipo antigo `LESSON_CHECKIN` e passou a usar o mesmo aviso (`ATTENDANCE_PRESENT`), agora desligável pelo grupo.
+4. `alsoPublish` com alcance STUDENTS devolve 400 (o mural não tem alcance por alunos); GROUP por professor restrito = 403.
+
+#### Pendências
+1. O painel/admin precisa traduzir `NOTIFICATION_SEND` na trilha de auditoria. 2. O app deve mapear `ATTENDANCE_PRESENT`/`ANNOUNCEMENT_QUICK` para ícone/rota no sino. 3. Teste de throttle (10/min) não automatizado.

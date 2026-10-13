@@ -332,6 +332,7 @@ export function AlunosPage() {
               unitName={unitName(s.unitId)}
               billing={canViewFinance ? billingSummary(billingOf.get(s.id), formatCurrency) : undefined}
               actions={studentActions(s)}
+              actionList={studentActionList(s)}
             />
           ),
         }}

@@ -8,6 +8,7 @@ import { timeToMinutes, isTimeOfDay } from '../../../shared/dates/time-of-day';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { lessonScopeFilter, monitorLessonFilter, UnitScopeService } from '../../../shared/access/unit-scope';
+import { AttendanceNoticeService } from './attendance-notice.service';
 import { RankingService } from '../ranking/ranking.service';
 import { StudentsService } from '../students/students.service';
 import { ListMyAttendanceQueryDto } from './dto/list-my-attendance-query.dto';
@@ -75,6 +76,7 @@ export class AttendanceService {
     private readonly studentsService: StudentsService,
     private readonly unitScope: UnitScopeService,
     private readonly ranking: RankingService,
+    private readonly notice: AttendanceNoticeService,
   ) {}
 
   /**
@@ -319,6 +321,16 @@ export class AttendanceService {
 
     // Ginga Rank: recalcula os pontos dos alunos da chamada (fire-and-forget: nunca atrasa nem derruba a chamada).
     this.ranking.queueSync(studentIds);
+
+    // Aviso "Presença registrada" (aluno + responsáveis com login) para quem ficou PRESENTE — a última entrada de cada
+    // aluno vale (igual ao upsert). Idempotente por (aula, aluno) e nunca lança: não derruba a chamada.
+    const finalPresent = new Map<number, boolean>();
+    for (const entry of entries) finalPresent.set(entry.studentId, entry.present);
+    await this.notice.notifyPresent(
+      organizationId,
+      lessonId,
+      [...finalPresent].filter(([, present]) => present).map(([studentId]) => studentId),
+    );
 
     return { count: entries.length };
   }

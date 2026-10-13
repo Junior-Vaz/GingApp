@@ -22,6 +22,7 @@ import { formatCurrency, fmt, toDate } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
 import { imageSrc } from "@/lib/uploads";
 import { NativeSelect } from "@/modules/alunos/native-select";
+import { ORG_KEY, useOwnOrganization } from "./org-api";
 import {
   SOCIAL_NETWORKS,
   organizationSchema,
@@ -74,20 +75,60 @@ function ErrorCard({ error, onRetry }: { error: unknown; onRetry: () => void }) 
   );
 }
 
-const ORG_KEY = ["organizations", "own"] as const;
+/**
+ * Preferências de aviso do grupo. Hoje: avisar responsáveis e alunos quando a presença é registrada
+ * (PATCH /organizations/me { attendanceNotifications }). Só o Mestre altera; os demais veem o estado.
+ */
+function NotificationsCard() {
+  const queryClient = useQueryClient();
+  const canEdit = useSessionUser()?.role === "MESTRE";
+  const org = useOwnOrganization();
+  const save = useMutation({
+    mutationFn: (attendanceNotifications: boolean) => api.patch<Organization>("/organizations/me", { attendanceNotifications }),
+    onSuccess: (_data, attendanceNotifications) => {
+      void queryClient.invalidateQueries({ queryKey: ORG_KEY });
+      toast.success(attendanceNotifications ? "Avisos de presença ligados." : "Avisos de presença desligados.");
+    },
+    onError: (error) => notifyError(error),
+  });
+  if (org.error) return null; // o cartão "Dados do grupo" (mesma consulta) já mostra o erro e o "Tentar novamente"
+  const checked = save.isPending ? save.variables : (org.data?.attendanceNotifications ?? false);
+  return (
+    <Card className="gap-4 p-5" data-testid="notifications-card">
+      <h2 className="text-lg font-bold">Avisos automáticos</h2>
+      {org.isLoading ? (
+        <Skeleton className="h-16 w-full" />
+      ) : (
+        <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+          <div className="min-w-0">
+            <p id="attendance-notifications-label" className="text-sm font-semibold">
+              Avisar responsáveis e alunos quando a presença for registrada
+            </p>
+            <p id="attendance-notifications-help" className="mt-1 text-xs text-muted-foreground">
+              Quando ligado, os alunos marcados como presentes e seus responsáveis recebem uma notificação no app assim que a
+              chamada é salva.
+              {!canEdit && " Somente o Mestre do grupo pode alterar."}
+            </p>
+          </div>
+          <Switch
+            aria-labelledby="attendance-notifications-label"
+            aria-describedby="attendance-notifications-help"
+            checked={checked}
+            disabled={!canEdit || !org.data || save.isPending}
+            onCheckedChange={(value) => save.mutate(value)}
+          />
+        </div>
+      )}
+    </Card>
+  );
+}
 
 function OrganizationCard() {
   const queryClient = useQueryClient();
   // PATCH /organizations/me é exclusivo do MESTRE do grupo (backend: MestreOnlyGuard); os demais só leem.
   const canEdit = useSessionUser()?.role === "MESTRE";
   const [editing, setEditing] = useState(false);
-  const org = useQuery({
-    queryKey: ORG_KEY,
-    queryFn: async () => {
-      const data = await api.get<Organization | Organization[] | null>("/organizations");
-      return Array.isArray(data) ? (data[0] ?? null) : data;
-    },
-  });
+  const org = useOwnOrganization();
   const save = useMutation({
     mutationFn: (data: OrganizationUpdateInput) => api.patch<Organization>("/organizations/me", data),
     onSuccess: () => {
@@ -437,7 +478,10 @@ export function ConfiguracoesPage() {
       <PageHeader title="Configurações" description="Dados do grupo, plano e uso." />
       <div className="grid gap-4 lg:grid-cols-2">
         <OrganizationCard />
-        <PlanCard />
+        <div className="grid content-start gap-4">
+          <PlanCard />
+          <NotificationsCard />
+        </div>
       </div>
     </div>
   );

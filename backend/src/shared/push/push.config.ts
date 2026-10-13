@@ -43,7 +43,7 @@ export type PushCategory = (typeof PUSH_CATEGORIES)[number];
 /** Notification.type -> categoria de preferência. Tipo desconhecido cai em "announcements" (comunicados). */
 export function pushCategoryOf(type: string | null | undefined): PushCategory {
   if (!type) return 'announcements';
-  if (type.startsWith('LESSON')) return 'lessons';
+  if (type.startsWith('LESSON') || type.startsWith('ATTENDANCE')) return 'lessons';
   if (type.startsWith('FINANCE')) return 'finance';
   if (type === 'EVENT' || type === 'RODA') return 'events';
   if (type.startsWith('GRADUATION')) return 'graduations';
@@ -68,6 +68,11 @@ const URL_BY_CATEGORY: Record<PushCategory, string> = {
   announcements: '/notificacoes',
 };
 
+/** Destino mais especifico que o da categoria, por Notification.type (ex.: "Presenca registrada" abre a Frequencia). */
+const URL_BY_TYPE: Record<string, string> = {
+  ATTENDANCE_PRESENT: '/frequencia',
+};
+
 const MAX_TITLE = 80;
 const MAX_BODY = 140;
 
@@ -87,7 +92,7 @@ export function buildPushPayload(n: { title: string; body: string; type?: string
   return {
     title: truncate(n.title, MAX_TITLE),
     body: truncate(body, MAX_BODY),
-    url: URL_BY_CATEGORY[category],
+    url: (n.type && URL_BY_TYPE[n.type]) || URL_BY_CATEGORY[category],
     tag: `gingapp-${category}`,
   };
 }

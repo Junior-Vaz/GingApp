@@ -5,6 +5,7 @@ import { api, type Page } from "@/lib/api";
 import { notifyError } from "@/lib/crud";
 import { currentLessonWindow } from "@/lib/lesson-window";
 import type { ClassOption, Lesson } from "@/modules/aulas/aulas-api";
+import { ORG_KEY, fetchOwnOrganization } from "@/modules/configuracoes/org-api";
 import { buildPayload, type AttendancePayloadEntry, type RosterEntry, type RosterRow } from "./roster";
 
 /** Teto de itens por chamada do backend (`limit` 1..200). */
@@ -82,10 +83,23 @@ export function useSaveAttendance() {
   return useMutation({
     mutationFn: ({ lessonId, rows }: { lessonId: string; rows: RosterRow[] }) =>
       api.post<{ count: number }>(`/attendance/lessons/${lessonId}`, buildPayload(rows) satisfies AttendancePayloadEntry[]),
-    onSuccess: (result, { lessonId, rows }) => {
-      toast.success(`Frequência salva (${plural(result?.count ?? buildPayload(rows).length, "aluno")}).`);
+    onSuccess: async (result, { lessonId, rows }) => {
       void queryClient.invalidateQueries({ queryKey: rosterKey(lessonId) });
       void queryClient.invalidateQueries({ queryKey: QUICK_SESSIONS_KEY });
+      // Preferência do grupo "avisar quando a presença for registrada": lida só aqui (cache de 5 min), sem peso extra
+      // na tela. Qualquer falha ao ler cai no toast padrão.
+      let notifies = false;
+      try {
+        const org = await queryClient.fetchQuery({ queryKey: ORG_KEY, queryFn: fetchOwnOrganization, staleTime: 5 * 60_000 });
+        notifies = org?.attendanceNotifications === true;
+      } catch {
+        notifies = false;
+      }
+      toast.success(
+        notifies
+          ? "Chamada salva — presentes foram avisados"
+          : `Frequência salva (${plural(result?.count ?? buildPayload(rows).length, "aluno")}).`,
+      );
     },
     onError: (error) => notifyError(error, "Não foi possível salvar a frequência."),
   });

@@ -22,3 +22,14 @@ export function formatInstantBR(date: Date): string {
   const get = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
   return `${get('day')}/${get('month')}/${get('year')} às ${get('hour')}:${get('minute')}`;
 }
+
+const WEEKDAYS_PT = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+
+/**
+ * "terça-feira, 13/10 às 19:00" de uma DATA CIVIL (aula) + horário "HH:mm" opcional (sem horário => só "terça-feira, 13/10").
+ * Campos UTC, pelo mesmo motivo de formatCivilDateBR.
+ */
+export function formatLessonWhenBR(date: Date, time?: string | null): string {
+  const base = `${WEEKDAYS_PT[date.getUTCDay()]}, ${pad2(date.getUTCDate())}/${pad2(date.getUTCMonth() + 1)}`;
+  return time && /^\d{2}:\d{2}$/.test(time) ? `${base} às ${time}` : base;
+}

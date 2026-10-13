@@ -165,11 +165,12 @@ export class OrganizationsService {
       logo: dto.logo,
       paymentInstructions: dto.paymentInstructions,
       mapVisible: dto.mapVisible,
+      attendanceNotifications: dto.attendanceNotifications,
       socialLinks: toSocialLinksInput(dto.socialLinks),
     };
     if (Object.values(data).every((value) => value === undefined)) {
       throw new BadRequestException(
-        'Informe ao menos um campo para atualizar (name, document, email, phone, description, history, foundedYear, city, state, website, logo, paymentInstructions, mapVisible ou socialLinks).',
+        'Informe ao menos um campo para atualizar (name, document, email, phone, description, history, foundedYear, city, state, website, logo, paymentInstructions, mapVisible, attendanceNotifications ou socialLinks).',
       );
     }
     const updated = await this.updateOrFail(organizationId, data);

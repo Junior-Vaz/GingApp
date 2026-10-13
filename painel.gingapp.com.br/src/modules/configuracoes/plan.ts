@@ -25,6 +25,8 @@ export interface Organization {
   paymentInstructions?: string | null;
   /** Mapa da comunidade: false esconde o grupo de GET /map/places (ausente em respostas antigas = true). */
   mapVisible?: boolean;
+  /** Avisar responsáveis e alunos (notificação) quando a presença é registrada. Ausente em respostas antigas = desligado. */
+  attendanceNotifications?: boolean;
   socialLinks?: OrganizationSocialLinks | null;
 }
 

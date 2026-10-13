@@ -61,9 +61,8 @@ function QuickAttendanceFab() {
           onClick={isMobile ? () => setOpen(true) : undefined}
           data-testid="quick-attendance-fab"
           aria-label={count > 0 ? `Chamada rápida (${count} ${count === 1 ? "aula" : "aulas"} hoje)` : "Chamada rápida"}
-          // Celular: acima da barra inferior (4rem + área segura); a partir de md volta ao canto da tela.
-          style={{ right: "calc(1rem + env(safe-area-inset-right))" }}
-          className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex size-14 md:bottom-[calc(1rem+env(safe-area-inset-bottom))] items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:size-16"
+          // Posição: a pilha <FloatingActions> (components/painel/floating-actions.tsx) coloca este botão no canto.
+          className="relative isolate flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:size-16"
         >
           {hasOngoing && (
             <span
