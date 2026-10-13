@@ -18,7 +18,7 @@ export interface FinanceRecord {
   id: number;
   studentId: number | null;
   /** Aluno do lançamento, já resolvido pelo servidor em GET /finance (sem GET /students/:id por linha). */
-  student?: { id: number; name: string } | null;
+  student?: { id: number; name: string; /** Foto (ainda não enviada pelo backend): cai nas iniciais. */ photo?: string | null | undefined } | null;
   unitId: number | null;
   description: string;
   amountCents: number;

@@ -65,6 +65,12 @@ export class DataDeletionRequestsService {
     return { items: await this.toViews(rows), total };
   }
 
+  async findOne(id: number): Promise<DataDeletionRequestView> {
+    const row = await this.prisma.dataDeletionRequest.findUnique({ where: { id }, include: WITH_USER });
+    if (!row) throw new NotFoundException('Pedido de exclusão não encontrado.');
+    return (await this.toViews([row]))[0];
+  }
+
   async update(id: number, dto: UpdateDataDeletionRequestDto): Promise<DataDeletionRequestView> {
     const current = await this.prisma.dataDeletionRequest.findUnique({ where: { id } });
     if (!current) throw new NotFoundException('Pedido de exclusão não encontrado.');

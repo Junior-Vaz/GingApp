@@ -546,6 +546,8 @@ model Student {
   /// Fase 3: matricula criada para alguem da EQUIPE (todo mundo e aluno). Nao conta no limite de alunos do plano
   /// (Plan.maxStudents) e nao gera mensalidade (so quem tem StudentBilling e cobrado).
   isStaff        Boolean       @default(false)
+  /// LGPD: matricula anonimizada junto com a ficha (nome 'Pessoa removida', sem contato/documento/foto).
+  anonymizedAt   DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -608,6 +610,9 @@ model Person {
   userId        Int?                @unique
   mergedIntoId  Int?
   mergedAt      DateTime?
+  /// LGPD: ficha anonimizada (pedido de exclusao tratado pelo super admin). Os dados pessoais foram removidos; o id e
+  /// o gingappCode (trocado por um codigo novo) ficam so para a integridade historica.
+  anonymizedAt  DateTime?
   createdAt     DateTime            @default(now())
   updatedAt     DateTime            @updatedAt
 
@@ -671,11 +676,28 @@ model TransferRequest {
   requestedBy      User              @relation("TransferRequestedBy", fields: [requestedByUserId], references: [id])
   contests         TransferContest[]
   shares           EnrollmentShare[]
+  approvalTokens   TransferApprovalToken[]
 
   @@index([personId, status])
   @@index([toOrganizationId, status])
   @@index([fromOrganizationId, status])
   @@index([status, expiresAt])
+}
+
+/// Convite guiado: link de aprovacao de uso unico para ADULTO SEM LOGIN aprovar a transferencia. So o SHA-256 do token
+/// fica no banco; expira junto com o pedido; gerar outro invalida os anteriores (usedAt).
+model TransferApprovalToken {
+  id        Int       @id @default(autoincrement())
+  requestId Int
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  request TransferRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, usedAt])
+  @@index([expiresAt])
 }
 
 /// Contestacao do grupo antigo (pendencia financeira, material, outro + texto curto). Informativa: a pessoa e o grupo

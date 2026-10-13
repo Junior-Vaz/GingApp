@@ -388,7 +388,8 @@ describe('Finance — lista paginada, limpar campos e resumo (e2e)', () => {
     const withStudent = res.body.filter((r: { studentId: number | null }) => r.studentId !== null);
     assert.equal(withStudent.length, 3);
     for (const r of withStudent) {
-      assert.deepEqual(r.student, { id: anaId, name: ana.name });
+      // `photo` (avatar das listas do painel) acompanha id/name.
+      assert.deepEqual(r.student, { id: anaId, name: ana.name, photo: ana.photo });
     }
     for (const r of res.body.filter((x: { studentId: number | null }) => x.studentId === null)) {
       assert.equal(r.student, null);

@@ -46,9 +46,14 @@ export function LevelRuler({ system, canCreate, canEdit, canDelete, busy, onEdit
         className="flex gap-3 overflow-x-auto rounded-lg border bg-muted/40 px-3 py-3"
       >
         {levels.map((level) => (
-          <div key={level.id} className="flex w-14 shrink-0 flex-col items-center gap-1" title={`${level.order}. ${level.name}`}>
+          <div key={level.id} className="flex w-16 shrink-0 flex-col items-center gap-1" title={`${level.order}. ${level.name}`}>
             <RopeSwatch {...ropeOf(level)} size="md" orientation="vertical" decorative />
-            <span className="w-full truncate text-center text-[10px] leading-tight text-muted-foreground">{level.name}</span>
+            <span
+              title={level.name}
+              className="line-clamp-2 w-full break-words text-center text-[10px] leading-tight text-muted-foreground [overflow-wrap:anywhere]"
+            >
+              {level.name}
+            </span>
           </div>
         ))}
       </div>
@@ -89,7 +94,7 @@ export function LevelRuler({ system, canCreate, canEdit, canDelete, busy, onEdit
             {canEdit && <GripVertical aria-hidden className="size-4 shrink-0 cursor-grab text-muted-foreground" />}
             <RopeSwatch {...ropeOf(level)} size="md" orientation="vertical" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{level.name}</p>
+              <p title={level.name} className="line-clamp-2 break-words text-sm font-medium [overflow-wrap:anywhere]">{level.name}</p>
               <p className="text-xs text-muted-foreground">
                 Ordem {level.order}
                 {typeof level.studentCount === "number" && level.studentCount > 0 && (

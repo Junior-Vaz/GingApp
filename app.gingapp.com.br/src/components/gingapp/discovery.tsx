@@ -220,6 +220,7 @@ export function DiscoveryPage({ mode = "community" }: { mode?: Mode }) {
           loading={loadingMore}
           onMore={loadMore}
           noun={mode === "rodas" ? "rodas" : "encontros"}
+          nounSingular={mode === "rodas" ? "roda" : "encontro"}
         />
         </>
       )}

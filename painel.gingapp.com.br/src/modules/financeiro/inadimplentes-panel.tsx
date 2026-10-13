@@ -1,6 +1,8 @@
+import { plural } from "@/lib/plural";
 import { BellRing } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { ExportCsvButton } from "@/components/painel/export-csv-button";
+import { StudentAvatar } from "@/components/painel/student-avatar";
 import { UnitPicker } from "@/components/painel/unit-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,11 +36,14 @@ export function InadimplentesPanel({ onViewRecords }: { onViewRecords: (studentI
       header: "Aluno",
       sortValue: (r) => r.studentName,
       cell: (r) => (
-        <span className="font-medium">
-          {r.studentName}
-          {r.unitId !== null && (
-            <span className="ml-1 text-xs font-normal text-muted-foreground">({nameOfUnit(r.unitId, `Unidade #${r.unitId}`)})</span>
-          )}
+        <span className="flex items-center gap-2 font-medium">
+          <StudentAvatar name={r.studentName} photo={r.studentPhoto ?? r.photo} />
+          <span>
+            {r.studentName}
+            {r.unitId !== null && (
+              <span className="ml-1 text-xs font-normal text-muted-foreground">({nameOfUnit(r.unitId, `Unidade #${r.unitId}`)})</span>
+            )}
+          </span>
         </span>
       ),
     },
@@ -76,7 +81,7 @@ export function InadimplentesPanel({ onViewRecords }: { onViewRecords: (studentI
       cell: (r) => (
         <span>
           {formatDueDate(r.oldestDueDate)}
-          <span className="ml-1 text-xs text-muted-foreground">({r.daysLate} dia(s))</span>
+          <span className="ml-1 text-xs text-muted-foreground">({plural(r.daysLate, "dia")})</span>
         </span>
       ),
     },

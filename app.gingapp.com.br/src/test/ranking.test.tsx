@@ -24,9 +24,9 @@ import { saveSession } from "@/lib/session";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const LEVELS = {
-  VERDE: { code: "VERDE", name: "Verde", color: "#22C55E" },
-  AZUL: { code: "AZUL", name: "Azul", color: "#3B82F6" },
-  ROXA: { code: "ROXA", name: "Roxa", color: "#8B5CF6" },
+  VERDE: { code: "VERDE", name: "Broto", color: "#22C55E" },
+  AZUL: { code: "AZUL", name: "Roda", color: "#3B82F6" },
+  ROXA: { code: "ROXA", name: "Axé", color: "#8B5CF6" },
 };
 
 const row = (rank: number, over: Partial<StudentRankItem> = {}): StudentRankItem => ({
@@ -382,8 +382,8 @@ describe("Ginga Rank", () => {
     await mount();
     const card = q('[data-testid="rk-progress"]')!;
     expect(card.textContent).toContain("Camila Souza");
-    expect(card.textContent).toContain("Azul");
-    expect(card.textContent).toContain("faltam 220 pontos para ROXA");
+    expect(card.textContent).toContain("Roda");
+    expect(card.textContent).toContain("faltam 220 pontos para AXÉ");
     expect(card.querySelector('[role="progressbar"]')!.getAttribute("aria-valuenow")).toBe("69");
     for (const text of ["#6", "#8", "#14", "#63", "7", "semanas seguidas", "1.180", "6.420"]) {
       expect(card.textContent).toContain(text);
@@ -476,7 +476,7 @@ describe("Ginga Rank", () => {
     localStorage.setItem("gingapp:ranking:league:11", "VERDE");
     mockApi({});
     await mount();
-    expect(q('[data-testid="rk-levelup"]')!.textContent).toContain("liga Azul");
+    expect(q('[data-testid="rk-levelup"]')!.textContent).toContain("liga Roda");
     expect(q('[data-testid="rk-confetti"]')).not.toBeNull();
     expect(localStorage.getItem("gingapp:ranking:league:11")).toBe("AZUL");
   });

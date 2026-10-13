@@ -12,6 +12,17 @@ export interface TransferGroup {
   logoUrl: string | null;
 }
 
+/**
+ * Link de aprovação para ADULTO sem login (POST /transfers e POST /transfers/:id/approval-link). O token só existe
+ * nesta resposta (o servidor não o guarda em claro): o painel mostra/copia agora; depois só dá para gerar outro.
+ */
+export interface ApprovalLink {
+  url: string;
+  expiresAt: string;
+  /** true = o servidor também enviou o link por e-mail. */
+  emailed: boolean;
+}
+
 /** Contrato de GET /transfers e GET /transfers/:id (só MESTRE). */
 export interface TransferView {
   id: number;
@@ -29,6 +40,10 @@ export interface TransferView {
   toStudentId: number | null;
   canContest: boolean;
   canCancel: boolean;
+  /** Pedido PENDING_PERSON de adulto sem login: precisa de um link de aprovação (POST /transfers/:id/approval-link). */
+  needsApprovalLink?: boolean | undefined;
+  /** Só na resposta de criação/regeneração (POST); nunca vem em GET. */
+  approvalLink?: ApprovalLink | null | undefined;
   contests: {
     id: number;
     reason: ContestReason;
@@ -75,6 +90,15 @@ export function useCancelTransfer() {
   });
 }
 
+/** POST /transfers/:id/approval-link (MESTRE do destino, sem corpo): gera link novo e invalida o anterior. */
+export function useGenerateApprovalLink() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.post<ApprovalLink>(`/transfers/${id}/approval-link`),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: TRANSFERS_KEY }),
+  });
+}
+
 export interface ContestInput {
   reason: ContestReason;
   note?: string | undefined;
@@ -108,6 +132,8 @@ const TRANSFER_ERROR_MESSAGE: Record<string, string> = {
   PERSON_ALREADY_IN_GROUP: "Esta pessoa já está matriculada no seu grupo. Use o cadastro existente.",
   PERSON_NOT_ENROLLED_ELSEWHERE: "Esta pessoa não tem matrícula ativa em outro grupo, então não há o que transferir.",
   TRANSFER_NOT_PENDING: "Este pedido já não está aguardando a pessoa; atualize a lista.",
+  APPROVAL_LINK_NOT_NEEDED:
+    "Não é preciso link: esta pessoa já tem login ou é menor de idade (o responsável aprova pelo app).",
   TRANSFER_CONTEST_CLOSED: "O prazo para contestar esta transferência já terminou.",
 };
 

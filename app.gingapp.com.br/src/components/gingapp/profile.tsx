@@ -9,6 +9,7 @@ import { logout } from "@/lib/auth";
 import { buildProfilePayload, passportActions } from "@/lib/derive";
 import { dayOnly, fmt, passportUrl } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
+import { plural } from "@/lib/plural";
 import { imageSrc } from "@/lib/uploads";
 import {
   useGraduations,
@@ -246,9 +247,9 @@ export function ProfilePage() {
               </div>
               {p.unit && <p className="mt-3">{p.unit.name}</p>}
               <div className="flex gap-4 mt-4 text-xs">
-                <span>{p.stats.aulas} aulas</span>
-                <span>{p.stats.rodas} rodas</span>
-                <span>{p.stats.eventos} eventos</span>
+                <span>{plural(p.stats.aulas, "aula")}</span>
+                <span>{plural(p.stats.rodas, "roda")}</span>
+                <span>{plural(p.stats.eventos, "evento")}</span>
                 <span>{p.stats.certificados} certificados</span>
               </div>
               <div className="passport-line">

@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as AprovarTransferenciaRouteImport } from './routes/aprovar-transferencia'
 import { Route as EsqueciSenhaRouteImport } from './routes/esqueci-senha'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PrivacidadeRouteImport } from './routes/privacidade'
@@ -34,6 +35,11 @@ import { Route as VerificarCodeRouteImport } from './routes/verificar.$code'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AprovarTransferenciaRoute = AprovarTransferenciaRouteImport.update({
+  id: '/aprovar-transferencia',
+  path: '/aprovar-transferencia',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EsqueciSenhaRoute = EsqueciSenhaRouteImport.update({
@@ -144,6 +150,7 @@ const VerificarCodeRoute = VerificarCodeRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/aprovar-transferencia': typeof AprovarTransferenciaRoute
   '/esqueci-senha': typeof EsqueciSenhaRoute
   '/login': typeof LoginRoute
   '/privacidade': typeof PrivacidadeRoute
@@ -166,6 +173,7 @@ export interface FileRoutesByFullPath {
   '/verificar/$code': typeof VerificarCodeRoute
 }
 export interface FileRoutesByTo {
+  '/aprovar-transferencia': typeof AprovarTransferenciaRoute
   '/esqueci-senha': typeof EsqueciSenhaRoute
   '/login': typeof LoginRoute
   '/privacidade': typeof PrivacidadeRoute
@@ -191,6 +199,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/aprovar-transferencia': typeof AprovarTransferenciaRoute
   '/esqueci-senha': typeof EsqueciSenhaRoute
   '/login': typeof LoginRoute
   '/privacidade': typeof PrivacidadeRoute
@@ -217,6 +226,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/aprovar-transferencia'
     | '/esqueci-senha'
     | '/login'
     | '/privacidade'
@@ -239,6 +249,7 @@ export interface FileRouteTypes {
     | '/verificar/$code'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/aprovar-transferencia'
     | '/esqueci-senha'
     | '/login'
     | '/privacidade'
@@ -263,6 +274,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
+    | '/aprovar-transferencia'
     | '/esqueci-senha'
     | '/login'
     | '/privacidade'
@@ -288,6 +300,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  AprovarTransferenciaRoute: typeof AprovarTransferenciaRoute
   EsqueciSenhaRoute: typeof EsqueciSenhaRoute
   LoginRoute: typeof LoginRoute
   PrivacidadeRoute: typeof PrivacidadeRoute
@@ -304,6 +317,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/aprovar-transferencia': {
+      id: '/aprovar-transferencia'
+      path: '/aprovar-transferencia'
+      fullPath: '/aprovar-transferencia'
+      preLoaderRoute: typeof AprovarTransferenciaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/esqueci-senha': {
@@ -494,6 +514,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  AprovarTransferenciaRoute: AprovarTransferenciaRoute,
   EsqueciSenhaRoute: EsqueciSenhaRoute,
   LoginRoute: LoginRoute,
   PrivacidadeRoute: PrivacidadeRoute,

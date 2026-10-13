@@ -35,8 +35,8 @@ describe("DashboardPage", () => {
     expect(await screen.findByTestId("dashboard-content")).toBeInTheDocument();
     expect(screen.getByText("Mensalidades previstas")).toBeInTheDocument();
     expect(screen.getByText("Mensalidades atrasadas")).toBeInTheDocument();
-    expect(screen.getByText("4 lançamento(s) pendente(s)")).toBeInTheDocument();
-    expect(screen.getByText("1 lançamento(s) atrasado(s)")).toBeInTheDocument();
+    expect(screen.getByText("4 lançamentos pendentes")).toBeInTheDocument();
+    expect(screen.getByText("1 lançamento atrasado")).toBeInTheDocument();
     expect(screen.getByText("Graduações (30d)")).toBeInTheDocument();
   });
 

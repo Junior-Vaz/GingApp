@@ -3415,3 +3415,81 @@ Migration `20261013010000_staff_roles` (aplicada com `migrate deploy`; bootstrap
 2. Sem tela de ocorrências do PRÓPRIO grupo fora da ficha (lista geral/relatório) e sem anexos.
 3. Equivalências: sem tela de gestão em massa (só por aluno na ficha) e sem revogação de equivalência declarada.
 4. Pendências gerais da ficha única: FICHA_UNICA §7b.
+### Ficha única — pendências A–F (convite guiado, duplicatas, monitor, anonimização, dados do painel, UI) - 2026-10-12/13
+
+**Estado:** concluídas (sem commit). Contrato, regras e limites em [`docs/FICHA_UNICA.md`](docs/FICHA_UNICA.md) §12. Migration
+`20261014000000_approval_links_anonymization` (aplicada com `migrate deploy`; só adiciona).
+
+#### O que deu certo
+- **A** Link de aprovação de uso único (`TransferApprovalToken`, SHA-256, expira com o pedido, regenerável) para adulto sem
+  login; rotas públicas `GET/POST /public/transfer-approval/:token[/approve|decline]` com throttle forte; aprovar cria o
+  `User` e aprova na mesma transação; e-mail extra se SMTP ativo; app `/aprovar-transferencia`; painel copia/WhatsApp/gera link.
+- **B** Admin Vue: tela "Duplicatas" (lista, lado a lado, mesclar com aviso de irreversível, erros 409 em pt-BR).
+- **C** MONITOR só chama turmas dele (`Class.teacherUserId`) ou aulas atribuídas (`Lesson.teacherUserId`): `GET /attendance`,
+  roster, marcar, chamada rápida e QR; fora disso 404. Painel: botões de criar/editar por `useCan`; matriz espelhada com teste.
+- **D** `POST /data-deletion-requests/:id/anonymize` (super admin, `confirm:true`): anonimiza Person/matrículas/login numa
+  transação, mantém frequência/graduações/financeiro/ocorrências (sem motivo); revoga sessões; marca DONE; auditoria. Admin:
+  botão "Anonimizar" com confirmação forte.
+- **E** `classNames` e `currentCord` na lista de alunos (2 consultas em lote) e `studentCount` por nível (1 consulta).
+- **F** Logo no cabeçalho mobile e estouro horizontal corrigido (medido 375/375 nas 18 rotas; antes até +39px); avatar em
+  Financeiro, Certificados e Inadimplentes (backend passou a enviar `photo`/`studentPhoto`/`organizationLogoUrl`).
+- Gates: backend build limpo OK; `test:unit` 165/165; `test:quick` completo **949/949** (83 specs; 4 novos: 
+  `transfer-approval-link` 4, `monitor-attendance` 3, `list-extras` 2, `anonymization` 2); smoke 74/74; admin test 144/144 +
+  build OK (sem script de lint); painel lint OK, 608/608, build OK; app lint OK, 241/241, build OK.
+
+#### O que NÃO deu certo e a solução
+1. `npx prisma generate` deu EPERM ao renomear o `query_engine-windows.dll.node` porque há uma API de dev (`node dist/main.js`,
+   porta 3100) rodando fora desta sessão; parar o processo não foi autorizado. Os tipos/JS do client foram gerados e a engine
+   é a mesma versão, então build e testes passaram; **reinicie a API de dev/rode `prisma generate` ao parar o processo** para
+   regenerar a engine por completo.
+2. `GET /finance` tinha teste de contrato `student = {id,name}`; o campo `photo` foi acrescentado de propósito e o teste
+   ajustado (`finance.e2e-spec.ts`).
+3. `students-import-export` falhou 3 testes numa rodada (`PERSON_EXISTS_ELSEWHERE` para o CPF fixo do spec): sobra de ficha
+   com esse CPF de execução anterior interrompida; sem relação com o código. Passou isolado e na suíte completa (949/949).
+4. Heredocs longos no shell quebraram (e depois o `bash` do Git deu erro de Cygwin); os scripts foram escritos por arquivo.
+
+#### Pendências (numeradas)
+1. Regenerar a engine do Prisma (item 1 acima) e reiniciar a API de dev.
+2. Definir `APP_URL` em produção (o link de aprovação sai sem domínio se faltar) e, se quiser o envio por e-mail, o SMTP.
+3. Owner: política de retenção/purga das ocorrências (a anonimização as mantém sem motivo).
+4. Continuam: `Student.personId NOT NULL`, remover CPF em claro de `Student.document`, desfazer transferência / desmesclar.
+5. O MONITOR continua vendo (leitura) todas as turmas do escopo; só a chamada foi restrita.
+
+---
+
+## Correções do QA integrado (2026-10-12/13) — médios M1–M4 e baixos B1–B8, B10
+
+Origem: relatório de QA integrado (navegador + backend real). Sem commit; trabalho de outros agentes na árvore preservado.
+
+#### O que deu certo
+- **M1 Estrutura do sistema de graduação só do MESTRE.** `MestreOnlyGuard` nos endpoints de ESTRUTURA de `graduations.controller.ts`
+  (POST/PATCH/DELETE `systems`, `systems/from-template`, níveis create/reorder/update/duplicate/delete). `role-rules` PUT e
+  `equivalences` já eram MESTRE-only. PROFESSOR/INSTRUTOR continuam graduando aluno (`/graduations/students/...`, pela matriz).
+  Painel esconde Novo sistema/Novo nível/Editar/Duplicar/Reordenar/Remover/Criar a partir de modelo para quem não é MESTRE.
+  Testes: `graduations-manage` (PROFESSOR 403 em sistema/nível/from-template/duplicate; MESTRE 201/200), `graduations-rope` (reorder PROFESSOR 403).
+- **M2 Ações compactas.** `RowActions` (ícones com `title`/`aria-label` + menu "⋯") e `DataTable` com nome fixo à esquerda e Ações à direita
+  (rola dentro do card). Alunos (Tabela), Equipe/Professores e Turmas, sem perder ação nem permissão.
+- **M3 Aulas no período atual.** `GET /lessons?order=asc|desc|nearest` (nearest = hoje e futuras crescentes, depois passadas da mais recente;
+  sem `order` = comportamento antigo). Painel: Aulas abre em -7/+30 dias com opção "Todas"; select "Aula" da Frequência usa a janela,
+  `order=nearest`, limite 60 e "Mostrar todas". Teste e2e `lessons` (nearest + paginação entre faixas) e unitário da janela.
+- **M4 Admin** `OrganizationDetailView` reativo ao `:id` (computed + watch imediato, descarta resposta atrasada); testes.
+- **B1** "Close" → "Fechar" (dialog/sheet do app e do painel; o admin não tem esses componentes). **B2/#6** helper de plural pt-BR
+  (`lib/plural.ts` no app e painel, `utils/plural.ts` no admin) aplicado nos "(s)" e "1 alunos/presentes". **B3** rodapé do FormDialog fixo com corpo rolável;
+  nomes da régua quebram linha (`line-clamp-2` + `title`). **B4** `GET /students?order=name|recent` (padrão da API continua `recent`; o painel envia `order=name`);
+  teste e2e `students`. **B5** textos de vazio da Ficha (o `Section` nunca caía no fallback). **B6** Home/Jornada: o hook já seguia o aluno ativo
+  (`useGraduations(student?.id)`); corrigido o rótulo ("Graduação de <nome>" para dependente). **B8** cartão da Home sem truncar.
+- **B7 Ligas do ranking** renomeadas só no nome de exibição: Semente, Broto, Ginga, Roda, Axé, Mandinga, Lenda (códigos CRUA…PRETA e cores iguais) em
+  `ranking-rules.ts`, app `lib/ranking.ts`, notificação de liga e testes.
+- **B9/B10 Admin:** removido o texto "serão implementados nas próximas fases"; tabela de Auditoria em `overflow-x-auto` com colunas fixas.
+- **Limpeza do DB de DEV** (`localhost:15432`, script descartável `D:\tmp\e2e-cleanup.cjs`, transação, DRY antes): antes 27 grupos / 16 planos / 20 users /
+  791 notificações `[e2e`; depois 3 grupos (`demo`, `ginga-brasil`, `[audit] Grupo 224735` — intocados) / 4 planos reais / 15 users / 0 `[e2e`.
+  Apagados: 24 grupos e2e, 12 planos "Plano E2E", 5 users `@e2e-team.local`, 791 notificações, 4 alunos + 4 pessoas + 4 cargos + 4 unidades + 4 memberships.
+
+#### O que NÃO deu certo / observações
+1. Heredoc/escape no shell corrompeu uma edição do `lessons.e2e-spec.ts` (revertida só a minha alteração e refeita com Edit).
+2. Verificação visual a 1280/375 px não feita (só lint/build/testes e classes); vale uma olhada humana na tabela de Equipe e no diálogo "Novo nível".
+3. O admin não tem script de lint.
+
+#### Pendências
+1. Revisão visual no navegador (item 2 acima). 2. A orgs `[audit] Grupo 224735` (sessão de auditoria) não foi apagada por ser ambígua.
+3. Specs e2e ainda deixam resíduos por falta de limpeza própria (`authpwd`, `dto-hardening`, planos "Plano E2E cargos"); repetir o script de limpeza quando preciso.

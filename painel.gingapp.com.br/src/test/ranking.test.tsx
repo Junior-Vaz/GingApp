@@ -15,6 +15,17 @@ vi.mock("sonner", async (importOriginal) => ({
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
 
+/** Nomes de exibição das ligas (o backend devolve estes; os códigos e as cores não mudaram). */
+const LEAGUE_NAME: Record<string, string> = {
+  CRUA: "Semente",
+  VERDE: "Broto",
+  AMARELA: "Ginga",
+  AZUL: "Roda",
+  ROXA: "Axé",
+  MARROM: "Mandinga",
+  PRETA: "Lenda",
+};
+
 const student = (rank: number, name: string, code: string, color: string, over: Record<string, unknown> = {}) => ({
   rank,
   studentId: rank,
@@ -26,7 +37,7 @@ const student = (rank: number, name: string, code: string, color: string, over: 
   city: "Salvador",
   state: "BA",
   points: 1000 - rank * 100,
-  level: { code, name: code.charAt(0) + code.slice(1).toLowerCase(), color },
+  level: { code, name: LEAGUE_NAME[code] ?? code, color },
   rankDelta: 0,
   isMe: false,
   ...over,
@@ -232,9 +243,9 @@ describe("RankingPage", () => {
       reader.readAsArrayBuffer(blob);
     });
     expect(text.startsWith("﻿Posição;Aluno;Liga;Pontos;Variação;Grupo;Cidade;UF\r\n")).toBe(true);
-    expect(text).toContain("1;Ana Souza;Preta;900;2;Grupo Capoeira;Salvador;BA");
-    expect(text).toContain("2;Bruno Lima;Roxa;800;-1;");
-    expect(text).toContain("3;Carla Dias;Verde;700;Novo;");
+    expect(text).toContain("1;Ana Souza;Lenda;900;2;Grupo Capoeira;Salvador;BA");
+    expect(text).toContain("2;Bruno Lima;Axé;800;-1;");
+    expect(text).toContain("3;Carla Dias;Broto;700;Novo;");
   });
 
   it("PROFESSOR também vê o ranking", async () => {
@@ -289,6 +300,6 @@ describe("Ranking: permissões e helpers", () => {
     expect(deltaInfo(null).kind).toBe("new");
     expect(seasonLabel("2026-09")).toBe("setembro de 2026");
     expect(seasonLabel("ALL")).toBe("Geral (todas as temporadas)");
-    expect(rankingCsvRows([STUDENTS[3]! as never])[0]).toEqual([4, "Diego Reis", "Crua", 600, 0, "Grupo Capoeira", "Salvador", "BA"]);
+    expect(rankingCsvRows([STUDENTS[3]! as never])[0]).toEqual([4, "Diego Reis", "Semente", 600, 0, "Grupo Capoeira", "Salvador", "BA"]);
   });
 });

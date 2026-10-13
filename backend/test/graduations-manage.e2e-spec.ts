@@ -120,8 +120,16 @@ describe('Graduations manage (PATCH/DELETE) (e2e)', () => {
     assert.notEqual(db.notes, 'hack');
   });
 
-  it('RBAC: PROFESSOR edita (200) mas nao remove (403); ALUNO nao edita nem remove (403)', async () => {
-    await api().patch(`/api/graduations/levels/${levelAId}`).set(auth(professorToken)).send({ color: '#000' }).expect(200);
+  it('RBAC: ESTRUTURA do sistema e so do MESTRE (PROFESSOR 403, MESTRE 201/200); ALUNO nao edita nem remove (403)', async () => {
+    await api().post('/api/graduations/systems').set(auth(professorToken)).send({ name: `${tag} prof` }).expect(403);
+    await api().post(`/api/graduations/systems/${systemId}/levels`).set(auth(professorToken)).send({ name: `${tag} prof` }).expect(403);
+    await api().post('/api/graduations/systems/from-template').set(auth(professorToken)).send({ code: 'x' }).expect(403);
+    await api().patch(`/api/graduations/systems/${systemId}`).set(auth(professorToken)).send({ name: `${tag} prof` }).expect(403);
+    await api().patch(`/api/graduations/levels/${levelAId}`).set(auth(professorToken)).send({ color: '#000' }).expect(403);
+    await api().post(`/api/graduations/levels/${levelAId}/duplicate`).set(auth(professorToken)).expect(403);
+    const created = await api().post('/api/graduations/systems').set(auth(mestreToken)).send({ name: `${tag} mestre` }).expect(201);
+    assert.ok(created.body.id);
+    await api().patch(`/api/graduations/levels/${levelAId}`).set(auth(mestreToken)).send({ color: '#000' }).expect(200);
     await api().delete(`/api/graduations/levels/${levelAId}`).set(auth(professorToken)).expect(403);
     await api().delete(`/api/graduations/systems/${systemId}`).set(auth(professorToken)).expect(403);
     await api().delete(`/api/graduations/students/${studentId}/${graduationId}`).set(auth(professorToken)).expect(403);

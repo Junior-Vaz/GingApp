@@ -169,7 +169,7 @@ A mantida herda o que não tem (login, CPF, nascimento, foto, apelido, contato);
   "CPF do responsável" e "Código GingApp" no cadastro, diálogos dos três 409, botão **Ficha** (código com copiar, CPF
   mascarado, matrículas, cordas, presença por grupo, certificados), colunas novas no CSV + "importar mesmo assim".
 - **App/Perfil:** cartão "Meu código GingApp" (copiar + QR recolhível); some em 404/erro.
-- **Admin (Vue):** ainda **sem** tela de duplicatas/mescla (só API) — pendência.
+- **Admin (Vue):** tela "Duplicatas" (lista, comparação lado a lado, mescla com confirmação; ver §12.B).
 
 ## 4. Fase 2 — Transferência entre grupos (IMPLEMENTADA, 2026-10-12)
 
@@ -196,7 +196,7 @@ A mantida herda o que não tem (login, CPF, nascimento, foto, apelido, contato);
   nunca mais poderia ser cadastrada, pois o 409 da Fase 1 vale para qualquer matrícula em outro grupo).
 - Decide: **adulto = o próprio login** (`Person.userId`); **menor** (nascimento < 18 anos, regra `isMinor` do ranking) = só os
   **responsáveis com login** de qualquer matrícula da pessoa (o menor não decide). Sem direito = 404 (não vaza).
-  Adulto sem login não consegue aprovar: o pedido expira (pendência: convite pelo app).
+  Adulto sem login aprova por link de uso único (§12.A); sem o link o pedido expira.
 - Contestação: só o MESTRE do grupo **antigo**, enquanto `status ∈ {PENDING_PERSON, APPROVED}` e `agora ≤ contestUntil`;
   informativa (aparece para a pessoa ao decidir e para o grupo novo), **nunca bloqueia**.
 - Aprovação (uma transação): matrícula nova `ACTIVE` no grupo novo (mesma Person, `unitId` pedido, `joinedAt` = agora, nome/
@@ -379,8 +379,8 @@ grupo + corda de origem) e `StudentGraduation.recognizedFromLevelId`.
 2. **Decidir:** a retenção das ocorrências (proposta na §6); se mestres/professores devem aparecer nas listas, no dashboard e
    no ranking como alunos (hoje sim, `isStaff` permite filtrar); a restrição "monitor só nas turmas dele".
 3. **Técnico, adiado:** `Student.personId NOT NULL` (seed, demo e specs ainda criam aluno sem ficha); remover o CPF em
-   claro de `Student.document` do banco; "desfazer transferência" e "desmesclar"; convite guiado para adulto sem login
-   aprovar transferência; tela do admin para duplicatas e mescla; anonimização da Person num pedido de exclusão (LGPD).
+   claro de `Student.document` do banco; "desfazer transferência" e "desmesclar".
+   (Entregues depois, ver §12: convite guiado, tela de duplicatas, anonimização LGPD, monitor só nas turmas dele.)
 
 ## 8. Migração segura (produção)
 1. Deploy da imagem: `migrate deploy` (só adiciona) → bootstrap → demo → **person-backfill --auto** → ranking → API.
@@ -422,3 +422,97 @@ grupo + corda de origem) e `StudentGraduation.recognizedFromLevelId`.
 - Compartilhamento entre grupos só com aprovação do titular/responsável (F2); ocorrências com contestação (F4).
 - Pedido de exclusão (`DataDeletionRequest`) passa a precisar tratar a Person (anonimizar nome/foto/documento, manter
   `gingappCode` para integridade histórica) — procedimento a escrever na F2.
+
+## 12. Pendências entregues depois da Fase 5 (A–F, 2026-10-12/13)
+
+Migration `20261014000000_approval_links_anonymization` (só adiciona): `TransferApprovalToken`, `Person.anonymizedAt`,
+`Student.anonymizedAt`.
+
+### 12.A Convite guiado: adulto SEM login aprova a transferência por link
+- **Quando:** `POST /api/transfers` para pessoa adulta sem `Person.userId` (menor nunca recebe link: precisa do responsável com
+  login). A resposta (201) ganha `approvalLink: { url, expiresAt, emailed } | null` e o `TransferView` ganha
+  `needsApprovalLink: boolean` (pedido `PENDING_PERSON`, adulto, sem login; só no lado SENT).
+- **Token:** 256 bits aleatórios (`generatePasswordToken`), só o SHA-256 vai ao banco (`TransferApprovalToken`), uso único,
+  expira junto com o pedido (`expiresAt` do pedido). Gerar outro invalida os anteriores. Decisão: não reutilizei
+  `PasswordResetToken` porque ele exige `userId` (a pessoa ainda não tem User). O token só aparece na criação ou na
+  regeneração (não é guardado em claro).
+- **URL:** `APP_URL + /aprovar-transferencia?token=...` (sem `APP_URL` a URL sai só com o caminho). Se SMTP estiver ativo e a
+  ficha tiver e-mail, o link também é enviado por e-mail (`emailed: true`); sem SMTP, o Mestre copia/envia pelo WhatsApp.
+- **Regenerar:** `POST /api/transfers/:id/approval-link` (MESTRE do grupo que pediu; origem 403) -> 200
+  `{ url, expiresAt, emailed }`; 409 `TRANSFER_NOT_PENDING` | `TRANSFER_EXPIRED` | `APPROVAL_LINK_NOT_NEEDED` (tem login ou é menor).
+- **Públicas (sem login, `@Throttle` forte por IP: GET 30/min, POST 5/min; env `TRANSFER_APPROVAL_READ_THROTTLE_LIMIT` /
+  `TRANSFER_APPROVAL_WRITE_THROTTLE_LIMIT` só para os e2e):**
+  - `GET /api/public/transfer-approval/:token` -> `{ groupName, groupLogoUrl, sharedOnApproval, isMinor, hasLogin,
+    canApproveByLink, emailRequired, expiresAt }` (nunca CPF, contato, nascimento, histórico ou nome da pessoa).
+  - `POST .../approve` `{ newPassword (@IsNewPassword), email? }` -> 200 `{ status: 'APPROVED', groupName }`. Na MESMA transação:
+    consome o token, cria o `User` (MEMBER, senha própria, sem troca obrigatória), liga à `Person`, aprova (matrícula nova,
+    vínculo ALUNO, compartilhamento) - se algo falhar, nada fica criado. O e-mail vem de `email` ou da ficha; e-mail que já é
+    conta do GingApp é recusado (`409 EMAIL_IN_USE`: quem tem link não prova ser o dono daquela conta, então nunca
+    vinculamos a um User existente; a pessoa entra no app e aprova em Transferências).
+  - `POST .../decline` -> 200 `{ status: 'DECLINED', groupName }` (sem criar login).
+  - Erros: 404 `TRANSFER_APPROVAL_INVALID` (inexistente/usado/expirado/pedido já decidido - sempre a mesma mensagem), 400
+    `EMAIL_REQUIRED`, 400 senha fraca, 403 `MINOR_REQUIRES_GUARDIAN`, 409 `APPROVAL_LINK_NOT_NEEDED`, `EMAIL_IN_USE`,
+    `PERSON_ALREADY_IN_GROUP`.
+- Auditoria: `TRANSFER_APPROVAL_LINK_ISSUE` (meta `emailed`), `TRANSFER_APPROVE`/`TRANSFER_DECLINE` com `meta.via='approval-link'`.
+- App: página pública `/aprovar-transferencia?token=` (fora do guard de login/termos). Painel: diálogo com Copiar,
+  "Enviar por WhatsApp" e botão "Gerar link de aprovação" nos pedidos enviados.
+- Limites: o link vale para quem o tiver (como qualquer link de convite); o Mestre deve enviá-lo só à pessoa. Menor: sempre o
+  responsável com login, pelo app.
+
+### 12.B Admin Vue: "Duplicatas"
+Menu/rota `/duplicates` (só super admin ativo chama a API): lista de grupos (`GET /people/duplicates`), comparação lado a lado,
+escolha de quem MANTER/MESCLAR e `POST /people/merge` com confirmação de que **não existe "desmesclar"**. Erros 400/404/409 em
+pt-BR por `code` (`PERSON_MERGE_SAME_GROUP` cita os grupos). `ApiError` do admin passou a guardar `code` e `body`.
+
+### 12.C MONITOR só nas turmas/aulas dele
+- Backend: `monitorLessonFilter(user)` (`shared/access/unit-scope.ts`) = aula com `Lesson.teacherUserId = user.id` **ou** de
+  turma com `Class.teacherUserId = user.id`; aplicado em `GET /attendance`, `GET/POST /attendance/lessons/:id`,
+  `GET /attendance/quick-sessions` e `GET /attendance/lessons/:id/checkin-token`. Fora disso = o mesmo 404 da aula
+  inexistente. INSTRUTOR/PROFESSOR/MESTRE seguem só o escopo de unidade. Leitura de turmas/aulas continua pela matriz.
+- Painel: `session.ts`/`nav.ts` já espelhavam INSTRUTOR e MONITOR (conferido célula a célula com `permission-matrix.ts`, com
+  teste); os botões de criar/editar (Novo aluno/turma/aula/comunicado/evento/roda, Emitir certificado, Graduações) passam a
+  seguir `useCan`. Menu do MONITOR: sem Financeiro, Equipe, Dashboard, Certificados, Transferências.
+
+### 12.D LGPD: anonimização (`POST /api/data-deletion-requests/:id/anonymize`, super admin ativo)
+Corpo `{ confirm: true }` (senão 400). Resposta `{ request: <DataDeletionRequestView, status DONE>, result: { personId,
+studentsAnonymized, userDeactivated, occurrencesRetained } }`. Uma transação:
+- **Person** (e as fichas mescladas nela): nome `Pessoa removida`; apelido, nascimento, foto, gênero, e-mail, telefone, CPF
+  (`documentEnc/Hash/Last4/Kind`) e login removidos; **`gingappCode` novo** (o antigo deixa de achar a ficha); `anonymizedAt`.
+  O CPF fica livre (a pessoa pode ganhar ficha nova sem colidir).
+- **Matrículas** (por ficha ou por login): mesmo tratamento, `userId`/capa/redes nulos, status `FORMER` com
+  `leftReason='ANONYMIZED'`, turmas inativas, apelido do ranking e perfil público apagados/despublicados; responsáveis
+  (`StudentGuardian`) viram `Responsável removido` sem contato/login; compartilhamentos revogados; pedidos de transferência
+  abertos cancelados e notas limpas; tokens de aprovação invalidados.
+- **User:** nome `Pessoa removida`, e-mail `anonimizado-<id>@anonimizado.invalid`, sem telefone/foto/2FA, senha aleatória,
+  `status=INACTIVE`, `tokenValidAfter` (revoga TODAS as sessões), vínculos inativos, cargos revogados, avisos/push/tokens apagados.
+- **Preservado sem identificar:** frequência, graduações, certificados, financeiro, pontos, auditoria e as contagens agregadas.
+- **Regra das ocorrências (decisão):** **retidas, sem bloquear.** Tipo, datas e status (inclusive EXPULSÃO) ficam ligados à
+  matrícula anonimizada; `reason` e as notas de contestação/retratação viram `[removido na anonimização]`. A matrícula já não
+  identifica ninguém, então a retenção do fato não expõe a pessoa; o registro serve ao grupo (aviso a outros grupos não é mais
+  possível: o compartilhamento é revogado).
+- **Bloqueios (409):** `DELETION_REQUEST_FINAL` (pedido já DONE/REJECTED), `ANONYMIZE_PLATFORM_USER` (equipe da plataforma é
+  tratada à mão), `ANONYMIZE_LAST_MESTRE` (único MESTRE ativo de um grupo: nomeie outro antes).
+- Marca o pedido `DONE` (`resolvedAt`, nota `Anonimizado em AAAA-MM-DD.`). Auditoria `PERSON_ANONYMIZE` (só ids e contagens, sem
+  nome/e-mail). Admin: botão "Anonimizar" (pedidos abertos, super admin) com confirmação forte (digitar ANONIMIZAR ou o e-mail).
+- Limites: arquivos de foto já enviados ficam no disco até o GC semanal de imagens órfãs; `AuditLog` antigo não é reescrito
+  (a retenção da auditoria cuida); dependentes de um responsável anonimizado ficam sem responsável até haver outro; não há
+  reversão.
+
+### 12.E Dados que o painel espera
+- `GET /api/students` (lista): por item `classNames: string[]` (turmas ATIVAS onde a matrícula está ATIVA, por nome) e
+  `currentCord: { name, style, colors } | null` (graduação mais recente - data, depois id - de qualquer sistema). Duas
+  consultas em lote por página (sem N+1). O painel aceita o formato antigo (string).
+- `GET /api/graduations/systems/:id`: cada nível ganha `studentCount` = alunos ATIVOS cuja graduação mais recente **neste
+  sistema** é o nível (uma consulta).
+- Extras adicionados a pedido do painel: `student.photo` em `GET /finance` e nos certificados, `studentPhoto` em
+  `GET /finance/delinquents`, `organizationLogoUrl` em `/auth/login` e `/auth/me` (logo no cabeçalho mobile).
+
+### 12.F Painel (UI)
+Logo no cabeçalho mobile (logo do grupo ou `/icone.png`) e correção do estouro horizontal a 375px (causa: ações do cabeçalho
+com largura fixa de 240px e título que não encolhia; `PageHeader` com ações `shrink-0`) - medido 375/375 nas 18 rotas do menu
+(antes até +39px). Avatar do aluno em Financeiro, Certificados e Inadimplentes.
+
+### 12.G Números e pendências
+Gates na seção "Ficha única — pendências A–F" do `PLANO_PROJETO.md`. Pendências que continuam: `Student.personId NOT NULL`,
+remover o CPF em claro de `Student.document`, "desfazer transferência"/"desmesclar", retenção/purga das ocorrências (a regra de
+anonimização acima não substitui a política de purga), MONITOR só pode ver (não filtrar) as demais turmas na UI.

@@ -77,8 +77,15 @@ export function FormDialog<T extends FieldValues>({
 
   const body = (
     <Form {...form}>
-      <form onSubmit={(event) => void submit(event)} noValidate className="grid gap-4">
-        {children(form)}
+      <form
+        onSubmit={(event) => void submit(event)}
+        noValidate
+        className={cn("grid gap-4", as === "dialog" && "min-h-0 grid-rows-[minmax(0,1fr)_auto]")}
+      >
+        {/* Diálogo: só o corpo rola; o rodapé (Cancelar/Salvar) fica sempre visível. */}
+        <div className={cn("grid content-start gap-4", as === "dialog" && "min-h-0 overflow-y-auto px-1 -mx-1")}>
+          {children(form)}
+        </div>
         <FooterButtons
           as={as}
           submitting={isSubmitting}
@@ -105,7 +112,7 @@ export function FormDialog<T extends FieldValues>({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("max-h-[92dvh] overflow-y-auto", className)}>
+      <DialogContent className={cn("max-h-[92dvh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden", className)}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description ?? "Preencha os dados abaixo."}</DialogDescription>
@@ -138,8 +145,8 @@ function FooterButtons({
     </>
   );
   return as === "sheet" ? (
-    <SheetFooter className="flex-row justify-end p-0">{buttons}</SheetFooter>
+    <SheetFooter className="sticky bottom-0 -mx-4 flex-row justify-end border-t bg-background px-4 py-3">{buttons}</SheetFooter>
   ) : (
-    <DialogFooter>{buttons}</DialogFooter>
+    <DialogFooter className="border-t pt-4">{buttons}</DialogFooter>
   );
 }

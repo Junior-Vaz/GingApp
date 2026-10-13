@@ -175,6 +175,8 @@ describe('Ginga Rank: ligas', () => {
       ['MARROM', 7500, '#92400E'],
       ['PRETA', 12000, '#111827'],
     ]);
+    // Nomes de exibicao NAO repetem os das cordas (Crua/Verde/Amarela...): so os codigos e cores seguem os antigos.
+    assert.deepEqual(LEAGUES.map((l) => l.name), ['Semente', 'Broto', 'Ginga', 'Roda', 'Axé', 'Mandinga', 'Lenda']);
     assert.equal(leagueFor(0).code, 'CRUA');
     assert.equal(leagueFor(299).code, 'CRUA');
     assert.equal(leagueFor(300).code, 'VERDE');

@@ -18,11 +18,10 @@ import {
 import { useHierarchy, type Hierarchy, type HierarchyLevel, type HierarchyPerson, type HierarchyTeacher } from "@/lib/queries";
 import { Avatar } from "./avatar";
 import { Rope } from "./rope";
+import { plural } from "@/lib/plural";
 
 const ZOOM_STEP = 1.25;
 const MAX_AVATARS = 6;
-
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /* ---------- Nós ---------- */
 

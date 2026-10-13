@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { api, ApiError, errorMessage } from '@/utils/api'
@@ -75,7 +75,8 @@ const STATUS_LABEL: Record<SubscriptionStatus, string> = {
 
 const route = useRoute()
 const authStore = useAuthStore()
-const organizationId = Number(route.params.id)
+// Reativo ao :id da rota: navegar de /organizations/1 para /organizations/2 (mesmo componente) recarrega tudo.
+const organizationId = computed(() => Number(route.params.id))
 
 const organization = ref<Organization | null>(null)
 const subscription = ref<Subscription | null>(null)
@@ -140,17 +141,23 @@ function formatDate(value: string | null): string {
   return new Date(value).toLocaleDateString('pt-BR', { timeZone: 'UTC' })
 }
 
+/** Número da carga mais recente: respostas de um id anterior (carga atrasada) são descartadas. */
+let loadSeq = 0
+
 async function loadAll(): Promise<void> {
+  const id = organizationId.value
+  const seq = ++loadSeq
   isLoading.value = true
   loadError.value = ''
   try {
     const [loadedOrganization, subscriptions, allPlans, overrides] = await Promise.all([
-      api.get<Organization>(`/organizations/${organizationId}`),
+      api.get<Organization>(`/organizations/${id}`),
       // Filtro no servidor (mais recente primeiro): não baixa as assinaturas de todos os grupos.
-      api.get<Subscription[]>(`/subscriptions?organizationId=${organizationId}`),
+      api.get<Subscription[]>(`/subscriptions?organizationId=${id}`),
       api.get<Plan[]>('/plans'),
-      api.get<FeatureOverride[]>(`/organizations/${organizationId}/feature-overrides`),
+      api.get<FeatureOverride[]>(`/organizations/${id}/feature-overrides`),
     ])
+    if (seq !== loadSeq) return // o usuário já foi para outro grupo: não mistura os dados
 
     organization.value = loadedOrganization ?? null
     plans.value = allPlans
@@ -159,10 +166,37 @@ async function loadAll(): Promise<void> {
     subscription.value = subscriptions[0] ?? null
     selectedPlanId.value = subscription.value ? String(subscription.value.planId) : ''
   } catch (error) {
+    if (seq !== loadSeq) return
     loadError.value = error instanceof ApiError ? error.message : 'Não foi possível carregar o grupo.'
   } finally {
-    isLoading.value = false
+    if (seq === loadSeq) isLoading.value = false
   }
+}
+
+/** Zera tudo que pertence ao grupo anterior (dados, formulários, modais e erros). */
+function resetState(): void {
+  organization.value = null
+  subscription.value = null
+  plans.value = []
+  featureOverrides.value = []
+  selectedPlanId.value = ''
+  loadError.value = ''
+  actionError.value = ''
+  overrideError.value = ''
+  statusError.value = ''
+  editError.value = ''
+  resetError.value = ''
+  editOpen.value = false
+  resetTarget.value = null
+  Object.assign(overrideForm, { featureKey: '', enabled: true, note: '' })
+  Object.assign(editForm, { name: '', document: '', email: '', phone: '' })
+  resetForm.password = ''
+  resetForm.passwordConfirm = ''
+  isSaving.value = false
+  isSavingOverride.value = false
+  isEditing.value = false
+  isResetting.value = false
+  isTogglingStatus.value = false
 }
 
 async function saveOverride(): Promise<void> {
@@ -174,7 +208,7 @@ async function saveOverride(): Promise<void> {
 
   isSavingOverride.value = true
   try {
-    await api.post(`/organizations/${organizationId}/feature-overrides`, {
+    await api.post(`/organizations/${organizationId.value}/feature-overrides`, {
       featureKey: overrideForm.featureKey.trim(),
       enabled: overrideForm.enabled,
       note: overrideForm.note.trim() || undefined,
@@ -190,7 +224,7 @@ async function saveOverride(): Promise<void> {
 
 async function toggleOverride(override: FeatureOverride): Promise<void> {
   try {
-    await api.patch(`/organizations/${organizationId}/feature-overrides/${override.id}`, {
+    await api.patch(`/organizations/${organizationId.value}/feature-overrides/${override.id}`, {
       enabled: !override.enabled,
     })
     await loadAll()
@@ -204,7 +238,7 @@ async function removeOverride(override: FeatureOverride): Promise<void> {
     return
   }
   try {
-    await api.delete(`/organizations/${organizationId}/feature-overrides/${override.id}`)
+    await api.delete(`/organizations/${organizationId.value}/feature-overrides/${override.id}`)
     await loadAll()
   } catch (error) {
     overrideError.value = error instanceof ApiError ? error.message : 'Não foi possível remover a exceção.'
@@ -223,7 +257,7 @@ async function assignPlan(): Promise<void> {
     if (subscription.value && hasOpenSubscription.value) {
       await api.patch(`/subscriptions/${subscription.value.id}`, { planId: Number(selectedPlanId.value) })
     } else {
-      await api.post('/subscriptions', { organizationId, planId: Number(selectedPlanId.value) })
+      await api.post('/subscriptions', { organizationId: organizationId.value, planId: Number(selectedPlanId.value) })
     }
     await loadAll()
   } catch (error) {
@@ -259,7 +293,7 @@ async function resetMestreTwoFactor(mestre: Mestre): Promise<void> {
   try {
     await resetUserTwoFactor(mestre.id)
     notice.value = `2FA de ${mestre.email} redefinido; as sessões dele foram encerradas.`
-    organization.value = (await api.get<Organization>(`/organizations/${organizationId}`)) ?? organization.value
+    organization.value = (await api.get<Organization>(`/organizations/${organizationId.value}`)) ?? organization.value
   } catch (error) {
     statusError.value = errorMessage(error, 'Não foi possível redefinir o 2FA.')
   }
@@ -292,7 +326,7 @@ async function submitReset(): Promise<void> {
 
   isResetting.value = true
   try {
-    await resetMestrePassword(organizationId, mestre.id, resetForm.password)
+    await resetMestrePassword(organizationId.value, mestre.id, resetForm.password)
     closeReset()
     notice.value = RESET_MESTRE_SUCCESS
   } catch (error) {
@@ -349,7 +383,7 @@ async function submitEdit(): Promise<void> {
   isEditing.value = true
   try {
     // Campo opcional em branco => null (limpa no backend). O slug é imutável e nunca é enviado.
-    const updated = await api.patch<Organization>(`/organizations/${organizationId}`, {
+    const updated = await api.patch<Organization>(`/organizations/${organizationId.value}`, {
       name,
       document: document || null,
       email: email || null,
@@ -378,7 +412,7 @@ async function toggleStatus(): Promise<void> {
   isTogglingStatus.value = true
   try {
     const updated = await api.post<Organization>(
-      `/organizations/${organizationId}/${deactivating ? 'deactivate' : 'reactivate'}`,
+      `/organizations/${organizationId.value}/${deactivating ? 'deactivate' : 'reactivate'}`,
     )
     if (organization.value) {
       organization.value = { ...organization.value, ...(updated ?? { status: deactivating ? 'INACTIVE' : 'ACTIVE' }) }
@@ -391,9 +425,18 @@ async function toggleStatus(): Promise<void> {
   }
 }
 
-onMounted(() => {
-  void loadAll()
-})
+watch(
+  organizationId,
+  (id, previous) => {
+    if (!Number.isFinite(id)) return // saindo da tela (sem :id): nada a carregar
+    if (previous !== undefined) {
+      resetState()
+      notice.value = '' // o aviso de uso único era do grupo anterior
+    }
+    void loadAll()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -628,10 +671,6 @@ onMounted(() => {
       </form>
 
       <p v-if="overrideError" class="mt-3 text-sm text-red-600">{{ overrideError }}</p>
-    </div>
-
-    <div class="mt-6 rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-400">
-      Uso, atividade e unidades serão implementados nas próximas fases.
     </div>
 
     <!-- Modal editar grupo -->

@@ -1,32 +1,51 @@
+import { plural } from "@/lib/plural";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, type Page } from "@/lib/api";
 import { notifyError } from "@/lib/crud";
+import { currentLessonWindow } from "@/lib/lesson-window";
 import type { ClassOption, Lesson } from "@/modules/aulas/aulas-api";
 import { buildPayload, type AttendancePayloadEntry, type RosterEntry, type RosterRow } from "./roster";
 
 /** Teto de itens por chamada do backend (`limit` 1..200). */
 export const SELECTOR_LIMIT = 200;
 
+/** Limite do seletor na janela padrão (hoje-7 a hoje+30): poucas aulas, as mais próximas primeiro. */
+export const WINDOW_SELECTOR_LIMIT = 60;
+
 export interface LessonFilters {
   classId: string;
   from: string;
   to: string;
+  /** "Mostrar todas": sem a janela padrão (ainda respeita turma e datas escolhidas). */
+  showAll?: boolean;
 }
 
 /**
- * Aulas ATIVAS para o seletor da chamada (GET /lessons?status=ACTIVE&limit=200[&classId&from&to]).
- * Filtros no servidor: sem eles, só as 200 aulas mais recentes (por id) chegam; com turma/período
- * o usuário alcança aulas antigas. `total` vem do header X-Total-Count.
+ * Params de GET /lessons do seletor. Sem datas escolhidas e sem "mostrar todas", usa a janela padrão
+ * (from = hoje-7 dias, to = hoje+30 dias, limit 60); senão, limit 200 com as datas do usuário.
+ * Sempre `order=nearest`: hoje e futuras (crescente) primeiro, depois as passadas da mais recente à mais antiga.
  */
-export function useLessonSelector(filters: LessonFilters) {
-  const params = {
+export function lessonSelectorParams(filters: LessonFilters, today: Date = new Date()) {
+  const windowed = !filters.showAll && !filters.from && !filters.to;
+  const range = windowed ? currentLessonWindow(today) : { from: filters.from, to: filters.to };
+  return {
     status: "ACTIVE",
     classId: filters.classId,
-    from: filters.from,
-    to: filters.to,
-    limit: SELECTOR_LIMIT,
+    from: range.from,
+    to: range.to,
+    order: "nearest",
+    limit: windowed ? WINDOW_SELECTOR_LIMIT : SELECTOR_LIMIT,
   };
+}
+
+/**
+ * Aulas ATIVAS para o seletor da chamada (GET /lessons?status=ACTIVE&order=nearest&limit&from&to[&classId]).
+ * Padrão: janela hoje-7..hoje+30 (limit 60); turma/período/"mostrar todas" alcançam aulas antigas (limit 200).
+ * `total` vem do header X-Total-Count.
+ */
+export function useLessonSelector(filters: LessonFilters) {
+  const params = lessonSelectorParams(filters);
   return useQuery<Page<Lesson>>({
     queryKey: ["frequencia", "lessons", params],
     queryFn: () => api.getPage<Lesson>("/lessons", params),
@@ -64,7 +83,7 @@ export function useSaveAttendance() {
     mutationFn: ({ lessonId, rows }: { lessonId: string; rows: RosterRow[] }) =>
       api.post<{ count: number }>(`/attendance/lessons/${lessonId}`, buildPayload(rows) satisfies AttendancePayloadEntry[]),
     onSuccess: (result, { lessonId, rows }) => {
-      toast.success(`Frequência salva (${result?.count ?? buildPayload(rows).length} alunos).`);
+      toast.success(`Frequência salva (${plural(result?.count ?? buildPayload(rows).length, "aluno")}).`);
       void queryClient.invalidateQueries({ queryKey: rosterKey(lessonId) });
       void queryClient.invalidateQueries({ queryKey: QUICK_SESSIONS_KEY });
     },

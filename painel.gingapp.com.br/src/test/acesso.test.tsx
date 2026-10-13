@@ -18,6 +18,7 @@ import {
   provisionalPasswordIssue,
   resetPasswordSchema,
 } from "@/lib/provisional-password";
+import { clickMenuAction, expectMenuAction, queryMenuAction } from "./row-menu";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -127,7 +128,7 @@ describe("AlunosPage - acesso do aluno", () => {
     });
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getByRole("button", { name: "Acesso de José Álvaro" }));
+    await clickMenuAction("Acesso de José Álvaro");
     expect(await screen.findByTestId("sem-acesso")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Criar acesso/ }));
 
@@ -160,7 +161,7 @@ describe("AlunosPage - acesso do aluno", () => {
     });
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getByRole("button", { name: "Acesso de José Álvaro" }));
+    await clickMenuAction("Acesso de José Álvaro");
     fireEvent.click(await screen.findByRole("button", { name: /Criar acesso/ }));
     const dialog = await screen.findByRole("dialog", { name: "Criar acesso do aluno" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Criar acesso" }));
@@ -176,7 +177,7 @@ describe("AlunosPage - acesso do aluno", () => {
     });
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getByRole("button", { name: "Acesso de José Álvaro" }));
+    await clickMenuAction("Acesso de José Álvaro");
     fireEvent.click(await screen.findByRole("button", { name: /Criar acesso/ }));
     const dialog = await screen.findByRole("dialog", { name: "Criar acesso do aluno" });
     fireEvent.change(within(dialog).getByLabelText("Senha provisória"), { target: { value: TEMP } });
@@ -194,7 +195,7 @@ describe("AlunosPage - acesso do aluno", () => {
     });
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    fireEvent.click(screen.getByRole("button", { name: "Acesso de Ana Souza" }));
+    await clickMenuAction("Acesso de Ana Souza");
     const info = await screen.findByTestId("com-acesso");
     expect(within(info).getByText("ana@x.com")).toBeInTheDocument();
     expect(within(info).getByText("Troca de senha pendente")).toBeInTheDocument();
@@ -214,8 +215,8 @@ describe("AlunosPage - acesso do aluno", () => {
     mockApi(base());
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    expect(screen.getByRole("button", { name: "Acesso de Ana Souza" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Responsáveis de Ana Souza" })).toBeInTheDocument();
+    await expectMenuAction("Acesso de Ana Souza");
+    await expectMenuAction("Responsáveis de Ana Souza");
     expect(document.body.textContent).not.toContain("passwordHash");
   });
 });
@@ -230,7 +231,7 @@ describe("AlunosPage - responsáveis", () => {
     mockApi(guardianRoutes());
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getByRole("button", { name: "Responsáveis de José Álvaro" }));
+    await clickMenuAction("Responsáveis de José Álvaro");
     const maria = await screen.findByTestId("responsavel-5");
     expect(within(maria).getByText("Maria Mãe")).toBeInTheDocument();
     expect(within(maria).getByText("Sem acesso")).toBeInTheDocument();
@@ -248,7 +249,7 @@ describe("AlunosPage - responsáveis", () => {
     mockApi(guardianRoutes([]));
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getByRole("button", { name: "Responsáveis de José Álvaro" }));
+    await clickMenuAction("Responsáveis de José Álvaro");
     expect(await screen.findByTestId("sem-responsaveis")).toBeInTheDocument();
   });
 
@@ -259,7 +260,7 @@ describe("AlunosPage - responsáveis", () => {
     });
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getByRole("button", { name: "Responsáveis de José Álvaro" }));
+    await clickMenuAction("Responsáveis de José Álvaro");
     await screen.findByTestId("sem-responsaveis");
     fireEvent.click(screen.getByRole("button", { name: /Adicionar responsável/ }));
 
@@ -284,7 +285,7 @@ describe("AlunosPage - responsáveis", () => {
     const calls = mockApi(guardianRoutes([]));
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getByRole("button", { name: "Responsáveis de José Álvaro" }));
+    await clickMenuAction("Responsáveis de José Álvaro");
     await screen.findByTestId("sem-responsaveis");
     fireEvent.click(screen.getByRole("button", { name: /Adicionar responsável/ }));
     const dialog = await screen.findByRole("dialog", { name: "Novo responsável" });
@@ -304,7 +305,7 @@ describe("AlunosPage - responsáveis", () => {
     });
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getByRole("button", { name: "Responsáveis de José Álvaro" }));
+    await clickMenuAction("Responsáveis de José Álvaro");
     await screen.findByTestId("responsavel-5");
 
     fireEvent.click(screen.getByRole("button", { name: "Editar Maria Mãe" }));
@@ -335,7 +336,7 @@ describe("AlunosPage - responsáveis", () => {
     });
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getByRole("button", { name: "Responsáveis de José Álvaro" }));
+    await clickMenuAction("Responsáveis de José Álvaro");
     await screen.findByTestId("responsavel-5");
     expect(screen.queryByRole("button", { name: "Criar acesso de Paulo Pai" })).not.toBeInTheDocument(); // já tem
     expect(screen.queryByRole("button", { name: "Redefinir senha de Maria Mãe" })).not.toBeInTheDocument(); // ainda não tem
@@ -378,8 +379,9 @@ describe("ProfessoresPage - redefinir senha", () => {
     const calls = mockApi({ ...routes(), "POST /teachers/11/reset-password": () => new Response(null, { status: 204 }) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Pastinha");
-    expect(screen.getAllByRole("button", { name: /Redefinir senha de/ })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "Redefinir senha de Pastinha" }));
+    await expectMenuAction("Redefinir senha de Pastinha");
+    expect(queryMenuAction(/Redefinir senha de (?!Pastinha)/)).toBeNull(); // Mestre e inativo não têm a ação
+    await clickMenuAction("Redefinir senha de Pastinha");
 
     const dialog = await screen.findByRole("dialog", { name: "Redefinir senha do membro da equipe" });
     fireEvent.change(within(dialog).getByLabelText("Senha provisória"), { target: { value: "curta" } });
@@ -401,7 +403,7 @@ describe("ProfessoresPage - redefinir senha", () => {
     mockApi(routes());
     renderPage(<ProfessoresPage />);
     await screen.findByText("Pastinha");
-    expect(screen.queryByRole("button", { name: /Redefinir senha de/ })).not.toBeInTheDocument();
+    expect(queryMenuAction(/Redefinir senha de/)).toBeNull();
   });
 
   it("erro 403/409 do servidor vira toast", async () => {
@@ -411,7 +413,7 @@ describe("ProfessoresPage - redefinir senha", () => {
     });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Pastinha");
-    fireEvent.click(screen.getByRole("button", { name: "Redefinir senha de Pastinha" }));
+    await clickMenuAction("Redefinir senha de Pastinha");
     const dialog = await screen.findByRole("dialog", { name: "Redefinir senha do membro da equipe" });
     fireEvent.change(within(dialog).getByLabelText("Senha provisória"), { target: { value: TEMP } });
     fireEvent.change(within(dialog).getByLabelText("Confirmar senha provisória"), { target: { value: TEMP } });

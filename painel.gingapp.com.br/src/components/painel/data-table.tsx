@@ -22,6 +22,8 @@ export interface Column<T> {
   /** Valor usado para ordenar. Sem isto a coluna não é ordenável. */
   sortValue?: (row: T) => string | number | null | undefined;
   className?: string;
+  /** Fixa a coluna à esquerda ao rolar a tabela na horizontal (use no nome). */
+  sticky?: boolean;
 }
 
 /**
@@ -79,6 +81,16 @@ interface DataTableProps<T> {
    */
   cards?: { active: boolean; render: (row: T) => ReactNode } | undefined;
 }
+
+/**
+ * Colunas fixas ao rolar na horizontal: o nome (esquerda) e as Ações (direita) nunca ficam cortados quando a tabela
+ * é mais larga que o card (a tabela rola dentro do card, não o estoura).
+ */
+const STICKY_LEFT = "sticky left-0 z-[1] bg-card group-hover:bg-muted";
+const STICKY_LEFT_HEAD = "sticky left-0 z-[1] bg-card";
+const STICKY_RIGHT =
+  "sticky right-0 z-[1] bg-card shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.15)] group-hover:bg-muted";
+const STICKY_RIGHT_HEAD = "sticky right-0 z-[1] bg-card shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.15)]";
 
 /** `take` fixo das listagens do backend; ver LACUNAS no README. */
 export const SERVER_LIST_LIMIT = 50;
@@ -217,13 +229,13 @@ export function DataTable<T>({
       );
     }
     return visible.map((row) => (
-      <TableRow key={getRowId(row)} className={rowClassName?.(row)}>
+      <TableRow key={getRowId(row)} className={cn("group", rowClassName?.(row))}>
         {columns.map((column) => (
-          <TableCell key={column.id} className={column.className}>
+          <TableCell key={column.id} className={cn(column.sticky && STICKY_LEFT, column.className)}>
             {column.cell ? column.cell(row) : String(column.sortValue?.(row) ?? "")}
           </TableCell>
         ))}
-        {rowActions && <TableCell className="text-right">{rowActions(row)}</TableCell>}
+        {rowActions && <TableCell className={cn("w-px whitespace-nowrap text-right", STICKY_RIGHT)}>{rowActions(row)}</TableCell>}
       </TableRow>
     ));
   }
@@ -309,7 +321,7 @@ export function DataTable<T>({
       ) : (
         <div
           className={cn(
-            "rounded-lg border bg-card",
+            "overflow-hidden rounded-lg border bg-card",
             server?.isFetching && "opacity-60 transition-opacity",
           )}
         >
@@ -324,7 +336,7 @@ export function DataTable<T>({
                   return (
                     <TableHead
                       key={column.id}
-                      className={column.className}
+                      className={cn(column.sticky && STICKY_LEFT_HEAD, column.className)}
                       aria-sort={
                         active === "asc" ? "ascending" : active === "desc" ? "descending" : "none"
                       }
@@ -344,7 +356,7 @@ export function DataTable<T>({
                     </TableHead>
                   );
                 })}
-                {rowActions && <TableHead className="w-px text-right">Ações</TableHead>}
+                {rowActions && <TableHead className={cn("w-px whitespace-nowrap text-right", STICKY_RIGHT_HEAD)}>Ações</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>{renderBody()}</TableBody>

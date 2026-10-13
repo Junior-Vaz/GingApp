@@ -43,6 +43,7 @@ function renderPage(ui: React.ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }import { AlunosPage } from "@/modules/alunos/alunos-page";
 import { isMinor, studentToPayload, studentToUpdatePayload, studentSchema } from "@/modules/alunos/schema";
+import { clickMenuAction, expectMenuAction, queryMenuAction } from "./row-menu";
 
 const YEAR = new Date().getFullYear();
 const students = [
@@ -225,7 +226,7 @@ describe("AlunosPage", () => {
     const calls = mockApi({ ...base(), "PATCH /students/1": () => json(200, {}) });
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Nome")).toHaveValue("Ana Souza"));
     expect(within(dialog).getByLabelText("Nascimento")).toHaveValue("1990-05-10");
@@ -243,7 +244,7 @@ describe("AlunosPage", () => {
     const calls = mockApi({ ...base(), "PATCH /students/1": () => json(200, {}) });
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Telefone")).toHaveValue("11999"));
     await waitFor(() => expect(within(dialog).getByLabelText("Unidade")).toHaveValue("7")); // opção carregada
@@ -327,7 +328,7 @@ describe("AlunosPage", () => {
     });
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     const select = within(dialog).getByLabelText("Unidade") as HTMLSelectElement;
     await waitFor(() => expect(select.selectedOptions[0]).toHaveTextContent("Sede Centro"));
@@ -347,7 +348,7 @@ describe("AlunosPage", () => {
     });
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getAllByText("Editar")[1]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[1]!);
     const dialog = await screen.findByRole("dialog");
     await within(dialog).findByRole("option", { name: "Filial Norte" });
     expect(within(dialog).getByLabelText("Unidade")).toHaveValue(""); // aluno sem unidade
@@ -361,7 +362,7 @@ describe("AlunosPage", () => {
     mockApi({ ...base(), "PATCH /students/1": () => json(400, { message: ["email must be an email"] }) });
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Nome")).toHaveValue("Ana Souza"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
@@ -373,8 +374,8 @@ describe("AlunosPage", () => {
     const calls = mockApi({ ...base(), "DELETE /students/1": () => new Response(null, { status: 200 }) });
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    expect(screen.getAllByText("Inativar")).toHaveLength(1);
-    fireEvent.click(screen.getByText("Inativar"));
+    await expectMenuAction("Inativar");
+    await clickMenuAction("Inativar");
     const alert = await screen.findByRole("alertdialog");
     expect(alert).toHaveTextContent("Ana Souza");
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
@@ -387,14 +388,14 @@ describe("AlunosPage", () => {
     mockApi(base());
     const mestre = renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    expect(screen.getAllByText("Inativar")).toHaveLength(1);
+    await expectMenuAction("Inativar");
     mestre.unmount();
 
     loginAs("PROFESSOR");
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    expect(screen.queryByText("Inativar")).toBeNull();
-    expect(screen.getAllByText("Editar").length).toBeGreaterThan(0);
+    expect(queryMenuAction("Inativar")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Editar" }).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Novo aluno/ })).toBeInTheDocument();
   });
 

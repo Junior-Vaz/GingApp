@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Ban, Layers, Pencil, UserRound } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { EntityAvatar } from "@/components/painel/entity-avatar";
@@ -11,6 +11,7 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { dayOnly, fmt } from "@/lib/format";
+import { currentLessonWindow } from "@/lib/lesson-window";
 import { useListParams } from "@/lib/list-params";
 import { useCan } from "@/lib/session";
 import { NativeSelect } from "./native-select";
@@ -30,10 +31,28 @@ export function AulasPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
   // `from`/`to` são datas (YYYY-MM-DD); o backend inclui o dia inteiro de `to`.
   const lp = useListParams({ pageSize: 10, filters: { classId: "", status: "", from: "", to: "" } });
-  const list = lessons.usePage(lp.params);
+  // Período: "Atual" = de hoje-7 a hoje+30 dias; "Todas" = sem from/to. Sempre order=nearest (hoje e futuras primeiro,
+  // depois as passadas da mais recente à mais antiga). Datas escolhidas à mão (De/Até) têm prioridade sobre o período.
+  const [period, setPeriod] = useState<"current" | "all">("current");
+  const customDates = !!(lp.filters.from || lp.filters.to);
+  const { params: baseParams } = lp;
+  const windowFrom = currentLessonWindow().from;
+  const params = useMemo(
+    () => ({
+      ...baseParams,
+      order: "nearest",
+      ...(period === "current" && !customDates ? currentLessonWindow() : {}),
+    }),
+    // windowFrom muda quando vira o dia: a janela é recalculada.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [baseParams, period, customDates, windowFrom],
+  );
+  const list = lessons.usePage(params);
   const create = lessons.useCreate();
   const update = lessons.useUpdate();
   const remove = lessons.useRemove();
+  const canCreate = useCan("lessons", "create"); // MONITOR: só leitura (sem "Nova aula")
+  const canEdit = useCan("lessons", "edit");
   const canDelete = useCan("lessons", "delete"); // cancelar aula = DELETE; PROFESSOR sem lessons:delete (403)
   const classes = useClassOptions();
   const teachers = useTeacherOptions();
@@ -104,7 +123,7 @@ export function AulasPage() {
       <PageHeader
         title="Aulas"
         description="Aulas agendadas do grupo."
-        actions={<Button onClick={() => setEditing("new")}>Nova aula</Button>}
+        actions={canCreate ? <Button onClick={() => setEditing("new")}>Nova aula</Button> : undefined}
       />
       <DataTable
         columns={columns}
@@ -115,7 +134,13 @@ export function AulasPage() {
         onRetry={() => void list.refetch()}
         getRowId={(l) => l.id}
         searchPlaceholder="Buscar nas observações…"
-        emptyMessage={hasFilters ? "Nenhuma aula com esses filtros." : "Nenhuma aula cadastrada ainda."}
+        emptyMessage={
+          hasFilters
+            ? "Nenhuma aula com esses filtros."
+            : period === "current"
+              ? "Nenhuma aula entre 7 dias atrás e 30 dias à frente. Escolha o período \"Todas\" para ver as demais."
+              : "Nenhuma aula cadastrada ainda."
+        }
         toolbar={
           <div className="flex flex-wrap items-center gap-2">
             <NativeSelect aria-label="Filtrar por turma" className="w-40" value={lp.filters.classId} onChange={(e) => lp.setFilter("classId", e.target.value)}>
@@ -134,6 +159,18 @@ export function AulasPage() {
               <option value="ACTIVE">Ativas</option>
               <option value="INACTIVE">Canceladas</option>
             </NativeSelect>
+            <NativeSelect
+              aria-label="Período"
+              className="w-44"
+              value={period}
+              onChange={(e) => {
+                setPeriod(e.target.value === "all" ? "all" : "current");
+                lp.setPage(0);
+              }}
+            >
+              <option value="current">Atual (−7 a +30 dias)</option>
+              <option value="all">Todas</option>
+            </NativeSelect>
             <Input aria-label="Data inicial" type="date" className="w-36" value={lp.filters.from} onChange={(e) => lp.setFilter("from", e.target.value)} />
             <Input aria-label="Data final" type="date" className="w-36" value={lp.filters.to} onChange={(e) => lp.setFilter("to", e.target.value)} />
             {classesTruncated && (
@@ -145,9 +182,11 @@ export function AulasPage() {
         }
         rowActions={(l) => (
           <>
-            <Button variant="ghost" size="sm" onClick={() => setEditing(l)} aria-label={`Editar aula de ${className(l.classId)}`}>
-              <Pencil /> Editar
-            </Button>
+            {canEdit && (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(l)} aria-label={`Editar aula de ${className(l.classId)}`}>
+                <Pencil /> Editar
+              </Button>
+            )}
             {canDelete && l.status === "ACTIVE" && (
               <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setCancelling(l)} aria-label={`Cancelar aula de ${className(l.classId)}`}>
                 <Ban /> Cancelar

@@ -83,11 +83,35 @@ export class LessonsService {
     const q = query.q?.trim();
     if (q) where.notes = { contains: q, mode: 'insensitive' };
 
+    if (query.order === 'nearest') return this.findAllNearest(where, query);
+    const orderBy: Prisma.LessonOrderByWithRelationInput[] =
+      query.order === 'asc' || query.order === 'desc' ? [{ date: query.order }, { id: query.order }] : [{ id: 'desc' }];
     const [items, total] = await Promise.all([
-      this.prisma.lesson.findMany({ where, include: LESSON_INCLUDE, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.lesson.findMany({ where, include: LESSON_INCLUDE, orderBy, ...pageArgs(query) }),
       this.prisma.lesson.count({ where }),
     ]);
     return { items: items.map(toLessonView), total };
+  }
+
+  /** order=nearest: hoje e futuras (data crescente) primeiro; depois as passadas (da mais recente para a mais antiga). */
+  private async findAllNearest(base: Prisma.LessonWhereInput, query: ListLessonsQueryDto): Promise<Page<LessonView>> {
+    const today = civilTodayStart();
+    const upcomingWhere: Prisma.LessonWhereInput = { AND: [base, { date: { gte: today } }] };
+    const pastWhere: Prisma.LessonWhereInput = { AND: [base, { date: { lt: today } }] };
+    const { take, skip } = pageArgs(query);
+    const [upcomingTotal, pastTotal] = await Promise.all([this.prisma.lesson.count({ where: upcomingWhere }), this.prisma.lesson.count({ where: pastWhere })]);
+    const upcomingTake = Math.max(0, Math.min(take, upcomingTotal - skip));
+    const upcoming =
+      upcomingTake > 0
+        ? await this.prisma.lesson.findMany({ where: upcomingWhere, include: LESSON_INCLUDE, orderBy: [{ date: 'asc' }, { id: 'asc' }], take: upcomingTake, skip })
+        : [];
+    const pastTake = take - upcoming.length;
+    const pastSkip = Math.max(0, skip - upcomingTotal);
+    const past =
+      pastTake > 0
+        ? await this.prisma.lesson.findMany({ where: pastWhere, include: LESSON_INCLUDE, orderBy: [{ date: 'desc' }, { id: 'desc' }], take: pastTake, skip: pastSkip })
+        : [];
+    return { items: [...upcoming, ...past].map(toLessonView), total: upcomingTotal + pastTotal };
   }
 
   /** "Minhas aulas" — aulas das turmas em que os alunos ligados ao usuário autenticado estão

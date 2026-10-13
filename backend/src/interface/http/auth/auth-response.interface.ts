@@ -16,6 +16,8 @@ export interface AuthResponse {
     isSuperAdmin: boolean;
     organizationId?: number;
     organizationSlug?: string;
+    /** Logo do grupo (Organization.logo) ou null. */
+    organizationLogoUrl?: string | null;
     role?: OrgRole;
     /** Senha definida por outra pessoa (conta criada/redefinida pelo Mestre): o frontend deve exigir a troca. */
     mustChangePassword?: boolean;

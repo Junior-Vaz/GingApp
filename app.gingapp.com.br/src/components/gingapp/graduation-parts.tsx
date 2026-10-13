@@ -10,6 +10,7 @@ export function GraduationCard({
   subtitle,
   loading = false,
   roleLabel,
+  label = "Minha graduação",
 }: {
   /** Nome do nível atual; null = sem graduação. */
   name: string | null;
@@ -18,6 +19,8 @@ export function GraduationCard({
   loading?: boolean;
   /** Cargo atual no grupo (ex.: "Instrutor"); ausente para quem é só aluno. */
   roleLabel?: string | null;
+  /** Rótulo do cartão; "Graduação de <nome>" quando um dependente está selecionado. */
+  label?: string;
 }) {
   return (
     <div className="grad-card" data-testid="graduation-card" aria-busy={loading || undefined}>
@@ -25,7 +28,7 @@ export function GraduationCard({
         <Medal />
       </span>
       <div className="grad-text">
-        <span className="grad-eyebrow">Minha graduação</span>
+        <span className="grad-eyebrow">{label}</span>
         <h2>{name ?? (loading ? "Carregando…" : "Sem graduação")}</h2>
         <p>{subtitle}</p>
         {roleLabel && (

@@ -1,3 +1,4 @@
+import { plural } from "@/lib/plural";
 import { useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Clock, AlertTriangle, CalendarPlus } from "lucide-react";
@@ -6,6 +7,7 @@ import { ExportCsvButton } from "@/components/painel/export-csv-button";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
+import { StudentAvatar } from "@/components/painel/student-avatar";
 import { StudentPicker } from "@/components/painel/student-picker";
 import { StatCard } from "@/components/painel/stat-card";
 import { Button } from "@/components/ui/button";
@@ -110,7 +112,20 @@ export function FinanceiroPage() {
         </span>
       ),
     },
-    { id: "student", header: "Aluno", sortValue: (r) => studentName(r) },
+    {
+      id: "student",
+      header: "Aluno",
+      sortValue: (r) => studentName(r),
+      cell: (r) =>
+        r.student ? (
+          <span className="flex items-center gap-2">
+            <StudentAvatar name={r.student.name} photo={r.student.photo} />
+            {r.student.name}
+          </span>
+        ) : (
+          "—"
+        ),
+    },
     {
       id: "amount",
       header: "Valor",
@@ -179,9 +194,9 @@ export function FinanceiroPage() {
         >
           <AlertTriangle className="size-5 shrink-0 text-destructive" />
           <div className="min-w-0 flex-1">
-            <strong className="text-sm">{late.students} aluno(s) inadimplente(s)</strong>
+            <strong className="text-sm">{plural(late.students, "aluno inadimplente", "alunos inadimplentes")}</strong>
             <p className="text-xs text-muted-foreground">
-              {formatCurrency(late.overdueCents)} em atraso, em {late.overdueCount} lançamento(s).
+              {formatCurrency(late.overdueCents)} em atraso, em {plural(late.overdueCount, "lançamento")}.
             </p>
           </div>
           <Button size="sm" variant="outline" onClick={() => setTab("inadimplentes")}>
@@ -204,20 +219,20 @@ export function FinanceiroPage() {
               label="Recebido"
               value={money(totals?.paid)}
               icon={CheckCircle2}
-              hint={totals ? `${totals.paidCount} lançamento(s)` : undefined}
+              hint={totals ? plural(totals.paidCount, "lançamento") : undefined}
             />
             <StatCard
               label="A receber"
               value={money(totals?.pending)}
               icon={Clock}
-              hint={totals ? `${totals.pendingCount} lançamento(s)` : undefined}
+              hint={totals ? plural(totals.pendingCount, "lançamento") : undefined}
             />
             <StatCard
               label="Atrasado"
               value={money(totals?.overdue)}
               icon={AlertTriangle}
               tone="danger"
-              hint={totals ? `${totals.overdueCount} lançamento(s)` : undefined}
+              hint={totals ? plural(totals.overdueCount, "lançamento") : undefined}
             />
           </div>
           {summary.error && (

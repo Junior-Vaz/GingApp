@@ -69,6 +69,7 @@ export function LoadMore({
   loading,
   onMore,
   noun,
+  nounSingular,
 }: {
   shown: number;
   total: number | null;
@@ -76,12 +77,14 @@ export function LoadMore({
   loading: boolean;
   onMore: () => void;
   noun: string;
+  /** Forma singular de `noun` (usada quando o total é 1). */
+  nounSingular?: string;
 }) {
   if (!hasMore && (total === null || total <= shown)) return null;
   return (
     <div className="flex flex-col items-center gap-2 py-4" data-testid="load-more">
       <p className="text-xs text-muted-foreground" role="status">
-        {total !== null ? `Mostrando ${shown} de ${total} ${noun}` : `Mostrando ${shown} ${noun}`}
+        {total !== null ? `Mostrando ${shown} de ${total} ${total === 1 && nounSingular ? nounSingular : noun}` : `Mostrando ${shown} ${noun}`}
       </p>
       {hasMore && (
         <Button variant="outline" size="sm" disabled={loading} onClick={onMore}>

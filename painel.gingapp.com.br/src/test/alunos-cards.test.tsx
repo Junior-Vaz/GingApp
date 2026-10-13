@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AlunosPage } from "@/modules/alunos/alunos-page";
 import { STUDENTS_VIEW_KEY, readStudentsView } from "@/modules/alunos/students-view";
+import { queryMenuAction } from "./row-menu";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -110,7 +111,8 @@ describe("Alunos em cards", () => {
     const table = await screen.findByRole("table");
     expect(screen.queryByTestId("student-card")).not.toBeInTheDocument();
     expect(within(table).getByText("Ana Souza")).toBeInTheDocument();
-    expect(within(table).getByRole("button", { name: "Acesso de Ana Souza" })).toBeInTheDocument();
+    expect(queryMenuAction("Acesso de Ana Souza", table)).not.toBeNull(); // na tabela, as ações secundárias ficam no menu "⋯"
+    expect(within(table).getByRole("button", { name: "Ficha de Ana Souza" })).toBeInTheDocument();
     expect(localStorage.getItem(STUDENTS_VIEW_KEY)).toBe("table");
     expect(readStudentsView()).toBe("table");
   });

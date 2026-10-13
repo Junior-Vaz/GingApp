@@ -16,6 +16,7 @@ import { PageHeading, SectionHeading, EventCard, StateMessage } from "./shared";
 import { capitalize, dayOnly, fmt, relativeTime, startOfToday } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
 import { errorMessage } from "@/lib/api";
+import { plural } from "@/lib/plural";
 import {
   fromCalendar,
   useAnnouncements,
@@ -32,7 +33,7 @@ import {
 import { Avatar } from "./avatar";
 import { GraduationCard } from "./graduation-parts";
 import { ClassCover, TeacherLine, UnitLine } from "./class-parts";
-import { monthRange, monthStats, nextLesson, resolveClassInfo, weekdayLabel } from "@/lib/derive";
+import { graduationCardLabel, monthRange, monthStats, nextLesson, resolveClassInfo, weekdayLabel } from "@/lib/derive";
 
 export function HomePage() {
   const user = useSessionUser();
@@ -50,6 +51,7 @@ export function HomePage() {
   const announcements = useAnnouncements();
 
   const firstName = user?.name.split(" ")[0] ?? "capoeirista";
+  const cardLabel = graduationCardLabel(student, user?.id);
   const current = graduations.data?.[0] ?? null;
   const month = monthStats(attendance.data?.records ?? [], new Date());
   const upcoming = nextLesson(lessons.data ?? []);
@@ -92,8 +94,9 @@ export function HomePage() {
           </Button>
         </div>
       </section>
-      <Link to="/jornada" className="grad-link" aria-label="Minha graduação: ver minha jornada">
+      <Link to="/jornada" className="grad-link" aria-label={`${cardLabel}: ver jornada`}>
         <GraduationCard
+          label={cardLabel}
           name={current ? current.graduationLevel.name : null}
           rope={current ? current.graduationLevel : null}
           loading={graduations.isLoading || loadingStudent}
@@ -112,7 +115,7 @@ export function HomePage() {
               {month.total > 0 ? (
                 <>
                   <span className="positive">
-                    {month.present} de {month.total} aulas
+                    {month.present} de {plural(month.total, "aula")}
                   </span>
                 </>
               ) : (
@@ -128,7 +131,7 @@ export function HomePage() {
           <div>
             <p className="stat-label">Vivências na roda</p>
             <div className="stat-value">
-              {passport.data?.stats.rodas ?? 0} <span className="text-[11px] font-normal text-muted-foreground">rodas</span>
+              {passport.data?.stats.rodas ?? 0} <span className="text-[11px] font-normal text-muted-foreground">{passport.data?.stats.rodas === 1 ? "roda" : "rodas"}</span>
             </div>
             <p className="stat-sub">Histórias que ficam com você</p>
           </div>

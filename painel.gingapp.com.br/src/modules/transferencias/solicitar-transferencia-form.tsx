@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { NativeSelect } from "@/modules/alunos/native-select";
+import { ApprovalLinkDialog } from "./link-aprovacao-dialog";
 import {
   TRANSFERS_KEY,
+  type ApprovalLink,
   TRANSFER_NOTE_MAX,
   originOrganizations,
   requestTransfer,
@@ -39,6 +41,8 @@ export function SolicitarTransferenciaForm({
   const [fromOrganizationId, setFromOrganizationId] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Adulto sem login: o servidor devolve o link de aprovação (só nesta resposta); o diálogo fecha o fluxo ao ser fechado.
+  const [link, setLink] = useState<ApprovalLink | null>(null);
 
   async function submit() {
     if (origins && fromOrganizationId === "") {
@@ -48,7 +52,7 @@ export function SolicitarTransferenciaForm({
     setSending(true);
     setError(null);
     try {
-      await requestTransfer({
+      const created = await requestTransfer({
         personId,
         unitId: unitId ?? undefined,
         note: note.trim() || undefined,
@@ -56,7 +60,8 @@ export function SolicitarTransferenciaForm({
       });
       void queryClient.invalidateQueries({ queryKey: TRANSFERS_KEY });
       toast.success(TRANSFER_SENT_MESSAGE);
-      onSent();
+      if (created?.approvalLink) setLink(created.approvalLink);
+      else onSent();
     } catch (e) {
       const found = originOrganizations(e);
       if (found) {
@@ -136,6 +141,15 @@ export function SolicitarTransferenciaForm({
           {error}
         </p>
       )}
+
+      <ApprovalLinkDialog
+        link={link}
+        personName={personName}
+        onClose={() => {
+          setLink(null);
+          onSent();
+        }}
+      />
 
       <div className="flex flex-wrap justify-end gap-2">
         <Button type="button" variant="outline" disabled={sending} onClick={onBack}>

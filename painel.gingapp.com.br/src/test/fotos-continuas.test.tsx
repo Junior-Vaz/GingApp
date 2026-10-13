@@ -88,7 +88,7 @@ describe("Fotos nos formulários", () => {
     });
     renderUi(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByAltText("Foto da turma")).toHaveAttribute("src", PHOTO_URL));
     fireEvent.click(within(dialog).getByRole("button", { name: /Remover/ }));

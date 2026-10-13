@@ -262,12 +262,12 @@ describe('Graduations: cordas multicoloridas, duplicar, reordenar e modelos (e2e
       assert.deepEqual(after, current);
     });
 
-    it('RBAC e isolamento: ALUNO 403; outro grupo 404; PROFESSOR (edit) pode', async () => {
+    it('RBAC e isolamento: ALUNO 403; outro grupo 404; PROFESSOR 403 (estrutura so do MESTRE)', async () => {
       const current = (await prisma.graduationLevel.findMany({ where: { graduationSystemId: systemId }, orderBy: { order: 'asc' } })).map((l) => l.id);
       const url = `/api/graduations/systems/${systemId}/levels/reorder`;
       await api().put(url).set(auth(alunoToken)).send({ order: current }).expect(403);
       await api().put(url).set(auth(orgB.token)).send({ order: current }).expect(404);
-      await api().put(url).set(auth(professorToken)).send({ order: current }).expect(200);
+      await api().put(url).set(auth(professorToken)).send({ order: current }).expect(403);
     });
   });
 

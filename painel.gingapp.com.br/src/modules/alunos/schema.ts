@@ -1,9 +1,16 @@
 import { z } from "zod";
 import { isValidCpf, onlyDigits } from "@/lib/cpf";
-import type { RopeStyle } from "@/lib/rope";
+import { ropeOf, type RopeSpec, type RopeStyle } from "@/lib/rope";
 import type { StaffRole } from "@/lib/staff-roles";
 import { isImageRef } from "@/lib/uploads";
 import { billingFieldsError } from "@/modules/financeiro/collection";
+
+/** Corda atual do aluno como o servidor envia em GET /students (`currentCord`). */
+export interface StudentCord {
+  name: string;
+  style?: RopeStyle | undefined;
+  colors?: string[] | undefined;
+}
 
 export type StudentStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "FORMER";
 
@@ -27,7 +34,11 @@ export interface Student {
   person?: { id: number; gingappCode: string } | null | undefined;
   /** Opcionais (exibidos no card quando o servidor os envia): turmas ativas e corda/graduação atual. */
   classNames?: string[] | undefined;
-  currentCord?: string | null | undefined;
+  /**
+   * Corda atual. Contrato novo (GET /students): objeto `{ name, style, colors }` (ou null); o formato antigo
+   * (só o nome, string) segue aceito. Use `currentCordOf(student)` para ler nos dois formatos.
+   */
+  currentCord?: string | StudentCord | null | undefined;
   /** Corda atual completa (estilo + cores) para desenhar a corda; opcional. */
   currentLevel?: { name: string; style?: RopeStyle | undefined; colors?: string[] | undefined; color?: string | null | undefined } | null | undefined;
 }
@@ -205,4 +216,17 @@ export function isMinor(birthDate: string | null, today: Date = new Date()): boo
   let age = today.getFullYear() - y;
   if (today.getMonth() + 1 < m || (today.getMonth() + 1 === m && today.getDate() < d)) age -= 1;
   return age < 18;
+}
+
+/**
+ * Corda atual do aluno em um formato único: `currentCord` objeto (novo), `currentCord` string (antigo) ou
+ * `currentLevel` (fallback). `rope` só vem quando há cores para desenhar; sem corda = null.
+ */
+export function currentCordOf(s: Pick<Student, "currentCord" | "currentLevel">): { name: string; rope: RopeSpec | null } | null {
+  const cord = s.currentCord;
+  const source = cord && typeof cord === "object" ? cord : s.currentLevel;
+  const name = typeof cord === "string" ? cord.trim() : (source?.name ?? "").trim();
+  if (!name) return null;
+  const rope = source ? ropeOf(source) : null;
+  return { name, rope: rope && rope.colors.length > 0 ? rope : null };
 }

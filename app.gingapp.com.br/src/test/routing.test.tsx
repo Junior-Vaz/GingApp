@@ -46,4 +46,11 @@ describe("guard de rotas", () => {
     expect(router.state.location.pathname).toBe("/redefinir-senha");
     expect(router.state.location.search).toMatchObject({ token: "abc" });
   });
+
+  it("aprovação de transferência é pública: /aprovar-transferencia?token=... não redireciona para o login", async () => {
+    const router = makeRouter("/aprovar-transferencia?token=abc");
+    await router.load();
+    expect(router.state.location.pathname).toBe("/aprovar-transferencia");
+    expect(router.state.location.search).toMatchObject({ token: "abc" });
+  });
 });

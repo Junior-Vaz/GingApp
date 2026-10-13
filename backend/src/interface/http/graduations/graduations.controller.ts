@@ -1,8 +1,9 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
+import { MestreOnlyGuard } from '../../../shared/guards/mestre-only.guard';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { GraduationsService } from './graduations.service';
 import { CreateGraduationSystemDto } from './dto/create-graduation-system.dto';
@@ -63,18 +64,21 @@ export class GraduationsController {
   }
 
   @Post('systems/from-template')
+  @UseGuards(MestreOnlyGuard)
   @CanAccess('graduations', 'create')
   createSystemFromTemplate(@CurrentOrganization() organizationId: number, @Body() dto: CreateSystemFromTemplateDto) {
     return this.graduationsService.createSystemFromTemplate(organizationId, dto);
   }
 
   @Post('systems')
+  @UseGuards(MestreOnlyGuard)
   @CanAccess('graduations', 'create')
   createSystem(@CurrentOrganization() organizationId: number, @Body() dto: CreateGraduationSystemDto) {
     return this.graduationsService.createSystem(organizationId, dto);
   }
 
   @Patch('systems/:systemId')
+  @UseGuards(MestreOnlyGuard)
   @CanAccess('graduations', 'edit')
   updateSystem(
     @CurrentOrganization() organizationId: number,
@@ -85,12 +89,14 @@ export class GraduationsController {
   }
 
   @Delete('systems/:systemId')
+  @UseGuards(MestreOnlyGuard)
   @CanAccess('graduations', 'delete')
   removeSystem(@CurrentOrganization() organizationId: number, @Param('systemId', ParseIntPipe) systemId: number) {
     return this.graduationsService.removeSystem(organizationId, systemId);
   }
 
   @Post('systems/:systemId/levels')
+  @UseGuards(MestreOnlyGuard)
   @CanAccess('graduations', 'create')
   createLevel(
     @CurrentOrganization() organizationId: number,
@@ -102,6 +108,7 @@ export class GraduationsController {
 
   /** Reordena os níveis do sistema (ids do mais baixo para o mais alto), de forma atômica. */
   @Put('systems/:systemId/levels/reorder')
+  @UseGuards(MestreOnlyGuard)
   @CanAccess('graduations', 'edit')
   reorderLevels(
     @CurrentOrganization() organizationId: number,
@@ -113,12 +120,14 @@ export class GraduationsController {
 
   /** Copia o nível para o fim da ordem do sistema (nome "<nome> (cópia)"). */
   @Post('levels/:levelId/duplicate')
+  @UseGuards(MestreOnlyGuard)
   @CanAccess('graduations', 'create')
   duplicateLevel(@CurrentOrganization() organizationId: number, @Param('levelId', ParseIntPipe) levelId: number) {
     return this.graduationsService.duplicateLevel(organizationId, levelId);
   }
 
   @Patch('levels/:levelId')
+  @UseGuards(MestreOnlyGuard)
   @CanAccess('graduations', 'edit')
   updateLevel(
     @CurrentOrganization() organizationId: number,
@@ -129,6 +138,7 @@ export class GraduationsController {
   }
 
   @Delete('levels/:levelId')
+  @UseGuards(MestreOnlyGuard)
   @CanAccess('graduations', 'delete')
   removeLevel(@CurrentOrganization() organizationId: number, @Param('levelId', ParseIntPipe) levelId: number) {
     return this.graduationsService.removeLevel(organizationId, levelId);

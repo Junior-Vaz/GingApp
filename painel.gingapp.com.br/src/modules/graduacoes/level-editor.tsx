@@ -149,7 +149,7 @@ export function LevelFields({ form }: { form: UseFormReturn<LevelFormValues> }) 
         <RopeSwatch style={style} colors={preview} size="lg" orientation="vertical" decorative />
         <div className="flex min-w-0 flex-col items-center gap-3">
           <RopeSwatch style={style} colors={preview} size="lg" orientation="horizontal" decorative />
-          <p className="text-center text-xs text-muted-foreground" data-testid="level-preview-label">
+          <p className="break-words text-center text-xs text-muted-foreground" data-testid="level-preview-label">
             {ropeLabel({ style, colors: preview })}
           </p>
         </div>

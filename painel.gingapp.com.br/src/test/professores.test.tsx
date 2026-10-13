@@ -32,6 +32,7 @@ function renderPage(ui: React.ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }import { ProfessoresPage } from "@/modules/professores/professores-page";
 import { createTeacherSchema, editPayload, createPayload } from "@/modules/professores/schema";
+import { clickMenuAction, expectMenuAction, queryMenuAction } from "./row-menu";
 
 const teachers = [
   { id: 10, role: "MESTRE", status: "ACTIVE", user: { id: 1, name: "Mestre Bimba", email: "bimba@x.com", phone: "7133" } },
@@ -167,7 +168,7 @@ describe("ProfessoresPage", () => {
     const calls = mockApi({ ...base(), "PATCH /teachers/10": () => json(200, {}) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Nome")).toHaveValue("Mestre Bimba"));
     expect(within(dialog).getByLabelText("E-mail")).toBeDisabled();
@@ -185,7 +186,7 @@ describe("ProfessoresPage", () => {
     const calls = mockApi({ ...base(), "PATCH /teachers/10": () => json(200, {}) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Telefone")).toHaveValue("7133"));
     fireEvent.change(within(dialog).getByLabelText("Telefone"), { target: { value: "" } });
@@ -199,7 +200,7 @@ describe("ProfessoresPage", () => {
     mockApi({ ...base(), "PATCH /teachers/10": () => json(400, { message: ["phone must be a string"] }) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Nome")).toHaveValue("Mestre Bimba"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
@@ -211,8 +212,8 @@ describe("ProfessoresPage", () => {
     const calls = mockApi({ ...base(), "DELETE /teachers/10": () => json(200, {}) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
-    expect(screen.getAllByText("Inativar")).toHaveLength(1);
-    fireEvent.click(screen.getByText("Inativar"));
+    await expectMenuAction("Inativar");
+    await clickMenuAction("Inativar");
     const alert = await screen.findByRole("alertdialog");
     fireEvent.click(within(alert).getByRole("button", { name: "Inativar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/teachers/10")).toBe(true));
@@ -224,16 +225,16 @@ describe("ProfessoresPage", () => {
     const mestre = renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
     expect(screen.getByRole("button", { name: /Novo membro/ })).toBeInTheDocument();
-    expect(screen.getAllByText("Editar").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Inativar")).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Editar" }).length).toBeGreaterThan(0);
+    await expectMenuAction("Inativar");
     mestre.unmount();
 
     loginAs("PROFESSOR");
     renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
     expect(screen.queryByRole("button", { name: /Novo membro/ })).toBeNull();
-    expect(screen.queryByText("Editar")).toBeNull();
-    expect(screen.queryByText("Inativar")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Editar" })).toBeNull();
+    expect(queryMenuAction("Inativar")).toBeNull();
     expect(screen.queryByRole("columnheader", { name: "Ações" })).toBeNull();
     expect(screen.getByText("Mestre Bimba")).toBeInTheDocument(); // a lista (teachers:view) continua
   });
@@ -270,7 +271,7 @@ describe("ProfessoresPage", () => {
       renderPage(<ProfessoresPage />);
       expect(await screen.findByText("Pastinha")).toBeInTheDocument();
       expect(await screen.findByText("Matriz")).toBeInTheDocument(); // coluna: nome da unidade, não o id
-      fireEvent.click(screen.getByRole("button", { name: "Unidades de atuação de Pastinha" }));
+      await clickMenuAction("Unidades de atuação de Pastinha");
       const dialog = await screen.findByRole("dialog");
       expect(within(dialog).getByRole("checkbox", { name: "Matriz" })).toBeChecked();
       expect(within(dialog).getByRole("checkbox", { name: "Filial B" })).not.toBeChecked();
@@ -286,8 +287,8 @@ describe("ProfessoresPage", () => {
       mockApi({ ...routes(), "PUT /teachers/11/units": () => json(400, { message: "Unidade inválida para esta organização." }) });
       renderPage(<ProfessoresPage />);
       await screen.findByText("Pastinha");
-      expect(screen.queryByRole("button", { name: /Unidades de atuação de Mestre Bimba/ })).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole("button", { name: "Unidades de atuação de Pastinha" }));
+      expect(queryMenuAction(/Unidades de atuação de Mestre Bimba/)).toBeNull();
+      await clickMenuAction("Unidades de atuação de Pastinha");
       const dialog = await screen.findByRole("dialog");
       fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
       await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Unidade inválida para esta organização."));

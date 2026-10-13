@@ -26,9 +26,18 @@ export class TransfersController {
     @Body() dto: CreateTransferDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { created, transfer } = await this.transfers.create(organizationId, userId, dto);
+    const { created, transfer, approvalLink } = await this.transfers.create(organizationId, userId, dto);
     res.status(created ? HttpStatus.CREATED : HttpStatus.OK);
-    return transfer;
+    // approvalLink so existe na criacao (o token nao e guardado em claro): depois, POST :id/approval-link gera outro.
+    return { ...transfer, approvalLink };
+  }
+
+  /** Link de aprovacao novo (invalida o anterior) para adulto sem login. */
+  @Post(':id/approval-link')
+  @CanAccess('students', 'create')
+  @HttpCode(HttpStatus.OK)
+  approvalLink(@CurrentOrganization() organizationId: number, @CurrentUser('id') userId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.transfers.regenerateApprovalLink(organizationId, userId, id);
   }
 
   @Get()

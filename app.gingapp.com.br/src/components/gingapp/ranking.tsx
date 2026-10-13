@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { Medal, Settings2, Sparkles, Trophy, User, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/api";
+import { plural } from "@/lib/plural";
 import {
   ALL_TIME,
   BANDS,
@@ -181,7 +182,7 @@ export function RankingPage() {
   const empty = !list.isLoading && !list.isError && list.total === 0;
   const scopes = groupsTab ? SCOPES.filter((s) => s.value !== "GROUP") : SCOPES;
   const effectiveScope = groupsTab ? groupScope : scope;
-  const metaFor = groupsTab ? `${groups.total} grupos` : `${students.total} alunos`;
+  const metaFor = groupsTab ? plural(groups.total, "grupo") : plural(students.total, "aluno");
   const settings = me.data?.settings;
   const playKey = `${tab}-${effectiveScope}-${season}-${category}-${band}`;
 
@@ -333,7 +334,7 @@ export function RankingPage() {
               {list.hasNextPage && (
                 <div className="rk-more">
                   <p role="status">
-                    Mostrando {items.length} de {list.total}
+                    Mostrando {items.length} de {list.total} {list.total === 1 ? "resultado" : "resultados"}
                   </p>
                   <Button variant="outline" size="sm" disabled={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
                     {list.isFetchingNextPage ? "Carregando…" : "Ver mais"}

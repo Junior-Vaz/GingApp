@@ -158,7 +158,7 @@ describe("Cadastro de aluno: conflitos de pessoa existente", () => {
     expect(within(dialog).queryByRole("button", { name: "Solicitar transferência" })).not.toBeInTheDocument();
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
     expect(toast.success).not.toHaveBeenCalledWith("Aluno cadastrado.");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Fechar" }));
+    fireEvent.click(within(dialog).getAllByRole("button", { name: "Fechar" })[0]!);
     await waitFor(() => expect(screen.queryByText(/já tem ficha em outro grupo/i)).not.toBeInTheDocument());
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
   });
@@ -244,7 +244,7 @@ describe("Cadastro de aluno: conflitos de pessoa existente", () => {
     });
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const sheet = await screen.findByRole("dialog");
     fireEvent.change(within(sheet).getByLabelText("CPF"), { target: { value: VALID_CPF } });
     expect(within(sheet).queryByLabelText(/CPF do responsável/)).not.toBeInTheDocument(); // só no cadastro
@@ -288,8 +288,25 @@ describe("Ficha única do aluno", () => {
     expect(within(dialog).getByRole("button", { name: "Copiar código GingApp" })).toBeInTheDocument();
     expect(dialog).toHaveTextContent("Ginga Brasil");
     expect(dialog).toHaveTextContent("Corda Azul");
-    expect(dialog).toHaveTextContent("20 presença(s)");
+    expect(dialog).toHaveTextContent("20 presenças");
     expect(dialog).toHaveTextContent("Batizado 2025");
+  });
+
+  it("seções sem dados mostram o texto de vazio (cargos, graduações, presença, certificados)", async () => {
+    mockApi({
+      ...base(),
+      "GET /students/1/ficha": () =>
+        json(200, { ...FICHA, enrollments: [], roles: [], graduations: [], attendanceByGroup: [], certificates: [] }),
+    });
+    renderPage(<AlunosPage />);
+    await screen.findByText("Ana Souza");
+    fireEvent.click(screen.getByRole("button", { name: "Ficha de Ana Souza" }));
+    const dialog = await screen.findByRole("dialog");
+    await within(dialog).findByTestId("ficha-code");
+    expect(dialog).toHaveTextContent("Nenhum cargo registrado.");
+    expect(dialog).toHaveTextContent("Nenhuma graduação registrada.");
+    expect(dialog).toHaveTextContent("Nenhuma presença registrada.");
+    expect(dialog).toHaveTextContent("Nenhum certificado emitido.");
   });
 
   it("se a rota falhar, mostra a mensagem de erro no diálogo e a página continua de pé", async () => {
@@ -298,7 +315,7 @@ describe("Ficha única do aluno", () => {
     await screen.findByText("Ana Souza");
     fireEvent.click(screen.getByRole("button", { name: "Ficha de Ana Souza" }));
     expect(await screen.findByTestId("ficha-error")).toHaveTextContent("Falha ao montar a ficha.");
-    fireEvent.click(screen.getByRole("button", { name: "Fechar" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Fechar" })[0]!);
     await waitFor(() => expect(screen.queryByTestId("ficha-error")).not.toBeInTheDocument());
     expect(screen.getByText("Ana Souza")).toBeInTheDocument();
   });
@@ -338,7 +355,7 @@ describe("Ficha única do aluno", () => {
     expect(section).toHaveTextContent("Corda Verde e Amarela");
     expect(within(section).getByRole("img", { name: /trançada/i })).toBeInTheDocument();
     expect(section).toHaveTextContent("Turma Noite");
-    expect(section).toHaveTextContent("30 presença(s)");
+    expect(section).toHaveTextContent("30 presenças");
     expect(section).toHaveTextContent("Batizado Antigo");
     expect(dialog).toHaveTextContent("até 31/01/2024");
   });
@@ -456,7 +473,7 @@ describe("Edição de aluno com CPF mascarado", () => {
     const calls = mockApi({ ...withMasked(), "PATCH /students/1": () => json(200, {}) });
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const sheet = await screen.findByRole("dialog");
     expect(within(sheet).getByTestId("student-document-masked")).toHaveTextContent("***.***.***-25");
     expect(within(sheet).queryByLabelText("CPF")).not.toBeInTheDocument();
@@ -469,7 +486,7 @@ describe("Edição de aluno com CPF mascarado", () => {
     const calls = mockApi({ ...withMasked(), "PATCH /students/1": () => json(200, {}) });
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const sheet = await screen.findByRole("dialog");
     fireEvent.click(within(sheet).getByRole("button", { name: "Alterar CPF" }));
     const input = within(sheet).getByLabelText("CPF");
@@ -533,7 +550,7 @@ describe("Importação: CPF do responsável, código GingApp e possíveis duplic
     const dry = calls.filter((c) => c.method === "POST").at(-1)!;
     expect(dry.body).toMatchObject({ dryRun: true, confirmNew: true });
 
-    fireEvent.click(screen.getByRole("button", { name: "Importar 2 aluno(s)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar 2 alunos" }));
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
     const real = calls.filter((c) => c.method === "POST").at(-1)!;
     expect(real.body).toMatchObject({ dryRun: false, confirmNew: true });

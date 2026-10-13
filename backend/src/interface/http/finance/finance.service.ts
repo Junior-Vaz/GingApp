@@ -125,7 +125,7 @@ export class FinanceService {
       // formato de GET /certificates; os campos existentes (incl. studentId) seguem iguais.
       this.prisma.financialRecord.findMany({
         where,
-        include: { student: { select: { id: true, name: true } } },
+        include: { student: { select: { id: true, name: true, photo: true } } },
         orderBy: { id: 'desc' },
         ...pageArgs(query),
       }),

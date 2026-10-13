@@ -29,6 +29,7 @@ import { logout } from "@/lib/auth";
 import { initials } from "@/lib/format";
 import { navItemsFor } from "@/lib/nav";
 import { ROLE_LABEL, useSessionUser } from "@/lib/session";
+import { imageSrc } from "@/lib/uploads";
 
 /** Layout do painel: sidebar colapsável (drawer no mobile) + topbar com usuário/grupo/logout. */
 export function AppShell({ children }: { children: ReactNode }) {
@@ -37,6 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const items = navItemsFor(user?.role);
+  const logoSrc = imageSrc(user?.organizationLogoUrl?.trim()) || "/icone.png";
   const current = items.find((item) => pathname === item.to || pathname.startsWith(`${item.to}/`));
 
   function handleLogout() {
@@ -80,19 +82,33 @@ export function AppShell({ children }: { children: ReactNode }) {
           </SidebarGroup>
         </SidebarContent>
         <SidebarFooter className="border-t group-data-[collapsible=icon]:hidden">
+          {/* No celular o nome/papel não cabem no cabeçalho: aparecem aqui, na gaveta do menu. */}
+          {user && (
+            <p className="truncate px-2 text-xs font-semibold sm:hidden" data-testid="drawer-user">
+              {user.name} · {ROLE_LABEL[user.role]}
+            </p>
+          )}
           <p className="truncate px-2 text-xs text-muted-foreground">{user?.organizationSlug}</p>
         </SidebarFooter>
         <SidebarRail />
       </Sidebar>
 
       <SidebarInset className="min-w-0">
-        <header className="sticky top-0 z-10 flex h-14 items-center gap-3 border-b bg-card px-4">
-          <SidebarTrigger aria-label="Alternar menu" />
-          <Separator orientation="vertical" className="h-5" />
-          <span className="font-display text-sm font-bold">{current?.label ?? "Painel"}</span>
-          <div className="ml-auto flex items-center gap-3">
+        <header className="sticky top-0 z-10 flex h-14 min-w-0 items-center gap-2 border-b bg-card px-3 sm:gap-3 sm:px-4">
+          <SidebarTrigger aria-label="Alternar menu" className="shrink-0" />
+          {/* Celular/tablet: o menu vira gaveta e a marca some da tela; o logo do grupo (ou o do GingApp) fica no cabeçalho. */}
+          <img
+            data-testid="topbar-logo"
+            src={logoSrc}
+            alt={user?.organizationLogoUrl ? `Logo de ${user.organizationSlug}` : "GingApp"}
+            className="size-7 shrink-0 rounded-full bg-secondary object-cover md:hidden"
+          />
+          <Separator orientation="vertical" className="hidden h-5 md:block" />
+          {/* min-w-0 + truncate: um título longo (ex.: "Transferências") encolhe em vez de empurrar as ações para fora da tela. */}
+          <span className="min-w-0 truncate font-display text-sm font-bold">{current?.label ?? "Painel"}</span>
+          <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-3">
             {user && (
-              <div className="flex items-center gap-2" data-testid="topbar-user">
+              <div className="hidden items-center gap-2 sm:flex" data-testid="topbar-user">
                 <Avatar className="size-8">
                   <AvatarFallback className="bg-secondary text-xs font-bold text-primary">
                     {initials(user.name)}

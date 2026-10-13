@@ -139,12 +139,35 @@ describe("Graduações - editar/remover sistemas e níveis", () => {
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
   });
 
-  it("PROFESSOR (graduations: view/create/edit, sem delete) vê Editar mas não Remover", async () => {
+  // Estrutura do sistema (sistemas, níveis, duplicar, reordenar, modelo) é só do MESTRE: o backend responde 403 ao PROFESSOR.
+  const STRUCTURE_ACTIONS = [
+    /^Novo sistema$/,
+    /Criar a partir de um modelo/,
+    /^Novo nível em/,
+    /^Editar sistema/,
+    /^Reativar sistema/,
+    /^Remover sistema/,
+    /^Editar nível/,
+    /^Duplicar nível/,
+    /^Subir nível/,
+    /^Descer nível/,
+    /^Remover nível/,
+  ];
+
+  it("PROFESSOR não vê nenhuma ação de ESTRUTURA (novo sistema/nível, editar, duplicar, reordenar, modelo, remover, reativar)", async () => {
     loginAs("PROFESSOR");
     setup();
-    await screen.findByRole("button", { name: "Editar sistema Cordas" });
-    expect(screen.getByRole("button", { name: "Editar nível Crua" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /^Remover (sistema|nível)/ })).not.toBeInTheDocument();
+    await screen.findByRole("list", { name: "Níveis de Cordas" });
+    for (const name of STRUCTURE_ACTIONS) expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    // continua vendo o sistema (somente leitura)
+    expect(screen.getByText("Sistema de cordas")).toBeInTheDocument();
+  });
+
+  it("MESTRE vê as ações de ESTRUTURA", async () => {
+    loginAs("MESTRE");
+    setup();
+    await screen.findByRole("list", { name: "Níveis de Cordas" });
+    for (const name of STRUCTURE_ACTIONS) expect(screen.getAllByRole("button", { name }).length).toBeGreaterThan(0);
   });
 
   it("sem sessão/permissão nenhuma ação de editar/remover é renderizada", async () => {
@@ -189,7 +212,7 @@ describe("Graduações - editar/remover graduação do aluno", () => {
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Graduação removida."));
   });
 
-  it("PROFESSOR edita mas não vê Remover; sem sessão não vê nenhum", async () => {
+  it("PROFESSOR continua graduando aluno (edita, sem Remover); sem sessão não vê nenhum", async () => {
     loginAs("PROFESSOR");
     setup();
     await goStudents();

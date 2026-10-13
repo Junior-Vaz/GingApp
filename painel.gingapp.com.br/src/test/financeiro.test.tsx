@@ -532,7 +532,7 @@ describe("FinanceiroPage", () => {
     await waitFor(() => expect(mutations(calls, "POST")).toHaveLength(1));
     expect(mutations(calls, "POST")[0]!.body).toEqual({ month: currentMonth() });
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith(expect.stringContaining("3 mensalidade(s) criada(s)")),
+      expect(toast.success).toHaveBeenCalledWith(expect.stringContaining("3 mensalidades criadas")),
     );
   });
 
@@ -544,8 +544,8 @@ describe("FinanceiroPage", () => {
     });
     renderPage();
     const box = await screen.findByTestId("delinquents-highlight");
-    expect(box).toHaveTextContent("4 aluno(s) inadimplente(s)");
-    expect(box).toHaveTextContent("6 lançamento(s)");
+    expect(box).toHaveTextContent("4 alunos inadimplentes");
+    expect(box).toHaveTextContent("6 lançamentos");
     fireEvent.click(within(box).getByText("Ver inadimplentes"));
     expect(await screen.findByText("Nenhum aluno inadimplente.")).toBeInTheDocument();
   });

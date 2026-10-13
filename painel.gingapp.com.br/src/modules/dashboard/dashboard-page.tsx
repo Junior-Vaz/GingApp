@@ -1,3 +1,4 @@
+import { plural } from "@/lib/plural";
 import { Award, CalendarCheck, CalendarDays, Layers, Percent, Users, Wallet } from "lucide-react";
 import { PageHeader } from "@/components/painel/page-header";
 import { StatCard } from "@/components/painel/stat-card";
@@ -59,14 +60,14 @@ export function DashboardPage() {
                   icon={Wallet}
                   label="Mensalidades previstas"
                   value={formatCurrency(finance.pendingCents)}
-                  hint={`${finance.pendingCount} lançamento(s) pendente(s)`}
+                  hint={plural(finance.pendingCount, "lançamento pendente", "lançamentos pendentes")}
                 />
                 <StatCard
                   icon={Wallet}
                   tone="danger"
                   label="Mensalidades atrasadas"
                   value={formatCurrency(finance.overdueCents)}
-                  hint={`${finance.overdueCount} lançamento(s) atrasado(s)`}
+                  hint={plural(finance.overdueCount, "lançamento atrasado", "lançamentos atrasados")}
                 />
               </>
             )}

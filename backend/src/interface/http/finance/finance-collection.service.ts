@@ -38,6 +38,8 @@ export interface GenerateMonthlyResult {
 export interface DelinquentRow {
   studentId: number;
   studentName: string;
+  /** Foto do aluno (avatar da lista) ou null. */
+  studentPhoto: string | null;
   phone: string | null;
   email: string | null;
   unitId: number | null;
@@ -383,6 +385,7 @@ export class FinanceCollectionService {
           id: true,
           name: true,
           phone: true,
+          photo: true,
           email: true,
           unitId: true,
           guardians: { select: { name: true, relationship: true, phone: true, email: true }, orderBy: { id: 'asc' } },
@@ -409,6 +412,7 @@ export class FinanceCollectionService {
       items.push({
         studentId: s.id,
         studentName: s.name,
+        studentPhoto: s.photo,
         phone: s.phone,
         email: s.email,
         unitId: s.unitId,

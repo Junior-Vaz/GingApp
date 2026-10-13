@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { readSmtpConfig } from './mail.config';
-import { renderInviteMail, renderPasswordResetMail, RenderedMail } from './mail-templates';
+import { renderInviteMail, renderPasswordResetMail, renderTransferApprovalMail, RenderedMail } from './mail-templates';
 
 /** Mensagem pronta para o transporte. */
 export interface MailEnvelope {
@@ -55,6 +55,10 @@ export class MailService {
 
   sendInvite(input: { to: string; name: string; groupName: string; link: string; expiresInHours: number }): Promise<boolean> {
     return this.deliver('invite', input.to, renderInviteMail(input));
+  }
+
+  sendTransferApproval(input: { to: string; name: string; groupName: string; link: string; expiresInDays: number }): Promise<boolean> {
+    return this.deliver('transfer-approval', input.to, renderTransferApprovalMail(input));
   }
 
   private async deliver(template: string, to: string, mail: RenderedMail): Promise<boolean> {

@@ -17,7 +17,7 @@ import { newPasswordRules } from "@/lib/password";
 import { Brand } from "./app-shell";
 import { PasswordField } from "./change-password";
 
-function Frame({ title, children }: { title: string; children: ReactNode }) {
+export function Frame({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col items-center gap-6 bg-background px-4 py-10">
       <Link to="/login" search={{ redirect: undefined }} className="no-underline">
@@ -31,7 +31,7 @@ function Frame({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function ErrorBox({ children }: { children: ReactNode }) {
+export function ErrorBox({ children }: { children: ReactNode }) {
   return (
     <p className="mt-4 flex items-start gap-2 rounded-lg bg-destructive/10 px-3 py-2.5 text-sm text-destructive" role="alert">
       <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />

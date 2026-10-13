@@ -216,7 +216,7 @@ describe("alunos: convite por e-mail", () => {
   async function openCreate() {
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
-    fireEvent.click(screen.getByRole("button", { name: "Acesso de José Álvaro" }));
+    fireEvent.click(screen.getByRole("button", { name: "Acesso de José Álvaro" })); // modo cards (padrão): a ação é um botão
     fireEvent.click(await screen.findByRole("button", { name: /Criar acesso/ }));
     return screen.findByRole("dialog", { name: "Criar acesso do aluno" });
   }

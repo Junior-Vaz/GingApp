@@ -61,13 +61,13 @@ export interface League {
 
 /** Pelos pontos acumulados de todos os tempos. */
 export const LEAGUES: readonly League[] = [
-  { code: 'CRUA', name: 'Crua', color: '#E5E5E5', minPoints: 0 },
-  { code: 'VERDE', name: 'Verde', color: '#22C55E', minPoints: 300 },
-  { code: 'AMARELA', name: 'Amarela', color: '#FACC15', minPoints: 900 },
-  { code: 'AZUL', name: 'Azul', color: '#3B82F6', minPoints: 2000 },
-  { code: 'ROXA', name: 'Roxa', color: '#8B5CF6', minPoints: 4000 },
-  { code: 'MARROM', name: 'Marrom', color: '#92400E', minPoints: 7500 },
-  { code: 'PRETA', name: 'Preta', color: '#111827', minPoints: 12000 },
+  { code: 'CRUA', name: 'Semente', color: '#E5E5E5', minPoints: 0 },
+  { code: 'VERDE', name: 'Broto', color: '#22C55E', minPoints: 300 },
+  { code: 'AMARELA', name: 'Ginga', color: '#FACC15', minPoints: 900 },
+  { code: 'AZUL', name: 'Roda', color: '#3B82F6', minPoints: 2000 },
+  { code: 'ROXA', name: 'Axé', color: '#8B5CF6', minPoints: 4000 },
+  { code: 'MARROM', name: 'Mandinga', color: '#92400E', minPoints: 7500 },
+  { code: 'PRETA', name: 'Lenda', color: '#111827', minPoints: 12000 },
 ];
 
 export function leagueIndexFor(allTimePoints: number): number {

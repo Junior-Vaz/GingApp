@@ -102,6 +102,12 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, navLabel: 'Pedidos LGPD' },
   },
   {
+    path: '/duplicates',
+    name: 'duplicates',
+    component: () => import('@/views/DuplicatePeopleView.vue'),
+    meta: { requiresAuth: true, navLabel: 'Duplicatas' },
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: '/dashboard',
   },

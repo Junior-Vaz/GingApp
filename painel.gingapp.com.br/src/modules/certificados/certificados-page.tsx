@@ -6,6 +6,7 @@ import { DataTable, type Column } from "@/components/painel/data-table";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
+import { StudentAvatar } from "@/components/painel/student-avatar";
 import { StudentPicker } from "@/components/painel/student-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -68,6 +69,8 @@ export function CertificadosPage() {
   const create = certificates.useCreate();
   const update = certificates.useUpdate();
   const remove = certificates.useRemove();
+  const canCreate = useCan("certificates", "create"); // INSTRUTOR: só leitura (sem "Emitir certificado")
+  const canEdit = useCan("certificates", "edit");
   const canDelete = useCan("certificates", "delete"); // PROFESSOR: sem certificates:delete (backend responde 403)
 
   const [issuing, setIssuing] = useState(false);
@@ -102,7 +105,13 @@ export function CertificadosPage() {
   const pdfLabel = (c: Certificate) => (downloadingId === c.id ? "Baixando…" : "Baixar PDF");
 
   const columns: Column<Certificate>[] = [
-    { id: "student", header: "Aluno", sortValue: (c) => c.student.name, cell: (c) => <span className="font-medium">{c.student.name}</span> },
+    { id: "student", header: "Aluno", sortValue: (c) => c.student.name, cell: (c) => (
+        <span className="flex items-center gap-2 font-medium">
+          <StudentAvatar name={c.student.name} photo={c.student.photo} />
+          {c.student.name}
+        </span>
+      ),
+    },
     { id: "title", header: "Título", sortValue: (c) => c.title },
     { id: "issuedAt", header: "Emitido em", sortValue: (c) => c.issuedAt, cell: (c) => formatIssuedAt(c.issuedAt) },
     {
@@ -118,7 +127,7 @@ export function CertificadosPage() {
       <PageHeader
         title="Certificados"
         description="Emita certificados para os alunos — cada um ganha um código de verificação."
-        actions={<Button onClick={() => setIssuing(true)}>Emitir certificado</Button>}
+        actions={canCreate ? <Button onClick={() => setIssuing(true)}>Emitir certificado</Button> : undefined}
       />
 
       <DataTable
@@ -174,9 +183,11 @@ export function CertificadosPage() {
             <Button variant="ghost" size="sm" disabled={downloadingId === c.id} onClick={() => void downloadPdf(c)}>
               {pdfLabel(c)}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
-              Editar
-            </Button>
+            {canEdit && (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
+                Editar
+              </Button>
+            )}
             {canDelete && (
               <Button variant="ghost" size="sm" onClick={() => setDeleting(c)}>
                 Apagar

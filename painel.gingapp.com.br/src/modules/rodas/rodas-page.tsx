@@ -36,6 +36,7 @@ export function RodasPage() {
   const remove = rodas.useRemove();
   const removeSeries = useRemoveSeries();
   const generate = useGenerateOccurrences();
+  const canCreate = useCan("rodas", "create"); // MONITOR: só leitura
   const canEdit = useCan("rodas", "edit"); // POST /rodas/:id/generate-occurrences exige rodas.edit
   const canDelete = useCan("rodas", "delete"); // PROFESSOR: sem rodas:delete (backend responde 403)
 
@@ -96,9 +97,11 @@ export function RodasPage() {
         title="Rodas"
         description="Rodas organizadas pelo grupo — visíveis publicamente na comunidade."
         actions={
-          <Button onClick={() => setEditing("new")}>
-            <Plus /> Nova roda
-          </Button>
+          canCreate ? (
+            <Button onClick={() => setEditing("new")}>
+              <Plus /> Nova roda
+            </Button>
+          ) : undefined
         }
       />
       <DataTable
@@ -165,9 +168,11 @@ export function RodasPage() {
                     <CalendarPlus /> Gerar próximas ocorrências
                   </Button>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => setEditing(r)} aria-label={`Editar ${r.title}`}>
-                  Editar
-                </Button>
+                {canEdit && (
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(r)} aria-label={`Editar ${r.title}`}>
+                    Editar
+                  </Button>
+                )}
                 {canDelete && (
                   <Button variant="ghost" size="sm" onClick={() => setDeleting(r)} aria-label={`Excluir ${r.title}`}>
                     Excluir

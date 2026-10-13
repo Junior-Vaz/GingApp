@@ -278,8 +278,8 @@ describe('Ginga Rank (e2e)', () => {
     assert.deepEqual(achievements, ['FIRST_GRADUATION', 'SEQ_4W']);
     const notes = await prisma.notification.findMany({ where: { userId: users.d2.id } });
     assert.equal(notes.filter((n) => n.type === 'RANKING_ACHIEVEMENT').length, 2, 'uma notificacao por conquista');
-    assert.equal(notes.filter((n) => n.type === 'RANKING_LEAGUE').length, 1, 'uma notificacao de liga (VERDE)');
-    assert.match(notes.find((n) => n.type === 'RANKING_LEAGUE')?.body ?? '', /Verde/);
+    assert.equal(notes.filter((n) => n.type === 'RANKING_LEAGUE').length, 1, 'uma notificacao de liga (BROTO)');
+    assert.match(notes.find((n) => n.type === 'RANKING_LEAGUE')?.body ?? '', /Broto/);
   });
 
   it('gatilho: marcar presenca pela API recalcula o ranking do aluno em segundo plano (fire-and-forget)', async () => {
@@ -465,8 +465,8 @@ describe('Ginga Rank (e2e)', () => {
     assert.equal(allTime, 255); // 3 aulas (30) + roda (25) + graduacao ordem 2 (200)
     assert.equal(b.points.allTime, 255);
     assert.equal(b.points.season, (await prisma.pointEvent.aggregate({ _sum: { points: true }, where: { studentId: s.a1, season: currentSeason() } }))._sum.points);
-    assert.deepEqual(b.level, { code: 'CRUA', name: 'Crua', color: '#E5E5E5' });
-    assert.deepEqual(b.nextLevel, { code: 'VERDE', name: 'Verde', color: '#22C55E', minPoints: 300 });
+    assert.deepEqual(b.level, { code: 'CRUA', name: 'Semente', color: '#E5E5E5' });
+    assert.deepEqual(b.nextLevel, { code: 'VERDE', name: 'Broto', color: '#22C55E', minPoints: 300 });
     assert.equal(b.pointsToNext, 45);
     assert.equal(b.progressPct, 85);
     assert.equal(b.streakWeeks, 1);

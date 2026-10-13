@@ -46,7 +46,7 @@ export function LevelSelect({ options, value, onChange, className, ...rest }: Le
           >
             <RopeSwatch {...ropeOf(option.level)} size="md" orientation="horizontal" />
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">{option.level.name}</span>
+              <span title={option.level.name} className="line-clamp-2 break-words font-medium [overflow-wrap:anywhere]">{option.level.name}</span>
               <span className="block truncate text-xs text-muted-foreground">{option.systemName}</span>
             </span>
             {selected && <Check aria-hidden className="size-4 shrink-0 text-primary" />}

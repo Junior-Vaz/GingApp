@@ -1,16 +1,25 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { OrgRole, Prisma, StudentStatus, TransferContestReason, TransferStatus } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+import { OrgRole, Prisma, StudentStatus, TransferContestReason, TransferStatus, UserType } from '@prisma/client';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { hashPersonDocument, canonicalDocument, parseCpf } from '../../../shared/security/person-document';
+import { frontendBaseUrl } from '../../../shared/mail/mail.config';
+import { MailService } from '../../../shared/mail/mail.service';
+import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
+import { generatePasswordToken, hashPasswordToken } from '../../../shared/security/password-reset-token';
+import { BCRYPT_ROUNDS, normalizeEmail } from '../../../shared/security/password-policy';
+import { isMinor } from '../ranking/ranking-rules';
 import { NotificationsService } from '../notifications/notifications.service';
 import { decidingAs, personDeciders, personIdsVisibleTo } from './person-deciders';
 import { normalizeGingappCode } from './gingapp-code';
 import {
   PersonErrorCode,
+  approvalInvalid,
   personBadRequest,
   personConflict,
+  personForbidden,
   personNotFound,
   transferNotFound,
 } from './person-errors';
@@ -34,7 +43,7 @@ export const SHARED_ON_APPROVAL = ['ATTENDANCE', 'GRADUATIONS', 'CERTIFICATES'] 
 const OPEN_FOR_CONTEST: TransferStatus[] = [TransferStatus.PENDING_PERSON, TransferStatus.APPROVED];
 
 const REQUEST_INCLUDE = {
-  person: { select: { id: true, name: true, nickname: true, photo: true, gingappCode: true, birthDate: true, userId: true } },
+  person: { select: { id: true, name: true, nickname: true, photo: true, gingappCode: true, birthDate: true, userId: true, email: true, phone: true } },
   fromOrganization: { select: { id: true, name: true, logo: true } },
   toOrganization: { select: { id: true, name: true, logo: true } },
   contests: { orderBy: { id: 'asc' as const } },
@@ -64,6 +73,7 @@ export class TransfersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly notifications: NotificationsService,
+    private readonly mail: MailService,
   ) {}
 
   // ------------------------------------------------------------------------------------------------ equipe
@@ -143,7 +153,60 @@ export class TransfersService {
         body: `${row.toOrganization.name} pediu a transferência de ${row.person.name}. Você pode registrar pendências até ${this.date(row.contestUntil)}.`,
       });
     }
-    return { created, transfer: this.staffView(row, organizationId, now, await this.unitsOf([row])) };
+    // Convite guiado: adulto SEM login nao tem como aprovar pelo app -> o Mestre recebe um link de uso unico.
+    const approvalLink = created && this.needsApprovalLink(row, now) ? await this.issueApprovalLink(row, organizationId, userId, now) : null;
+    return { created, approvalLink, transfer: this.staffView(row, organizationId, now, await this.unitsOf([row])) };
+  }
+
+  /** POST /transfers/:id/approval-link: gera um link novo (invalida os anteriores) para o pedido pendente de um adulto sem login. */
+  async regenerateApprovalLink(organizationId: number, userId: number, id: number, now = new Date()) {
+    const row = await this.visibleToGroup(organizationId, id);
+    if (row.toOrganizationId !== organizationId) throw new ForbiddenException('Só o grupo que pediu pode gerar o link.');
+    if (row.status !== TransferStatus.PENDING_PERSON) throw personConflict(PersonErrorCode.TRANSFER_NOT_PENDING);
+    if (row.expiresAt.getTime() <= now.getTime()) throw personConflict(PersonErrorCode.TRANSFER_EXPIRED);
+    if (!this.needsApprovalLink(row, now)) throw personConflict(PersonErrorCode.APPROVAL_LINK_NOT_NEEDED);
+    return this.issueApprovalLink(row, organizationId, userId, now);
+  }
+
+  /** Pedido aberto de ADULTO sem login (menor nao aprova por link; quem tem login aprova pelo app). */
+  private needsApprovalLink(row: RequestRow, now: Date): boolean {
+    return (
+      row.status === TransferStatus.PENDING_PERSON &&
+      row.expiresAt.getTime() > now.getTime() &&
+      !row.person.userId &&
+      !isMinor(row.person.birthDate, now)
+    );
+  }
+
+  /** Token aleatorio de uso unico (so o SHA-256 no banco), expira junto com o pedido; e-mail extra se SMTP ativo e ha e-mail. */
+  private async issueApprovalLink(row: RequestRow, organizationId: number, userId: number, now: Date) {
+    const { token, tokenHash } = generatePasswordToken();
+    await this.prisma.$transaction([
+      this.prisma.transferApprovalToken.updateMany({ where: { requestId: row.id, usedAt: null }, data: { usedAt: now } }),
+      this.prisma.transferApprovalToken.create({ data: { requestId: row.id, tokenHash, expiresAt: row.expiresAt } }),
+    ]);
+    const base = frontendBaseUrl('APP');
+    const url = `${base ?? ''}/aprovar-transferencia?token=${encodeURIComponent(token)}`;
+    let emailed = false;
+    const to = row.person.email?.trim();
+    if (to && base && this.mail.isEnabled()) {
+      emailed = await this.mail.sendTransferApproval({
+        to,
+        name: row.person.name,
+        groupName: row.toOrganization.name,
+        link: url,
+        expiresInDays: Math.max(1, Math.ceil((row.expiresAt.getTime() - now.getTime()) / DAY_MS)),
+      });
+    }
+    await this.audit.record({
+      organizationId,
+      userId,
+      action: AuditAction.TRANSFER_APPROVAL_LINK_ISSUE,
+      entity: AuditEntity.TRANSFER,
+      entityId: row.id,
+      meta: { emailed },
+    });
+    return { url, expiresAt: row.expiresAt, emailed };
   }
 
   async list(organizationId: number, direction?: 'sent' | 'received', now = new Date()) {
@@ -263,12 +326,19 @@ export class TransfersService {
     return this.personView(updated, userId, now, await this.unitsOf([updated]));
   }
 
-  private async approve(row: RequestRow, userId: number, now: Date): Promise<void> {
+  /** `decider` = userId de quem aprova, ou um preparo dentro da transacao (link publico: consome o token e cria o login). */
+  private async approve(
+    row: RequestRow,
+    decider: number | ((tx: Prisma.TransactionClient) => Promise<number>),
+    now: Date,
+    via: 'app' | 'approval-link' = 'app',
+  ): Promise<void> {
     const toOrg = row.toOrganizationId;
     const newStudentId = await this.prisma.$transaction(async (tx) => {
+      const deciderId = typeof decider === 'function' ? await decider(tx) : decider;
       const { count } = await tx.transferRequest.updateMany({
         where: { id: row.id, status: TransferStatus.PENDING_PERSON },
-        data: { status: TransferStatus.APPROVED, decidedAt: now, decidedByUserId: userId },
+        data: { status: TransferStatus.APPROVED, decidedAt: now, decidedByUserId: deciderId },
       });
       if (count !== 1) throw personConflict(PersonErrorCode.TRANSFER_NOT_PENDING);
       const person = (await canonicalPerson(tx, await tx.person.findUnique({ where: { id: row.personId } })))!;
@@ -336,7 +406,7 @@ export class TransfersService {
       action: AuditAction.TRANSFER_APPROVE,
       entity: AuditEntity.TRANSFER,
       entityId: row.id,
-      meta: { toStudentId: newStudentId, fromStudentId: row.fromStudentId, toOrganizationId: toOrg, fromOrganizationId: row.fromOrganizationId },
+      meta: { toStudentId: newStudentId, fromStudentId: row.fromStudentId, toOrganizationId: toOrg, fromOrganizationId: row.fromOrganizationId, via },
     });
     await this.notify(toOrg, await this.mestres(toOrg), {
       type: 'TRANSFER_APPROVED',
@@ -353,6 +423,103 @@ export class TransfersService {
   private async ensureMembership(tx: Prisma.TransactionClient, organizationId: number, userId: number, role: OrgRole): Promise<void> {
     const existing = await tx.organizationUser.findUnique({ where: { organizationId_userId: { organizationId, userId } } });
     if (!existing) await tx.organizationUser.create({ data: { organizationId, userId, role, status: 'ACTIVE' } });
+  }
+
+  // ------------------------------------------------------------------------------------------------ link publico
+
+  /** GET /public/transfer-approval/:token - so o necessario para decidir (nunca CPF, contato, nascimento ou historico). */
+  async approvalSummary(token: string, now = new Date()) {
+    const { request: row } = await this.rowForToken(token, now);
+    const minor = isMinor(row.person.birthDate, now);
+    return {
+      groupName: row.toOrganization.name,
+      groupLogoUrl: row.toOrganization.logo ?? null,
+      sharedOnApproval: [...SHARED_ON_APPROVAL],
+      isMinor: minor,
+      hasLogin: row.person.userId !== null,
+      canApproveByLink: !minor && row.person.userId === null,
+      emailRequired: !row.person.email,
+      expiresAt: row.expiresAt,
+    };
+  }
+
+  /** POST /public/transfer-approval/:token/approve - cria o login (se faltar) e aprova, tudo em uma transacao. */
+  async approveByLink(token: string, input: { newPassword: string; email?: string }, now = new Date()) {
+    const { request: row, tokenId } = await this.rowForToken(token, now);
+    if (isMinor(row.person.birthDate, now)) throw personForbidden(PersonErrorCode.MINOR_REQUIRES_GUARDIAN);
+    if (row.person.userId) throw personConflict(PersonErrorCode.APPROVAL_LINK_NOT_NEEDED);
+    const email = normalizeEmail(input.email ?? row.person.email ?? '');
+    if (!email) throw personBadRequest(PersonErrorCode.EMAIL_REQUIRED);
+    if ((await findUserIdsByEmail(this.prisma, email, 1)).length > 0) throw personConflict(PersonErrorCode.EMAIL_IN_USE);
+    const passwordHash = await bcrypt.hash(input.newPassword, BCRYPT_ROUNDS);
+    try {
+      await this.approve(
+        row,
+        async (tx) => {
+          await this.consumeToken(tx, tokenId, now);
+          const user = await tx.user.create({
+            data: { email, passwordHash, name: row.person.name, phone: row.person.phone, userType: UserType.MEMBER, status: 'ACTIVE', mustChangePassword: false },
+            select: { id: true },
+          });
+          await tx.person.update({ where: { id: row.personId }, data: { userId: user.id, email: row.person.email ?? email } });
+          return user.id;
+        },
+        now,
+        'approval-link',
+      );
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw personConflict(PersonErrorCode.EMAIL_IN_USE);
+      throw error;
+    }
+    return { status: 'APPROVED' as const, groupName: row.toOrganization.name };
+  }
+
+  /** POST /public/transfer-approval/:token/decline - recusa sem criar login. */
+  async declineByLink(token: string, now = new Date()) {
+    const { request: row, tokenId } = await this.rowForToken(token, now);
+    if (isMinor(row.person.birthDate, now)) throw personForbidden(PersonErrorCode.MINOR_REQUIRES_GUARDIAN);
+    await this.prisma.$transaction(async (tx) => {
+      await this.consumeToken(tx, tokenId, now);
+      const { count } = await tx.transferRequest.updateMany({
+        where: { id: row.id, status: TransferStatus.PENDING_PERSON },
+        data: { status: TransferStatus.DECLINED, decidedAt: now },
+      });
+      if (count !== 1) throw personConflict(PersonErrorCode.TRANSFER_NOT_PENDING);
+    });
+    await this.audit.record({
+      organizationId: null,
+      action: AuditAction.TRANSFER_DECLINE,
+      entity: AuditEntity.TRANSFER,
+      entityId: row.id,
+      meta: { decidingAs: 'SELF', via: 'approval-link', toOrganizationId: row.toOrganizationId },
+    });
+    await this.notify(row.toOrganizationId, await this.mestres(row.toOrganizationId), {
+      type: 'TRANSFER_DECLINED',
+      title: 'Transferência recusada',
+      body: `O pedido de transferência de ${row.person.name} foi recusado.`,
+    });
+    return { status: 'DECLINED' as const, groupName: row.toOrganization.name };
+  }
+
+  /** Link inexistente, usado, expirado ou de pedido ja decidido = o MESMO 404 (nao distingue). */
+  private async rowForToken(token: string, now: Date): Promise<{ request: RequestRow; tokenId: number }> {
+    if (typeof token !== 'string' || token.length < 20 || token.length > 200) throw approvalInvalid();
+    const rec = await this.prisma.transferApprovalToken.findUnique({
+      where: { tokenHash: hashPasswordToken(token) },
+      include: { request: { include: REQUEST_INCLUDE } },
+    });
+    if (!rec || rec.usedAt || rec.expiresAt.getTime() <= now.getTime()) throw approvalInvalid();
+    if (rec.request.status !== TransferStatus.PENDING_PERSON || rec.request.expiresAt.getTime() <= now.getTime()) throw approvalInvalid();
+    return { request: rec.request, tokenId: rec.id };
+  }
+
+  /** Uso unico: condicional a usedAt nulo - dois cliques simultaneos => so um vence. */
+  private async consumeToken(tx: Prisma.TransactionClient, tokenId: number, now: Date): Promise<void> {
+    const { count } = await tx.transferApprovalToken.updateMany({
+      where: { id: tokenId, usedAt: null, expiresAt: { gt: now } },
+      data: { usedAt: now },
+    });
+    if (count !== 1) throw approvalInvalid();
   }
 
   // ------------------------------------------------------------------------------------------------ job
@@ -498,6 +665,7 @@ export class TransfersService {
       toStudentId: sent ? row.toStudentId : null,
       canCancel: sent && row.status === TransferStatus.PENDING_PERSON,
       canContest: !sent && OPEN_FOR_CONTEST.includes(row.status) && now.getTime() <= row.contestUntil.getTime(),
+      needsApprovalLink: sent && this.needsApprovalLink(row, now),
     };
   }
 

@@ -69,7 +69,7 @@ export class AccountService {
     });
     const organization =
       actor.organizationId != null
-        ? await this.prisma.organization.findUnique({ where: { id: actor.organizationId }, select: { slug: true } })
+        ? await this.prisma.organization.findUnique({ where: { id: actor.organizationId }, select: { slug: true, logo: true } })
         : null;
     const pending = user.dataDeletionRequests[0];
     return {
@@ -81,7 +81,7 @@ export class AccountService {
       userType: user.userType,
       isSuperAdmin: user.isSuperAdmin,
       ...(actor.organizationId != null ? { organizationId: actor.organizationId } : {}),
-      ...(organization ? { organizationSlug: organization.slug } : {}),
+      ...(organization ? { organizationSlug: organization.slug, organizationLogoUrl: organization.logo ?? null } : {}),
       ...(actor.role ? { role: actor.role } : {}),
       // Fase 3: cargos ATIVOS no grupo do token (maior primeiro); o role acima e o papel de acesso (= o maior cargo).
       roles: actor.organizationId != null ? await this.activeRoles(actor.organizationId, user.id) : [],

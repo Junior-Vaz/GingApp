@@ -61,3 +61,7 @@ process.env.RANKING_CRON = 'false';
 process.env.LESSONS_CRON = 'false';
 // Transferencias (expiracao diaria 04:15): sem o job nos testes (TransferCronService/TransfersService.runMaintenance sao chamados direto).
 process.env.TRANSFER_CRON = 'false';
+// Link publico de aprovacao de transferencia (leitura 30/min, decisao 5/min por IP em producao): sobe nos e2e; o spec prova o rate limit
+// por conta propria.
+process.env.TRANSFER_APPROVAL_READ_THROTTLE_LIMIT = '1000';
+process.env.TRANSFER_APPROVAL_WRITE_THROTTLE_LIMIT = '1000';

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -68,20 +68,27 @@ async function openLesson(id = "1") {
   fireEvent.change(select, { target: { value: id } });
 }
 
+beforeEach(() => {
+  // Só o Date é congelado (waitFor/debounce seguem em tempo real): "hoje" = 10/03/2026, janela 03/03 a 09/04.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 2, 10, 12, 0, 0));
+});
+
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
 
 describe("FrequenciaPage", () => {
-  it("sem aula selecionada mostra a orientação; só aulas ativas aparecem, mais recentes primeiro", async () => {
+  it("sem aula selecionada mostra a orientação; só aulas ativas aparecem, na ordem do servidor (order=nearest)", async () => {
     setup();
     expect(screen.getByText(/Selecione uma aula para ver a lista de chamada/)).toBeInTheDocument();
     const select = await screen.findByLabelText("Aula");
     await waitFor(() => expect(within(select).getAllByRole("option")).toHaveLength(3));
     const labels = within(select).getAllByRole("option").map((o) => o.textContent);
-    expect(labels).toEqual(["Selecione uma aula", "Adulto — 09/03/2026", "Infantil — 05/03/2026"]);
+    expect(labels).toEqual(["Selecione uma aula", "Infantil — 05/03/2026", "Adulto — 09/03/2026"]);
   });
 
   it("filtrar por turma restringe as aulas", async () => {
@@ -94,33 +101,49 @@ describe("FrequenciaPage", () => {
     expect(select).toHaveValue("");
   });
 
-  it("seletores usam listas paginadas no servidor: limit=200, status=ACTIVE e filtros turma/período", async () => {
+  it("seletor de aulas: janela padrão (hoje-7 a hoje+30, order=nearest, limit 60); turma/período/'Mostrar todas' alcançam as antigas", async () => {
     const { calls } = setup();
     await openLesson("1");
     const lessonCalls = () => calls.filter((c) => c.url.startsWith("/lessons")).map((c) => c.url);
-    expect(lessonCalls()[0]).toBe("/lessons?status=ACTIVE&limit=200");
+    const windowQs = "from=2026-03-03&to=2026-04-09&order=nearest&limit=60";
+    expect(lessonCalls()[0]).toBe(`/lessons?status=ACTIVE&${windowQs}`);
     expect(calls.some((c) => c.url === "/classes?limit=200")).toBe(true);
 
     fireEvent.change(screen.getByLabelText("Turma"), { target: { value: "2" } });
-    await waitFor(() => expect(lessonCalls()).toContain("/lessons?status=ACTIVE&classId=2&limit=200"));
+    await waitFor(() => expect(lessonCalls()).toContain(`/lessons?status=ACTIVE&classId=2&${windowQs}`));
+    // datas escolhidas à mão substituem a janela padrão (e liberam o limite de 200)
     fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-01-01" } });
     fireEvent.change(screen.getByLabelText("Até"), { target: { value: "2026-01-31" } });
     await waitFor(() =>
-      expect(lessonCalls()).toContain("/lessons?status=ACTIVE&classId=2&from=2026-01-01&to=2026-01-31&limit=200"),
+      expect(lessonCalls()).toContain("/lessons?status=ACTIVE&classId=2&from=2026-01-01&to=2026-01-31&order=nearest&limit=200"),
     );
     // mudar o filtro limpa a aula escolhida
     expect(screen.getByLabelText("Aula")).toHaveValue("");
   });
 
-  it("sem aviso quando o total cabe em 200; com total > 200 avisa que a lista foi truncada", async () => {
-    setup({ lessonsTotal: 200 });
+  it("'Mostrar todas' tira a janela (sem from/to, limit 200) e 'Voltar às aulas próximas' a restaura", async () => {
+    const { calls } = setup();
+    await openLesson("1");
+    const lessonCalls = () => calls.filter((c) => c.url.startsWith("/lessons")).map((c) => c.url);
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar todas" }));
+    await waitFor(() => expect(lessonCalls()).toContain("/lessons?status=ACTIVE&order=nearest&limit=200"));
+    expect(screen.getByLabelText("Aula")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Voltar às aulas próximas" }));
+    await waitFor(() => expect(lessonCalls().filter((u) => u.includes("limit=60")).length).toBeGreaterThan(0));
+    expect(screen.getByRole("button", { name: "Mostrar todas" })).toBeInTheDocument();
+  });
+
+  it("sem aviso quando o total cabe no limite; acima dele avisa que a lista foi truncada", async () => {
+    setup({ lessonsTotal: 60 });
     await openLesson("1");
     expect(screen.queryByTestId("lessons-truncated")).toBeNull();
     cleanup();
     vi.unstubAllGlobals();
     setup({ lessonsTotal: 350, classesTotal: 250 });
-    expect(await screen.findByTestId("lessons-truncated")).toHaveTextContent("Mostrando as 200 aulas mais recentes de 350");
+    expect(await screen.findByTestId("lessons-truncated")).toHaveTextContent("Mostrando 60 de 350 aulas");
     expect(await screen.findByTestId("classes-truncated")).toHaveTextContent("Mostrando 200 de 250 turmas");
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar todas" }));
+    await waitFor(() => expect(screen.getByTestId("lessons-truncated")).toHaveTextContent("Mostrando 200 de 350 aulas"));
   });
 
   it("carrega a chamada da aula com o estado existente (sem chamada, presente, falta+justificativa)", async () => {
@@ -132,8 +155,8 @@ describe("FrequenciaPage", () => {
     expect(screen.getByLabelText("Presença de Beto")).toHaveAttribute("data-state", "checked");
     expect(screen.getByLabelText("Presença de Caio")).toHaveAttribute("data-state", "unchecked");
     expect(screen.getByLabelText("Justificativa de Caio")).toHaveValue("Gripe");
-    expect(screen.getByTestId("count-present")).toHaveTextContent("1 presentes");
-    expect(screen.getByTestId("count-absent")).toHaveTextContent("1 faltas");
+    expect(screen.getByTestId("count-present")).toHaveTextContent("1 presente");
+    expect(screen.getByTestId("count-absent")).toHaveTextContent("1 falta");
     expect(screen.getByTestId("count-undecided")).toHaveTextContent("1 sem chamada");
   });
 

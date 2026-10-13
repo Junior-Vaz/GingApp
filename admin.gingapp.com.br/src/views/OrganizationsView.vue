@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { api, errorMessage } from '@/utils/api'
 import { setFlash } from '@/utils/flash'
 import { entityStatusLabel, organizationTypeLabel } from '@/utils/format'
+import { pluralWord } from '@/utils/plural'
 import { NEW_PASSWORD_MIN_LENGTH as PASSWORD_MIN, PASSWORD_MAX_BYTES, passwordProblem } from '@/utils/password'
 
 interface Organization {
@@ -188,7 +189,7 @@ onMounted(() => {
       data-testid="list-truncated"
       class="mt-4 text-sm text-slate-500"
     >
-      Mostrando {{ organizations.length }} de {{ totalOrganizations }} grupos
+      Mostrando {{ organizations.length }} de {{ totalOrganizations }} {{ pluralWord(totalOrganizations, 'grupo') }}
     </p>
 
     <div class="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white">

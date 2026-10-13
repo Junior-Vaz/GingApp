@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
-import { ArrowUpCircle, IdCard, KeyRound, LayoutGrid, Plus, Table2, Upload, Users } from "lucide-react";
+import { ArrowUpCircle, IdCard, KeyRound, LayoutGrid, Pencil, Plus, Table2, Upload, UserX, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
@@ -9,6 +9,7 @@ import { ImageUploadField } from "@/components/painel/image-upload-field";
 import { ExportCsvButton } from "@/components/painel/export-csv-button";
 import { PageHeader } from "@/components/painel/page-header";
 import { RoleBadges } from "@/components/painel/role-badges";
+import { ActionButtons, RowActions, type MaybeRowAction } from "@/components/painel/row-actions";
 import { StudentAvatar } from "@/components/painel/student-avatar";
 import { UnitPicker } from "@/components/painel/unit-picker";
 import { Badge } from "@/components/ui/badge";
@@ -89,10 +90,12 @@ function ViewToggle({ view, onChange }: { view: StudentsView; onChange: (view: S
 export function AlunosPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
   const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "", role: "" } });
-  const list = students.usePage(lp.params);
+  // Ordem A-Z por padrão (cards e tabela, em todas as páginas e filtros); o total e a paginação vêm do servidor.
+  const list = students.usePage({ ...lp.params, order: "name" });
   const update = students.useUpdate();
   const remove = students.useRemove();
   const canDelete = useCan("students", "delete"); // PROFESSOR: sem students:delete (backend responde 403)
+  const canCreate = useCan("students", "create"); // MONITOR: só leitura (sem "Novo aluno")
   const canEdit = useCan("students", "edit"); // acesso do aluno e responsáveis exigem students:edit
   // Cobrança mensal (E07) é do financeiro: só quem tem finance:view vê a coluna e finance:edit grava (hoje só o MESTRE).
   const canViewFinance = useCan("finance", "view");
@@ -127,6 +130,8 @@ export function AlunosPage() {
     {
       id: "name",
       header: "Nome",
+      sticky: true,
+      className: "min-w-52",
       sortValue: (s) => s.name,
       cell: (s) => (
         <span className="flex items-center gap-2 font-medium">
@@ -155,7 +160,7 @@ export function AlunosPage() {
       sortValue: (s) => s.birthDate,
       cell: (s) => (s.birthDate ? fmt(dayOnly(s.birthDate), "dd/MM/yyyy") : "—"),
     },
-    { id: "contact", header: "Contato", cell: (s) => s.phone || s.email || "—" },
+    { id: "contact", header: "Contato", className: "whitespace-nowrap", cell: (s) => s.phone || s.email || "—" },
     ...(canViewFinance
       ? [
           {
@@ -250,42 +255,34 @@ export function AlunosPage() {
     }
   }
 
-  /** Mesmas ações nos dois modos (tabela e cards), com as mesmas permissões. */
-  const studentActions = (s: Student) => (
-    <>
-      <Button variant="ghost" size="sm" onClick={() => setEditing(s)}>
-        Editar
-      </Button>
-      <Button variant="ghost" size="sm" onClick={() => setFichaOf(s)} aria-label={`Ficha de ${s.name}`}>
-        <IdCard /> Ficha
-      </Button>
-      {canEdit && (
-        <>
-          <Button variant="ghost" size="sm" onClick={() => setAccessOf(s)} aria-label={`Acesso de ${s.name}`}>
-            <KeyRound /> Acesso
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setGuardiansOf(s)} aria-label={`Responsáveis de ${s.name}`}>
-            <Users /> Responsáveis
-          </Button>
-        </>
-      )}
-      {isMestre && s.status === "ACTIVE" && canPromote(s.staffRoles) && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setPromoting({ studentId: s.id, name: s.name, email: s.email, roles: s.staffRoles ?? [] })}
-          aria-label={`Promover ${s.name}`}
-        >
-          <ArrowUpCircle /> Promover a…
-        </Button>
-      )}
-      {canDelete && s.status !== "INACTIVE" && (
-        <Button variant="ghost" size="sm" onClick={() => setDeleting(s)}>
-          Inativar
-        </Button>
-      )}
-    </>
-  );
+  /**
+   * Mesmas ações e permissões nos dois modos: botões com texto nos cards; na tabela, Editar e Ficha viram botões de
+   * ícone e o resto vai para o menu "⋯" (a coluna Ações cabe numa linha só).
+   */
+  const studentActionList = (s: Student): MaybeRowAction[] => [
+    canEdit && { key: "edit", label: "Editar", icon: Pencil, primary: true, onSelect: () => setEditing(s) },
+    { key: "ficha", label: "Ficha", ariaLabel: `Ficha de ${s.name}`, icon: IdCard, primary: true, onSelect: () => setFichaOf(s) },
+    canEdit && { key: "access", label: "Acesso", ariaLabel: `Acesso de ${s.name}`, icon: KeyRound, onSelect: () => setAccessOf(s) },
+    canEdit && {
+      key: "guardians",
+      label: "Responsáveis",
+      ariaLabel: `Responsáveis de ${s.name}`,
+      icon: Users,
+      onSelect: () => setGuardiansOf(s),
+    },
+    isMestre &&
+      s.status === "ACTIVE" &&
+      canPromote(s.staffRoles) && {
+        key: "promote",
+        label: "Promover a…",
+        ariaLabel: `Promover ${s.name}`,
+        icon: ArrowUpCircle,
+        onSelect: () => setPromoting({ studentId: s.id, name: s.name, email: s.email, roles: s.staffRoles ?? [] }),
+      },
+    canDelete &&
+      s.status !== "INACTIVE" && { key: "deactivate", label: "Inativar", icon: UserX, destructive: true, onSelect: () => setDeleting(s) },
+  ];
+  const studentActions = (s: Student) => <ActionButtons actions={studentActionList(s)} />;
 
   return (
     <>
@@ -304,9 +301,11 @@ export function AlunosPage() {
               filename="alunos"
               params={{ status: lp.filters.status, unitId: lp.filters.unitId, q: lp.query.trim() }}
             />
-            <Button onClick={() => setEditing("new")}>
-              <Plus /> Novo aluno
-            </Button>
+            {canCreate && (
+              <Button onClick={() => setEditing("new")}>
+                <Plus /> Novo aluno
+              </Button>
+            )}
           </div>
         }
       />
@@ -369,7 +368,7 @@ export function AlunosPage() {
             </NativeSelect>
           </div>
         }
-        rowActions={studentActions}
+        rowActions={(s) => <RowActions actions={studentActionList(s)} subject={s.name} />}
       />
 
       <FormDialog<StudentFormValues>

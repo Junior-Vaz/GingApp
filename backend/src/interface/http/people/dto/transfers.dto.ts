@@ -2,6 +2,7 @@ import { TransferContestReason } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsEmail, IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
 import { IsImageRef } from '../../../../shared/uploads/image-ref';
+import { IsNewPassword } from '../../../../shared/security/new-password.decorator';
 
 /** POST /transfers: um identificador da pessoa (personId, codigo GingApp ou CPF). O grupo destino e o do token. */
 export class CreateTransferDto {
@@ -81,4 +82,15 @@ export class UpdateMyPersonDto {
   @IsOptional()
   @IsEmail()
   email?: string | null;
+}
+
+/** POST /public/transfer-approval/:token/approve: senha do login novo (politica @IsNewPassword) e e-mail (se a ficha nao tem). */
+export class ApproveByLinkDto {
+  @IsNewPassword()
+  newPassword!: string;
+
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(254)
+  email?: string;
 }

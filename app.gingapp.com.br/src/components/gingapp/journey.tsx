@@ -7,8 +7,9 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { errorMessage } from "@/lib/api";
 import { downloadCertificatePdf } from "@/lib/certificate-pdf";
 import { dayOnly, fmt, readableIconColor, softenColor, verificationUrl } from "@/lib/format";
+import { useSessionUser } from "@/lib/session";
 import { STAFF_ROLE_LABEL } from "@/lib/roles";
-import { buildTimeline } from "@/lib/derive";
+import { buildTimeline, graduationCardLabel } from "@/lib/derive";
 import { readJourneyView, storeJourneyView, type JourneyView } from "@/lib/hierarchy";
 import {
   useAttendance,
@@ -131,6 +132,7 @@ export function JourneyPage() {
     setView(next);
     storeJourneyView(next);
   };
+  const user = useSessionUser();
   const { student, isLoading: loadingStudent, error: studentError } = useMyStudent();
   const graduations = useGraduations(student?.id);
   const certificates = useCertificates();
@@ -165,6 +167,7 @@ export function JourneyPage() {
         <>
           <div className="journey-top">
             <GraduationCard
+              label={graduationCardLabel(student, user?.id)}
               name={current ? current.graduationLevel.name : null}
               rope={current ? current.graduationLevel : null}
               loading={loading}
@@ -191,10 +194,10 @@ export function JourneyPage() {
               </p>
               <div className="flex gap-5 mt-5 text-xs">
                 <span>
-                  <strong className="text-primary">{stats?.rodas ?? 0}</strong> rodas
+                  <strong className="text-primary">{stats?.rodas ?? 0}</strong> {stats?.rodas === 1 ? "roda" : "rodas"}
                 </span>
                 <span>
-                  <strong className="text-primary">{stats?.eventos ?? 0}</strong> eventos
+                  <strong className="text-primary">{stats?.eventos ?? 0}</strong> {stats?.eventos === 1 ? "evento" : "eventos"}
                 </span>
                 <span>
                   <strong className="text-primary">{stats?.graduacoes ?? list.length}</strong> graduações

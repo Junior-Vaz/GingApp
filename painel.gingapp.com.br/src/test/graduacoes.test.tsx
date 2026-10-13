@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { clearSession, loginAs } from "./login-as";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -78,7 +79,10 @@ function setup(opts: Opts = {}) {
 }
 const writes = (calls: Call[]) => calls.filter((c) => c.method !== "GET");
 
+// Sem sessão o useCan nega tudo (falha fechada): a página é do MESTRE nestes testes.
+beforeEach(() => loginAs("MESTRE"));
 afterEach(() => {
+  clearSession();
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();

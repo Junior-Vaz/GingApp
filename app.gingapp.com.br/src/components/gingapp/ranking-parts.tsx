@@ -30,6 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ApiError, errorMessage } from "@/lib/api";
 import { dayOnly, fmt, toDate } from "@/lib/format";
+import { plural } from "@/lib/plural";
 import {
   LEAGUES,
   formatPoints,
@@ -217,7 +218,7 @@ function groupPodiumEntry(item: GroupRankItem): PodiumEntry {
     seal: (
       <span className="rk-seal" style={cssVars({ "--lg": "#1b5e43" })}>
         <Users aria-hidden="true" />
-        {item.studentsCount} {item.studentsCount === 1 ? "aluno" : "alunos"}
+        {plural(item.studentsCount, "aluno")}
       </span>
     ),
     isMe: item.isMine,
@@ -295,7 +296,7 @@ export function GroupRow({ item, index }: { item: GroupRankItem; index: number }
         </strong>
         <span className="rk-group">
           <span>
-            {place || "Brasil"} · {item.studentsCount} {item.studentsCount === 1 ? "aluno" : "alunos"} · média{" "}
+            {place || "Brasil"} · {plural(item.studentsCount, "aluno")} · média{" "}
             {formatPoints(Math.round(item.avgPoints))} pts/aluno
           </span>
         </span>
@@ -475,7 +476,7 @@ export function ProgressCard({ me, onConfigure }: { me: RankingMe; onConfigure: 
           <>
             <div className="rk-next-line">
               <span>
-                {`faltam ${formatPoints(toNext)} ${toNext === 1 ? "ponto" : "pontos"} para `}
+                {`falta${toNext === 1 ? "" : "m"} ${formatPoints(toNext)} ${toNext === 1 ? "ponto" : "pontos"} para `}
                 <strong style={cssVars({ "--lg": nextColor })} className="rk-next-name">
                   {next.name.toLocaleUpperCase("pt-BR")}
                 </strong>

@@ -109,11 +109,13 @@ function SistemasTab() {
   const duplicateLevel = useDuplicateLevel();
   const reorderLevels = useReorderLevels();
   const fromTemplate = useCreateFromTemplate();
-  const canEdit = useCan("graduations", "edit");
-  const canCreate = useCan("graduations", "create");
-  const canDelete = useCan("graduations", "delete");
-  // Regras de cargo por corda: leitura para quem vê graduações, gravação só do Mestre (PUT .../role-rules).
+  // A ESTRUTURA do sistema (sistemas, níveis, duplicar, reordenar, modelo, regras de cargo, equivalências) é só do
+  // Mestre: o backend responde 403 ao Professor em POST/PATCH/DELETE. Quem não é Mestre só vê (e gradua alunos na
+  // outra aba). Cada permissão da matriz continua valendo por cima do papel.
   const isMestre = useSessionUser()?.role === "MESTRE";
+  const canEdit = useCan("graduations", "edit") && isMestre;
+  const canCreate = useCan("graduations", "create") && isMestre;
+  const canDelete = useCan("graduations", "delete") && isMestre;
   const [newSystem, setNewSystem] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [levelFor, setLevelFor] = useState<GraduationSystem | null>(null);
@@ -162,9 +164,11 @@ function SistemasTab() {
                   {system.description && <CardDescription className="mt-1">{system.description}</CardDescription>}
                 </div>
                 <div className="flex shrink-0 flex-wrap justify-end gap-1">
-                  <Button variant="outline" size="sm" onClick={() => setLevelFor(system)} aria-label={`Novo nível em ${system.name}`}>
-                    <Plus /> Novo nível
-                  </Button>
+                  {canCreate && (
+                    <Button variant="outline" size="sm" onClick={() => setLevelFor(system)} aria-label={`Novo nível em ${system.name}`}>
+                      <Plus /> Novo nível
+                    </Button>
+                  )}
                   {canEdit && (
                     <Button variant="ghost" size="sm" onClick={() => setEditingSystem(system)} aria-label={`Editar sistema ${system.name}`}>
                       <Pencil /> Editar
@@ -209,12 +213,14 @@ function SistemasTab() {
 
   return (
     <>
-      <div className="mb-4 flex flex-wrap justify-end gap-2">
-        <Button variant="outline" onClick={() => setTemplateOpen(true)}>
-          <LayoutTemplate /> Criar a partir de um modelo
-        </Button>
-        <Button onClick={() => setNewSystem(true)}>Novo sistema</Button>
-      </div>
+      {canCreate && (
+        <div className="mb-4 flex flex-wrap justify-end gap-2">
+          <Button variant="outline" onClick={() => setTemplateOpen(true)}>
+            <LayoutTemplate /> Criar a partir de um modelo
+          </Button>
+          <Button onClick={() => setNewSystem(true)}>Novo sistema</Button>
+        </div>
+      )}
       {renderBody()}
 
       <FormDialog<SystemFormValues>
@@ -343,6 +349,7 @@ function AlunosTab() {
   const updateGraduation = useUpdateGraduation(selectedId);
   const removeGraduation = useRemoveGraduation(selectedId);
   const canEdit = useCan("graduations", "edit");
+  const canCreate = useCan("graduations", "create"); // MONITOR/INSTRUTOR: só leitura (sem registrar graduação)
   const canDelete = useCan("graduations", "delete");
   const [registering, setRegistering] = useState(false);
   const [editing, setEditing] = useState<StudentGraduation | null>(null);
@@ -407,9 +414,11 @@ function AlunosTab() {
               ]),
             })}
           />
-          <Button disabled={!selectedId} onClick={() => setRegistering(true)}>
-            Registrar graduação
-          </Button>
+          {canCreate && (
+            <Button disabled={!selectedId} onClick={() => setRegistering(true)}>
+              Registrar graduação
+            </Button>
+          )}
         </div>
       </div>
 

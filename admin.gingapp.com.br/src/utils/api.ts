@@ -5,11 +5,18 @@ const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://
 
 export class ApiError extends Error {
   status: number
+  /** `code` do corpo de erro da API (ex.: PERSON_MERGE_SAME_GROUP), quando existe. */
+  code?: string
+  /** Corpo de erro bruto (campos extras como `organizations`). */
+  body?: unknown
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, body?: unknown) {
     super(message)
     this.name = 'ApiError'
     this.status = status
+    this.body = body
+    const code = (body as { code?: unknown } | null)?.code
+    if (typeof code === 'string') this.code = code
   }
 }
 
@@ -56,7 +63,7 @@ async function requestRaw<T>(path: string, options: RequestOptions = {}): Promis
 
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null)
-    throw new ApiError(apiErrorText(response.status, errorBody), response.status)
+    throw new ApiError(apiErrorText(response.status, errorBody), response.status, errorBody)
   }
 
   // Corpo vazio pode vir com 204 OU com 200/201 (endpoint que não devolve nada) — `.json()`

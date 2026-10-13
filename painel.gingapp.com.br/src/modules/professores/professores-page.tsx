@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowUpCircle, GraduationCap, KeyRound, MapPin, Plus, ShieldOff, UserMinus } from "lucide-react";
+import { ArrowUpCircle, GraduationCap, KeyRound, MapPin, Pencil, Plus, ShieldOff, UserMinus, UserX } from "lucide-react";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ResetPasswordDialog } from "@/components/painel/account-dialogs";
@@ -11,6 +11,7 @@ import { FormDialog } from "@/components/painel/form-dialog";
 import { ImageUploadField } from "@/components/painel/image-upload-field";
 import { PageHeader } from "@/components/painel/page-header";
 import { RoleBadges } from "@/components/painel/role-badges";
+import { RowActions, type MaybeRowAction } from "@/components/painel/row-actions";
 import { RopeSwatch } from "@/components/painel/rope-swatch";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -85,15 +86,15 @@ export function ProfessoresPage() {
   });
 
   const columns: Column<Teacher>[] = [
-    { id: "name", header: "Nome", sortValue: (t) => t.user.name, cell: (t) => (
+    { id: "name", header: "Nome", sticky: true, className: "min-w-52", sortValue: (t) => t.user.name, cell: (t) => (
         <span className="flex items-center gap-2 font-medium">
           <EntityAvatar name={t.user.name} photo={t.user.photo} icon={GraduationCap} className="size-9" />
           {t.user.name}
         </span>
       ),
     },
-    { id: "email", header: "E-mail", sortValue: (t) => t.user.email, cell: (t) => t.user.email },
-    { id: "phone", header: "Telefone", cell: (t) => t.user.phone || "—" },
+    { id: "email", header: "E-mail", className: "whitespace-nowrap", sortValue: (t) => t.user.email, cell: (t) => t.user.email },
+    { id: "phone", header: "Telefone", className: "whitespace-nowrap", cell: (t) => t.user.phone || "—" },
     {
       id: "units",
       header: "Unidades",
@@ -132,6 +133,60 @@ export function ProfessoresPage() {
   ];
 
   const isNew = editing === "new";
+
+  /** Editar fica à vista; o resto (cargos, unidades, senha, 2FA, inativar) vai para o menu "⋯". Permissões como antes. */
+  const teacherActions = (t: Teacher): MaybeRowAction[] => [
+    canEdit && { key: "edit", label: "Editar", icon: Pencil, primary: true, onSelect: () => setEditing(t) },
+    isMestre &&
+      !!t.student &&
+      t.status === "ACTIVE" &&
+      t.student.status === "ACTIVE" &&
+      canPromote(teacherRoles(t)) && {
+        key: "promote",
+        label: "Promover a…",
+        ariaLabel: `Promover ${t.user.name}`,
+        icon: ArrowUpCircle,
+        onSelect: () =>
+          setPromoting({ studentId: t.student!.id, name: t.user.name, email: t.user.email, roles: teacherRoles(t) }),
+      },
+    isMestre &&
+      !!t.student && {
+        key: "revoke",
+        label: "Revogar cargo",
+        ariaLabel: `Revogar cargo de ${t.user.name}`,
+        icon: UserMinus,
+        onSelect: () => setRevoking({ studentId: t.student!.id, name: t.user.name, roles: teacherRoles(t) }),
+      },
+    canEdit &&
+      t.role !== "MESTRE" && {
+        key: "units",
+        label: "Unidades de atuação",
+        ariaLabel: `Unidades de atuação de ${t.user.name}`,
+        icon: MapPin,
+        onSelect: () => setAssigningUnits(t),
+      },
+    canEdit &&
+      t.role !== "MESTRE" &&
+      t.status === "ACTIVE" && {
+        key: "reset-password",
+        label: "Redefinir senha",
+        ariaLabel: `Redefinir senha de ${t.user.name}`,
+        icon: KeyRound,
+        onSelect: () => setResetting(t),
+      },
+    isMestre &&
+      t.role !== "MESTRE" &&
+      t.status === "ACTIVE" &&
+      !!t.user.twoFactorEnabled && {
+        key: "reset-2fa",
+        label: "Redefinir 2FA",
+        ariaLabel: `Redefinir 2FA de ${t.user.name}`,
+        icon: ShieldOff,
+        onSelect: () => setResetting2fa(t),
+      },
+    canDelete &&
+      t.status === "ACTIVE" && { key: "deactivate", label: "Inativar", icon: UserX, destructive: true, onSelect: () => setDeleting(t) },
+  ];
 
   const table = (
     <DataTable
@@ -173,61 +228,7 @@ export function ProfessoresPage() {
           </NativeSelect>
         </div>
       }
-      rowActions={
-        canEdit || canDelete
-          ? (t) => (
-              <>
-                {canEdit && (
-                  <Button variant="ghost" size="sm" onClick={() => setEditing(t)}>
-                    Editar
-                  </Button>
-                )}
-                {isMestre && t.student && t.status === "ACTIVE" && t.student.status === "ACTIVE" && canPromote(teacherRoles(t)) && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() =>
-                      setPromoting({ studentId: t.student!.id, name: t.user.name, email: t.user.email, roles: teacherRoles(t) })
-                    }
-                    aria-label={`Promover ${t.user.name}`}
-                  >
-                    <ArrowUpCircle /> Promover a…
-                  </Button>
-                )}
-                {isMestre && t.student && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setRevoking({ studentId: t.student!.id, name: t.user.name, roles: teacherRoles(t) })}
-                    aria-label={`Revogar cargo de ${t.user.name}`}
-                  >
-                    <UserMinus /> Revogar cargo
-                  </Button>
-                )}
-                {canEdit && t.role !== "MESTRE" && (
-                  <Button variant="ghost" size="sm" onClick={() => setAssigningUnits(t)} aria-label={`Unidades de atuação de ${t.user.name}`}>
-                    <MapPin /> Unidades de atuação
-                  </Button>
-                )}
-                {canEdit && t.role !== "MESTRE" && t.status === "ACTIVE" && (
-                  <Button variant="ghost" size="sm" onClick={() => setResetting(t)} aria-label={`Redefinir senha de ${t.user.name}`}>
-                    <KeyRound /> Redefinir senha
-                  </Button>
-                )}
-                {isMestre && t.role !== "MESTRE" && t.status === "ACTIVE" && t.user.twoFactorEnabled && (
-                  <Button variant="ghost" size="sm" onClick={() => setResetting2fa(t)} aria-label={`Redefinir 2FA de ${t.user.name}`}>
-                    <ShieldOff /> Redefinir 2FA
-                  </Button>
-                )}
-                {canDelete && t.status === "ACTIVE" && (
-                  <Button variant="ghost" size="sm" onClick={() => setDeleting(t)}>
-                    Inativar
-                  </Button>
-                )}
-              </>
-            )
-          : undefined
-      }
+      rowActions={canEdit || canDelete ? (t) => <RowActions actions={teacherActions(t)} subject={t.user.name} /> : undefined}
     />
   );
 

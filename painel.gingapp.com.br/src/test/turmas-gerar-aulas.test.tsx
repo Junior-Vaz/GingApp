@@ -12,6 +12,7 @@ import {
   generateLessonsMessage,
   generateLessonsSchema,
 } from "@/modules/turmas/generate-lessons";
+import { clickMenuAction, expectMenuAction, queryMenuAction } from "./row-menu";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -130,7 +131,7 @@ describe("Turmas: professor responsável", () => {
     const calls = mockApi({ "PATCH /classes/1": () => json(200, {}) });
     renderUi(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await within(dialog).findByRole("option", { name: "Prof Pastinha" });
     await waitFor(() => expect(within(dialog).getByLabelText("Professor responsável")).toHaveValue("8"));
@@ -144,7 +145,7 @@ describe("Turmas: professor responsável", () => {
     mockApi({ "PATCH /classes/1": () => json(400, { message: "Professor inválido para esta organização." }) });
     renderUi(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Nome")).toHaveValue("Infantil"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
@@ -158,9 +159,9 @@ describe("Turmas: Gerar aulas", () => {
     mockApi();
     renderUi(<TurmasPage />);
     await screen.findByText("Infantil");
-    expect(screen.getByRole("button", { name: "Gerar aulas de Infantil" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Gerar aulas de Sem dia" })).not.toBeInTheDocument(); // sem dia
-    expect(screen.queryByRole("button", { name: "Gerar aulas de Antiga" })).not.toBeInTheDocument(); // inativa
+    await expectMenuAction("Gerar aulas de Infantil");
+    expect(queryMenuAction("Gerar aulas de Sem dia")).toBeNull(); // sem dia
+    expect(queryMenuAction("Gerar aulas de Antiga")).toBeNull(); // inativa
   });
 
   it("PROFESSOR (lessons:create) vê o botão; ALUNO não", async () => {
@@ -168,14 +169,14 @@ describe("Turmas: Gerar aulas", () => {
     mockApi();
     const first = renderUi(<TurmasPage />);
     await screen.findByText("Infantil");
-    expect(screen.getByRole("button", { name: "Gerar aulas de Infantil" })).toBeInTheDocument();
+    await expectMenuAction("Gerar aulas de Infantil");
     first.unmount();
 
     loginAs("ALUNO");
     mockApi();
     renderUi(<TurmasPage />);
     await screen.findByText("Infantil");
-    expect(screen.queryByRole("button", { name: /Gerar aulas/ })).not.toBeInTheDocument();
+    expect(queryMenuAction(/Gerar aulas/)).toBeNull();
   });
 
   it("abre em modo Contínuo (padrão): sem campos de período, texto dos ~60 dias e POST SEM `to`", async () => {
@@ -185,7 +186,7 @@ describe("Turmas: Gerar aulas", () => {
     });
     renderUi(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getByRole("button", { name: "Gerar aulas de Infantil" }));
+    await clickMenuAction("Gerar aulas de Infantil");
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("switch", { name: "Contínuo (sem data final)" })).toBeChecked();
     expect(within(dialog).getByText(/mantém ~60 dias de aulas à frente automaticamente/)).toBeInTheDocument();
@@ -209,7 +210,7 @@ describe("Turmas: Gerar aulas", () => {
     });
     renderUi(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getByRole("button", { name: "Gerar aulas de Infantil" }));
+    await clickMenuAction("Gerar aulas de Infantil");
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText(/uma aula para cada terça/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("switch", { name: "Contínuo (sem data final)" }));
@@ -234,7 +235,7 @@ describe("Turmas: Gerar aulas", () => {
     const calls = mockApi();
     renderUi(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getByRole("button", { name: "Gerar aulas de Infantil" }));
+    await clickMenuAction("Gerar aulas de Infantil");
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("switch", { name: "Contínuo (sem data final)" }));
 
@@ -253,7 +254,7 @@ describe("Turmas: Gerar aulas", () => {
     mockApi({ "POST /classes/1/generate-lessons": () => json(400, { message: "Turma inativa: reative a turma antes de gerar aulas." }) });
     renderUi(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getByRole("button", { name: "Gerar aulas de Infantil" }));
+    await clickMenuAction("Gerar aulas de Infantil");
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Gerar aulas" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Turma inativa: reative a turma antes de gerar aulas."));
@@ -274,11 +275,11 @@ describe("Turmas: Gerar aulas", () => {
         <TurmasPage />
       </QueryClientProvider>,
     );
-    await screen.findByRole("button", { name: "Gerar aulas de Infantil" });
+    await expectMenuAction("Gerar aulas de Infantil");
     const lessonFetches = () => calls.filter((c) => c.method === "GET" && c.path === "/lessons").length;
     await waitFor(() => expect(lessonFetches()).toBeGreaterThan(0));
     const before = lessonFetches();
-    fireEvent.click(screen.getByRole("button", { name: "Gerar aulas de Infantil" }));
+    await clickMenuAction("Gerar aulas de Infantil");
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Gerar aulas" }));
     await waitFor(() => expect(lessonFetches()).toBeGreaterThan(before));

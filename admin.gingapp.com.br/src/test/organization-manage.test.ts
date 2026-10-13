@@ -227,3 +227,44 @@ describe('OrganizationDetailView — desativar / reativar', () => {
     expect(wrapper.get('[data-testid="org-status"]').text()).toBe('Ativo')
   })
 })
+
+describe('OrganizationDetailView — reativo ao :id da rota', () => {
+  const org = (id: number, name: string) => ({ body: { ...baseOrg, id, name, slug: `g-${id}`, mestres: [] } })
+
+  it('mudar route.params.id recarrega o grupo certo e descarta a resposta atrasada do id anterior', async () => {
+    const { pinia } = loginAs(makeUser())
+    const router = makeRouter()
+    await router.push('/organizations/9')
+    await router.isReady()
+    let releaseNine: () => void = () => {}
+    const nineGate = new Promise<void>((resolve) => (releaseNine = resolve))
+    const { calls } = mockFetch(async (call) => {
+      if (call.path === '/organizations/9') {
+        await nineGate // resposta do grupo 9 só chega DEPOIS de o usuário ir para o 10
+        return org(9, 'Grupo Nove')
+      }
+      if (call.path === '/organizations/10') return org(10, 'Grupo Dez')
+      return { body: [] }
+    })
+    const wrapper = mount(OrganizationDetailView, { global: { plugins: [pinia, router] }, attachTo: document.body })
+    await flushPromises()
+
+    await router.push('/organizations/10')
+    await flushPromises()
+    expect(calls.some((c) => c.path === '/organizations/10')).toBe(true)
+    expect(calls.find((c) => c.path === '/subscriptions' && c.query.get('organizationId') === '10')).toBeDefined()
+    expect(wrapper.text()).toContain('Grupo Dez')
+
+    releaseNine()
+    await flushPromises()
+    expect(wrapper.text()).toContain('Grupo Dez')
+    expect(wrapper.text()).not.toContain('Grupo Nove')
+    wrapper.unmount()
+  })
+
+  it('não exibe mais o placeholder de próximas fases', async () => {
+    const { wrapper } = await mountDetail((call) => (call.path === '/organizations/9' ? orgReply() : undefined))
+    expect(wrapper.text()).not.toContain('próximas fases')
+    wrapper.unmount()
+  })
+})

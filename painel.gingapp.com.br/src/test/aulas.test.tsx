@@ -64,9 +64,13 @@ const mutations = (calls: Call[]) => calls.filter((c) => c.method !== "GET");
 
 beforeEach(() => {
   loginAs("MESTRE"); // a UI esconde ações conforme o papel (useCan); os testes de PROFESSOR trocam o papel
+  // Só o Date é congelado: "hoje" = 10/03/2026, então o período atual é 03/03/2026 a 09/04/2026.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 2, 10, 12, 0, 0));
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
@@ -112,7 +116,11 @@ describe("AulasPage", () => {
     const first = queries["/lessons"]![0]!;
     expect(first.get("limit")).toBe("10");
     expect(first.get("offset")).toBe("0");
-    for (const k of ["classId", "status", "from", "to", "q"]) expect(first.has(k)).toBe(false);
+    for (const k of ["classId", "status", "q"]) expect(first.has(k)).toBe(false);
+    // padrão = período atual (hoje-7 a hoje+30), mais próximas de hoje primeiro
+    expect(first.get("from")).toBe("2026-03-03");
+    expect(first.get("to")).toBe("2026-04-09");
+    expect(first.get("order")).toBe("nearest");
     // selects auxiliares pedem o máximo do servidor
     expect(queries["/classes"]![0]!.get("limit")).toBe("200");
     expect(queries["/teachers"]![0]!.get("limit")).toBe("200");
@@ -136,7 +144,9 @@ describe("AulasPage", () => {
     expect(lastQuery().get("from")).toBe("2026-03-06");
     fireEvent.change(screen.getByLabelText("Data inicial"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Data final"), { target: { value: "" } });
-    await waitFor(() => expect(lastQuery().has("from") || lastQuery().has("to")).toBe(false));
+    // sem datas escolhidas, volta à janela do período atual
+    await waitFor(() => expect(lastQuery().get("from")).toBe("2026-03-03"));
+    expect(lastQuery().get("to")).toBe("2026-04-09");
     // busca com debounce: um só GET com q
     fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "ro" } });
     fireEvent.change(screen.getByLabelText("Buscar"), { target: { value: "roda" } });
@@ -181,9 +191,29 @@ describe("AulasPage", () => {
     setup({ lessons: json(500, { message: "Falhou feio." }) });    expect(await screen.findByTestId("table-error")).toHaveTextContent("Falhou feio.");
   });
 
-  it("estado vazio", async () => {
+  it("período 'Todas' tira from/to (mantém order=nearest) e volta ao atual; paginação volta à pág. 1", async () => {
+    const { queries } = setup();
+    await screen.findByRole("cell", { name: "Infantil" });
+    expect(queries["/lessons"]![0]!.get("order")).toBe("nearest");
+    expect(screen.getByLabelText("Período")).toHaveValue("current");
+    fireEvent.change(screen.getByLabelText("Período"), { target: { value: "all" } });
+    await waitFor(() => {
+      const q = queries["/lessons"]!.at(-1)!;
+      expect(q.has("from") || q.has("to")).toBe(false);
+    });
+    const all = queries["/lessons"]!.at(-1)!;
+    expect(all.get("order")).toBe("nearest");
+    expect(all.get("limit")).toBe("10");
+    expect(all.get("offset")).toBe("0");
+    fireEvent.change(screen.getByLabelText("Período"), { target: { value: "current" } });
+    await waitFor(() => expect(queries["/lessons"]!.at(-1)!.get("from")).toBe("2026-03-03"));
+  });
+
+  it("estado vazio: no período atual sugere 'Todas'; em 'Todas' diz que não há aulas", async () => {
     setup({ lessons: json(200, []) });
-    expect(await screen.findByTestId("table-empty")).toHaveTextContent("Nenhuma aula cadastrada ainda.");
+    expect(await screen.findByTestId("table-empty")).toHaveTextContent("Nenhuma aula entre 7 dias atrás e 30 dias à frente");
+    fireEvent.change(screen.getByLabelText("Período"), { target: { value: "all" } });
+    await waitFor(() => expect(screen.getByTestId("table-empty")).toHaveTextContent("Nenhuma aula cadastrada ainda."));
   });
 
   it("valida turma e data antes de enviar (nenhuma chamada de escrita)", async () => {

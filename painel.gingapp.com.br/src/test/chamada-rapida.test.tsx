@@ -120,7 +120,7 @@ describe("Chamada rápida (botão flutuante)", () => {
 
     fireEvent.click(presente);
     expect(presente).toHaveAttribute("aria-pressed", "true");
-    expect(within(dialog).getByTestId("quick-summary")).toHaveTextContent("1 presentes · 0 ausentes · 1 sem chamada");
+    expect(within(dialog).getByTestId("quick-summary")).toHaveTextContent("1 presente · 0 ausentes · 1 sem chamada");
     expect(within(dialog).getByText("Alterações não salvas.")).toBeInTheDocument();
     expect(save).toBeEnabled();
 

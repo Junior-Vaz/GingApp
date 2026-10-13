@@ -85,6 +85,8 @@ export function ComunicadosPage() {
   const update = announcements.useUpdate();
   const remove = announcements.useRemove();
   // Espelha a matriz do seed: PROFESSOR não tem announcements:delete (o backend decide de fato).
+  const canCreate = useCan("announcements", "create"); // MONITOR: só leitura
+  const canEdit = useCan("announcements", "edit");
   const canDelete = useCan("announcements", "delete");
 
   const [editing, setEditing] = useState<Announcement | "new" | null>(null);
@@ -177,9 +179,11 @@ export function ComunicadosPage() {
         title="Comunicados"
         description="Avisos internos do grupo. Ao publicar, cada pessoa do público recebe uma notificação."
         actions={
-          <Button onClick={() => setEditing("new")}>
-            <Megaphone /> Novo comunicado
-          </Button>
+          canCreate ? (
+            <Button onClick={() => setEditing("new")}>
+              <Megaphone /> Novo comunicado
+            </Button>
+          ) : undefined
         }
       />
       <DataTable
@@ -228,9 +232,11 @@ export function ComunicadosPage() {
         }
         rowActions={(a) => (
           <>
-            <Button variant="ghost" size="sm" onClick={() => setEditing(a)}>
-              Editar
-            </Button>
+            {canEdit && (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(a)}>
+                Editar
+              </Button>
+            )}
             {canDelete && a.isActive && (
               <Button variant="ghost" size="sm" onClick={() => setDeleting(a)}>
                 Desativar

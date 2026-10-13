@@ -31,6 +31,7 @@ import {
 } from "@/lib/queries";
 import { ClassCover, MyClasses, TeacherLine, UnitLine } from "./class-parts";
 import { PushSettings } from "./push-settings";
+import { plural } from "@/lib/plural";
 import { TransfersShortcut } from "./transfers";
 import { LoadMore, PageHeading, SectionHeading, StateMessage } from "./shared";
 
@@ -116,6 +117,7 @@ export function ClassesPage() {
                 loading={upcomingQuery.isFetchingNextPage}
                 onMore={() => void upcomingQuery.fetchNextPage()}
                 noun="aulas"
+                nounSingular="aula"
               />
             </>
           )}
@@ -130,6 +132,7 @@ export function ClassesPage() {
                 loading={pastQuery.isFetchingNextPage}
                 onMore={() => void pastQuery.fetchNextPage()}
                 noun="aulas anteriores"
+                nounSingular="aula anterior"
               />
             </>
           )}
@@ -256,7 +259,7 @@ export function AttendancePage() {
             )}
             {monthTotal > records.length && (
               <p className="text-xs text-muted-foreground mt-4" role="status">
-                Exibindo {records.length} de {monthTotal} registros deste mês.
+                Exibindo {records.length} de {plural(monthTotal, "registro")} deste mês.
               </p>
             )}
             {monthRecords.some((r) => !r.present && r.justification) && (
@@ -399,6 +402,7 @@ export function FinancialPage() {
             loading={finance.isFetchingNextPage}
             onMore={() => void finance.fetchNextPage()}
             noun="lançamentos"
+            nounSingular="lançamento"
           />
           <p className="text-xs text-muted-foreground mt-5">Dados sempre buscados online — esta tela não fica disponível offline.</p>
         </>
@@ -531,6 +535,7 @@ export function NotificationsPage() {
             loading={notifications.isFetchingNextPage}
             onMore={() => void notifications.fetchNextPage()}
             noun="notificações"
+            nounSingular="notificação"
           />
         </>
       )}
@@ -552,7 +557,7 @@ export function NotificationsPage() {
           </div>
           {announcements.total !== null && announcements.total > (announcements.data?.length ?? 0) && (
             <p className="text-xs text-muted-foreground py-2" role="status">
-              Mostrando {announcements.data?.length ?? 0} de {announcements.total} recados do grupo.
+              Mostrando {announcements.data?.length ?? 0} de {plural(announcements.total, "recado")} do grupo.
             </p>
           )}
         </>

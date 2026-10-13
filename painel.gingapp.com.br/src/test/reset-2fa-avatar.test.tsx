@@ -7,6 +7,7 @@ import { AcessoAlunoDialog } from "@/modules/alunos/acesso-aluno-dialog";
 import type { Student } from "@/modules/alunos/schema";
 import { ProfessoresPage } from "@/modules/professores/professores-page";
 import { clearSession, loginAs } from "./login-as";
+import { clickMenuAction, queryMenuAction } from "./row-menu";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -72,9 +73,9 @@ describe("Redefinir 2FA no painel (só Mestre)", () => {
     });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Pastinha");
-    expect(screen.queryByRole("button", { name: "Redefinir 2FA de Sem Dois" })).toBeNull();
+    expect(queryMenuAction("Redefinir 2FA de Sem Dois")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Redefinir 2FA de Pastinha" }));
+    await clickMenuAction("Redefinir 2FA de Pastinha");
     const dialog = await screen.findByRole("alertdialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Redefinir 2FA" }));
     await waitFor(() => expect(calls.filter((c) => c.method === "POST" && c.path === "/auth/2fa/reset/21")).toHaveLength(1));
@@ -89,7 +90,7 @@ describe("Redefinir 2FA no painel (só Mestre)", () => {
     });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Pastinha");
-    fireEvent.click(screen.getByRole("button", { name: "Redefinir 2FA de Pastinha" }));
+    await clickMenuAction("Redefinir 2FA de Pastinha");
     fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Redefinir 2FA" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
@@ -101,7 +102,7 @@ describe("Redefinir 2FA no painel (só Mestre)", () => {
     mockApi({ "GET /teachers": list, "GET /units": () => json(200, []) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Pastinha");
-    expect(screen.queryByRole("button", { name: /Redefinir 2FA/ })).toBeNull();
+    expect(queryMenuAction(/Redefinir 2FA/)).toBeNull();
   });
 
   it("acesso do aluno: conta com 2FA mostra o botão e chama o reset com o id do USUÁRIO", async () => {

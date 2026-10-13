@@ -63,7 +63,7 @@ afterEach(() => {
 
 async function openDialog() {
   await screen.findByText("Infantil");
-  fireEvent.click(screen.getByRole("button", { name: "Alunos" }));
+  fireEvent.click(screen.getByRole("button", { name: "Alunos de Infantil" }));
   return screen.findByRole("dialog");
 }
 

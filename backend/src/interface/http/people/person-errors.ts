@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 
 /**
  * Codigos de erro da FICHA UNICA (campo `code` do corpo; os frontends reagem a eles). Corpo sempre
@@ -28,6 +28,12 @@ export const PersonErrorCode = {
   TRANSFER_EXPIRED: 'TRANSFER_EXPIRED',
   TRANSFER_CONTEST_CLOSED: 'TRANSFER_CONTEST_CLOSED',
   TRANSFER_INVALID_UNIT: 'TRANSFER_INVALID_UNIT',
+  // Convite guiado (link de aprovacao para adulto sem login)
+  TRANSFER_APPROVAL_INVALID: 'TRANSFER_APPROVAL_INVALID',
+  APPROVAL_LINK_NOT_NEEDED: 'APPROVAL_LINK_NOT_NEEDED',
+  MINOR_REQUIRES_GUARDIAN: 'MINOR_REQUIRES_GUARDIAN',
+  EMAIL_REQUIRED: 'EMAIL_REQUIRED',
+  EMAIL_IN_USE: 'EMAIL_IN_USE',
 } as const;
 
 export type PersonErrorCodeValue = (typeof PersonErrorCode)[keyof typeof PersonErrorCode];
@@ -60,6 +66,12 @@ export const PERSON_MESSAGES: Record<PersonErrorCodeValue, string> = {
   TRANSFER_EXPIRED: 'Este pedido de transferência expirou.',
   TRANSFER_CONTEST_CLOSED: 'O prazo de contestação deste pedido terminou (ou o pedido foi encerrado).',
   TRANSFER_INVALID_UNIT: 'Unidade inválida para este grupo.',
+  TRANSFER_APPROVAL_INVALID: 'Link inválido, já usado ou expirado. Peça um novo ao mestre do grupo.',
+  APPROVAL_LINK_NOT_NEEDED:
+    'O link de aprovação serve só para adultos sem login. Esta pessoa já tem login (ou é menor e o responsável aprova pelo app).',
+  MINOR_REQUIRES_GUARDIAN: 'Menores de idade não aprovam por link. O responsável deve entrar no app com o login dele e aprovar em Transferências.',
+  EMAIL_REQUIRED: 'Informe um e-mail para criar o seu acesso.',
+  EMAIL_IN_USE: 'Este e-mail já tem uma conta no GingApp. Entre no app com ela e aprove o pedido em Transferências.',
 };
 
 function body(code: PersonErrorCodeValue, status: number, error: string, extra: Record<string, unknown> = {}) {
@@ -70,6 +82,9 @@ export const personBadRequest = (code: PersonErrorCodeValue, extra?: Record<stri
   new BadRequestException(body(code, 400, 'Bad Request', extra));
 export const personConflict = (code: PersonErrorCodeValue, extra?: Record<string, unknown>) =>
   new ConflictException(body(code, 409, 'Conflict', extra));
+export const personForbidden = (code: PersonErrorCodeValue, extra?: Record<string, unknown>) =>
+  new ForbiddenException(body(code, 403, 'Forbidden', extra));
+export const approvalInvalid = () => new NotFoundException(body(PersonErrorCode.TRANSFER_APPROVAL_INVALID, 404, 'Not Found'));
 export const personNotFound = (extra?: Record<string, unknown>) =>
   new NotFoundException(body(PersonErrorCode.PERSON_NOT_FOUND, 404, 'Not Found', extra));
 export const transferNotFound = () => new NotFoundException(body(PersonErrorCode.TRANSFER_NOT_FOUND, 404, 'Not Found'));

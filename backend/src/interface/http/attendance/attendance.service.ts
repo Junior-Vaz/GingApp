@@ -7,7 +7,7 @@ import { civilTodayStart } from '../finance/finance.service';
 import { timeToMinutes, isTimeOfDay } from '../../../shared/dates/time-of-day';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
-import { lessonScopeFilter, UnitScopeService } from '../../../shared/access/unit-scope';
+import { lessonScopeFilter, monitorLessonFilter, UnitScopeService } from '../../../shared/access/unit-scope';
 import { RankingService } from '../ranking/ranking.service';
 import { StudentsService } from '../students/students.service';
 import { ListMyAttendanceQueryDto } from './dto/list-my-attendance-query.dto';
@@ -85,7 +85,7 @@ export class AttendanceService {
   async findAll(organizationId: number, user?: AuthenticatedUser) {
     const scope = await this.unitScope.resolve(user, organizationId);
     return this.prisma.attendance.findMany({
-      where: { organizationId, lesson: lessonScopeFilter(scope) },
+      where: { organizationId, lesson: { AND: [lessonScopeFilter(scope), monitorLessonFilter(user)] } },
       orderBy: { id: 'desc' },
       take: 50,
     });
@@ -213,7 +213,7 @@ export class AttendanceService {
         status: 'ACTIVE',
         date: { gte: today, lt: new Date(today.getTime() + DAY_MS) },
         class: { status: 'ACTIVE' },
-        AND: [lessonScopeFilter(scope)],
+        AND: [lessonScopeFilter(scope), monitorLessonFilter(user)],
       },
       include: {
         class: { select: { id: true, name: true, photo: true, startTime: true, endTime: true, unit: { select: { name: true } } } },
@@ -328,7 +328,7 @@ export class AttendanceService {
   private async assertLessonBelongsToOrganization(organizationId: number, lessonId: number, user?: AuthenticatedUser) {
     const scope = await this.unitScope.resolve(user, organizationId);
     const lesson = await this.prisma.lesson.findFirst({
-      where: { id: lessonId, organizationId, AND: [lessonScopeFilter(scope)] },
+      where: { id: lessonId, organizationId, AND: [lessonScopeFilter(scope), monitorLessonFilter(user)] },
     });
     if (!lesson) {
       throw new NotFoundException('Aula não encontrada.');

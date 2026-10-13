@@ -1,3 +1,4 @@
+import { plural } from "@/lib/plural";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { api, buildQuery, type QueryParams } from "@/lib/api";
@@ -123,7 +124,7 @@ export function useFinanceActions() {
       toast.success(
         result.marked === 0
           ? "Nenhum lançamento novo para marcar como atrasado."
-          : `${result.marked} lançamento(s) marcado(s) como atrasado(s); ${result.notified} aviso(s) enviado(s).${result.hasMore ? " Há mais: clique de novo." : ""}`,
+          : `${plural(result.marked, "lançamento marcado como atrasado", "lançamentos marcados como atrasados")}; ${plural(result.notified, "aviso enviado", "avisos enviados")}.${result.hasMore ? " Há mais: clique de novo." : ""}`,
       );
     },
     onError: (error) => notifyError(error),

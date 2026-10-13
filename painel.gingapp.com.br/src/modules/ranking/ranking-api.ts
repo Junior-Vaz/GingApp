@@ -9,7 +9,7 @@ export type RankingBand = "KIDS" | "YOUTH" | "ADULT";
 export type GroupsScope = "CITY" | "STATE" | "COUNTRY";
 
 export interface RankingLevel {
-  /** CRUA, VERDE, AMARELA, AZUL, ROXA, MARROM ou PRETA. */
+  /** Código estável: CRUA, VERDE, AMARELA, AZUL, ROXA, MARROM ou PRETA (nomes exibidos: Semente, Broto, Ginga, Roda, Axé, Mandinga, Lenda). */
   code: string;
   name: string;
   color: string;

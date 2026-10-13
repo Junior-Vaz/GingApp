@@ -11,7 +11,7 @@ export interface Certificate {
   issuedAt: string | null;
   verificationCode: string;
   fileUrl: string | null;
-  student: { id: number; name: string };
+  student: { id: number; name: string; /** Foto (ainda não enviada pelo backend): cai nas iniciais. */ photo?: string | null | undefined };
 }
 
 export interface StudentRef {

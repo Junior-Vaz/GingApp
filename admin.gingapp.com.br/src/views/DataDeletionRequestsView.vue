@@ -2,8 +2,9 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import { useAuthStore } from '@/stores/auth'
-import { api, errorMessage } from '@/utils/api'
+import { api, ApiError, errorMessage } from '@/utils/api'
 import { formatDateTime } from '@/utils/format'
+import { plural } from '@/utils/plural'
 
 type RequestStatus = 'PENDING' | 'IN_PROGRESS' | 'DONE' | 'REJECTED'
 
@@ -58,6 +59,27 @@ const target = ref<DeletionRequest | null>(null)
 const form = reactive({ status: 'IN_PROGRESS' as RequestStatus, note: '' })
 const isSaving = ref(false)
 const formError = ref('')
+
+const CONFIRM_WORD = 'ANONIMIZAR'
+interface AnonymizeResult {
+  personId: number | null
+  studentsAnonymized: number
+  userDeactivated: boolean
+  occurrencesRetained: number
+}
+const anonTarget = ref<DeletionRequest | null>(null)
+const anonConfirmText = ref('')
+const anonError = ref('')
+const isAnonymizing = ref(false)
+/** Só pedidos não finais podem ser anonimizados (o servidor responde 409 DELETION_REQUEST_FINAL ao resto). */
+function canAnonymize(request: DeletionRequest): boolean {
+  return canHandle.value && (request.status === 'PENDING' || request.status === 'IN_PROGRESS')
+}
+const anonConfirmed = computed(() => {
+  const typed = anonConfirmText.value.trim()
+  if (!anonTarget.value) return false
+  return typed.toUpperCase() === CONFIRM_WORD || typed.toLowerCase() === anonTarget.value.userEmail.toLowerCase()
+})
 
 function statusLabel(status: string): string {
   return STATUS_LABEL[status as RequestStatus] ?? status
@@ -129,6 +151,57 @@ async function submitHandle(): Promise<void> {
     formError.value = errorMessage(e, 'Não foi possível atualizar o pedido.')
   } finally {
     isSaving.value = false
+  }
+}
+
+function openAnonymize(request: DeletionRequest): void {
+  anonTarget.value = request
+  anonConfirmText.value = ''
+  anonError.value = ''
+}
+
+function closeAnonymize(): void {
+  if (isAnonymizing.value) return
+  anonTarget.value = null
+}
+
+function anonymizeErrorText(e: unknown): string {
+  if (!(e instanceof ApiError)) return 'Não foi possível anonimizar o usuário.'
+  switch (e.code) {
+    case 'DELETION_REQUEST_FINAL':
+      return 'Este pedido já foi finalizado e não pode mais ser anonimizado.'
+    case 'ANONYMIZE_PLATFORM_USER':
+      return 'O usuário é da equipe da plataforma: trate este pedido manualmente.'
+    case 'CONFIRM_REQUIRED':
+      return 'Confirmação obrigatória ausente.'
+    default:
+      return e.status === 404 ? 'Pedido não encontrado.' : e.message || 'Não foi possível anonimizar o usuário.'
+  }
+}
+
+async function submitAnonymize(): Promise<void> {
+  const request = anonTarget.value
+  if (!request || !anonConfirmed.value || isAnonymizing.value) return
+  isAnonymizing.value = true
+  anonError.value = ''
+  try {
+    const response = await api.post<{ request: DeletionRequest; result: AnonymizeResult }>(
+      `/data-deletion-requests/${request.id}/anonymize`,
+      { confirm: true },
+    )
+    const result = response.result
+    anonTarget.value = null
+    const index = requests.value.findIndex((r) => r.id === request.id)
+    if (index >= 0 && response.request) requests.value[index] = { ...requests.value[index], ...response.request }
+    notice.value =
+      `Pedido #${request.id} anonimizado: ${plural(result.studentsAnonymized, 'matrícula')} ${result.studentsAnonymized === 1 ? 'anonimizada' : 'anonimizadas'}, ` +
+      `login ${result.userDeactivated ? 'desativado' : 'não desativado'}, ` +
+      `${plural(result.occurrencesRetained, 'ocorrência')} ${result.occurrencesRetained === 1 ? 'retida' : 'retidas'}.`
+  } catch (e) {
+    anonError.value = anonymizeErrorText(e)
+    if (e instanceof ApiError && (e.code === 'DELETION_REQUEST_FINAL' || e.status === 404)) void load()
+  } finally {
+    isAnonymizing.value = false
   }
 }
 
@@ -244,6 +317,15 @@ onMounted(async () => {
               <button type="button" data-action="handle" class="text-sm font-medium text-slate-600 hover:text-slate-900" @click="openHandle(request)">
                 Tratar
               </button>
+              <button
+                v-if="canAnonymize(request)"
+                type="button"
+                data-action="anonymize"
+                class="ml-3 text-sm font-medium text-red-600 hover:text-red-800"
+                @click="openAnonymize(request)"
+              >
+                Anonimizar
+              </button>
             </td>
           </tr>
         </tbody>
@@ -282,6 +364,48 @@ onMounted(async () => {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+
+    <div v-if="anonTarget" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+      <div class="w-full max-w-lg rounded-xl bg-white p-6 shadow-xl" role="dialog" aria-modal="true" data-testid="anonymize-dialog">
+        <h2 class="text-lg font-semibold text-slate-900">Anonimizar usuário do pedido #{{ anonTarget.id }}</h2>
+        <p class="mt-1 text-sm text-slate-500">{{ anonTarget.userName }} — {{ anonTarget.userEmail }}</p>
+        <p class="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+          Esta ação é IRREVERSÍVEL.
+        </p>
+        <ul class="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-700">
+          <li>O nome passa a ser "Pessoa removida"; apelido, foto, contato e CPF são removidos.</li>
+          <li>O login é desativado e todas as sessões são revogadas.</li>
+          <li>Frequência e graduações permanecem, mas sem identificar a pessoa.</li>
+          <li>O pedido é marcado como Concluído.</li>
+        </ul>
+        <div class="mt-4">
+          <label for="anonymize-confirm" class="mb-1 block text-sm font-medium text-slate-700">
+            Para confirmar, digite <strong>{{ CONFIRM_WORD }}</strong> ou o e-mail do usuário
+          </label>
+          <input
+            id="anonymize-confirm"
+            v-model="anonConfirmText"
+            type="text"
+            autocomplete="off"
+            data-testid="anonymize-confirm-input"
+            class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+          />
+        </div>
+        <p v-if="anonError" role="alert" data-testid="anonymize-error" class="mt-3 text-sm text-red-600">{{ anonError }}</p>
+        <div class="mt-5 flex justify-end gap-2">
+          <button type="button" class="rounded-md px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" @click="closeAnonymize">Cancelar</button>
+          <button
+            type="button"
+            data-testid="anonymize-submit"
+            :disabled="!anonConfirmed || isAnonymizing"
+            class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+            @click="submitAnonymize"
+          >
+            {{ isAnonymizing ? 'Anonimizando…' : 'Anonimizar definitivamente' }}
+          </button>
+        </div>
       </div>
     </div>
   </div>

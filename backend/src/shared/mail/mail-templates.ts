@@ -68,6 +68,29 @@ export function renderPasswordResetMail(input: { name: string; link: string; exp
   };
 }
 
+export function renderTransferApprovalMail(input: {
+  name: string;
+  groupName: string;
+  link: string;
+  expiresInDays: number;
+}): RenderedMail {
+  const hello = greeting(input.name);
+  const intro = `O grupo ${input.groupName} pediu a sua transferência para lá no GingApp. Se você aprovar, a sua frequência, graduações e certificados passam a ser vistos por esse grupo, e a sua matrícula atual será encerrada.`;
+  const validity = `Este link vale por até ${input.expiresInDays} dias e só pode ser usado uma vez.`;
+  const ignore = 'Se você não reconhece este pedido, ignore este e-mail: nada será alterado.';
+  return {
+    subject: `Pedido de transferência - ${input.groupName} (GingApp)`,
+    text: [hello, '', intro, 'Para ver os detalhes e aprovar ou recusar, acesse o link abaixo:', input.link, '', validity, ignore].join('\n'),
+    html: layout(
+      'Pedido de transferência',
+      [escapeHtml(hello), escapeHtml(intro), escapeHtml(validity)],
+      input.link,
+      'Ver o pedido',
+      ignore,
+    ),
+  };
+}
+
 export function renderInviteMail(input: {
   name: string;
   groupName: string;

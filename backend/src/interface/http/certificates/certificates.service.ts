@@ -26,7 +26,7 @@ const PDF_INCLUDE = {
 
 /** Leitura (lista, detalhe, /me): aluno + a graduação de origem com o nível no contrato de corda. */
 const LIST_INCLUDE = {
-  student: { select: { id: true, name: true } },
+  student: { select: { id: true, name: true, photo: true } },
   studentGraduation: { select: { id: true, graduatedAt: true, graduationLevel: { select: LEVEL_SELECT } } },
 } satisfies Prisma.CertificateInclude;
 

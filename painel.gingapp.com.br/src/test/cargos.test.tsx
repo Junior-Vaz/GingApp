@@ -9,6 +9,7 @@ import type { Student } from "@/modules/alunos/schema";
 import { GraduacoesPage } from "@/modules/graduacoes/graduacoes-page";
 import { ProfessoresPage } from "@/modules/professores/professores-page";
 import { highestRole, promotableRoles, sortRoles } from "@/lib/staff-roles";
+import { clickMenuAction, expectMenuAction, queryMenuAction } from "./row-menu";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -170,9 +171,9 @@ describe("Equipe: selos, corda e filtro por cargo", () => {
     mockApi(teamRoutes());
     renderPage(<ProfessoresPage />);
     await screen.findByText("Zé Monitor");
-    expect(screen.getByRole("button", { name: "Unidades de atuação de Zé Monitor" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Redefinir senha de Zé Monitor" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Unidades de atuação de Mestre Bimba" })).toBeNull();
+    await expectMenuAction("Unidades de atuação de Zé Monitor");
+    await expectMenuAction("Redefinir senha de Zé Monitor");
+    expect(queryMenuAction("Unidades de atuação de Mestre Bimba")).toBeNull();
   });
 });
 
@@ -181,14 +182,14 @@ describe("Equipe: Promover a… e Revogar cargo", () => {
     const calls = mockApi({ ...teamRoutes(), "POST /roles/grant": () => json(201, { studentId: 102, userId: 3, roles: ["PROFESSOR", "MONITOR"], accessRole: "PROFESSOR" }) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Pastinha");
-    expect(screen.queryByRole("button", { name: "Promover Mestre Bimba" })).toBeNull(); // já tem o maior cargo
-    fireEvent.click(screen.getByRole("button", { name: "Promover Pastinha" }));
+    expect(queryMenuAction("Promover Mestre Bimba")).toBeNull(); // já tem o maior cargo
+    await clickMenuAction("Promover Pastinha");
     let dialog = await screen.findByRole("dialog", { name: "Promover a…" });
     expect(within(within(dialog).getByLabelText("Novo cargo")).getAllByRole("option").map((o) => o.textContent)).toEqual(["Mestre"]);
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancelar" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-    fireEvent.click(screen.getByRole("button", { name: "Promover Zé Monitor" }));
+    await clickMenuAction("Promover Zé Monitor");
     dialog = await screen.findByRole("dialog", { name: "Promover a…" });
     const select = within(dialog).getByLabelText("Novo cargo");
     expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Instrutor", "Professor", "Mestre"]);
@@ -210,7 +211,7 @@ describe("Equipe: Promover a… e Revogar cargo", () => {
     });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Zé Monitor");
-    fireEvent.click(screen.getByRole("button", { name: "Promover Zé Monitor" }));
+    await clickMenuAction("Promover Zé Monitor");
     const promote = await screen.findByRole("dialog", { name: "Promover a…" });
     fireEvent.click(within(promote).getByRole("button", { name: /Promover$/ })); // Instrutor (o próximo cargo)
     const access = await screen.findByRole("dialog", { name: "Criar acesso para conceder o cargo" });
@@ -229,7 +230,7 @@ describe("Equipe: Promover a… e Revogar cargo", () => {
     mockApi({ ...teamRoutes(), "POST /roles/grant": () => json(409, { message: "x", code: "STUDENT_NOT_ACTIVE" }) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Zé Monitor");
-    fireEvent.click(screen.getByRole("button", { name: "Promover Zé Monitor" }));
+    await clickMenuAction("Promover Zé Monitor");
     const promote = await screen.findByRole("dialog", { name: "Promover a…" });
     fireEvent.click(within(promote).getByRole("button", { name: /Promover$/ }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("A matrícula do aluno precisa estar ativa para receber um cargo."));
@@ -240,7 +241,7 @@ describe("Equipe: Promover a… e Revogar cargo", () => {
     const calls = mockApi({ ...teamRoutes(), "POST /roles/revoke": () => json(200, { studentId: 101, userId: 2, roles: ["MONITOR"], accessRole: "MONITOR" }) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Pastinha");
-    fireEvent.click(screen.getByRole("button", { name: "Revogar cargo de Pastinha" }));
+    await clickMenuAction("Revogar cargo de Pastinha");
     const dialog = await screen.findByRole("dialog", { name: "Revogar cargo?" });
     expect(posts(calls, "/roles/revoke")).toHaveLength(0); // só confirma com o clique
     const select = within(dialog).getByLabelText("Cargo a revogar");
@@ -255,7 +256,7 @@ describe("Equipe: Promover a… e Revogar cargo", () => {
     mockApi({ ...teamRoutes(), "POST /roles/revoke": () => json(409, { message: "last", code: "LAST_MESTRE" }) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
-    fireEvent.click(screen.getByRole("button", { name: "Revogar cargo de Mestre Bimba" }));
+    await clickMenuAction("Revogar cargo de Mestre Bimba");
     const dialog = await screen.findByRole("dialog", { name: "Revogar cargo?" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Revogar cargo" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("último Mestre")));
@@ -270,7 +271,7 @@ describe("Equipe: Promover a… e Revogar cargo", () => {
       await screen.findByText("Pastinha");
       expect(screen.queryByRole("tab", { name: "Sugestões de promoção" })).toBeNull();
       expect(screen.queryByRole("button", { name: /Promover/ })).toBeNull();
-      expect(screen.queryByRole("button", { name: /Revogar cargo/ })).toBeNull();
+      expect(queryMenuAction(/Revogar cargo/)).toBeNull();
       expect(screen.queryByRole("button", { name: /Novo membro/ })).toBeNull();
       view.unmount();
     }
@@ -458,8 +459,8 @@ describe("Alunos: cargos", () => {
     const calls = mockApi({ ...routes(), "POST /roles/grant": () => json(201, { studentId: 1, userId: 50, roles: ["INSTRUTOR", "MONITOR"], accessRole: "INSTRUTOR" }) });
     renderPage(<AlunosPage />);
     await screen.findByText("Ana Souza");
-    expect(screen.queryByRole("button", { name: "Promover Duda Reis" })).toBeNull(); // já é Mestre
-    fireEvent.click(screen.getByRole("button", { name: "Promover Ana Souza" }));
+    expect(queryMenuAction("Promover Duda Reis")).toBeNull(); // já é Mestre
+    await clickMenuAction("Promover Ana Souza");
     const dialog = await screen.findByRole("dialog", { name: "Promover a…" });
     expect(within(within(dialog).getByLabelText("Novo cargo")).getAllByRole("option").map((o) => o.textContent)).toEqual([
       "Instrutor",

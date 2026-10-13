@@ -116,13 +116,13 @@ export interface SeasonsResponse {
 /* ---------- Ligas ---------- */
 
 export const LEAGUES: readonly RankLevel[] = [
-  { code: "CRUA", name: "Crua", color: "#E5E5E5" },
-  { code: "VERDE", name: "Verde", color: "#22C55E" },
-  { code: "AMARELA", name: "Amarela", color: "#FACC15" },
-  { code: "AZUL", name: "Azul", color: "#3B82F6" },
-  { code: "ROXA", name: "Roxa", color: "#8B5CF6" },
-  { code: "MARROM", name: "Marrom", color: "#92400E" },
-  { code: "PRETA", name: "Preta", color: "#111827" },
+  { code: "CRUA", name: "Semente", color: "#E5E5E5" },
+  { code: "VERDE", name: "Broto", color: "#22C55E" },
+  { code: "AMARELA", name: "Ginga", color: "#FACC15" },
+  { code: "AZUL", name: "Roda", color: "#3B82F6" },
+  { code: "ROXA", name: "Axé", color: "#8B5CF6" },
+  { code: "MARROM", name: "Mandinga", color: "#92400E" },
+  { code: "PRETA", name: "Lenda", color: "#111827" },
 ];
 
 export const leagueIndex = (code: string | null | undefined): number => LEAGUES.findIndex((l) => l.code === code);

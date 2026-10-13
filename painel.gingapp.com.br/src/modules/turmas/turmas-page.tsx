@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { Building2, Layers, Plus, Repeat, UserRound } from "lucide-react";
+import { Building2, Ban, CalendarPlus, Layers, Pencil, Plus, Repeat, UserRound, Users } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { ImageUploadField } from "@/components/painel/image-upload-field";
 import { PageHeader } from "@/components/painel/page-header";
+import { RowActions, type MaybeRowAction } from "@/components/painel/row-actions";
 import { UnitPicker } from "@/components/painel/unit-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,8 @@ export function TurmasPage() {
   const create = classes.useCreate();
   const update = classes.useUpdate();
   const remove = classes.useRemove();
+  const canCreate = useCan("classes", "create"); // MONITOR: só leitura
+  const canEdit = useCan("classes", "edit");
   const canDelete = useCan("classes", "delete"); // PROFESSOR: sem classes:delete (backend responde 403)
   const canView = useCan("classes", "view");
   const canGenerate = useCan("lessons", "create"); // POST /classes/:id/generate-lessons cria aulas (lessons:create)
@@ -70,6 +73,8 @@ export function TurmasPage() {
     {
       id: "name",
       header: "Nome",
+      sticky: true,
+      className: "min-w-52",
       sortValue: (c) => c.name,
       cell: (c) => (
         <span className="flex items-center gap-2 font-medium">
@@ -134,15 +139,35 @@ export function TurmasPage() {
 
   const isEdit = editing !== null && editing !== "new";
 
+  /** Alunos e Editar ficam à vista; "Gerar aulas" e "Inativar" vão para o menu "⋯" (mesmas permissões de antes). */
+  const classActions = (c: ClassItem): MaybeRowAction[] => [
+    canView && { key: "students", label: "Alunos", ariaLabel: `Alunos de ${c.name}`, icon: Users, primary: true, onSelect: () => setStudentsOf(c) },
+    canEdit && { key: "edit", label: "Editar", icon: Pencil, primary: true, onSelect: () => setEditing(c) },
+    canGenerate &&
+      c.status === "ACTIVE" &&
+      c.weekday !== null &&
+      c.weekday !== undefined && {
+        key: "generate",
+        label: "Gerar aulas",
+        ariaLabel: `Gerar aulas de ${c.name}`,
+        icon: CalendarPlus,
+        onSelect: () => setGeneratingOf(c),
+      },
+    canDelete &&
+      c.status === "ACTIVE" && { key: "deactivate", label: "Inativar", icon: Ban, destructive: true, onSelect: () => setDeleting(c) },
+  ];
+
   return (
     <>
       <PageHeader
         title="Turmas"
         description="Turmas, dias e horários de treino."
         actions={
-          <Button onClick={() => setEditing("new")}>
-            <Plus /> Nova turma
-          </Button>
+          canCreate ? (
+            <Button onClick={() => setEditing("new")}>
+              <Plus /> Nova turma
+            </Button>
+          ) : undefined
         }
       />
       <DataTable
@@ -176,33 +201,7 @@ export function TurmasPage() {
             </NativeSelect>
           </div>
         }
-        rowActions={(c) => (
-          <>
-            {canView && (
-              <Button variant="ghost" size="sm" onClick={() => setStudentsOf(c)}>
-                Alunos
-              </Button>
-            )}
-            {canGenerate && c.status === "ACTIVE" && c.weekday !== null && c.weekday !== undefined && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setGeneratingOf(c)}
-                aria-label={`Gerar aulas de ${c.name}`}
-              >
-                Gerar aulas
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={() => setEditing(c)}>
-              Editar
-            </Button>
-            {canDelete && c.status === "ACTIVE" && (
-              <Button variant="ghost" size="sm" onClick={() => setDeleting(c)}>
-                Inativar
-              </Button>
-            )}
-          </>
-        )}
+        rowActions={(c) => <RowActions actions={classActions(c)} subject={c.name} />}
       />
 
       <FormDialog<ClassFormValues>

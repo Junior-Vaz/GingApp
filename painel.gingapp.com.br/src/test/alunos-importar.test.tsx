@@ -123,7 +123,7 @@ describe("ImportarAlunosDialog", () => {
     expect((calls[0]!.body as { dryRun: boolean; rows: unknown[] }).dryRun).toBe(true);
     expect((calls[0]!.body as { rows: unknown[] }).rows).toHaveLength(3);
 
-    fireEvent.click(screen.getByRole("button", { name: "Importar 1 aluno(s)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Importar 1 aluno" }));
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
     expect(calls.filter((c) => c.method === "POST")).toHaveLength(2);
     expect((calls[1]!.body as { dryRun: boolean }).dryRun).toBe(false);
@@ -141,7 +141,7 @@ describe("ImportarAlunosDialog", () => {
 
     fireEvent.change(screen.getByLabelText("Arquivo CSV"), { target: { files: [new File(["Nome\nAna\n"], "ok.csv")] } });
     await screen.findByTestId("import-preview");
-    expect(screen.getByRole("button", { name: "Importar 0 aluno(s)" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Importar 0 alunos" })).toBeDisabled();
   });
 });
 

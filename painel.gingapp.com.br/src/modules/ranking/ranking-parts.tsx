@@ -13,7 +13,7 @@ import {
   type SeasonSummary,
 } from "./ranking-api";
 
-/** Selo colorido da liga (Crua, Verde, Amarela, Azul, Roxa, Marrom, Preta). */
+/** Selo colorido da liga (Semente, Broto, Ginga, Roda, Axé, Mandinga, Lenda). */
 export function LeagueBadge({ level }: { level: RankingLevel }) {
   const color = leagueColor(level);
   return (

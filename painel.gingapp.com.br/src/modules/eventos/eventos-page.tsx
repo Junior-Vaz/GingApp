@@ -92,6 +92,7 @@ export function EventosPage() {
   const update = events.useUpdate();
   const remove = events.useRemove();
   const canDelete = useCan("events", "delete"); // PROFESSOR: sem events:delete (backend responde 403)
+  const canCreate = useCan("events", "create"); // MONITOR: só leitura
   const canEdit = useCan("events", "edit"); // GET /events/:id/checkin-token exige events.edit
 
   const [editing, setEditing] = useState<EventItem | "new" | null>(null);
@@ -104,9 +105,11 @@ export function EventosPage() {
         title="Eventos"
         description="Batizados, workshops, campeonatos e demais eventos do grupo."
         actions={
-          <Button onClick={() => setEditing("new")}>
-            <Plus /> Novo evento
-          </Button>
+          canCreate ? (
+            <Button onClick={() => setEditing("new")}>
+              <Plus /> Novo evento
+            </Button>
+          ) : undefined
         }
       />
       <DataTable
@@ -173,9 +176,11 @@ export function EventosPage() {
               <Users /> Participantes
             </Button>
             {canEdit && <CheckinLink kind="evento" id={e.id} label="QR de check-in" ariaLabel={`QR de check-in de ${e.title}`} />}
-            <Button variant="ghost" size="sm" onClick={() => setEditing(e)} aria-label={`Editar ${e.title}`}>
-              Editar
-            </Button>
+            {canEdit && (
+              <Button variant="ghost" size="sm" onClick={() => setEditing(e)} aria-label={`Editar ${e.title}`}>
+                Editar
+              </Button>
+            )}
             {canDelete && (
               <Button variant="ghost" size="sm" onClick={() => setDeleting(e)} aria-label={`Excluir ${e.title}`}>
                 Excluir

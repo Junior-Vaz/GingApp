@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Link2 } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
@@ -13,12 +13,15 @@ import { errorMessage } from "@/lib/api";
 import { fmt, toDate } from "@/lib/format";
 import { GroupLogo } from "@/modules/alunos/aluno-conflito-dialog";
 import { ContestarTransferenciaDialog } from "./contestar-transferencia-dialog";
+import { ApprovalLinkDialog } from "./link-aprovacao-dialog";
 import {
   CONTEST_REASON_LABEL,
   TRANSFER_STATUS_LABEL,
   transferErrorMessage,
   useCancelTransfer,
+  useGenerateApprovalLink,
   useTransfers,
+  type ApprovalLink,
   type TransferStatus,
   type TransferView,
 } from "./transfer-api";
@@ -38,10 +41,14 @@ function TransferCard({
   transfer,
   onCancel,
   onContest,
+  onGenerateLink,
+  generatingLink,
 }: {
   transfer: TransferView;
   onCancel: (t: TransferView) => void;
   onContest: (t: TransferView) => void;
+  onGenerateLink: (t: TransferView) => void;
+  generatingLink: boolean;
 }) {
   const { person } = transfer;
   return (
@@ -111,8 +118,25 @@ function TransferCard({
         </div>
       )}
 
-      {(transfer.canCancel || transfer.canContest) && (
+      {transfer.needsApprovalLink && (
+        <p className="rounded-md border border-dashed p-2 text-sm text-muted-foreground" data-testid="needs-approval-link">
+          {person.name} é adulto e não tem login: gere um link de aprovação e envie para a pessoa.
+        </p>
+      )}
+
+      {(transfer.canCancel || transfer.canContest || transfer.needsApprovalLink) && (
         <div className="flex flex-wrap justify-end gap-2">
+          {transfer.needsApprovalLink && (
+            <Button
+              type="button"
+              size="sm"
+              disabled={generatingLink}
+              aria-label={`Gerar link de aprovação de ${person.name}`}
+              onClick={() => onGenerateLink(transfer)}
+            >
+              <Link2 /> {generatingLink ? "Gerando…" : "Gerar link de aprovação"}
+            </Button>
+          )}
           {transfer.canContest && (
             <Button
               type="button"
@@ -144,6 +168,8 @@ function TransferCard({
 function TransferList({ direction }: { direction: "sent" | "received" }) {
   const list = useTransfers(direction);
   const cancel = useCancelTransfer();
+  const generateLink = useGenerateApprovalLink();
+  const [approval, setApproval] = useState<{ link: ApprovalLink; transfer: TransferView } | null>(null);
   const [canceling, setCanceling] = useState<TransferView | null>(null);
   const [contesting, setContesting] = useState<TransferView | null>(null);
 
@@ -178,7 +204,19 @@ function TransferList({ direction }: { direction: "sent" | "received" }) {
       ) : (
         <div className="grid gap-3">
           {items.map((t) => (
-            <TransferCard key={t.id} transfer={t} onCancel={setCanceling} onContest={setContesting} />
+            <TransferCard
+              key={t.id}
+              transfer={t}
+              onCancel={setCanceling}
+              onContest={setContesting}
+              onGenerateLink={(target) =>
+                generateLink.mutate(target.id, {
+                  onSuccess: (link) => setApproval({ link, transfer: target }),
+                  onError: (error) => toast.error(transferErrorMessage(error, "Não foi possível gerar o link de aprovação.")),
+                })
+              }
+              generatingLink={generateLink.isPending && generateLink.variables === t.id}
+            />
           ))}
         </div>
       )}
@@ -205,6 +243,12 @@ function TransferList({ direction }: { direction: "sent" | "received" }) {
         }}
       />
       <ContestarTransferenciaDialog transfer={contesting} onClose={() => setContesting(null)} />
+      <ApprovalLinkDialog
+        link={approval?.link ?? null}
+        personName={approval?.transfer.person.name ?? ""}
+        groupName={approval?.transfer.toOrganization.name}
+        onClose={() => setApproval(null)}
+      />
     </>
   );
 }

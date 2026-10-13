@@ -1,6 +1,6 @@
 import { StaffRole, StudentStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsOptional } from 'class-validator';
+import { IsEnum, IsIn, IsInt, IsOptional } from 'class-validator';
 import { PageQueryDto } from '../../../../shared/pagination/pagination';
 
 /** Filtros de GET /students (alem de limit/offset/q): q busca em nome, e-mail, documento e telefone. */
@@ -18,4 +18,9 @@ export class ListStudentsQueryDto extends PageQueryDto {
   @IsOptional()
   @IsEnum(StaffRole)
   role?: StaffRole;
+
+  /** Ordenacao: 'name' = alfabetica (A-Z); 'recent' (padrao da API) = mais recentemente cadastrado primeiro. */
+  @IsOptional()
+  @IsIn(['name', 'recent'])
+  order?: 'name' | 'recent';
 }

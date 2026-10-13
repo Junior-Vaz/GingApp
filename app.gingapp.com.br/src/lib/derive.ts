@@ -199,3 +199,13 @@ export function buildTimeline(list: StudentGraduation[], ficha: Ficha | undefine
   if (extras.length === 0) return merged;
   return [...merged, ...extras].sort((a, b) => b.graduatedAt.localeCompare(a.graduatedAt));
 }
+
+/**
+ * Rótulo do cartão de graduação: "Minha graduação" quando o aluno ativo é o PRÓPRIO usuário (ou não há
+ * aluno); "Graduação de <primeiro nome>" quando é um dependente selecionado ("Acompanhando X").
+ */
+export function graduationCardLabel(student: { userId: number | null; name: string } | null | undefined, userId: number | undefined): string {
+  if (!student || (userId !== undefined && student.userId === userId)) return "Minha graduação";
+  const first = student.name.trim().split(/\s+/)[0];
+  return first ? `Graduação de ${first}` : "Minha graduação";
+}

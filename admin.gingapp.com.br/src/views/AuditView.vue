@@ -132,7 +132,16 @@ onMounted(async () => {
     <p v-if="error" role="alert" class="mt-4 text-sm text-red-600">{{ error }}</p>
 
     <div class="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white">
-      <table class="w-full text-left text-sm" data-testid="audit-table">
+      <div class="overflow-x-auto" data-testid="audit-scroll">
+      <table class="w-full min-w-[760px] table-fixed text-left text-sm" data-testid="audit-table">
+        <colgroup>
+          <col class="w-[9.5rem]" />
+          <col class="w-[11rem]" />
+          <col class="w-[9rem]" />
+          <col class="w-[12rem]" />
+          <col class="w-[7.5rem]" />
+          <col />
+        </colgroup>
         <thead class="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
             <th class="px-4 py-3 font-medium">Data</th>
@@ -151,21 +160,22 @@ onMounted(async () => {
             <td colspan="6" class="px-4 py-8 text-center text-slate-400">Nenhum registro encontrado.</td>
           </tr>
           <tr v-for="log in logs" v-else :key="log.id" :data-testid="`audit-${log.id}`" class="align-top hover:bg-slate-50">
-            <td class="whitespace-nowrap px-4 py-3 text-slate-600">{{ formatDateTime(log.createdAt) }}</td>
-            <td class="px-4 py-3 font-medium text-slate-900">
+            <td class="px-4 py-3 text-slate-600">{{ formatDateTime(log.createdAt) }}</td>
+            <td class="break-words px-4 py-3 font-medium text-slate-900 [overflow-wrap:anywhere]">
               {{ auditActionLabel(log.action) }}
               <span v-if="log.entityId" class="block text-xs font-normal text-slate-400">{{ log.entity }} #{{ log.entityId }}</span>
             </td>
-            <td class="px-4 py-3 text-slate-600">{{ log.organizationName ?? '—' }}</td>
-            <td class="px-4 py-3 text-slate-600">
+            <td class="break-words px-4 py-3 text-slate-600 [overflow-wrap:anywhere]">{{ log.organizationName ?? '—' }}</td>
+            <td class="break-words px-4 py-3 text-slate-600 [overflow-wrap:anywhere]">
               {{ log.userName ?? '—' }}
               <span v-if="log.userEmail" class="block text-xs text-slate-400">{{ log.userEmail }}</span>
             </td>
-            <td class="px-4 py-3 text-slate-600">{{ log.ip ?? '—' }}</td>
-            <td class="max-w-xs break-words px-4 py-3 font-mono text-xs text-slate-500">{{ metaText(log.meta) }}</td>
+            <td class="break-words px-4 py-3 text-slate-600 [overflow-wrap:anywhere]">{{ log.ip ?? '—' }}</td>
+            <td class="max-w-md break-words px-4 py-3 font-mono text-xs text-slate-500 [overflow-wrap:anywhere]">{{ metaText(log.meta) }}</td>
           </tr>
         </tbody>
       </table>
+      </div>
       <PaginationBar :total="total" :offset="offset" :limit="PAGE_SIZE" :disabled="isLoading" @update:offset="changePage" />
     </div>
   </div>

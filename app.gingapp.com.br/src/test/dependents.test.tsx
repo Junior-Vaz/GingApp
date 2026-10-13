@@ -245,12 +245,15 @@ describe("Responsável com 2 dependentes: o aluno ativo guia as telas", () => {
       </>,
     );
     await waitFor(() => expect(text()).toContain("Faixa da Alice"));
+    expect(text()).toContain("Graduação de Alice"); // dependente ativo: o cartão não diz "Minha graduação"
+    expect(text()).not.toContain("Minha graduação");
     expect(text()).toContain("88%");
     expect(text()).toContain("Certificado da Alice");
     expect(text()).not.toContain("Certificado do Bruno");
 
     await choose(11);
     await waitFor(() => expect(text()).toContain("Faixa do Bruno"));
+    expect(text()).toContain("Graduação de Bruno");
     expect(text()).toContain("44%");
     expect(text()).toContain("Certificado do Bruno");
     expect(text()).not.toContain("Certificado da Alice");

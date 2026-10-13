@@ -1,3 +1,4 @@
+import { plural } from "@/lib/plural";
 import type { ReactNode } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
 import { Award, CheckCircle2, ClipboardCheck, Clock, AlertTriangle, UserCheck, UserPlus, Users, Wallet } from "lucide-react";
@@ -99,7 +100,7 @@ export function AttendanceTab({ filters }: { filters: ReportFilters }) {
               label="Frequência média"
               value={percentLabel(d.totals.percent)}
               icon={ClipboardCheck}
-              hint={`${d.totals.records} registro(s) de chamada`}
+              hint={`${plural(d.totals.records, "registro")} de chamada`}
             />
             <StatCard label="Presenças" value={d.totals.present} icon={UserCheck} />
             <StatCard label="Faltas" value={d.totals.absent} icon={Users} tone={d.totals.absent > 0 ? "danger" : "default"} />
@@ -216,7 +217,7 @@ export function FinanceTab({ filters }: { filters: ReportFilters }) {
             />
           </Toolbar>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label="Previsto" value={formatCurrency(d.totals.expectedCents)} icon={Wallet} hint={`${d.totals.count} lançamento(s)`} />
+            <StatCard label="Previsto" value={formatCurrency(d.totals.expectedCents)} icon={Wallet} hint={plural(d.totals.count, "lançamento")} />
             <StatCard
               label="Recebido"
               value={formatCurrency(d.totals.receivedCents)}
@@ -229,7 +230,7 @@ export function FinanceTab({ filters }: { filters: ReportFilters }) {
               value={formatCurrency(d.totals.overdueCents)}
               icon={AlertTriangle}
               tone="danger"
-              hint={`Inadimplência ${percentLabel(d.totals.overdueRatePercent)} · ${d.totals.overdueCount} lançamento(s)`}
+              hint={`Inadimplência ${percentLabel(d.totals.overdueRatePercent)} · ${plural(d.totals.overdueCount, "lançamento")}`}
             />
           </div>
           <Section title="Por mês de vencimento" hint={d.basis}>
@@ -311,7 +312,7 @@ export function StudentsTab({ filters }: { filters: ReportFilters }) {
               label="Não ativos"
               value={d.totals.total - d.totals.active}
               icon={Users}
-              hint={`${d.totals.inactive} inativo(s) · ${d.totals.suspended} suspenso(s) · ${d.totals.former} ex-aluno(s)`}
+              hint={`${plural(d.totals.inactive, "inativo")} · ${plural(d.totals.suspended, "suspenso")} · ${plural(d.totals.former, "ex-aluno")}`}
             />
             <StatCard label="Novos no período" value={d.totals.newInPeriod} icon={UserPlus} />
             <StatCard label="Total cadastrado" value={d.totals.total} icon={Users} />

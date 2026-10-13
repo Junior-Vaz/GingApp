@@ -1,3 +1,4 @@
+import { plural } from "@/lib/plural";
 import type { ReactNode } from "react";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
@@ -31,7 +32,7 @@ function Section({ title, empty, children }: { title: string; empty?: string | u
   return (
     <section className="grid gap-2">
       <h3 className="text-sm font-semibold">{title}</h3>
-      {children ?? <p className="text-sm text-muted-foreground">{empty}</p>}
+      {children ? children : <p className="text-sm text-muted-foreground">{empty}</p>}
     </section>
   );
 }
@@ -76,7 +77,7 @@ function SharedHistory({ shared, studentId, isMestre }: { shared: SharedFromOthe
                   <li key={a.class.id} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span className="font-medium">{a.class.name}</span>
                     <span className="text-muted-foreground">
-                      {a.present} presença(s) · {a.absent} falta(s) · {a.total} no total
+                      {plural(a.present, "presença")} · {plural(a.absent, "falta")} · {a.total} no total
                     </span>
                   </li>
                 ))}
@@ -232,7 +233,7 @@ export function FichaAlunoDialog({ student, onClose }: { student: Student | null
               )}
             </Section>
 
-            <Section title="Cargos" empty="Nenhum cargo na equipe: esta pessoa é apenas aluna.">
+            <Section title="Cargos" empty="Nenhum cargo registrado.">
               {(data.roles ?? []).length > 0 && (
                 <ul className="grid gap-1.5" data-testid="ficha-roles">
                   {(data.roles ?? []).map((r) => (
@@ -263,14 +264,14 @@ export function FichaAlunoDialog({ student, onClose }: { student: Student | null
               )}
             </Section>
 
-            <Section title="Presença por grupo" empty="Sem registros de presença.">
+            <Section title="Presença por grupo" empty="Nenhuma presença registrada.">
               {data.attendanceByGroup.length > 0 && (
                 <ul className="grid gap-1.5">
                   {data.attendanceByGroup.map((a) => (
                     <li key={a.organization.id} className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-2 text-sm">
                       <span className="font-medium">{a.organization.name}</span>
                       <span className="text-muted-foreground">
-                        {a.present} presença(s) · {a.absent} falta(s) · {a.total} no total
+                        {plural(a.present, "presença")} · {plural(a.absent, "falta")} · {a.total} no total
                       </span>
                     </li>
                   ))}

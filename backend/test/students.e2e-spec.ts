@@ -251,6 +251,19 @@ describe('Students: paginacao, filtros e limpar campos (e2e)', () => {
     assert.equal(grande.body.length, 57);
   });
 
+  it('order=name lista em ordem alfabetica (A-Z) mantendo total e paginacao; padrao continua sendo o mais recente; order invalido => 400', async () => {
+    const byName = await list(app, 'students', mestreToken, `${q()}&order=name&limit=200`);
+    assert.equal(byName.total, 57);
+    const all = await prisma.student.findMany({ where: { organizationId: orgId, name: { contains: tag } }, orderBy: [{ name: 'asc' }, { id: 'asc' }] });
+    assert.deepEqual(byName.body.map((s: { id: number }) => s.id), all.map((s) => s.id));
+    const expected = await prisma.student.findMany({ where: { organizationId: orgId, name: { contains: tag } }, orderBy: [{ name: 'asc' }, { id: 'asc' }], skip: 50, take: 10 });
+    const page = await list(app, 'students', mestreToken, `${q()}&order=name&limit=10&offset=50`);
+    assert.deepEqual(page.body.map((s: { id: number }) => s.id), expected.map((s) => s.id));
+    const recent = await list(app, 'students', mestreToken, `${q()}&limit=3`);
+    assert.ok(recent.body[0].id > recent.body[2].id, 'padrao: id decrescente');
+    assert.equal((await list(app, 'students', mestreToken, 'order=sideways')).status, 400);
+  });
+
   it('limit=201, limit=0 e offset=-1 retornam 400', async () => {
     for (const bad of ['limit=201', 'limit=0', 'offset=-1', 'limit=abc']) {
       const r = await list(app, 'students', mestreToken, bad);

@@ -32,6 +32,7 @@ function renderPage(ui: React.ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }import { TurmasPage } from "@/modules/turmas/turmas-page";
 import { classSchema, classToPayload, classToUpdatePayload, classToCreatePayload, scheduleLabel } from "@/modules/turmas/schema";
+import { clickMenuAction, expectMenuAction, queryMenuAction } from "./row-menu";
 
 const classes = [
   { id: 1, unitId: 7, name: "Infantil", description: "Crianças", weekday: 2, startTime: "18:00", endTime: "19:00", status: "ACTIVE" },
@@ -217,7 +218,7 @@ describe("TurmasPage", () => {
     });
     renderPage(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     const select = within(dialog).getByLabelText("Unidade") as HTMLSelectElement;
     await waitFor(() => expect(select.selectedOptions[0]).toHaveTextContent("Sede Centro"));
@@ -274,7 +275,7 @@ describe("TurmasPage", () => {
     const calls = mockApi({ ...base(), "PATCH /classes/1": () => json(200, {}) });
     renderPage(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Nome")).toHaveValue("Infantil"));
     expect(within(dialog).getByLabelText("Dia da semana")).toHaveValue("2");
@@ -292,7 +293,7 @@ describe("TurmasPage", () => {
     const calls = mockApi({ ...base(), "PATCH /classes/1": () => json(200, {}) });
     renderPage(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Início")).toHaveValue("18:00"));
     await waitFor(() => expect(within(dialog).getByLabelText("Unidade")).toHaveValue("7"));
@@ -313,7 +314,7 @@ describe("TurmasPage", () => {
     mockApi({ ...base(), "PATCH /classes/1": () => json(400, { message: ["name should not be empty"] }) });
     renderPage(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getAllByText("Editar")[0]!);
+    fireEvent.click(screen.getAllByRole("button", { name: "Editar" })[0]!);
     const dialog = await screen.findByRole("dialog");
     await waitFor(() => expect(within(dialog).getByLabelText("Nome")).toHaveValue("Infantil"));
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
@@ -325,8 +326,8 @@ describe("TurmasPage", () => {
     const calls = mockApi({ ...base(), "DELETE /classes/1": () => json(200, {}) });
     renderPage(<TurmasPage />);
     await screen.findByText("Infantil");
-    expect(screen.getAllByText("Inativar")).toHaveLength(1);
-    fireEvent.click(screen.getByText("Inativar"));
+    await expectMenuAction("Inativar");
+    await clickMenuAction("Inativar");
     const alert = await screen.findByRole("alertdialog");
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
     fireEvent.click(within(alert).getByRole("button", { name: "Inativar" }));
@@ -338,21 +339,21 @@ describe("TurmasPage", () => {
     mockApi(base());
     const mestre = renderPage(<TurmasPage />);
     await screen.findByText("Infantil");
-    expect(screen.getAllByText("Inativar")).toHaveLength(1);
+    await expectMenuAction("Inativar");
     mestre.unmount();
 
     loginAs("PROFESSOR");
     renderPage(<TurmasPage />);
     await screen.findByText("Infantil");
-    expect(screen.queryByText("Inativar")).toBeNull();
-    expect(screen.getAllByText("Editar").length).toBeGreaterThan(0);
+    expect(queryMenuAction("Inativar")).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Editar" }).length).toBeGreaterThan(0);
   });
 
   it("erro do backend no DELETE vira toast e mantém o diálogo", async () => {
     mockApi({ ...base(), "DELETE /classes/1": () => json(403, { message: "Sem permissão." }) });
     renderPage(<TurmasPage />);
     await screen.findByText("Infantil");
-    fireEvent.click(screen.getByText("Inativar"));
+    await clickMenuAction("Inativar");
     const alert = await screen.findByRole("alertdialog");
     fireEvent.click(within(alert).getByRole("button", { name: "Inativar" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Sem permissão."));

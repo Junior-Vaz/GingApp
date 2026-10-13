@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { api, ApiError } from '@/utils/api'
+import { pluralWord } from '@/utils/plural'
 
 interface Plan {
   id: number
@@ -170,7 +171,8 @@ onMounted(() => {
               {{ formatPrice(plan.priceCents) }} / {{ plan.billingPeriod === 'YEARLY' ? 'ano' : 'mês' }}
             </td>
             <td class="px-4 py-3 text-slate-600">
-              {{ plan.maxStudents ?? '∞' }} alunos · {{ plan.maxUnits ?? '∞' }} unidades
+              {{ plan.maxStudents ?? '∞' }} {{ plan.maxStudents === null ? 'alunos' : pluralWord(plan.maxStudents, 'aluno') }} · {{ plan.maxUnits ?? '∞' }}
+              {{ plan.maxUnits === null ? 'unidades' : pluralWord(plan.maxUnits, 'unidade') }}
             </td>
             <td class="px-4 py-3">
               <span

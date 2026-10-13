@@ -1,3 +1,4 @@
+import { plural } from "@/lib/plural";
 import { z } from "zod";
 import {
   centsToReais,
@@ -32,6 +33,9 @@ export interface GenerateMonthlyResult {
 export interface DelinquentRow {
   studentId: number;
   studentName: string;
+  /** Foto do aluno (ainda não enviada pelo backend; aceita `studentPhoto` ou `photo`): cai nas iniciais. */
+  studentPhoto?: string | null | undefined;
+  photo?: string | null | undefined;
   phone: string | null;
   email: string | null;
   unitId: number | null;
@@ -87,9 +91,9 @@ export function formatMonth(month: string): string {
 
 /** Texto do toast após gerar o mês (criados / já existiam / alunos sem valor). */
 export function generateSummaryText(result: GenerateMonthlyResult): string {
-  const parts = [`${result.created} mensalidade(s) criada(s) para ${formatMonth(result.month)}`];
-  if (result.ignored > 0) parts.push(`${result.ignored} já existia(m)`);
-  if (result.withoutFee > 0) parts.push(`${result.withoutFee} aluno(s) ativo(s) sem valor definido`);
+  const parts = [`${plural(result.created, "mensalidade criada", "mensalidades criadas")} para ${formatMonth(result.month)}`];
+  if (result.ignored > 0) parts.push(`${result.ignored} ${result.ignored === 1 ? "já existia" : "já existiam"}`);
+  if (result.withoutFee > 0) parts.push(`${plural(result.withoutFee, "aluno ativo", "alunos ativos")} sem valor definido`);
   return `${parts.join(" · ")}.`;
 }
 

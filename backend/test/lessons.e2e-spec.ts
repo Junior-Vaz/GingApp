@@ -252,6 +252,30 @@ describe('Lessons: paginacao, filtros e limpar campos (e2e)', () => {
     assert.equal(r.body.length, 6);
   });
 
+  it('order=nearest: de hoje em diante (data crescente) e so depois as passadas (da mais recente); paginacao atravessa as duas faixas; order invalido => 400', async () => {
+    const past = await prisma.lesson.create({ data: { organizationId: orgId, classId: class2Id, date: new Date('2020-02-01T12:00:00Z'), notes: `${tag} passada nova` } });
+    const older = await prisma.lesson.create({ data: { organizationId: orgId, classId: class2Id, date: new Date('2020-01-01T12:00:00Z'), notes: `${tag} passada velha` } });
+    try {
+      const only = `${q()}&classId=${class2Id}&order=nearest`;
+      const all = await list(app, 'lessons', mestreToken, only);
+      assert.equal(all.total, 3);
+      // futura (2032) primeiro; depois a passada mais recente (2020-02) e por fim a mais antiga (2020-01)
+      assert.deepEqual(all.body.map((l: { id: number }) => l.id).slice(1), [past.id, older.id]);
+      assert.equal(new Date(all.body[0].date).getUTCFullYear(), 2032);
+      // a paginacao atravessa as duas faixas
+      const p2 = await list(app, 'lessons', mestreToken, `${only}&limit=1&offset=1`);
+      assert.deepEqual(p2.body.map((l: { id: number }) => l.id), [past.id]);
+      const p3 = await list(app, 'lessons', mestreToken, `${only}&limit=5&offset=2`);
+      assert.deepEqual(p3.body.map((l: { id: number }) => l.id), [older.id]);
+      // periodo atual (so hoje, aqui): as aulas de 2020/2031/2032 ficam FORA
+      const win = await list(app, 'lessons', mestreToken, `${q()}&order=nearest&from=${todaySaoPaulo()}&to=${todaySaoPaulo()}`);
+      assert.equal(win.total, 0);
+      assert.equal((await list(app, 'lessons', mestreToken, 'order=sideways')).status, 400);
+    } finally {
+      await prisma.lesson.deleteMany({ where: { id: { in: [past.id, older.id] } } });
+    }
+  });
+
   it('limit=201, limit=0 e offset=-1 retornam 400', async () => {
     for (const bad of ['limit=201', 'limit=0', 'offset=-1']) {
       assert.equal((await list(app, 'lessons', mestreToken, bad)).status, 400, bad);

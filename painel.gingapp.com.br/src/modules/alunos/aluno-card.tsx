@@ -4,10 +4,9 @@ import { RoleBadges } from "@/components/painel/role-badges";
 import { RopeSwatch } from "@/components/painel/rope-swatch";
 import { Badge } from "@/components/ui/badge";
 import { dayOnly, fmt, initials } from "@/lib/format";
-import { ropeOf } from "@/lib/rope";
 import { imageSrc } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
-import { STUDENT_STATUS_LABEL, isMinor, type Student } from "./schema";
+import { STUDENT_STATUS_LABEL, currentCordOf, isMinor, type Student } from "./schema";
 
 /**
  * Bloco da FOTO do aluno: preenche toda a altura do card (object-cover) e se dissolve na cor do card com um fade
@@ -77,6 +76,7 @@ export function StudentCard({
   actions: ReactNode;
 }) {
   const contact = [s.phone, s.email].filter(Boolean);
+  const cord = currentCordOf(s);
   return (
     <article
       data-testid="student-card"
@@ -105,11 +105,11 @@ export function StudentCard({
               {s.classNames.join(", ")}
             </Info>
           )}
-          {(s.currentCord || s.currentLevel) && (
+          {cord && (
             <Info icon={Award} label="Corda atual">
               <span className="inline-flex items-center gap-1.5">
-                {s.currentLevel && <RopeSwatch {...ropeOf(s.currentLevel)} size="sm" orientation="horizontal" />}
-                {s.currentCord ?? s.currentLevel?.name}
+                {cord.rope && <RopeSwatch {...cord.rope} size="sm" orientation="horizontal" />}
+                {cord.name}
               </span>
             </Info>
           )}

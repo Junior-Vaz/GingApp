@@ -1,3 +1,4 @@
+import { plural } from "@/lib/plural";
 import { useEffect, useMemo, useState } from "react";
 import { CheckCheck, Layers, UserX } from "lucide-react";
 import { EntityAvatar } from "@/components/painel/entity-avatar";
@@ -16,7 +17,14 @@ import { useCan } from "@/lib/session";
 import { CheckinLink } from "@/modules/checkin/checkin-link";
 import { NativeSelect } from "@/modules/aulas/native-select";
 import { timeRange, type Lesson } from "@/modules/aulas/aulas-api";
-import { SELECTOR_LIMIT, useClassSelector, useLessonSelector, useRoster, useSaveAttendance } from "./frequencia-api";
+import {
+  SELECTOR_LIMIT,
+  WINDOW_SELECTOR_LIMIT,
+  useClassSelector,
+  useLessonSelector,
+  useRoster,
+  useSaveAttendance,
+} from "./frequencia-api";
 import {
   markAll,
   nextPresence,
@@ -32,7 +40,11 @@ export function FrequenciaPage() {
   const [classFilter, setClassFilter] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
-  const lessonsQuery = useLessonSelector({ classId: classFilter, from, to });
+  // Padrão: aulas de hoje-7 a hoje+30 dias (hoje no topo); "Mostrar todas" libera as antigas.
+  const [showAll, setShowAll] = useState(false);
+  const windowed = !showAll && !from && !to;
+  const lessonsLimit = windowed ? WINDOW_SELECTOR_LIMIT : SELECTOR_LIMIT;
+  const lessonsQuery = useLessonSelector({ classId: classFilter, from, to, showAll });
   const classes = useClassSelector();
 
   const [lessonId, setLessonId] = useState("");
@@ -40,15 +52,10 @@ export function FrequenciaPage() {
 
   const className = (id: number) => classes.data?.items.find((c) => c.id === id)?.name ?? "Turma";
 
-  // Filtros (turma, status ativo, período) são aplicados no servidor; aqui só ordena, mais recentes primeiro.
+  // Filtros (turma, status ativo, período) e ordem (order=nearest: hoje e futuras primeiro, depois as passadas
+  // da mais recente à mais antiga) vêm do servidor; aqui só mantém as ativas, na ordem recebida.
   const lessonItems = lessonsQuery.data?.items;
-  const options = useMemo(
-    () =>
-      [...(lessonItems ?? [])]
-        .filter((l) => l.status === "ACTIVE")
-        .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id),
-    [lessonItems],
-  );
+  const options = useMemo(() => (lessonItems ?? []).filter((l) => l.status === "ACTIVE"), [lessonItems]);
   const lessonsTotal = lessonsQuery.data?.total ?? 0;
   const classesTotal = classes.data?.total ?? 0;
   const selected: Lesson | undefined = lessonItems?.find((l) => String(l.id) === lessonId);
@@ -95,8 +102,8 @@ export function FrequenciaPage() {
       <>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b p-3">
           <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Badge variant="default" data-testid="count-present">{summary.present} presentes</Badge>
-            <Badge variant="secondary" data-testid="count-absent">{summary.absent} faltas</Badge>
+            <Badge variant="default" data-testid="count-present">{plural(summary.present, "presente")}</Badge>
+            <Badge variant="secondary" data-testid="count-absent">{plural(summary.absent, "falta")}</Badge>
             {summary.undecided > 0 && (
               <Badge variant="outline" data-testid="count-undecided">{summary.undecided} sem chamada</Badge>
             )}
@@ -240,9 +247,37 @@ export function FrequenciaPage() {
               </option>
             ))}
           </NativeSelect>
-          {lessonsTotal > SELECTOR_LIMIT && (
+          {windowed ? (
+            <p className="text-xs text-muted-foreground" data-testid="lessons-window-hint">
+              Aulas dos últimos 7 e próximos 30 dias.{" "}
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={() => {
+                  setShowAll(true);
+                  setLessonId("");
+                }}
+              >
+                Mostrar todas
+              </button>
+            </p>
+          ) : showAll ? (
+            <p className="text-xs text-muted-foreground">
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={() => {
+                  setShowAll(false);
+                  setLessonId("");
+                }}
+              >
+                Voltar às aulas próximas
+              </button>
+            </p>
+          ) : null}
+          {lessonsTotal > lessonsLimit && (
             <p className="text-xs text-muted-foreground" data-testid="lessons-truncated">
-              Mostrando as {SELECTOR_LIMIT} aulas mais recentes de {lessonsTotal}. Refine por turma ou período.
+              Mostrando {lessonsLimit} de {lessonsTotal} aulas, as mais próximas de hoje primeiro. Refine por turma ou período.
             </p>
           )}
           {lessonsQuery.error && (

@@ -32,6 +32,8 @@ export interface AuthUser {
   isSuperAdmin: boolean;
   organizationId: number;
   organizationSlug: string;
+  /** Logo do grupo (caminho de /uploads ou URL), quando o login/GET /auth/me enviar; sem ele o cabeçalho mobile usa o logo do GingApp. */
+  organizationLogoUrl?: string | null;
   /** Papel de acesso = o MAIOR cargo da pessoa no grupo (pode ser INSTRUTOR/MONITOR). */
   role: OrgRole;
   /** Cargos ativos no grupo, do maior para o menor (GET /auth/me traz; o login pode não trazer). */

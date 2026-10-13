@@ -21,6 +21,14 @@ function handler(call: Call) {
   if (call.path === '/data-deletion-requests' && call.method === 'GET') {
     return { body: [REQUEST], headers: { 'X-Total-Count': '1' } }
   }
+  if (call.path === '/data-deletion-requests/5/anonymize' && call.method === 'POST') {
+    return {
+      body: {
+        request: { ...REQUEST, status: 'DONE' },
+        result: { personId: 7, studentsAnonymized: 2, userDeactivated: true, occurrencesRetained: 3 },
+      },
+    }
+  }
   if (call.path === '/data-deletion-requests/5' && call.method === 'PATCH') return { body: { ...REQUEST, status: 'DONE' } }
   return undefined
 }
@@ -78,5 +86,60 @@ describe('DataDeletionRequestsView (Pedidos LGPD)', () => {
     const { wrapper } = await mountView(DataDeletionRequestsView, makeUser({ id: 2, isSuperAdmin: false }))
     expect(wrapper.find('[data-testid="readonly-note"]').exists()).toBe(true)
     expect(wrapper.find('[data-action="handle"]').exists()).toBe(false)
+  })
+
+  it('anonimizar: só habilita ao digitar ANONIMIZAR, faz POST com confirm e atualiza a linha', async () => {
+    const { calls } = mockFetch(handler)
+    const { wrapper } = await mountView(DataDeletionRequestsView)
+
+    await wrapper.get('[data-testid="lgpd-5"] [data-action="anonymize"]').trigger('click')
+    expect(wrapper.get('[data-testid="anonymize-dialog"]').text()).toContain('IRREVERSÍVEL')
+    const submit = wrapper.get('[data-testid="anonymize-submit"]')
+    expect(submit.attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="anonymize-confirm-input"]').setValue('anonimiz')
+    expect(wrapper.get('[data-testid="anonymize-submit"]').attributes('disabled')).toBeDefined()
+    await submit.trigger('click')
+    expect(calls.some((c) => c.method === 'POST')).toBe(false)
+
+    await wrapper.get('[data-testid="anonymize-confirm-input"]').setValue('ANONIMIZAR')
+    expect(wrapper.get('[data-testid="anonymize-submit"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('[data-testid="anonymize-submit"]').trigger('click')
+    await flushPromises()
+    const post = calls.find((c) => c.method === 'POST') as Call
+    expect(post.path).toBe('/data-deletion-requests/5/anonymize')
+    expect(post.body).toEqual({ confirm: true })
+    expect(wrapper.find('[data-testid="anonymize-dialog"]').exists()).toBe(false)
+    expect(wrapper.get('[role="status"]').text()).toContain('2 matrículas anonimizadas')
+    expect(wrapper.get('[data-testid="lgpd-5"]').text()).toContain('Concluído')
+    expect(wrapper.find('[data-testid="lgpd-5"] [data-action="anonymize"]').exists()).toBe(false)
+  })
+
+  it('anonimizar: 409 ANONYMIZE_PLATFORM_USER mostra mensagem; sem botão em pedido final ou sem super admin', async () => {
+    mockFetch((call) => {
+      if (call.path === '/data-deletion-requests/5/anonymize') {
+        return { status: 409, body: { statusCode: 409, code: 'ANONYMIZE_PLATFORM_USER', message: 'x' } }
+      }
+      return handler(call)
+    })
+    const { wrapper } = await mountView(DataDeletionRequestsView)
+    await wrapper.get('[data-testid="lgpd-5"] [data-action="anonymize"]').trigger('click')
+    await wrapper.get('[data-testid="anonymize-confirm-input"]').setValue('ana@grupo.com')
+    await wrapper.get('[data-testid="anonymize-submit"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="anonymize-error"]').text()).toContain('equipe da plataforma')
+    wrapper.unmount()
+
+    mockFetch((call) =>
+      call.path === '/data-deletion-requests'
+        ? { body: [{ ...REQUEST, status: 'DONE' }], headers: { 'X-Total-Count': '1' } }
+        : handler(call),
+    )
+    const done = await mountView(DataDeletionRequestsView)
+    expect(done.wrapper.find('[data-action="anonymize"]').exists()).toBe(false)
+    done.wrapper.unmount()
+
+    mockFetch(handler)
+    const plain = await mountView(DataDeletionRequestsView, makeUser({ id: 2, isSuperAdmin: false }))
+    expect(plain.wrapper.find('[data-action="anonymize"]').exists()).toBe(false)
   })
 })

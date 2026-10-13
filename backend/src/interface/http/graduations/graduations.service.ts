@@ -64,7 +64,17 @@ export class GraduationsService {
     if (!system) {
       throw new NotFoundException('Sistema de graduação não encontrado.');
     }
-    return withLevelsRope(system);
+    // studentCount por nivel: alunos ATIVOS cuja graduacao mais recente NESTE sistema e aquele nivel. Uma consulta (sem N+1).
+    const current = await this.prisma.studentGraduation.findMany({
+      where: { organizationId, graduationLevel: { graduationSystemId: systemId }, student: { status: 'ACTIVE' } },
+      distinct: ['studentId'],
+      orderBy: [{ graduatedAt: 'desc' }, { id: 'desc' }],
+      select: { graduationLevelId: true },
+    });
+    const counts = new Map<number, number>();
+    for (const g of current) counts.set(g.graduationLevelId, (counts.get(g.graduationLevelId) ?? 0) + 1);
+    const view = withLevelsRope(system);
+    return { ...view, levels: view.levels.map((l) => ({ ...l, studentCount: counts.get(l.id) ?? 0 })) };
   }
 
   /** Modelos genéricos de sistema (estáticos) para o painel criar um sistema pronto. */

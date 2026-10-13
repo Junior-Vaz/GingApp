@@ -65,6 +65,16 @@ export function lessonScopeFilter(scope: UnitScope): Prisma.LessonWhereInput {
   return { OR: [{ unitId: { in: scope } }, { unitId: null, class: unitScopeFilter(scope) }] };
 }
 
+/**
+ * MONITOR so trabalha as aulas DELE (docs/FICHA_UNICA.md secao 12): aula atribuida a ele (Lesson.teacherUserId) ou de
+ * turma em que ele e o professor responsavel (Class.teacherUserId). INSTRUTOR/PROFESSOR/Mestre/outros = sem esse filtro
+ * (seguem so o escopo de unidade). Aula fora disso = o mesmo 404 do inexistente. Combine com AND.
+ */
+export function monitorLessonFilter(user: AuthenticatedUser | undefined): Prisma.LessonWhereInput {
+  if (!user || user.userType !== UserType.MEMBER || user.isSuperAdmin || user.role !== OrgRole.MONITOR) return {};
+  return { OR: [{ teacherUserId: user.id }, { class: { teacherUserId: user.id } }] };
+}
+
 /** Eventos/comunicados: `unitId` nulo = grupo inteiro (legivel a todos) ou uma das unidades do escopo. */
 export function groupWideOrUnitFilter(scope: UnitScope): { OR?: Array<{ unitId: null } | { unitId: { in: number[] } }> } {
   return unitScopeFilter(scope);

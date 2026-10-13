@@ -112,6 +112,9 @@ export const AuditAction = {
   TRANSFER_CONTEST: 'TRANSFER_CONTEST',
   TRANSFER_CANCEL: 'TRANSFER_CANCEL',
   TRANSFER_EXPIRE: 'TRANSFER_EXPIRE',
+  TRANSFER_APPROVAL_LINK_ISSUE: 'TRANSFER_APPROVAL_LINK_ISSUE',
+  // LGPD: anonimizacao da ficha (pedido de exclusao tratado pelo super admin)
+  PERSON_ANONYMIZE: 'PERSON_ANONYMIZE',
   // Cargos acumulaveis (ficha unica, Fase 3)
   ROLE_GRANT: 'ROLE_GRANT',
   ROLE_REVOKE: 'ROLE_REVOKE',

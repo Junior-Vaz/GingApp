@@ -1,3 +1,4 @@
+import { plural } from "@/lib/plural";
 import { useEffect, useId, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FileDown } from "lucide-react";
@@ -77,7 +78,7 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
         result.ignored ? `${result.ignored} já existiam` : "",
         result.failed ? `${result.failed} com erro` : "",
       ].filter(Boolean);
-      toast.success(`${result.created} aluno(s) importado(s)${extra.length ? ` (${extra.join(", ")})` : ""}.`);
+      toast.success(`${plural(result.created, "aluno importado", "alunos importados")}${extra.length ? ` (${extra.join(", ")})` : ""}.`);
       onOpenChange(false);
     },
     onError: (error) => notifyError(error, "Não foi possível importar os alunos."),
@@ -166,7 +167,7 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
             />
             {fileName && !fileError && rows.length > 0 && (
               <p className="text-xs text-muted-foreground">
-                {fileName}: {rows.length} linha(s) lida(s).
+                {fileName}: {rows.length === 1 ? "1 linha lida" : `${rows.length} linhas lidas`}.
               </p>
             )}
           </div>
@@ -202,7 +203,7 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
               {result.plan && (
                 <p className="text-xs text-muted-foreground">
                   Plano "{result.plan.planName}": {result.plan.activeStudents} de {result.plan.maxStudents} alunos ativos
-                  ({result.plan.availableSlots} vaga(s) livre(s)).
+                  ({plural(result.plan.availableSlots, "vaga livre", "vagas livres")}).
                 </p>
               )}
               {result.failed > 0 && (
@@ -267,7 +268,7 @@ export function ImportarAlunosDialog({ open, onOpenChange }: { open: boolean; on
             Cancelar
           </Button>
           <Button type="button" disabled={busy || !result || result.created === 0} onClick={() => confirm.mutate(rows)}>
-            {confirm.isPending ? "Importando…" : `Importar ${result?.created ?? 0} aluno(s)`}
+            {confirm.isPending ? "Importando…" : `Importar ${plural(result?.created ?? 0, "aluno")}`}
           </Button>
         </DialogFooter>
       </DialogContent>

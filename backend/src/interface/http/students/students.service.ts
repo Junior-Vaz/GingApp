@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, StaffRole, Student } from '@prisma/client';
 import { sortRoles } from '../roles/staff-roles';
+import { withRope } from '../graduations/rope';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
@@ -42,10 +43,46 @@ export class StudentsService {
     const where = await this.listWhere(organizationId, query, user);
 
     const [items, total] = await Promise.all([
-      this.prisma.student.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
+      this.prisma.student.findMany({
+        where,
+        orderBy: query.order === 'name' ? [{ name: 'asc' }, { id: 'asc' }] : [{ id: 'desc' }],
+        ...pageArgs(query),
+      }),
       this.prisma.student.count({ where }),
     ]);
-    return { items: await this.withStaffRoles(organizationId, items), total };
+    const withRoles = await this.withStaffRoles(organizationId, items);
+    return { items: await this.withListExtras(withRoles), total };
+  }
+
+  /**
+   * Extras das listas do painel, em LOTE (sem N+1): `classNames` = turmas ATIVAS do aluno (matricula ACTIVE em turma ACTIVE,
+   * por nome) e `currentCord` = corda da graduacao mais recente (data, depois id) em qualquer sistema, ou null.
+   */
+  private async withListExtras<T extends { id: number }>(
+    items: T[],
+  ): Promise<(T & { classNames: string[]; currentCord: { name: string; style: string; colors: string[] } | null })[]> {
+    if (items.length === 0) return [];
+    const ids = items.map((i) => i.id);
+    const [classRows, gradRows] = await Promise.all([
+      this.prisma.classStudent.findMany({
+        where: { studentId: { in: ids }, status: 'ACTIVE', class: { status: 'ACTIVE' } },
+        select: { studentId: true, class: { select: { name: true } } },
+        orderBy: { class: { name: 'asc' } },
+      }),
+      this.prisma.studentGraduation.findMany({
+        where: { studentId: { in: ids } },
+        distinct: ['studentId'],
+        orderBy: [{ graduatedAt: 'desc' }, { id: 'desc' }],
+        select: { studentId: true, graduationLevel: { select: { name: true, color: true, style: true, colors: true } } },
+      }),
+    ]);
+    const classNames = new Map<number, string[]>();
+    for (const r of classRows) classNames.set(r.studentId, [...(classNames.get(r.studentId) ?? []), r.class.name]);
+    const cords = new Map(gradRows.map((g) => {
+      const rope = withRope(g.graduationLevel);
+      return [g.studentId, { name: g.graduationLevel.name, style: rope.style, colors: rope.colors }] as const;
+    }));
+    return items.map((i) => ({ ...i, classNames: classNames.get(i.id) ?? [], currentCord: cords.get(i.id) ?? null }));
   }
 
   /** Fase 3: staffRoles (cargos ATIVOS no grupo, maior primeiro) em cada aluno - o selo de cargo das listas. */

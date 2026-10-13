@@ -19,7 +19,7 @@ export interface GraduationLevel {
   /** 1 cor (SOLID) ou 2-3 cores (SPLIT/BRAIDED). */
   colors?: string[] | undefined;
   /** Alunos cuja graduação atual é este nível (quando o servidor informa). */
-  studentCount?: number | undefined;
+  studentCount?: number | null | undefined;
 }
 
 export interface GraduationSystem {
