@@ -4,7 +4,7 @@ import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { maskStudentDocument, parseCpf, personDocumentKey, PersonDocumentKey } from '../../../shared/security/person-document';
-import { ropeOf } from '../graduations/rope';
+import { LEVEL_SELECT, ropeOf } from '../graduations/rope';
 import { normalizeGingappCode } from './gingapp-code';
 import { PersonErrorCode, PersonErrorCodeValue, personBadRequest, personConflict } from './person-errors';
 import {
@@ -26,7 +26,7 @@ export interface PersonPreview {
   nickname: string | null;
   photo: string | null;
   currentGroups: { id: number; name: string; logoUrl: string | null }[];
-  currentLevel: { name: string; style: RopeStyle; colors: string[] } | null;
+  currentLevel: { name: string; style: RopeStyle; colors: string[]; tipStart: string | null; tipEnd: string | null } | null;
 }
 
 /** Dados de identidade informados no cadastro de uma matricula (POST /students ou linha do CSV), ja validados. */
@@ -203,7 +203,7 @@ export class PersonIdentityService {
             status: true,
             organization: { select: { id: true, name: true, logo: true } },
             graduations: {
-              select: { graduatedAt: true, id: true, graduationLevel: { select: { name: true, style: true, colors: true, color: true } } },
+              select: { graduatedAt: true, id: true, graduationLevel: { select: LEVEL_SELECT } },
               orderBy: [{ graduatedAt: 'desc' }, { id: 'desc' }],
               take: 1,
             },
@@ -232,7 +232,7 @@ export class PersonIdentityService {
           nickname: p.nickname,
           photo: p.photo,
           currentGroups: [...groups.values()],
-          currentLevel: level ? { name: level.name, style: ropeOf(level).style, colors: ropeOf(level).colors } : null,
+          currentLevel: level ? { name: level.name, style: ropeOf(level).style, colors: ropeOf(level).colors, tipStart: ropeOf(level).tipStart, tipEnd: ropeOf(level).tipEnd } : null,
         };
       });
   }

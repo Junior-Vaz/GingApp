@@ -14,7 +14,7 @@ import { canonicalPerson, findPersonByUser } from './person-linker';
 
 type OrgRef = { id: number; name: string };
 
-type LevelOut = { id: number; name: string; order: number; color: string | null; style: RopeStyle; colors: string[] };
+type LevelOut = { id: number; name: string; order: number; color: string | null; style: RopeStyle; colors: string[]; tipStart: string | null; tipEnd: string | null };
 
 export interface SharedEnrollment {
   shareId: number;
@@ -68,7 +68,7 @@ export interface Ficha {
     studentId: number;
     organization: OrgRef;
     graduatedAt: Date;
-    level: { id: number; name: string; order: number; color: string | null; style: RopeStyle; colors: string[] };
+    level: { id: number; name: string; order: number; color: string | null; style: RopeStyle; colors: string[]; tipStart: string | null; tipEnd: string | null };
     system: { id: number; name: string };
     /** Fase 5: graduacao reconhecida a partir da corda de origem (outro grupo). */
     recognizedFromLevelId: number | null;

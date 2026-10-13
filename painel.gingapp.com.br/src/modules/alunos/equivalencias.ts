@@ -11,6 +11,8 @@ export interface EquivalenceLevel {
   color?: string | null | undefined;
   style?: RopeStyle | null | undefined;
   colors?: string[] | null | undefined;
+  tipStart?: string | null | undefined;
+  tipEnd?: string | null | undefined;
 }
 
 /** Uma linha de GET /graduations/equivalences/suggestions: uma corda de origem compartilhada do aluno (só MESTRE). */

@@ -96,7 +96,7 @@ describe("Graduações - editar/remover sistemas e níveis", () => {
     fireEvent.change(within(dialog).getByLabelText("Ordem"), { target: { value: "4" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(writes(calls)).toHaveLength(1));
-    expect(writes(calls)[0]).toEqual({ url: "/graduations/levels/1", method: "PATCH", body: { name: "Crua", order: 4, style: "BRAIDED", colors: ["#f5f5dc", "#16a34a"] } });
+    expect(writes(calls)[0]).toEqual({ url: "/graduations/levels/1", method: "PATCH", body: { name: "Crua", order: 4, style: "BRAIDED", colors: ["#f5f5dc", "#16a34a"], tipStart: null, tipEnd: null } });
   });
 
   it("remover sistema pede confirmação (nada é enviado antes) e faz DELETE; cancelar não envia", async () => {
@@ -230,7 +230,7 @@ describe("Graduações - editar/remover graduação do aluno", () => {
 describe("conversores de PATCH", () => {
   it("campos opcionais vazios viram null", () => {
     expect(toSystemUpdate({ name: " A ", description: " " })).toEqual({ name: "A", description: null });
-    expect(toLevelUpdate({ name: "N", order: "3", style: "BRAIDED", colors: ["#FF0000", "#00FF00"] })).toEqual({ name: "N", order: 3, style: "BRAIDED", colors: ["#ff0000", "#00ff00"] });
+    expect(toLevelUpdate({ name: "N", order: "3", style: "BRAIDED", colors: ["#FF0000", "#00FF00"], tipsEnabled: false, tipStart: "", tipEnd: "" })).toEqual({ name: "N", order: 3, style: "BRAIDED", colors: ["#ff0000", "#00ff00"], tipStart: null, tipEnd: null });
     expect(toRegistrationUpdate({ graduationLevelId: "2", graduatedAt: "2026-01-01", notes: " " })).toEqual({
       graduationLevelId: 2,
       graduatedAt: "2026-01-01",

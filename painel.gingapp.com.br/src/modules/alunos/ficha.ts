@@ -37,7 +37,7 @@ export interface StudentFicha {
     studentId: number;
     organization: { id: number; name: string };
     graduatedAt: string;
-    level: { id: number; name: string; order: number; color?: string | null; style?: RopeStyle | null; colors?: string[] | null };
+    level: { id: number; name: string; order: number; color?: string | null; style?: RopeStyle | null; colors?: string[] | null; tipStart?: string | null; tipEnd?: string | null };
     system: { id: number; name: string };
     /** Graduação "Reconhecida": criada pelo grupo a partir de uma corda de outro grupo (id do nível de origem). */
     recognizedFromLevelId?: number | null;
@@ -66,7 +66,7 @@ export interface SharedFromOtherGroup {
   graduations: {
     id: number;
     graduatedAt: string;
-    level: { id: number; name: string; order: number; color?: string | null; style?: RopeStyle | null; colors?: string[] | null };
+    level: { id: number; name: string; order: number; color?: string | null; style?: RopeStyle | null; colors?: string[] | null; tipStart?: string | null; tipEnd?: string | null };
     system: { id: number; name: string };
   }[];
   attendanceByClass: { class: { id: number; name: string }; present: number; absent: number; total: number }[];

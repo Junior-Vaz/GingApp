@@ -24,6 +24,10 @@ export interface RopeFields {
   color: string;
   style: RopeStyle;
   colors: string[];
+  /** Cor (#RRGGBB) da ponta de CIMA/primeira da corda com pontas; null = sem ponta. */
+  tipStart: string | null;
+  /** Cor (#RRGGBB) da ponta de BAIXO/ultima da corda com pontas; null = sem ponta. */
+  tipEnd: string | null;
 }
 
 export interface LevelView extends RopeFields {
@@ -46,6 +50,20 @@ export interface RopeInput {
   style?: RopeStyle;
   colors?: string[];
   color?: string | null;
+  /** undefined = manter; null/'' = limpar; hex = definir. */
+  tipStart?: string | null;
+  tipEnd?: string | null;
+}
+
+/** Ponta: undefined mantem current; null/''/so espacos limpa; hex valido (#RRGGBB ou #RGB) normaliza; invalido = 400. */
+export function resolveTip(input: unknown, current: string | null | undefined, label: string): string | null {
+  if (input === undefined) return current ?? null;
+  if (input === null) return null;
+  if (typeof input !== 'string') throw new BadRequestException(`Cor da ${label} invalida: use o formato hexadecimal #RRGGBB.`);
+  if (input.trim() === '') return null;
+  const hex = normalizeHex(input);
+  if (!hex) throw new BadRequestException(`Cor da ${label} invalida: use o formato hexadecimal #RRGGBB.`);
+  return hex;
 }
 
 /**
@@ -84,7 +102,13 @@ export function resolveRope(input: RopeInput, current?: RopeFields): RopeFields 
       throw new BadRequestException('Cores consecutivas idênticas não são permitidas na corda.');
     }
   }
-  return { style, colors, color: colors[0] };
+  return {
+    style,
+    colors,
+    color: colors[0],
+    tipStart: resolveTip(input.tipStart, current?.tipStart, 'ponta de cima'),
+    tipEnd: resolveTip(input.tipEnd, current?.tipEnd, 'ponta de baixo'),
+  };
 }
 
 /**
@@ -92,17 +116,26 @@ export function resolveRope(input: RopeInput, current?: RopeFields): RopeFields 
  * (deriva do `color` legado, ou do cinza neutro) e sempre devolve color = colors[0].
  * Mantém os demais campos do registro (ex.: graduationSystemId) — o contrato é um superconjunto.
  */
-export function withRope<T extends { color: string | null; style?: RopeStyle | null; colors?: string[] | null }>(
-  level: T,
-): Omit<T, 'color' | 'style' | 'colors'> & RopeFields {
+export function withRope<
+  T extends { color: string | null; style?: RopeStyle | null; colors?: string[] | null; tipStart?: string | null; tipEnd?: string | null },
+>(level: T): Omit<T, 'color' | 'style' | 'colors' | 'tipStart' | 'tipEnd'> & RopeFields {
   const stored = (level.colors ?? []).map((c) => normalizeHex(c)).filter((c): c is string => c !== null);
   const legacy = normalizeHex(level.color);
   const colors = stored.length > 0 ? stored : [legacy ?? DEFAULT_ROPE_COLOR];
-  const { color: _color, style: _style, colors: _colors, ...rest } = level;
+  const { color: _color, style: _style, colors: _colors, tipStart: _tipStart, tipEnd: _tipEnd, ...rest } = level;
   void _color;
   void _style;
   void _colors;
-  return { ...rest, color: colors[0], style: level.style ?? RopeStyle.SOLID, colors };
+  void _tipStart;
+  void _tipEnd;
+  return {
+    ...rest,
+    color: colors[0],
+    style: level.style ?? RopeStyle.SOLID,
+    colors,
+    tipStart: normalizeHex(level.tipStart),
+    tipEnd: normalizeHex(level.tipEnd),
+  };
 }
 
 /** Recorte mínimo {id, name, order, color, style, colors} do contrato de leitura. */
@@ -113,16 +146,24 @@ export function levelView(level: {
   color: string | null;
   style?: RopeStyle | null;
   colors?: string[] | null;
+  tipStart?: string | null;
+  tipEnd?: string | null;
 }): LevelView {
   const r = withRope(level);
-  return { id: r.id, name: r.name, order: r.order, color: r.color, style: r.style, colors: r.colors };
+  return { id: r.id, name: r.name, order: r.order, color: r.color, style: r.style, colors: r.colors, tipStart: r.tipStart, tipEnd: r.tipEnd };
 }
 
 /** Só a parte de corda ({color, style, colors}) de um nível/linha. */
-export function ropeOf(level: { color: string | null; style?: RopeStyle | null; colors?: string[] | null }): RopeFields {
+export function ropeOf(level: {
+  color: string | null;
+  style?: RopeStyle | null;
+  colors?: string[] | null;
+  tipStart?: string | null;
+  tipEnd?: string | null;
+}): RopeFields {
   const r = withRope(level);
-  return { color: r.color, style: r.style, colors: r.colors };
+  return { color: r.color, style: r.style, colors: r.colors, tipStart: r.tipStart, tipEnd: r.tipEnd };
 }
 
 /** `select` do Prisma com exatamente os campos do contrato (reuso em includes/selects). */
-export const LEVEL_SELECT = { id: true, name: true, order: true, color: true, style: true, colors: true } as const;
+export const LEVEL_SELECT = { id: true, name: true, order: true, color: true, style: true, colors: true, tipStart: true, tipEnd: true } as const;

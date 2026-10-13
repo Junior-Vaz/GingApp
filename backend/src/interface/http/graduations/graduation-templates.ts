@@ -10,6 +10,10 @@ export interface GraduationTemplateLevel {
   name: string;
   style: RopeStyle;
   colors: string[];
+  /** Corda com pontas: cor da ponta de cima/primeira (#RRGGBB); omitido = sem ponta. */
+  tipStart?: string;
+  /** Corda com pontas: cor da ponta de baixo/ultima (#RRGGBB); omitido = sem ponta. */
+  tipEnd?: string;
 }
 
 export interface GraduationTemplate {
@@ -29,6 +33,7 @@ const C = {
   marrom: '#78350F',
   vermelha: '#DC2626',
   branca: '#FFFFFF',
+  cinza: '#9CA3AF',
 } as const;
 
 const { SOLID, SPLIT, BRAIDED } = RopeStyle;
@@ -36,6 +41,14 @@ const { SOLID, SPLIT, BRAIDED } = RopeStyle;
 const solid = (name: string, color: string): GraduationTemplateLevel => ({ name, style: SOLID, colors: [color] });
 const split = (name: string, ...colors: string[]): GraduationTemplateLevel => ({ name, style: SPLIT, colors });
 const braided = (name: string, ...colors: string[]): GraduationTemplateLevel => ({ name, style: BRAIDED, colors });
+/** Corda SOLIDA de corpo ody com pontas (tipStart = cima, tipEnd = baixo; omitir = sem aquela ponta). */
+const tipped = (name: string, body: string, tipStart?: string, tipEnd?: string): GraduationTemplateLevel => ({
+  name,
+  style: SOLID,
+  colors: [body],
+  ...(tipStart ? { tipStart } : {}),
+  ...(tipEnd ? { tipEnd } : {}),
+});
 
 export const GRADUATION_TEMPLATES: GraduationTemplate[] = [
   {
@@ -121,6 +134,43 @@ export const GRADUATION_TEMPLATES: GraduationTemplate[] = [
       braided('Roxa/Marrom', C.roxa, C.marrom),
       braided('Verde/Amarela/Azul', C.verde, C.amarela, C.azul),
       braided('Amarela/Azul/Branca', C.amarela, C.azul, C.branca),
+    ],
+  },
+  {
+    code: 'cordas-com-pontas-classicas',
+    name: 'Cordas com pontas (cores clássicas)',
+    description:
+      'Corda crua com as duas pontas pintadas nas cores da marca (verde, amarelo e azul), da ponta verde à azul. 9 níveis.',
+    levels: [
+      tipped('Crua/ponta verde', C.crua, C.verde, C.verde),
+      tipped('Crua/ponta verde e amarela', C.crua, C.verde, C.amarela),
+      tipped('Crua/ponta amarela', C.crua, C.amarela, C.amarela),
+      tipped('Crua/ponta amarela e azul', C.crua, C.amarela, C.azul),
+      tipped('Crua/ponta azul', C.crua, C.azul, C.azul),
+      tipped('Crua/ponta azul e verde', C.crua, C.azul, C.verde),
+      tipped('Branca/ponta verde', C.branca, C.verde, C.verde),
+      tipped('Branca/ponta verde e amarela', C.branca, C.verde, C.amarela),
+      tipped('Branca/ponta amarela e azul', C.branca, C.amarela, C.azul),
+    ],
+  },
+  {
+    code: 'pontas-por-graduacao',
+    name: 'Pontas por graduação',
+    description:
+      'O corpo da corda muda de cor a cada etapa (crua, cinza, branca) e as pontas indicam o grau, combinando verde, amarelo, azul e branco. 12 níveis.',
+    levels: [
+      tipped('Crua/ponta verde', C.crua, C.verde),
+      tipped('Crua/ponta verde e amarela', C.crua, C.verde, C.amarela),
+      tipped('Crua/ponta amarela', C.crua, C.amarela),
+      tipped('Crua/ponta amarela e azul', C.crua, C.amarela, C.azul),
+      tipped('Crua/ponta azul', C.crua, C.azul),
+      tipped('Cinza/ponta verde e amarela', C.cinza, C.verde, C.amarela),
+      tipped('Cinza/ponta amarela e azul', C.cinza, C.amarela, C.azul),
+      tipped('Cinza/ponta azul e branca', C.cinza, C.azul, C.branca),
+      tipped('Branca/ponta verde', C.branca, C.verde),
+      tipped('Branca/ponta verde e amarela', C.branca, C.verde, C.amarela),
+      tipped('Branca/ponta amarela e azul', C.branca, C.amarela, C.azul),
+      tipped('Branca/ponta azul', C.branca, C.azul),
     ],
   },
 ];

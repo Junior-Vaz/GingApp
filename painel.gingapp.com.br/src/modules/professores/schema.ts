@@ -11,7 +11,7 @@ export type TeacherRole = StaffRole;
 export interface TeacherStudent {
   id: number;
   status: string;
-  level: { id: number; name: string; order: number; color?: string | null; style?: RopeStyle | null; colors?: string[] | null } | null;
+  level: { id: number; name: string; order: number; color?: string | null; style?: RopeStyle | null; colors?: string[] | null; tipStart?: string | null; tipEnd?: string | null } | null;
 }
 
 /** Item de GET /teachers: é a membership (OrganizationUser); `id` é o da membership, não do User. */

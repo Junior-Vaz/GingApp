@@ -12,6 +12,8 @@ export interface RoleLevel {
   color?: string | null | undefined;
   style?: RopeStyle | null | undefined;
   colors?: string[] | null | undefined;
+  tipStart?: string | null | undefined;
+  tipEnd?: string | null | undefined;
 }
 
 /** Cargo do grupo (GET /group-roles), do mais sênior (maior rank) para o menos. */

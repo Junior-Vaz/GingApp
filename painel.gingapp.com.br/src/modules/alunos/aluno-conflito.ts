@@ -9,7 +9,7 @@ export interface PersonPreview {
   nickname: string | null;
   photo: string | null;
   currentGroups: { id: number; name: string; logoUrl: string | null }[];
-  currentLevel: { name: string; style: RopeStyle; colors: string[] } | null;
+  currentLevel: { name: string; style: RopeStyle; colors: string[]; tipStart?: string | null; tipEnd?: string | null } | null;
 }
 
 /** 409 de POST /students: o que o painel precisa para decidir o diálogo. */
@@ -44,6 +44,8 @@ function asPreview(value: unknown): PersonPreview | null {
             name: level["name"],
             style: (level["style"] as RopeStyle | undefined) ?? "SOLID",
             colors: Array.isArray(level["colors"]) ? (level["colors"] as unknown[]).map(String) : [],
+            tipStart: typeof level["tipStart"] === "string" ? level["tipStart"] : null,
+            tipEnd: typeof level["tipEnd"] === "string" ? level["tipEnd"] : null,
           }
         : null,
   };

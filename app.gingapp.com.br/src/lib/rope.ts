@@ -6,12 +6,21 @@ export interface RopeSpec {
   style?: RopeStyle | string | null | undefined;
   colors?: readonly string[] | null | undefined;
   color?: string | null | undefined;
+  /** Cor (hex) da ponta de CIMA/primeira; `style`/`colors` descrevem só o CORPO. Ausente/nula = sem ponta. */
+  tipStart?: string | null | undefined;
+  /** Cor (hex) da ponta de BAIXO/última. */
+  tipEnd?: string | null | undefined;
 }
 
 export interface NormalizedRope {
   style: RopeStyle;
   colors: string[];
+  tipStart: string | null;
+  tipEnd: string | null;
 }
+
+/** Fração do comprimento que cada ponta pintada ocupa. */
+export const ROPE_TIP_RATIO = 0.2;
 
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
 /** Cinza neutro usado quando a corda não tem cor nenhuma (sistema sem cores definidas). */
@@ -30,7 +39,11 @@ export function normalizeRope(spec: RopeSpec | null | undefined): NormalizedRope
   const single = spec?.color && HEX.test(spec.color.trim()) ? [fullHex(spec.color.trim())] : [];
   const colors = fromList.length > 0 ? fromList : single.length > 0 ? single : [ROPE_NEUTRAL];
   const wanted = spec?.style === "SPLIT" || spec?.style === "BRAIDED" ? spec.style : "SOLID";
-  return { style: colors.length < 2 ? "SOLID" : wanted, colors };
+  return { style: colors.length < 2 ? "SOLID" : wanted, colors, tipStart: normalizeTip(spec?.tipStart), tipEnd: normalizeTip(spec?.tipEnd) };
+}
+
+function normalizeTip(value: string | null | undefined): string | null {
+  return typeof value === "string" && HEX.test(value.trim()) ? fullHex(value.trim()) : null;
 }
 
 /** Nome da cor em pt-BR (feminino, concorda com "corda"), pela matiz/luminosidade. */
@@ -71,10 +84,11 @@ function joinNames(names: string[]): string {
   return `${unique.slice(0, -1).join(", ")} e ${unique[unique.length - 1]}`;
 }
 
-/** Descrição falada da corda: "Corda verde", "Corda dividida verde e azul", "Corda trançada verde, amarela e azul". */
+/** Descrição falada da corda: "Corda verde", "Corda dividida verde e azul", "Corda cinza com ponta amarela e ponta azul". */
 export function ropeLabel(spec: RopeSpec | null | undefined): string {
-  const { style, colors } = normalizeRope(spec);
+  const { style, colors, tipStart, tipEnd } = normalizeRope(spec);
   const names = joinNames(colors.map(colorName));
-  if (style === "SOLID") return `Corda ${names}`;
-  return `Corda ${style === "SPLIT" ? "dividida" : "trançada"} ${names}`;
+  const base = style === "SOLID" ? `Corda ${names}` : `Corda ${style === "SPLIT" ? "dividida" : "trançada"} ${names}`;
+  const tips = [tipStart, tipEnd].filter((t): t is string => t !== null).map((t) => `ponta ${colorName(t)}`);
+  return tips.length > 0 ? `${base} com ${tips.join(" e ")}` : base;
 }

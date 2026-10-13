@@ -1080,6 +1080,10 @@ model GraduationLevel {
   /// diagonais, 2 ou 3 cores). `colors` = 1 a 3 hex #RRGGBB, a ORDEM importa (validado no service/DTO).
   style              RopeStyle @default(SOLID)
   colors             String[]  @default([])
+  /// Corda COM PONTAS: cor (#RRGGBB) da ponta de CIMA/primeira (~20% do comprimento); null = sem ponta. style/colors descrevem o CORPO.
+  tipStart           String?
+  /// Corda COM PONTAS: cor (#RRGGBB) da ponta de BAIXO/ultima; null = sem ponta. Independente de tipStart.
+  tipEnd             String?
   createdAt          DateTime  @default(now())
 
   organization       Organization        @relation(fields: [organizationId], references: [id])

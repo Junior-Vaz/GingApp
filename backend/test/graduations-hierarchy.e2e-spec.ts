@@ -187,7 +187,7 @@ describe('Graduations hierarchy (e2e)', () => {
     assert.deepEqual(h.levels.map((l: { id: number }) => l.id), [l3, l2, l1], 'maior order primeiro');
     assert.deepEqual(h.levels.map((l: { order: number }) => l.order), [3, 2, 1]);
     const top = h.levels[0];
-    assert.deepEqual(Object.keys(top).sort(), ['color', 'colors', 'count', 'id', 'isMine', 'name', 'order', 'students', 'style']);
+    assert.deepEqual(Object.keys(top).sort(), ['color', 'colors', 'count', 'id', 'isMine', 'name', 'order', 'students', 'style', 'tipEnd', 'tipStart']);
     assert.deepEqual([top.style, top.colors, top.color], ['BRAIDED', ['#16A34A', '#FACC15', '#2563EB'], '#16A34A']);
     // Contagens: nível 3 = mestre-aluno + Dino (o inativo NÃO conta); nível 2 = Bia + Cida; nível 1 = Ana + 13 (Bia migrou p/ nível 2).
     assert.deepEqual(h.levels.map((l: { count: number }) => l.count), [2, 2, 14]);
@@ -197,7 +197,7 @@ describe('Graduations hierarchy (e2e)', () => {
     assert.equal(h.me.photo, `/api/uploads/ana-${tag}.png`);
     assert.equal(h.me.order, 1);
     assert.equal(h.me.level.id, l1);
-    assert.deepEqual(Object.keys(h.me.level).sort(), ['color', 'colors', 'id', 'name', 'order', 'style']);
+    assert.deepEqual(Object.keys(h.me.level).sort(), ['color', 'colors', 'id', 'name', 'order', 'style', 'tipEnd', 'tipStart']);
     assert.match(h.me.displayName, /^Ana [A-Z]\.$/, 'nome curto: primeiro nome + inicial do último sobrenome');
   });
 

@@ -152,7 +152,7 @@ describe("Graduações - sistemas e níveis", () => {
     expect(writes(calls)[0]).toEqual({
       url: "/graduations/systems/1/levels",
       method: "POST",
-      body: { name: "Azul", order: 3, style: "SOLID", colors: ["#2563eb"] },
+      body: { name: "Azul", order: 3, style: "SOLID", colors: ["#2563eb"], tipStart: null, tipEnd: null },
     });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Nível adicionado."));
   });
@@ -182,7 +182,7 @@ describe("Graduações - sistemas e níveis", () => {
     expect(writes(calls)[0]).toEqual({
       url: "/graduations/systems/3/levels",
       method: "POST",
-      body: { name: "Verde-amarela-azul", order: 0, style: "BRAIDED", colors: ["#f5f1e6", "#facc15", "#2563eb"] },
+      body: { name: "Verde-amarela-azul", order: 0, style: "BRAIDED", colors: ["#f5f1e6", "#facc15", "#2563eb"], tipStart: null, tipEnd: null },
     });
   });
 
@@ -353,7 +353,7 @@ describe("helpers de graduações", () => {
   });
   it("conversores de formulário para payload", () => {
     expect(toSystemInput({ name: " A1 ", description: "  " })).toEqual({ name: "A1", description: undefined });
-    expect(toLevelInput({ name: " N ", order: "2", style: "SOLID", colors: ["#AABBCC"] })).toEqual({ name: "N", order: 2, style: "SOLID", colors: ["#aabbcc"] });
+    expect(toLevelInput({ name: " N ", order: "2", style: "SOLID", colors: ["#AABBCC"], tipsEnabled: false, tipStart: "#16a34a", tipEnd: "#facc15" })).toEqual({ name: "N", order: 2, style: "SOLID", colors: ["#aabbcc"], tipStart: null, tipEnd: null });
     expect(toRegistrationInput({ graduationLevelId: "4", graduatedAt: "2026-01-01", notes: " ok " })).toEqual({
       graduationLevelId: 4,
       graduatedAt: "2026-01-01",

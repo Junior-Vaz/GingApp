@@ -4,7 +4,14 @@ export type RopeStyle = "SOLID" | "SPLIT" | "BRAIDED";
 export interface RopeSpec {
   style: RopeStyle;
   colors: string[];
+  /** Corda com pontas: cor (#RRGGBB) da ponta de CIMA/primeira; ausente/null = sem ponta. */
+  tipStart?: string | null | undefined;
+  /** Corda com pontas: cor (#RRGGBB) da ponta de BAIXO/última; ausente/null = sem ponta. */
+  tipEnd?: string | null | undefined;
 }
+
+/** Cada ponta ocupa ~20% do comprimento da corda (mesma constante do app). */
+export const TIP_RATIO = 0.2;
 
 /** Paleta rápida de cores típicas de cordas (hex = cor "real" da corda). */
 export const ROPE_PALETTE: { name: string; hex: string }[] = [
@@ -54,13 +61,28 @@ const joinNames = (names: string[]) =>
 
 const STYLE_WORD: Record<RopeStyle, string> = { SOLID: "sólida", SPLIT: "dividida", BRAIDED: "trançada" };
 
-/** "Corda trançada verde, amarela e azul" */
-export function ropeLabel({ style, colors }: RopeSpec): string {
+/** Cor de ponta válida (hex #RRGGBB) ou null. */
+export const validTip = (tip: string | null | undefined): string | null => (tip && HEX_COLOR.test(tip) ? tip : null);
+
+/**
+ * "Corda trançada verde, amarela e azul". Com pontas: "Corda cinza com ponta amarela e ponta azul" (corpo sólido
+ * não diz "sólida"); uma ponta só diz o lado: "Corda crua com ponta de cima verde".
+ */
+export function ropeLabel({ style, colors, tipStart, tipEnd }: RopeSpec): string {
   const valid = colors.filter((c) => HEX_COLOR.test(c));
-  if (valid.length === 0) return "Corda sem cor definida";
+  const start = validTip(tipStart);
+  const end = validTip(tipEnd);
   const names = valid.map(colorName);
-  if (style === "SOLID" || valid.length === 1) return `Corda ${style === "SOLID" ? "sólida" : STYLE_WORD[style]} ${names[0]}`;
-  return `Corda ${STYLE_WORD[style]} ${joinNames(names)}`;
+  const solidBody = style === "SOLID" || valid.length === 1;
+  let body: string;
+  if (valid.length === 0) body = "Corda sem cor definida";
+  else if (start || end) body = solidBody ? `Corda ${names[0]}` : `Corda ${STYLE_WORD[style]} ${joinNames(names)}`;
+  else if (solidBody) body = `Corda ${style === "SOLID" ? "sólida" : STYLE_WORD[style]} ${names[0]}`;
+  else body = `Corda ${STYLE_WORD[style]} ${joinNames(names)}`;
+  if (start && end) return `${body} com ponta ${colorName(start)} e ponta ${colorName(end)}`;
+  if (start) return `${body} com ponta de cima ${colorName(start)}`;
+  if (end) return `${body} com ponta de baixo ${colorName(end)}`;
+  return body;
 }
 
 /** Converte um nível do backend (novo `style/colors` ou legado `color`) na especificação da corda. */
@@ -68,8 +90,12 @@ export function ropeOf(source: {
   style?: RopeStyle | null | undefined;
   colors?: string[] | null | undefined;
   color?: string | null | undefined;
+  tipStart?: string | null | undefined;
+  tipEnd?: string | null | undefined;
 }): RopeSpec {
   const colors = source.colors?.length ? source.colors : source.color ? [source.color] : [];
-  return { style: source.style ?? "SOLID", colors };
+  const tipStart = validTip(source.tipStart);
+  const tipEnd = validTip(source.tipEnd);
+  return { style: source.style ?? "SOLID", colors, ...(tipStart ? { tipStart } : {}), ...(tipEnd ? { tipEnd } : {}) };
 }
 

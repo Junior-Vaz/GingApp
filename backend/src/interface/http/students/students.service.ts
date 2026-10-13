@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Student } from '@prisma/client';
 import { badgesByUser, GroupRoleBadge } from '../roles/group-roles';
-import { withRope } from '../graduations/rope';
+import { LEVEL_SELECT, withRope } from '../graduations/rope';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
@@ -60,7 +60,7 @@ export class StudentsService {
    */
   private async withListExtras<T extends { id: number }>(
     items: T[],
-  ): Promise<(T & { classNames: string[]; currentCord: { name: string; style: string; colors: string[] } | null })[]> {
+  ): Promise<(T & { classNames: string[]; currentCord: { name: string; style: string; colors: string[]; tipStart: string | null; tipEnd: string | null } | null })[]> {
     if (items.length === 0) return [];
     const ids = items.map((i) => i.id);
     const [classRows, gradRows] = await Promise.all([
@@ -73,14 +73,14 @@ export class StudentsService {
         where: { studentId: { in: ids } },
         distinct: ['studentId'],
         orderBy: [{ graduatedAt: 'desc' }, { id: 'desc' }],
-        select: { studentId: true, graduationLevel: { select: { name: true, color: true, style: true, colors: true } } },
+        select: { studentId: true, graduationLevel: { select: LEVEL_SELECT } },
       }),
     ]);
     const classNames = new Map<number, string[]>();
     for (const r of classRows) classNames.set(r.studentId, [...(classNames.get(r.studentId) ?? []), r.class.name]);
     const cords = new Map(gradRows.map((g) => {
       const rope = withRope(g.graduationLevel);
-      return [g.studentId, { name: g.graduationLevel.name, style: rope.style, colors: rope.colors }] as const;
+      return [g.studentId, { name: g.graduationLevel.name, style: rope.style, colors: rope.colors, tipStart: rope.tipStart, tipEnd: rope.tipEnd }] as const;
     }));
     return items.map((i) => ({ ...i, classNames: classNames.get(i.id) ?? [], currentCord: cords.get(i.id) ?? null }));
   }

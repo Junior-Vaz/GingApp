@@ -18,7 +18,7 @@ interface PublicPassport {
   student: { name: string };
   organization: { name: string };
   unit: { name: string } | null;
-  currentGraduation: { name: string; color?: string | null; style?: "SOLID" | "SPLIT" | "BRAIDED"; colors?: string[] } | null;
+  currentGraduation: { name: string; color?: string | null; style?: "SOLID" | "SPLIT" | "BRAIDED"; colors?: string[]; tipStart?: string | null; tipEnd?: string | null } | null;
   stats: { aulas: number; rodas: number; eventos: number; graduacoes: number; certificados: number };
 }
 

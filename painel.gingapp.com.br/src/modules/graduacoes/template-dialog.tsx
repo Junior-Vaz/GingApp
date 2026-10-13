@@ -47,7 +47,7 @@ export function TemplateFields({ form }: { form: UseFormReturn<TemplateFormValue
               <span className="flex flex-wrap gap-2 pt-1" data-testid={`template-preview-${template.code}`}>
                 {template.levels.map((level, index) => (
                   <span key={index} className="flex w-12 flex-col items-center gap-1" title={level.name}>
-                    <RopeSwatch style={level.style} colors={level.colors} size="md" orientation="vertical" />
+                    <RopeSwatch style={level.style} colors={level.colors} tipStart={level.tipStart} tipEnd={level.tipEnd} size="md" orientation="vertical" />
                     <span className="line-clamp-2 w-full break-words text-center text-[10px] text-muted-foreground [overflow-wrap:anywhere]">{level.name}</span>
                   </span>
                 ))}

@@ -18,6 +18,10 @@ export interface GraduationLevel {
   style?: RopeStyle | undefined;
   /** 1 cor (SOLID) ou 2-3 cores (SPLIT/BRAIDED). */
   colors?: string[] | undefined;
+  /** Corda com pontas: cor (#RRGGBB) da ponta de cima/primeira; null/ausente = sem ponta (o corpo é style + colors). */
+  tipStart?: string | null | undefined;
+  /** Corda com pontas: cor (#RRGGBB) da ponta de baixo/última; null/ausente = sem ponta. */
+  tipEnd?: string | null | undefined;
   /** Alunos cuja graduação atual é este nível (quando o servidor informa). */
   studentCount?: number | null | undefined;
 }
@@ -51,6 +55,10 @@ export interface LevelInput {
   order?: number | undefined;
   style: RopeStyle;
   colors: string[];
+  /** 
+ull = sem ponta (a corda sem pontas envia as duas como null). */
+  tipStart: string | null;
+  tipEnd: string | null;
 }
 
 export interface RegistrationInput {
@@ -64,13 +72,17 @@ export interface LevelUpdate {
   order?: number;
   style?: RopeStyle;
   colors?: string[];
+  /** 
+ull limpa a ponta (PATCH). */
+  tipStart?: string | null;
+  tipEnd?: string | null;
 }
 
 export interface GraduationTemplate {
   code: string;
   name: string;
   description: string;
-  levels: { name: string; style: RopeStyle; colors: string[] }[];
+  levels: { name: string; style: RopeStyle; colors: string[]; tipStart?: string | null; tipEnd?: string | null }[];
 }
 
 export interface RegistrationUpdate {

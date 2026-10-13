@@ -79,7 +79,11 @@ export class GraduationsService {
 
   /** Modelos genéricos de sistema (estáticos) para o painel criar um sistema pronto. */
   listTemplates() {
-    return GRADUATION_TEMPLATES;
+    // Todo nivel do modelo traz tipStart/tipEnd (null = sem ponta): o cliente nao precisa tratar chave ausente.
+    return GRADUATION_TEMPLATES.map((t) => ({
+      ...t,
+      levels: t.levels.map((l) => ({ ...l, tipStart: l.tipStart ?? null, tipEnd: l.tipEnd ?? null })),
+    }));
   }
 
   /**
@@ -105,6 +109,8 @@ export class GraduationsService {
           style: level.style,
           colors: level.colors,
           color: level.colors[0],
+          tipStart: level.tipStart ?? null,
+          tipEnd: level.tipEnd ?? null,
         })),
       });
       return tx.graduationSystem.findUniqueOrThrow({
@@ -146,7 +152,13 @@ export class GraduationsService {
       throw new BadRequestException('Sistema de graduação inativo: reative-o para criar níveis.');
     }
 
-    const rope = resolveRope({ style: dto.style, colors: dto.colors, color: dto.color });
+    const rope = resolveRope({
+      style: dto.style,
+      colors: dto.colors,
+      color: dto.color,
+      tipStart: dto.tipStart,
+      tipEnd: dto.tipEnd,
+    });
     await this.assertRoomForLevels(systemId, 1);
 
     const created = await this.prisma.graduationLevel
@@ -159,6 +171,8 @@ export class GraduationsService {
           color: rope.color,
           style: rope.style,
           colors: rope.colors,
+          tipStart: rope.tipStart,
+          tipEnd: rope.tipEnd,
         },
       })
       .catch(rethrowDuplicateOrder);
@@ -321,9 +335,17 @@ export class GraduationsService {
 
   async updateLevel(organizationId: number, levelId: number, dto: UpdateGraduationLevelDto) {
     const current = await this.assertLevelExists(organizationId, levelId);
-    const ropeTouched = dto.style !== undefined || dto.colors !== undefined || (dto.color !== undefined && dto.color !== null);
+    const ropeTouched =
+      dto.style !== undefined ||
+      dto.colors !== undefined ||
+      (dto.color !== undefined && dto.color !== null) ||
+      dto.tipStart !== undefined ||
+      dto.tipEnd !== undefined;
     const rope = ropeTouched
-      ? resolveRope({ style: dto.style, colors: dto.colors, color: dto.color }, withRope(current))
+      ? resolveRope(
+          { style: dto.style, colors: dto.colors, color: dto.color, tipStart: dto.tipStart, tipEnd: dto.tipEnd },
+          withRope(current),
+        )
       : undefined;
     const updated = await this.prisma.graduationLevel
       .update({
@@ -545,19 +567,19 @@ export class GraduationsService {
 }
 
 /** Campos de corda prontos para gravar no Prisma (color = colors[0]). */
-function ropeData(rope: RopeFields): { color: string; style: RopeFields['style']; colors: string[] } {
-  return { color: rope.color, style: rope.style, colors: rope.colors };
+function ropeData(rope: RopeFields): Pick<RopeFields, 'color' | 'style' | 'colors' | 'tipStart' | 'tipEnd'> {
+  return { color: rope.color, style: rope.style, colors: rope.colors, tipStart: rope.tipStart, tipEnd: rope.tipEnd };
 }
 
 /** Sistema com todos os níveis no contrato {id, name, order, color, style, colors, ...}. */
-function withLevelsRope<S extends { levels: Array<{ color: string | null; style?: RopeFields['style'] | null; colors?: string[] | null }> }>(
+function withLevelsRope<S extends { levels: Array<Parameters<typeof withRope>[0]> }>(
   system: S,
 ) {
   return { ...system, levels: system.levels.map((level) => withRope(level)) };
 }
 
 /** Graduação do aluno com o nível (graduationLevel) no contrato de corda. */
-function withGraduationRope<G extends { graduationLevel: { color: string | null; style?: RopeFields['style'] | null; colors?: string[] | null } }>(
+function withGraduationRope<G extends { graduationLevel: Parameters<typeof withRope>[0] }>(
   graduation: G,
 ) {
   return { ...graduation, graduationLevel: withRope(graduation.graduationLevel) };

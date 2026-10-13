@@ -1,5 +1,5 @@
 import { RopeStyle } from '@prisma/client';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsInt, IsOptional, IsString, Matches, Min, MinLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsInt, IsOptional, IsString, Matches, Min, MinLength, ValidateIf } from 'class-validator';
 import { HEX_COLOR_RE, MAX_ROPE_COLORS } from '../rope';
 
 /**
@@ -30,4 +30,14 @@ export class CreateGraduationLevelDto {
   @ArrayMaxSize(MAX_ROPE_COLORS)
   @Matches(HEX_COLOR_RE, { each: true, message: 'cada cor de colors deve ser hexadecimal (#RRGGBB).' })
   colors?: string[];
+
+  /** Ponta de CIMA (corda com pontas): hex #RRGGBB/#RGB; null ou '' = sem ponta. */
+  @ValidateIf((_, v) => typeof v === 'string' && v.trim() !== '')
+  @Matches(HEX_COLOR_RE, { message: 'tipStart deve ser hexadecimal (#RRGGBB).' })
+  tipStart?: string | null;
+
+  /** Ponta de BAIXO (corda com pontas): hex #RRGGBB/#RGB; null ou '' = sem ponta. */
+  @ValidateIf((_, v) => typeof v === 'string' && v.trim() !== '')
+  @Matches(HEX_COLOR_RE, { message: 'tipEnd deve ser hexadecimal (#RRGGBB).' })
+  tipEnd?: string | null;
 }

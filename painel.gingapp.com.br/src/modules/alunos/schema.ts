@@ -10,6 +10,8 @@ export interface StudentCord {
   name: string;
   style?: RopeStyle | undefined;
   colors?: string[] | undefined;
+  tipStart?: string | null | undefined;
+  tipEnd?: string | null | undefined;
 }
 
 export type StudentStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED" | "FORMER";
@@ -42,7 +44,7 @@ export interface Student {
    */
   currentCord?: string | StudentCord | null | undefined;
   /** Corda atual completa (estilo + cores) para desenhar a corda; opcional. */
-  currentLevel?: { name: string; style?: RopeStyle | undefined; colors?: string[] | undefined; color?: string | null | undefined } | null | undefined;
+  currentLevel?: { name: string; style?: RopeStyle | undefined; colors?: string[] | undefined; color?: string | null | undefined; tipStart?: string | null | undefined; tipEnd?: string | null | undefined } | null | undefined;
 }
 
 /**

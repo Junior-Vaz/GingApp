@@ -323,6 +323,10 @@ export interface LevelSpec {
   style: 'SOLID' | 'SPLIT' | 'BRAIDED';
   /** 1 a 3 cores hex #RRGGBB (a ordem importa). */
   colors: string[];
+  /** Corda com pontas: cor (#RRGGBB) da ponta de cima/primeira; omitido = sem ponta. */
+  tipStart?: string;
+  /** Corda com pontas: cor (#RRGGBB) da ponta de baixo/ultima; omitido = sem ponta. */
+  tipEnd?: string;
 }
 
 /** Cordas do grupo (lisas, divididas e trancadas, com cores reais de corda de capoeira). */
@@ -333,11 +337,11 @@ export const GRADUATION_SYSTEM = {
 };
 export const LEVELS: LevelSpec[] = [
   { order: 1, name: 'Crua', color: '#E8DFC8', style: 'SOLID', colors: ['#E8DFC8'] },
-  { order: 2, name: 'Verde', color: '#16A34A', style: 'SOLID', colors: ['#16A34A'] },
+  { order: 2, name: 'Crua com ponta verde e amarela', color: '#E8DFC8', style: 'SOLID', colors: ['#E8DFC8'], tipStart: '#16A34A', tipEnd: '#FACC15' },
   { order: 3, name: 'Verde/Amarela', color: '#16A34A', style: 'SPLIT', colors: ['#16A34A', '#FACC15'] },
   { order: 4, name: 'Amarela', color: '#FACC15', style: 'SOLID', colors: ['#FACC15'] },
   { order: 5, name: 'Amarela/Azul', color: '#FACC15', style: 'BRAIDED', colors: ['#FACC15', '#2563EB'] },
-  { order: 6, name: 'Azul', color: '#2563EB', style: 'SOLID', colors: ['#2563EB'] },
+  { order: 6, name: 'Cinza com pontas amarela e azul', color: '#9CA3AF', style: 'SOLID', colors: ['#9CA3AF'], tipStart: '#FACC15', tipEnd: '#2563EB' },
   { order: 7, name: 'Azul/Branca', color: '#2563EB', style: 'SPLIT', colors: ['#2563EB', '#FFFFFF'] },
   { order: 8, name: 'Verde/Amarela/Azul', color: '#16A34A', style: 'BRAIDED', colors: ['#16A34A', '#FACC15', '#2563EB'] },
 ];

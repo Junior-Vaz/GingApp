@@ -23,8 +23,26 @@ export const levelSchema = z
     order: z.string().regex(/^\d+$/, "Informe a ordem (número inteiro, 0 ou mais)."),
     style: z.enum(["SOLID", "SPLIT", "BRAIDED"]),
     colors: z.array(z.string()),
+    /** Corda com pontas: chave liga/desliga + cor de cada ponta ("" = sem aquela ponta). */
+    tipsEnabled: z.boolean(),
+    tipStart: z.string(),
+    tipEnd: z.string(),
   })
   .superRefine((value, ctx) => {
+    if (value.tipsEnabled) {
+      const tips = [
+        { path: "tipStart", label: "da ponta de cima", hex: value.tipStart },
+        { path: "tipEnd", label: "da ponta de baixo", hex: value.tipEnd },
+      ] as const;
+      for (const tip of tips) {
+        if (tip.hex !== "" && !HEX_COLOR.test(tip.hex)) {
+          ctx.addIssue({ code: z.ZodIssueCode.custom, path: [tip.path], message: `Cor ${tip.label} inválida (use o formato #RRGGBB).` });
+        }
+      }
+      if (value.tipStart === "" && value.tipEnd === "") {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tipStart"], message: "Escolha a cor de pelo menos uma das pontas." });
+      }
+    }
     const count = value.colors.length;
     if (value.style === "SOLID" ? count !== 1 : count < 2 || count > 3) {
       ctx.addIssue({
@@ -59,18 +77,43 @@ export const templateSchema = z.object({
 export type TemplateFormValues = z.infer<typeof templateSchema>;
 
 export const DEFAULT_ROPE_COLOR = "#f5f1e6";
+/** Cores sugeridas ao ligar "Corda com pontas" (verde em cima, amarela embaixo: as cores da marca). */
+export const DEFAULT_TIP_START = "#16a34a";
+export const DEFAULT_TIP_END = "#facc15";
 
 /** Valores iniciais do editor: novo nível (corda crua, sólida) ou o nível em edição. */
 export function levelDefaults(level: GraduationLevel | null, nextOrder: number): LevelFormValues {
-  if (!level) return { name: "", order: String(nextOrder), style: "SOLID", colors: [DEFAULT_ROPE_COLOR] };
+  if (!level) {
+    return {
+      name: "",
+      order: String(nextOrder),
+      style: "SOLID",
+      colors: [DEFAULT_ROPE_COLOR],
+      tipsEnabled: false,
+      tipStart: DEFAULT_TIP_START,
+      tipEnd: DEFAULT_TIP_END,
+    };
+  }
   const rope = ropeOf(level);
+  const tipsEnabled = Boolean(rope.tipStart || rope.tipEnd);
   return {
     name: level.name,
     order: String(level.order),
     style: rope.style,
     colors: rope.colors.length > 0 ? rope.colors : [DEFAULT_ROPE_COLOR],
+    tipsEnabled,
+    // Nível com só uma ponta mantém a outra vazia (""): editar não inventa ponta.
+    tipStart: tipsEnabled ? (rope.tipStart ?? "") : DEFAULT_TIP_START,
+    tipEnd: tipsEnabled ? (rope.tipEnd ?? "") : DEFAULT_TIP_END,
   };
 }
+
+/** Pontas do payload: 
+ull quando a chave está desligada ou a ponta está vazia. */
+const tipsPayload = (v: LevelFormValues): { tipStart: string | null; tipEnd: string | null } => ({
+  tipStart: v.tipsEnabled && v.tipStart ? v.tipStart.toLowerCase() : null,
+  tipEnd: v.tipsEnabled && v.tipEnd ? v.tipEnd.toLowerCase() : null,
+});
 
 export const toSystemInput = (v: SystemFormValues): SystemInput => ({
   name: v.name.trim(),
@@ -82,6 +125,7 @@ export const toLevelInput = (v: LevelFormValues): LevelInput => ({
   order: Number(v.order),
   style: v.style,
   colors: v.colors.map((c) => c.toLowerCase()),
+  ...tipsPayload(v),
 });
 
 export const toRegistrationInput = (v: RegistrationFormValues): RegistrationInput => ({
@@ -101,6 +145,7 @@ export const toLevelUpdate = (v: LevelFormValues): LevelUpdate => ({
   order: Number(v.order),
   style: v.style,
   colors: v.colors.map((c) => c.toLowerCase()),
+  ...tipsPayload(v),
 });
 
 export const toRegistrationUpdate = (v: RegistrationFormValues): RegistrationUpdate => ({

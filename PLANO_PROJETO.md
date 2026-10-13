@@ -3551,3 +3551,31 @@ build limpo; `test:unit` 171/171; `test:quick` (attendance-notice, quick-send, a
 
 #### Pendências
 1. O painel/admin precisa traduzir `NOTIFICATION_SEND` na trilha de auditoria. 2. O app deve mapear `ATTENDANCE_PRESENT`/`ANNOUNCEMENT_QUICK` para ícone/rota no sino. 3. Teste de throttle (10/min) não automatizado.
+
+
+### Corda com pontas (tipStart/tipEnd) - 2026-10-13
+
+Novo tipo de corda: corpo (SOLID/SPLIT/BRAIDED, como antes) com as DUAS PONTAS pintadas, cada uma numa cor (ex.: corpo cinza, ponta de cima amarela e de baixo azul). Estado: **concluído** (backend + painel; o app consome o contrato em paralelo). Sem commit.
+
+#### Contrato (SSOT: `backend/src/interface/http/graduations/rope.ts`)
+1. `GraduationLevel.tipStart` / `tipEnd`: `String?`, hex `#RRGGBB` (ponta de CIMA/primeira e de BAIXO/última). Opcionais e independentes (pode haver só uma); `null` = sem ponta. `style`/`colors`/`color` continuam descrevendo só o CORPO. Cada ponta ocupa ~20% do comprimento (constante `TIP_RATIO` no desenho; painel em `lib/rope.ts`).
+2. Escrita (POST `/graduations/systems/:id/levels` e PATCH `/graduations/levels/:id`): `tipStart`/`tipEnd` aceitam `#RRGGBB` ou `#RGB` (normaliza para maiúsculo), `null` ou `''` limpam, ausente = mantém (PATCH parcial reaproveita o estado atual, inclusive ao trocar só o corpo). Inválido/tipo errado = 400.
+3. Leitura: `tipStart`/`tipEnd` (sempre presentes, `null` se não houver) em TODO ponto em que o nível aparece, via `LEVEL_SELECT`/`withRope`/`levelView`/`ropeOf`: systems e níveis, graduações do aluno, passaporte, certificados, relatório `byLevel`, hierarquia (`levels` e `me.level`), equivalências, cargos, professores, ficha, `currentCord` de GET /students, `currentLevel` da identidade e exportação LGPD.
+4. `POST /levels/:id/duplicate` copia as pontas. `GET /graduations/templates`: todo nível do modelo traz `tipStart`/`tipEnd` (`null` nos modelos antigos); 2 modelos novos: `cordas-com-pontas-classicas` ("Cordas com pontas (cores clássicas)", 9 níveis) e `pontas-por-graduacao` ("Pontas por graduação", 12 níveis, corpo cru/cinza/branco); `from-template` grava as pontas.
+5. Banco: migration manual `20261017000000_rope_tips` (2 colunas TEXT nulas; só adiciona, aplicada com `migrate deploy`).
+
+#### Execução
+1. Demo (idempotente): nível 2 virou "Crua com ponta verde e amarela" (corpo `#E8DFC8`, pontas `#16A34A`/`#FACC15`) e o nível 6 "Cinza com pontas amarela e azul" (corpo `#9CA3AF`, pontas `#FACC15`/`#2563EB`). **Não usei o nível 3** pedido como exemplo porque `demo-seed.e2e-spec.ts` depende dos níveis 3, 5 e 8 (teste de conversão do demo antigo) e do nível 4 (passaporte). A conversão só toca corda SOLID de 1 cor **sem pontas**, então uma corda já editada não é sobrescrita. `seed:demo` rodado no banco de dev e conferido por consulta direta.
+2. Painel: `RopeSwatch` ganhou `tipStart`/`tipEnd` (retângulos nas extremidades com `data-tip="start|end"`, corpo só entre as pontas, fio fino `data-tip-divider`, só as extremidades externas arredondadas, vertical e horizontal); `ropeLabel` gera "Corda cinza com ponta amarela e ponta azul" (uma ponta só: "…com ponta de cima verde"). Editor de nível: seção "Pontas da corda" com a chave "Corda com pontas", seletores "Ponta de cima"/"Ponta de baixo" (paleta + seletor nativo + hex, reaproveitando o `ColorSlot`), botão "Sem ponta" (as pontas são independentes), botão "Usar a mesma cor nas duas pontas" e prévia ao vivo com as pontas. Payload sempre leva `tipStart`/`tipEnd` (`null` quando desligado). Régua, seletor de nível, cartões e diálogo de modelos ganharam as pontas por usarem o `RopeSwatch`/`ropeOf`.
+
+#### O que deu certo / o que não deu certo e a solução
+1. Certo: um único ponto (`rope.ts`) concentra a serialização, então só 3 selects explícitos (exportação LGPD, identidade da pessoa, `currentCord`) precisaram migrar para `LEVEL_SELECT`.
+2. Não certo: a 1ª migration falhou no `migrate deploy` por BOM no `.sql` (o PowerShell gravou UTF-8 com BOM). Solução: regravar sem BOM, `prisma migrate resolve --rolled-back` e aplicar de novo. Lição: migrations à mão sem BOM.
+3. Testes existentes com chaves exatas (`Object.keys` de nível/modelo, `currentCord`, hierarquia, payloads do editor) foram atualizados para o contrato novo (as 2 chaves a mais); nenhum teste foi enfraquecido.
+
+#### Testes
+1. Backend: `test/graduation-rope.spec.ts` (+4 unit: hex, limpar, PATCH parcial, modelos novos; test:unit 175 ok) e `test/graduations-rope-tips.e2e-spec.ts` (novo: create/PATCH, 400, leitura em systems/histórico/passaporte/certificados/relatório/hierarquia/LGPD, duplicate, templates, from-template). Gate: build ok; `test:quick -- graduations-rope-tips graduations demo-seed member-privacy list-extras passport certificates reports person-ficha` 146/146; smoke 75/75.
+2. Painel: `src/test/rope-tips.test.tsx` (novo): RopeSwatch com pontas (retângulos, posição, aria-label, horizontal), formulário (payload, `levelDefaults`) e editor (chave liga/desliga, 2 seletores, "mesma cor", validação, "Sem ponta"). lint ok, 673 testes (59 arquivos) ok, build ok.
+
+#### Pendências
+1. O app consome `tipStart`/`tipEnd` (outro agente, em paralelo). 2. O admin (`admin.gingapp.com.br`) não desenha cordas, nada a fazer. 3. Sem teste visual automatizado do SVG (só estrutura/atributos).

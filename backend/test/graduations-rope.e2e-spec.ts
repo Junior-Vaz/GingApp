@@ -299,7 +299,7 @@ describe('Graduations: cordas multicoloridas, duplicar, reordenar e modelos (e2e
       for (const t of res.body) {
         assert.deepEqual(Object.keys(t).sort(), ['code', 'description', 'levels', 'name']);
         assert.ok(t.levels.length > 0);
-        for (const l of t.levels) assert.deepEqual(Object.keys(l).sort(), ['colors', 'name', 'style']);
+        for (const l of t.levels) assert.deepEqual(Object.keys(l).sort(), ['colors', 'name', 'style', 'tipEnd', 'tipStart']);
       }
       await request(app.getHttpServer()).get('/api/graduations/templates').expect(401);
     });

@@ -39,6 +39,9 @@ export interface GraduationLevel {
   style?: "SOLID" | "SPLIT" | "BRAIDED";
   /** 1..3 cores hex da corda (SPLIT = faixas verticais iguais; BRAIDED = listras diagonais). */
   colors?: string[];
+  /** Corda COM PONTAS: cor (hex) da ponta de cima/primeira e de baixo/última (ausente/nula = sem ponta). */
+  tipStart?: string | null;
+  tipEnd?: string | null;
 }
 
 export interface StudentGraduation {
@@ -62,7 +65,7 @@ export interface Passport {
   organization: { name: string };
   /** `id` e `photo` só em backend novo (opcionais: o app funciona sem eles). */
   unit: { name: string; id?: number; photo?: string | null } | null;
-  currentGraduation: { name: string; color?: string | null; style?: GraduationLevel["style"]; colors?: string[] } | null;
+  currentGraduation: { name: string; color?: string | null; style?: GraduationLevel["style"]; colors?: string[]; tipStart?: string | null; tipEnd?: string | null } | null;
   stats: { aulas: number; rodas: number; eventos: number; graduacoes: number; certificados: number };
   publicProfile: { isPublished: boolean; publicCode: string } | null;
   /** O que ESTE usuário pode fazer com o passaporte (só em /passport/me; o público não traz). */

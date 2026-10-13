@@ -1,6 +1,6 @@
 import { useId } from "react";
 
-import { normalizeRope, ropeLabel, type RopeSpec } from "@/lib/rope";
+import { normalizeRope, ROPE_TIP_RATIO, ropeLabel, type RopeSpec } from "@/lib/rope";
 
 export type { RopeSpec, RopeStyle } from "@/lib/rope";
 
@@ -24,7 +24,9 @@ const BRAID_ANGLE_HORIZONTAL = 30;
 
 /**
  * Corda de capoeira desenhada em SVG: SOLID = cor cheia; SPLIT = 2/3 faixas iguais ao longo do comprimento;
- * BRAIDED = listras diagonais repetidas (trançada) alternando 2/3 cores. Cantos arredondados e brilho sutil.
+ * BRAIDED = listras diagonais repetidas (trançada) alternando 2/3 cores. Opcionalmente `tipStart`/`tipEnd` pintam as
+ * duas pontas (~20% do comprimento cada) por cima das extremidades, com uma linha fina separando ponta e corpo; os
+ * cantos arredondados vêm do recorte externo (só nas extremidades). Brilho sutil.
  */
 export function Rope({
   orientation = "vertical",
@@ -45,6 +47,34 @@ export function Rope({
   const shineId = `rope-shine-${uid}`;
   const patId = `rope-braid-${uid}`;
   const n = rope.colors.length;
+  // Pontas pintadas: cada uma ocupa ~20% do comprimento; o corpo (e seu padrão) só desenha no trecho do meio.
+  const tipLen = Math.max(2, Math.round(length * ROPE_TIP_RATIO));
+  const startLen = rope.tipStart ? tipLen : 0;
+  const endLen = rope.tipEnd ? tipLen : 0;
+  const bodyId = `rope-body-${uid}`;
+  const bodyStart = startLen;
+  const bodySize = length - startLen - endLen;
+  const tipRect = (color: string, from: number, size: number, testId: string) => (
+    <rect
+      data-testid={testId}
+      x={vertical ? 0 : from}
+      y={vertical ? from : 0}
+      width={vertical ? w : size}
+      height={vertical ? size : h}
+      fill={color}
+    />
+  );
+  const tipLine = (at: number) => (
+    <rect
+      data-testid="rope-tip-line"
+      x={vertical ? 0 : at - 0.5}
+      y={vertical ? at - 0.5 : 0}
+      width={vertical ? w : 1}
+      height={vertical ? 1 : h}
+      fill="#000"
+      opacity={0.3}
+    />
+  );
   const aria = label ?? ropeLabel(spec);
 
   let body: React.ReactNode;
@@ -101,9 +131,21 @@ export function Rope({
       data-style={rope.style}
       data-orientation={orientation}
       data-colors={rope.colors.join(",")}
+      data-tip-start={rope.tipStart ?? undefined}
+      data-tip-end={rope.tipEnd ?? undefined}
       focusable="false"
     >
       <defs>
+        {(startLen > 0 || endLen > 0) && (
+          <clipPath id={bodyId}>
+            <rect
+              x={vertical ? 0 : bodyStart}
+              y={vertical ? bodyStart : 0}
+              width={vertical ? w : bodySize}
+              height={vertical ? bodySize : h}
+            />
+          </clipPath>
+        )}
         <clipPath id={clipId}>
           <rect width={w} height={h} rx={radius} ry={radius} />
         </clipPath>
@@ -116,7 +158,11 @@ export function Rope({
         </linearGradient>
       </defs>
       <g clipPath={`url(#${clipId})`}>
-        {body}
+        <g clipPath={startLen > 0 || endLen > 0 ? `url(#${bodyId})` : undefined}>{body}</g>
+        {rope.tipStart && tipRect(rope.tipStart, 0, startLen, "rope-tip-start")}
+        {rope.tipEnd && tipRect(rope.tipEnd, length - endLen, endLen, "rope-tip-end")}
+        {rope.tipStart && tipLine(startLen)}
+        {rope.tipEnd && tipLine(length - endLen)}
         <rect width={w} height={h} fill={`url(#${shineId})`} />
       </g>
       <rect width={w - 1} height={h - 1} x={0.5} y={0.5} rx={radius} ry={radius} fill="none" stroke="#000" strokeOpacity="0.16" />

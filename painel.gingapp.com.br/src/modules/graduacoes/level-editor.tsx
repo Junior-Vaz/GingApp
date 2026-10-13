@@ -2,10 +2,13 @@ import type { UseFormReturn } from "react-hook-form";
 import { RopeSwatch } from "@/components/painel/rope-swatch";
 import { ROPE_PALETTE, HEX_COLOR, NO_COLOR, ropeLabel, type RopeStyle } from "@/lib/rope";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { LevelFormValues } from "./graduacoes-forms";
 import { fitColors } from "./level-utils";
+import { DEFAULT_TIP_END, DEFAULT_TIP_START } from "./graduacoes-forms";
 
 interface StyleOption {
   label: string;
@@ -63,20 +66,26 @@ function StylePicker({
   );
 }
 
+/**
+ * Seletor de uma cor: paleta + seletor nativo + hex. `name` é o nome em minúsculas ("cor 1", "ponta de cima"),
+ * usado nos rótulos acessíveis. Com `onClear`, mostra o botão "Sem ponta" (cor vazia = sem aquela ponta).
+ */
 function ColorSlot({
-  index,
+  name,
   value,
   onChange,
+  onClear,
 }: {
-  index: number;
+  name: string;
   value: string;
   onChange: (hex: string) => void;
+  onClear?: () => void;
 }) {
-  const n = index + 1;
+  const title = name.charAt(0).toUpperCase() + name.slice(1);
   const valid = HEX_COLOR.test(value);
   return (
     <fieldset className="grid gap-2 rounded-lg border p-3">
-      <legend className="px-1 text-sm font-medium">Cor {n}</legend>
+      <legend className="px-1 text-sm font-medium">{title}</legend>
       <div className="flex flex-wrap gap-1.5">
         {ROPE_PALETTE.map((color) => {
           const selected = value.toLowerCase() === color.hex;
@@ -84,7 +93,7 @@ function ColorSlot({
             <button
               key={color.hex}
               type="button"
-              aria-label={`Cor ${n}: ${color.name}`}
+              aria-label={`${title}: ${color.name}`}
               aria-pressed={selected}
               title={color.name}
               onClick={() => onChange(color.hex)}
@@ -100,24 +109,29 @@ function ColorSlot({
       <div className="flex items-center gap-2">
         <Input
           type="color"
-          aria-label={`Seletor da cor ${n}`}
+          aria-label={`Seletor da ${name}`}
           className="h-9 w-14 shrink-0 cursor-pointer p-1"
           value={valid ? value.toLowerCase() : NO_COLOR}
           onChange={(event) => onChange(event.target.value)}
         />
         <Input
-          aria-label={`Hex da cor ${n}`}
+          aria-label={`Hex da ${name}`}
           inputMode="text"
           maxLength={7}
           spellCheck={false}
           className="font-mono"
-          aria-invalid={!valid}
+          aria-invalid={onClear ? value !== "" && !valid : !valid}
           value={value}
           onChange={(event) => {
             const typed = event.target.value.trim();
             onChange(/^[0-9a-fA-F]{6}$/.test(typed) ? `#${typed}` : typed);
           }}
         />
+        {onClear && (
+          <Button type="button" variant="outline" size="sm" className="shrink-0" onClick={onClear} disabled={value === ""}>
+            Sem ponta
+          </Button>
+        )}
       </div>
     </fieldset>
   );
@@ -128,6 +142,15 @@ export function LevelFields({ form }: { form: UseFormReturn<LevelFormValues> }) 
   const style = form.watch("style");
   const colors = form.watch("colors");
   const preview = colors.length > 0 ? colors : [NO_COLOR];
+  const tipsEnabled = form.watch("tipsEnabled");
+  const tipStart = form.watch("tipStart");
+  const tipEnd = form.watch("tipEnd");
+  const previewTips = {
+    tipStart: tipsEnabled && HEX_COLOR.test(tipStart) ? tipStart : null,
+    tipEnd: tipsEnabled && HEX_COLOR.test(tipEnd) ? tipEnd : null,
+  };
+  const setTip = (field: "tipStart" | "tipEnd", hex: string) =>
+    form.setValue(field, hex, { shouldDirty: true, shouldValidate: form.formState.isSubmitted });
 
   const setColors = (next: string[]) => form.setValue("colors", next, { shouldDirty: true, shouldValidate: form.formState.isSubmitted });
 
@@ -146,11 +169,11 @@ export function LevelFields({ form }: { form: UseFormReturn<LevelFormValues> }) 
         data-testid="level-preview"
         className="flex items-center justify-center gap-10 rounded-lg border bg-muted/40 px-4 py-5"
       >
-        <RopeSwatch style={style} colors={preview} size="lg" orientation="vertical" decorative />
+        <RopeSwatch style={style} colors={preview} {...previewTips} size="lg" orientation="vertical" decorative />
         <div className="flex min-w-0 flex-col items-center gap-3">
-          <RopeSwatch style={style} colors={preview} size="lg" orientation="horizontal" decorative />
+          <RopeSwatch style={style} colors={preview} {...previewTips} size="lg" orientation="horizontal" decorative />
           <p className="break-words text-center text-xs text-muted-foreground" data-testid="level-preview-label">
-            {ropeLabel({ style, colors: preview })}
+            {ropeLabel({ style, colors: preview, ...previewTips })}
           </p>
         </div>
       </div>
@@ -174,7 +197,7 @@ export function LevelFields({ form }: { form: UseFormReturn<LevelFormValues> }) 
             {colors.map((value, index) => (
               <ColorSlot
                 key={index}
-                index={index}
+                name={`cor ${index + 1}`}
                 value={value}
                 onChange={(hex) => setColors(colors.map((c, i) => (i === index ? hex : c)))}
               />
@@ -183,6 +206,55 @@ export function LevelFields({ form }: { form: UseFormReturn<LevelFormValues> }) 
           <FormMessage />
         </FormItem>
       )} />
+
+      <section aria-labelledby="rope-tips-title" className="grid gap-3 rounded-lg border p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 id="rope-tips-title" className="text-sm font-medium">Pontas da corda</h3>
+            <p className="text-xs text-muted-foreground">
+              Pinte as duas pontas da corda, cada uma na sua cor. O corpo continua sendo o estilo e as cores acima.
+            </p>
+          </div>
+          <Switch
+            aria-label="Corda com pontas"
+            checked={tipsEnabled}
+            onCheckedChange={(checked) => {
+              form.setValue("tipsEnabled", checked, { shouldDirty: true, shouldValidate: form.formState.isSubmitted });
+              if (checked && !tipStart && !tipEnd) {
+                setTip("tipStart", DEFAULT_TIP_START);
+                setTip("tipEnd", DEFAULT_TIP_END);
+              }
+            }}
+          />
+        </div>
+        {tipsEnabled && (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <ColorSlot name="ponta de cima" value={tipStart} onChange={(hex) => setTip("tipStart", hex)} onClear={() => setTip("tipStart", "")} />
+              <ColorSlot name="ponta de baixo" value={tipEnd} onChange={(hex) => setTip("tipEnd", hex)} onClear={() => setTip("tipEnd", "")} />
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  const same = HEX_COLOR.test(tipStart) ? tipStart : tipEnd;
+                  setTip("tipStart", same);
+                  setTip("tipEnd", same);
+                }}
+              >
+                Usar a mesma cor nas duas pontas
+              </Button>
+              {(form.formState.errors.tipStart?.message || form.formState.errors.tipEnd?.message) && (
+                <p role="alert" className="text-sm font-medium text-destructive">
+                  {form.formState.errors.tipStart?.message ?? form.formState.errors.tipEnd?.message}
+                </p>
+              )}
+            </div>
+          </>
+        )}
+      </section>
     </>
   );
 }

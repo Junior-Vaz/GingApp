@@ -362,6 +362,10 @@ describe('Grupo demo (prisma/demo.ts) (e2e)', () => {
       assert.ok(levels.every((l) => (l.style === 'SOLID' ? l.colors.length === 1 : l.colors.length >= 2)));
       assert.ok(levels.some((l) => l.style === 'SPLIT') && levels.some((l) => l.style === 'BRAIDED'));
       assert.ok(levels.some((l) => l.style === 'BRAIDED' && l.colors.length === 3));
+      // Cordas com pontas do demo (niveis 2 e 6): corpo SOLID + pontas hex; as demais ficam sem ponta.
+      const tipped = levels.filter((l) => l.tipStart || l.tipEnd);
+      assert.deepEqual(tipped.map((l) => l.order), [2, 6]);
+      assert.ok(tipped.every((l) => /^#[0-9A-F]{6}$/i.test(l.tipStart ?? '') && /^#[0-9A-F]{6}$/i.test(l.tipEnd ?? '')));
       const grads = await prisma.studentGraduation.findMany({
         where: { organizationId: orgId },
         include: { graduationLevel: true },

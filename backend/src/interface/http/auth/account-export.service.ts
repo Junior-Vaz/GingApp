@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { LEGAL_VERSION } from '../../../shared/legal/legal-documents';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { LEVEL_SELECT } from '../graduations/rope';
 import { maskPersonDocument } from '../../../shared/security/person-document';
 
 export const EXPORT_FORMAT_VERSION = 1;
@@ -192,7 +193,7 @@ export class AccountExportService {
         guardians: true,
         classStudents: { include: { class: { select: { id: true, name: true } } } },
         attendances: { include: { lesson: { select: { id: true, date: true } } }, orderBy: { id: 'asc' } },
-        graduations: { include: { graduationLevel: { select: { id: true, name: true, order: true, color: true, style: true, colors: true } } }, orderBy: { id: 'asc' } },
+        graduations: { include: { graduationLevel: { select: LEVEL_SELECT } }, orderBy: { id: 'asc' } },
         financialRecords: { orderBy: { id: 'asc' } },
         eventParticipations: { include: { event: { select: { id: true, title: true, date: true } } } },
         rodaParticipations: { include: { roda: { select: { id: true, title: true, date: true } } } },

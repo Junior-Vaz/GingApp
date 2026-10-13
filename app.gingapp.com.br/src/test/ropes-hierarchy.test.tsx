@@ -478,3 +478,95 @@ describe("Jornada: Linha do tempo | Hierarquia", () => {
     expect(q(".rope-ruler")).toBeNull();
   });
 });
+
+describe("Corda com pontas", () => {
+  const GRAY = "#9ca3af";
+  const YELLOW = "#facc15";
+  const BLUE_TIP = "#3b82f6";
+  const TIPPED = { id: 9, name: "Corda cinza com pontas", order: 4, color: GRAY, style: "SOLID" as const, colors: [GRAY], tipStart: YELLOW, tipEnd: BLUE_TIP };
+
+  it("vertical: duas pontas nas extremidades (~20% cada), com as cores e linha separadora", () => {
+    render(<Rope style="SOLID" colors={[GRAY]} tipStart={YELLOW} tipEnd={BLUE_TIP} length={100} thickness={20} />);
+    const svg = q("svg.gx-rope")!;
+    expect(svg.getAttribute("aria-label")).toBe("Corda cinza com ponta amarela e ponta azul");
+    const start = q("[data-testid='rope-tip-start']")!;
+    const end = q("[data-testid='rope-tip-end']")!;
+    expect(start.getAttribute("fill")).toBe(YELLOW);
+    expect(start.getAttribute("y")).toBe("0");
+    expect(start.getAttribute("height")).toBe("20");
+    expect(start.getAttribute("width")).toBe("20");
+    expect(end.getAttribute("fill")).toBe(BLUE_TIP);
+    expect(end.getAttribute("y")).toBe("80");
+    expect(end.getAttribute("height")).toBe("20");
+    expect(container!.querySelectorAll("[data-testid='rope-tip-line']")).toHaveLength(2);
+    expect(svg.dataset["tipStart"]).toBe(YELLOW);
+    expect(svg.dataset["tipEnd"]).toBe(BLUE_TIP);
+    // o corpo continua desenhado (recortado ao trecho do meio)
+    expect(container!.querySelectorAll("[data-testid='rope-solid']")).toHaveLength(1);
+  });
+
+  it("horizontal: pontas à esquerda e à direita", () => {
+    render(<Rope style="SOLID" colors={["#e5e5e5"]} tipStart="#22c55e" tipEnd={YELLOW} orientation="horizontal" length={100} thickness={12} />);
+    const start = q("[data-testid='rope-tip-start']")!;
+    const end = q("[data-testid='rope-tip-end']")!;
+    expect(start.getAttribute("x")).toBe("0");
+    expect(start.getAttribute("width")).toBe("20");
+    expect(start.getAttribute("height")).toBe("12");
+    expect(end.getAttribute("x")).toBe("80");
+    expect(q("svg.gx-rope")!.getAttribute("aria-label")).toBe("Corda branca com ponta verde e ponta amarela");
+  });
+
+  it("só uma ponta: desenha apenas ela e o rótulo cita só ela", () => {
+    render(<Rope style="SOLID" colors={[GRAY]} tipEnd={BLUE_TIP} length={100} thickness={20} />);
+    expect(q("[data-testid='rope-tip-start']")).toBeNull();
+    expect(q("[data-testid='rope-tip-end']")).not.toBeNull();
+    expect(container!.querySelectorAll("[data-testid='rope-tip-line']")).toHaveLength(1);
+    expect(q("svg.gx-rope")!.getAttribute("aria-label")).toBe("Corda cinza com ponta azul");
+  });
+
+  it("corpo trançado e dividido continuam com seu padrão e ganham as pontas", () => {
+    render(<Rope style="BRAIDED" colors={["#22c55e", "#facc15"]} tipStart="#000000" tipEnd="#ffffff" />);
+    expect(q("[data-testid='rope-braided']")).not.toBeNull();
+    expect(container!.querySelectorAll("[data-testid='rope-stripe']")).toHaveLength(2);
+    expect(q("[data-testid='rope-tip-start']")).not.toBeNull();
+    expect(q("svg.gx-rope")!.getAttribute("aria-label")).toBe("Corda trançada verde e amarela com ponta preta e ponta crua");
+    act(() => root!.render(<Rope style="SPLIT" colors={["#22c55e", "#3b82f6"]} tipStart={YELLOW} />));
+    expect(container!.querySelectorAll("[data-testid='rope-band']")).toHaveLength(2);
+    expect(q("[data-testid='rope-tip-start']")!.getAttribute("fill")).toBe(YELLOW);
+    expect(q("[data-testid='rope-tip-end']")).toBeNull();
+  });
+
+  it("sem pontas (ou com valor inválido) a corda fica como antes", () => {
+    render(<Rope style="SOLID" colors={[GRAY]} tipStart={null} tipEnd="não-é-cor" />);
+    expect(q("[data-testid='rope-tip-start']")).toBeNull();
+    expect(q("[data-testid='rope-tip-end']")).toBeNull();
+    expect(q("[data-testid='rope-tip-line']")).toBeNull();
+    expect(q("svg.gx-rope")!.getAttribute("aria-label")).toBe("Corda cinza");
+    expect(q("svg.gx-rope")!.hasAttribute("data-tip-start")).toBe(false);
+    expect(normalizeRope({ colors: [GRAY] })).toMatchObject({ tipStart: null, tipEnd: null });
+    expect(ropeLabel({ colors: [GRAY], tipStart: YELLOW, tipEnd: BLUE_TIP })).toBe("Corda cinza com ponta amarela e ponta azul");
+  });
+
+  it("pontos de uso: cartão e régua repassam tipStart/tipEnd", () => {
+    render(<GraduationCard name="Corda cinza" rope={TIPPED} subtitle="x" />);
+    expect(q(".grad-card svg.gx-rope")!.dataset["tipStart"]).toBe(YELLOW);
+    expect(q(".grad-card svg.gx-rope")!.getAttribute("aria-label")).toBe("Corda cinza com ponta amarela e ponta azul");
+    act(() => root!.render(<RopeRuler levels={[GREEN, TIPPED]} currentOrder={4} />));
+    expect(container!.querySelectorAll("svg.gx-rope[data-tip-start]")).toHaveLength(1);
+  });
+
+  it("Jornada e Hierarquia desenham as pontas do nível", () => {
+    state.graduations = [{ id: 5, graduatedAt: "2026-05-01T00:00:00Z", notes: null, graduationLevel: TIPPED }];
+    state.hierarchy = { data: sample({ levels: [level(TIPPED, { isMine: true })], me: { studentId: 7, displayName: "Camila", photo: null, level: TIPPED, order: 4 } }), isLoading: false, error: null };
+    render(<JourneyPage />);
+    expect(q(".grad-card svg.gx-rope")!.dataset["tipEnd"]).toBe(BLUE_TIP);
+    expect(container!.querySelectorAll(".timeline-item svg.gx-rope[data-tip-start]")).toHaveLength(1);
+    expect(container!.querySelectorAll(".rope-ruler-item svg.gx-rope[data-tip-start]").length).toBeGreaterThan(0);
+  });
+
+  it("Hierarquia: nós de nível e 'você' desenham as pontas", () => {
+    state.hierarchy = { data: sample({ levels: [level(TIPPED, { isMine: true })], me: { studentId: 7, displayName: "Camila", photo: null, level: TIPPED, order: 4 } }), isLoading: false, error: null };
+    render(<HierarchyCanvas viewToggle={<span>t</span>} />);
+    expect(container!.querySelectorAll(".hier-node svg.gx-rope[data-tip-start][data-tip-end]").length).toBeGreaterThan(0);
+  });
+});

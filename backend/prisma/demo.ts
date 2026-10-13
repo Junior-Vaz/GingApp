@@ -837,16 +837,25 @@ async function stepGraduationSystem(ctx: Ctx): Promise<void> {
             color: level.color,
             style: level.style,
             colors: level.colors,
+            tipStart: level.tipStart ?? null,
+            tipEnd: level.tipEnd ?? null,
           },
         });
         bump(ctx, 'graduationLevels', 1);
-      } else if (row.style === 'SOLID' && row.colors.length <= 1) {
+      } else if (row.style === 'SOLID' && row.colors.length <= 1 && !row.tipStart && !row.tipEnd) {
         // Demo antigo (8 cordas lisas): converte para as cordas divididas/trançadas. Idempotente — só mexe em corda
-        // ainda SOLID de 1 cor; uma corda que o usuário já editou (ou que este seed já converteu) não é tocada, e
+        // ainda SOLID de 1 cor e sem pontas (cordas com pontas do demo: niveis 2 e 6); uma corda que o usuário já editou (ou que este seed já converteu) não é tocada, e
         // reaplicar nas SOLID do modelo é um no-op. A ordem (e portanto as graduações/pontos) não muda.
         row = await tx.graduationLevel.update({
           where: { id: row.id },
-          data: { name: level.name, color: level.color, style: level.style, colors: level.colors },
+          data: {
+            name: level.name,
+            color: level.color,
+            style: level.style,
+            colors: level.colors,
+            tipStart: level.tipStart ?? null,
+            tipEnd: level.tipEnd ?? null,
+          },
         });
       }
       ctx.levelIds.set(level.order, row.id);

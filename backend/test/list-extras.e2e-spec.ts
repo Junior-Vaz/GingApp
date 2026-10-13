@@ -68,9 +68,9 @@ describe('listas do painel: classNames, currentCord e studentCount (e2e)', () =>
     const res = await http().get('/api/students?limit=100').set(auth(org.mestre.token)).expect(200);
     const by = (id: number) => (res.body as Array<Record<string, unknown>>).find((s) => s.id === id)!;
     assert.deepEqual(by(ids.ana).classNames, ['Turma A', 'Turma B']);
-    assert.deepEqual(by(ids.ana).currentCord, { name: 'Verde-azul', style: 'SPLIT', colors: ['#00AA00', '#0000FF'] });
+    assert.deepEqual(by(ids.ana).currentCord, { name: 'Verde-azul', style: 'SPLIT', colors: ['#00AA00', '#0000FF'], tipStart: null, tipEnd: null });
     assert.deepEqual(by(ids.bia).classNames, []);
-    assert.deepEqual(by(ids.bia).currentCord, { name: 'Verde', style: 'SOLID', colors: ['#00AA00'] });
+    assert.deepEqual(by(ids.bia).currentCord, { name: 'Verde', style: 'SOLID', colors: ['#00AA00'], tipStart: null, tipEnd: null });
     assert.deepEqual(by(ids.sem).classNames, []);
     assert.equal(by(ids.sem).currentCord, null);
   });
