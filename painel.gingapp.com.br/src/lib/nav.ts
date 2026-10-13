@@ -19,38 +19,44 @@ import {
   ArrowRightLeft,
   type LucideIcon,
 } from "lucide-react";
-import type { OrgRole } from "@/lib/session";
+import { PANEL_ROLES, type OrgRole } from "@/lib/session";
 
 export interface NavItem {
   /** Caminho da rota (arquivo src/routes/_app.<slug>.tsx). */
   to: string;
   label: string;
   icon: LucideIcon;
-  /** Papéis que enxergam o item. Omitido = todos os papéis do painel (MESTRE e PROFESSOR). */
+  /** Papéis que enxergam o item. Omitido = todos os papéis do painel (MESTRE, PROFESSOR, INSTRUTOR e MONITOR). */
   roles?: readonly OrgRole[];
 }
+
+/** Equipe que enxerga dashboard/equipe/certificados: o MONITOR não tem esses recursos (backend: dashboard/teachers/certificates = nada). */
+const WITHOUT_MONITOR: readonly OrgRole[] = ["MESTRE", "PROFESSOR", "INSTRUTOR"];
 
 /**
  * SSOT do menu lateral. Para adicionar um item: crie a rota em src/routes e acrescente UMA
  * linha aqui. A ordem do array é a ordem do menu (mesma do painel Vue anterior).
  */
 export const NAV_ITEMS: readonly NavItem[] = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  // Dashboard (dashboard:view) e Equipe (teachers:view): o MONITOR não tem nenhum dos dois.
+  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: WITHOUT_MONITOR },
   { to: "/alunos", label: "Alunos", icon: Users },
-  { to: "/professores", label: "Professores", icon: GraduationCap },
+  // Equipe = mestres, professores, instrutores e monitores (cargos acumuláveis); a rota continua /professores.
+  { to: "/professores", label: "Equipe", icon: GraduationCap, roles: WITHOUT_MONITOR },
   { to: "/turmas", label: "Turmas", icon: Layers },
   { to: "/aulas", label: "Aulas", icon: CalendarDays },
   { to: "/frequencia", label: "Frequência", icon: ClipboardCheck },
   { to: "/graduacoes", label: "Graduações", icon: Award },
-  // Ranking do grupo (GET /ranking/*): quem vê alunos (students:view) = MESTRE e PROFESSOR.
-  { to: "/ranking", label: "Ranking", icon: Trophy, roles: ["MESTRE", "PROFESSOR"] },
+  // Ranking do grupo (GET /ranking/*): quem vê alunos (students:view) = toda a equipe, inclusive o MONITOR.
+  { to: "/ranking", label: "Ranking", icon: Trophy, roles: PANEL_ROLES },
   // Financeiro é só do MESTRE (backend: RolePermission PROFESSOR/finance = tudo false).
   { to: "/financeiro", label: "Financeiro", icon: Wallet, roles: ["MESTRE"] },
   // Transferências entre grupos (GET/POST /transfers): só o MESTRE (backend: 403 para os demais papéis).
   { to: "/transferencias", label: "Transferências", icon: ArrowRightLeft, roles: ["MESTRE"] },
   { to: "/eventos", label: "Eventos", icon: PartyPopper },
   { to: "/rodas", label: "Rodas", icon: CircleDot },
-  { to: "/certificados", label: "Certificados", icon: BadgeCheck },
+  // Certificados (certificates:view): o MONITOR não tem (backend: nada); o INSTRUTOR só lê.
+  { to: "/certificados", label: "Certificados", icon: BadgeCheck, roles: WITHOUT_MONITOR },
   { to: "/comunicados", label: "Comunicados", icon: Megaphone },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
   // Unidades (backend: recurso `units`, CRUD só do MESTRE) e Configurações (PATCH /organizations/me, só MESTRE):
@@ -72,4 +78,9 @@ export function canAccessRoute(role: OrgRole | undefined, to: string): boolean {
 
 export function navItemsFor(role: OrgRole | undefined): NavItem[] {
   return NAV_ITEMS.filter((item) => !item.roles || (role !== undefined && item.roles.includes(role)));
+}
+
+/** Tela inicial do papel: o Dashboard, ou /alunos para quem não tem Dashboard (MONITOR). */
+export function homeFor(role: OrgRole | undefined): "/dashboard" | "/alunos" {
+  return role !== undefined && !canAccessRoute(role, "/dashboard") ? "/alunos" : "/dashboard";
 }

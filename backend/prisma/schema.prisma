@@ -28,6 +28,19 @@ enum OrgRole {
   PROFESSOR
   ALUNO
   RESPONSAVEL
+  /// Fase 3 da ficha unica (cargos): professor limitado (sem excluir, sem graduar/emitir certificado, sem financeiro).
+  INSTRUTOR
+  /// Fase 3: monitor (le alunos/turmas/aulas e faz chamada; sem financeiro).
+  MONITOR
+}
+
+/// Cargo capoeiristico ACUMULAVEL por pessoa e grupo (Fase 3, docs/FICHA_UNICA.md). Hierarquia:
+/// MESTRE > PROFESSOR > INSTRUTOR > MONITOR. O MAIOR cargo ativo vira o OrganizationUser.role (permissao/RBAC).
+enum StaffRole {
+  MESTRE
+  PROFESSOR
+  INSTRUTOR
+  MONITOR
 }
 
 /// Tipo de organizacao. SYSTEM e reservado para a organizacao "fantasma" (id fixo) usada
@@ -163,6 +176,7 @@ model User {
   studentLinks                 Student[]              @relation("StudentUser")
   person                       Person?                @relation("PersonUser")
   requestedTransfers           TransferRequest[]      @relation("TransferRequestedBy")
+  staffRoles                   PersonRole[]           @relation("PersonRoleUser")
   guardianLinks                StudentGuardian[]      @relation("StudentGuardianUser")
   taughtLessons                Lesson[]               @relation("LessonTeacher")
   taughtClasses                Class[]                @relation("ClassTeacher")
@@ -410,6 +424,7 @@ model Organization {
   pointEvents           PointEvent[]
   transfersOut          TransferRequest[] @relation("TransferFrom")
   transfersIn           TransferRequest[] @relation("TransferTo")
+  personRoles           PersonRole[]
 
   @@index([status])
 }
@@ -528,6 +543,9 @@ model Student {
   /// Fim da matricula (Fase 2): preenchido quando a pessoa sai do grupo por transferencia (leftReason 'TRANSFER').
   leftAt         DateTime?
   leftReason     String?
+  /// Fase 3: matricula criada para alguem da EQUIPE (todo mundo e aluno). Nao conta no limite de alunos do plano
+  /// (Plan.maxStudents) e nao gera mensalidade (so quem tem StudentBilling e cobrado).
+  isStaff        Boolean       @default(false)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
@@ -548,6 +566,7 @@ model Student {
   pointEvents         PointEvent[]
   rankingProfile      RankingProfile?
   achievements        Achievement[]
+  roleNotices         RoleSuggestionNotice[]
 
   @@unique([organizationId, userId])
   @@index([organizationId, status])
@@ -596,6 +615,7 @@ model Person {
   mergedFrom Person[]  @relation("PersonMerge")
   students   Student[]
   transfers  TransferRequest[]
+  roles      PersonRole[]
 
   @@index([birthDate])
   @@index([mergedIntoId])
@@ -689,6 +709,59 @@ model EnrollmentShare {
 
   @@unique([fromStudentId, toOrganizationId])
   @@index([personId, toOrganizationId])
+}
+
+/// Cargo de uma pessoa num grupo (Fase 3). Historico: revogar preenche revokedAt (nunca apaga). Ativo = revokedAt nulo.
+/// userId = login (obrigatorio para exercer o cargo); personId = ficha (preenchido pelo backfill/concessao).
+model PersonRole {
+  id              Int       @id @default(autoincrement())
+  organizationId  Int
+  userId          Int
+  personId        Int?
+  role            StaffRole
+  /// MIGRATION (papel MESTRE/PROFESSOR que ja existia), GRANT (concedido pelo Mestre), TEACHER (tela Equipe), ORG (criacao do grupo).
+  source          String    @default("GRANT")
+  grantedAt       DateTime  @default(now())
+  grantedByUserId Int?
+  revokedAt       DateTime?
+  revokedByUserId Int?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation("PersonRoleUser", fields: [userId], references: [id], onDelete: Cascade)
+  person       Person?      @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, userId, revokedAt])
+  @@index([personId])
+}
+
+/// Regra do sistema de graduacao do grupo: a partir de qual corda (GraduationLevel.order) o cargo e possivel (o
+/// sistema SUGERE; o Mestre confirma).
+model GraduationRoleRule {
+  id                 Int       @id @default(autoincrement())
+  organizationId     Int
+  graduationSystemId Int
+  role               StaffRole
+  minLevelOrder      Int
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  graduationSystem GraduationSystem @relation(fields: [graduationSystemId], references: [id], onDelete: Cascade)
+
+  @@unique([graduationSystemId, role])
+  @@index([organizationId])
+}
+
+/// Marcador "o Mestre ja foi avisado de que esta matricula atingiu a corda deste cargo" (1 aviso por aluno+cargo).
+model RoleSuggestionNotice {
+  id             Int       @id @default(autoincrement())
+  organizationId Int
+  studentId      Int
+  role           StaffRole
+  createdAt      DateTime  @default(now())
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, role])
 }
 
 /// Cobranca mensal do aluno (E07): valor da mensalidade (centavos) e dia de vencimento (1..31; em meses
@@ -837,6 +910,7 @@ model GraduationSystem {
 
   organization Organization      @relation(fields: [organizationId], references: [id])
   levels       GraduationLevel[]
+  roleRules    GraduationRoleRule[]
 
   @@index([organizationId])
 }

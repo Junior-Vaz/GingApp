@@ -1,13 +1,28 @@
 import { z } from "zod";
+import type { RopeStyle } from "@/lib/rope";
+import { STAFF_ROLE_LABEL, type StaffRole } from "@/lib/staff-roles";
 import { isImageRef } from "@/lib/uploads";
 import type { Unit } from "@/modules/unidades/units";
 
-export type TeacherRole = "MESTRE" | "PROFESSOR";
+/** Cargo da equipe (Mestre, Professor, Instrutor ou Monitor); o `role` da membership é o MAIOR cargo da pessoa. */
+export type TeacherRole = StaffRole;
+
+/** Matrícula de aluno da pessoa da equipe (todo mundo é aluno): situação e corda atual. */
+export interface TeacherStudent {
+  id: number;
+  status: string;
+  level: { id: number; name: string; order: number; color?: string | null; style?: RopeStyle | null; colors?: string[] | null } | null;
+}
 
 /** Item de GET /teachers: é a membership (OrganizationUser); `id` é o da membership, não do User. */
 export interface Teacher {
   id: number;
+  /** Papel de acesso = o MAIOR cargo. */
   role: TeacherRole;
+  /** Todos os cargos ativos, do maior para o menor (ausente em respostas antigas: vale `[role]`). */
+  roles?: TeacherRole[];
+  /** Matrícula de aluno da pessoa e a corda atual; `null` quando não há matrícula. */
+  student?: TeacherStudent | null;
   status: string;
   createdAt?: string;
   /** Unidades de atuação (E08): vazio = sem restrição (vê todas). Só vem em GET /teachers e /teachers/:id. */
@@ -36,10 +51,11 @@ export interface TeacherInput {
   photo?: string | null | undefined;
 }
 
-export const TEACHER_ROLE_LABEL: Record<TeacherRole, string> = {
-  MESTRE: "Mestre",
-  PROFESSOR: "Professor",
-};
+export const TEACHER_ROLE_LABEL: Record<TeacherRole, string> = STAFF_ROLE_LABEL;
+
+/** Cargos do membro para exibir: `roles` do servidor ou, na falta, só o papel de acesso. */
+export const teacherRoles = (t: Pick<Teacher, "role" | "roles">): TeacherRole[] =>
+  t.roles && t.roles.length > 0 ? t.roles : [t.role];
 
 export const TEACHER_STATUS_LABEL: Record<string, string> = {
   ACTIVE: "Ativo",
@@ -57,7 +73,7 @@ export const createTeacherSchema = z.object({
     .trim()
     .refine((v) => v === "" || isImageRef(v), "Informe uma URL válida (http/https) ou envie uma imagem.")
     .optional(),
-  role: z.enum(["MESTRE", "PROFESSOR"]),
+  role: z.enum(["MESTRE", "PROFESSOR", "INSTRUTOR", "MONITOR"]),
   status: z.enum(["ACTIVE", "INACTIVE"]),
 });
 
@@ -71,7 +87,7 @@ export const editTeacherSchema = z.object({
     .trim()
     .refine((v) => v === "" || isImageRef(v), "Informe uma URL válida (http/https) ou envie uma imagem.")
     .optional(),
-  role: z.enum(["MESTRE", "PROFESSOR"]),
+  role: z.enum(["MESTRE", "PROFESSOR", "INSTRUTOR", "MONITOR"]),
   status: z.enum(["ACTIVE", "INACTIVE"]),
 });
 export type TeacherFormValues = z.infer<typeof createTeacherSchema>;

@@ -15,7 +15,7 @@ import { parseRecurrenceUntil } from './roda-recurrence';
 import { CreateRodaDto } from './dto/create-roda.dto';
 import { UpdateRodaDto } from './dto/update-roda.dto';
 
-const ADMIN_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR];
+const ADMIN_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR, OrgRole.INSTRUTOR];
 
 /**
  * Rodas pertencem ao domínio "Comunidade" (PLANO_PROJETO.md §2.3): dados públicos, listados

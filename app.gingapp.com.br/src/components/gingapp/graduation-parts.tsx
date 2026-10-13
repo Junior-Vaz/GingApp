@@ -9,12 +9,15 @@ export function GraduationCard({
   rope,
   subtitle,
   loading = false,
+  roleLabel,
 }: {
   /** Nome do nível atual; null = sem graduação. */
   name: string | null;
   rope: RopeSpec | null;
   subtitle: string;
   loading?: boolean;
+  /** Cargo atual no grupo (ex.: "Instrutor"); ausente para quem é só aluno. */
+  roleLabel?: string | null;
 }) {
   return (
     <div className="grad-card" data-testid="graduation-card" aria-busy={loading || undefined}>
@@ -25,6 +28,11 @@ export function GraduationCard({
         <span className="grad-eyebrow">Minha graduação</span>
         <h2>{name ?? (loading ? "Carregando…" : "Sem graduação")}</h2>
         <p>{subtitle}</p>
+        {roleLabel && (
+          <span className="badge mt-2" data-testid="journey-role">
+            {roleLabel}
+          </span>
+        )}
       </div>
       {name && rope && <Rope {...rope} orientation="vertical" length={104} thickness={20} className="grad-rope" />}
     </div>

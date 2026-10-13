@@ -7,12 +7,14 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { errorMessage } from "@/lib/api";
 import { downloadCertificatePdf } from "@/lib/certificate-pdf";
 import { dayOnly, fmt, readableIconColor, softenColor, verificationUrl } from "@/lib/format";
+import { STAFF_ROLE_LABEL } from "@/lib/roles";
 import { readJourneyView, storeJourneyView, type JourneyView } from "@/lib/hierarchy";
 import {
   useAttendance,
   useCertificates,
   useGraduations,
   useHierarchy,
+  useMyRoles,
   useMyStudent,
   usePassport,
   type Certificate,
@@ -132,6 +134,7 @@ export function JourneyPage() {
   const certificates = useCertificates();
   const hierarchy = useHierarchy(); // mesma consulta da aba Hierarquia: alimenta a régua de cordas do sistema
   const passport = usePassport();
+  const roles = useMyRoles();
   const attendance = useAttendance({ limit: 1 }); // só precisa do % dos 30 dias (agregado no servidor)
 
   const list = graduations.data ?? [];
@@ -161,6 +164,7 @@ export function JourneyPage() {
               name={current ? current.graduationLevel.name : null}
               rope={current ? current.graduationLevel : null}
               loading={loading}
+              roleLabel={roles[0] ? STAFF_ROLE_LABEL[roles[0]] : null}
               subtitle={
                 [
                   passport.data?.organization.name,

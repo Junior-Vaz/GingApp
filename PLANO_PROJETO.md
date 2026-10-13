@@ -3348,3 +3348,38 @@ Migration `20261012230000_transfers` (aplicada com `migrate deploy`).
 3. Push `TRANSFER_*` abre `/notificacoes` (sem categoria própria).
 4. Painel: limpar o CPF pela edição deixou de ser possível (campo vazio = não mexer).
 5. `Student.personId NOT NULL` e remoção do CPF em claro do banco (Fase futura).
+
+### Ficha única — Fase 3: cargos acumuláveis (backend + painel + app) - 2026-10-12
+
+**Estado:** concluída (sem commit). Decisões, contrato exato e riscos em [`docs/FICHA_UNICA.md`](docs/FICHA_UNICA.md) §5.
+Migration `20261013010000_staff_roles` (aplicada com `migrate deploy`; bootstrap rodado no banco de dev: 26 linhas novas da matriz).
+
+#### O que deu certo
+- `OrgRole` + `INSTRUTOR`/`MONITOR` (menor impacto: matriz/guards/token inalterados), `StaffRole`, `PersonRole` (histórico),
+  `GraduationRoleRule`, `RoleSuggestionNotice`, `Student.isStaff`; migration materializou 12 cargos (7 MESTRE, 5 PROFESSOR)
+  sem mudar acesso. `JwtStrategy` relê o papel do banco (conceder/revogar vale na hora).
+- Matriz 6×13=78: INSTRUTOR nunca exclui/sem financeiro/graduação e certificado só leitura; MONITOR só leitura + chamada.
+  Escopo por unidade para PROFESSOR/INSTRUTOR/MONITOR; INSTRUTOR/MONITOR podem ser responsáveis de turma.
+- `RolesService` (grant/revoke/sugestões/regras/aviso 1x), `npm run roles:backfill` + boot (`ROLES_BACKFILL`): no banco de dev
+  12 matrículas de aluno `isStaff` criadas para a equipe (2ª execução: 0; `--auto` dispensado). Demo: regras MONITOR≥4,
+  INSTRUTOR≥6, PROFESSOR≥8; aluno3 Instrutor e aluno2 Monitor (2ª execução do demo: nada a criar).
+- Leitura: `/teachers` com `roles[]`+`student`, `/students` com `staffRoles` e `?role=`, ficha com `roles`, `/auth/me` com `roles`.
+- Painel: tela Equipe com selos, Promover/Revogar, Sugestões, Cargos por corda, filtro e selos em Alunos, menu de
+  INSTRUTOR/MONITOR. App: selo de cargo no Perfil/Jornada e atalho para o painel.
+- Gates: backend build limpo OK, `test:unit` 164/164, `test:quick` completo **932/932** (78 specs), conjunto pedido com
+  bootstrap 226/226 (17 specs), smoke 74/74, `staff-roles` 8/8; painel lint OK, 575/575, build OK; app lint OK, 223/223, build OK.
+
+#### O que NÃO deu certo e a solução
+- 1ª rodada completa (920/924): com a equipe matriculada como aluno, `students` (MESTRE "sem Student próprio") e o perfil
+  próprio passaram a usar o RESPONSAVEL do seed; `teachers` (chaves do item com `roles`/`student`) e `units-crud` (matriz com 6
+  papéis) ajustados. `bootstrap` (oráculo 52→78 linhas) e `demo-seed` (equipe 4→6) ajustados.
+- O demo promovia aluno1 (a vitrine do app como ALUNO): trocado para aluno3 (Instrutor).
+- `graduations-rope` falhava entre 21h e 24h (graduação em UTC caía no dia seguinte ao "hoje" de SP do relatório): o teste
+  passou a usar a data civil de SP (falha preexistente, não da Fase 3).
+- `spec` novo: `GET /teachers` devolve array (não `items`) — corrigido no teste.
+
+#### Pendências (numeradas)
+1. MONITOR faz chamada de qualquer turma do seu escopo de unidade (sem checagem "só as turmas dele").
+2. Painel: botões de criação (Novo aluno/turma/aula) ainda aparecem para MONITOR (o backend responde 403).
+3. Equipe criada pela tela Equipe só ganha matrícula de aluno no próximo boot/backfill.
+4. Listas, dashboard, relatórios e ranking do grupo passam a incluir a equipe como alunos (intencional; avaliar filtro `isStaff`).

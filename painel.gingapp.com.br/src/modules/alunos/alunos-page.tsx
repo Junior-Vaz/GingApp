@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { flushSync } from "react-dom";
-import { IdCard, KeyRound, LayoutGrid, Plus, Table2, Upload, Users } from "lucide-react";
+import { ArrowUpCircle, IdCard, KeyRound, LayoutGrid, Plus, Table2, Upload, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
@@ -8,6 +8,7 @@ import { FormDialog } from "@/components/painel/form-dialog";
 import { ImageUploadField } from "@/components/painel/image-upload-field";
 import { ExportCsvButton } from "@/components/painel/export-csv-button";
 import { PageHeader } from "@/components/painel/page-header";
+import { RoleBadges } from "@/components/painel/role-badges";
 import { StudentAvatar } from "@/components/painel/student-avatar";
 import { UnitPicker } from "@/components/painel/unit-picker";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +20,7 @@ import { api } from "@/lib/api";
 import { maskCpfInput } from "@/lib/cpf";
 import { createCrud, notifyError } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
+import { canPromote, STAFF_ROLES, STAFF_ROLE_LABEL } from "@/lib/staff-roles";
 import { useCan, useSessionUser } from "@/lib/session";
 import { dayOnly, fmt, formatCurrency } from "@/lib/format";
 import { useUnitNames } from "@/lib/unit-lookup";
@@ -35,6 +37,7 @@ import { StudentCard } from "./aluno-card";
 import { createErrorMessage, parseStudentConflict, type StudentConflict } from "./aluno-conflito";
 import { AlunoConflitoDialog } from "./aluno-conflito-dialog";
 import { FichaAlunoDialog } from "./ficha-aluno-dialog";
+import { PromoverDialog, type PromoteTarget } from "@/modules/professores/promover-dialog";
 import { ImportarAlunosDialog } from "./importar-alunos-dialog";
 import { NativeSelect } from "./native-select";
 import { ResponsaveisDialog } from "./responsaveis-dialog";
@@ -85,7 +88,7 @@ function ViewToggle({ view, onChange }: { view: StudentsView; onChange: (view: S
 
 export function AlunosPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
-  const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "" } });
+  const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "", role: "" } });
   const list = students.usePage(lp.params);
   const update = students.useUpdate();
   const remove = students.useRemove();
@@ -101,6 +104,8 @@ export function AlunosPage() {
   const [guardiansOf, setGuardiansOf] = useState<Student | null>(null);
   const [fichaOf, setFichaOf] = useState<Student | null>(null);
   const [importing, setImporting] = useState(false);
+  // "Promover a…" (cargos acumuláveis): só o Mestre concede; age na matrícula de aluno.
+  const [promoting, setPromoting] = useState<PromoteTarget | null>(null);
   // 409 do cadastro (já no grupo / em outro grupo / possível duplicado) + os valores do formulário que o originaram.
   const [conflict, setConflict] = useState<{ conflict: StudentConflict; values: StudentFormValues } | null>(null);
   const [confirmingNew, setConfirmingNew] = useState(false);
@@ -138,6 +143,12 @@ export function AlunosPage() {
       ),
     },
     { id: "unit", header: "Unidade", sortValue: (s) => unitName(s.unitId), cell: (s) => unitName(s.unitId) },
+    {
+      id: "staffRoles",
+      header: "Cargos",
+      sortValue: (s) => Math.min(STAFF_ROLES.length, ...(s.staffRoles ?? []).map((r) => STAFF_ROLES.indexOf(r))),
+      cell: (s) => (s.staffRoles && s.staffRoles.length > 0 ? <RoleBadges roles={s.staffRoles} /> : "—"),
+    },
     {
       id: "birthDate",
       header: "Nascimento",
@@ -258,6 +269,16 @@ export function AlunosPage() {
           </Button>
         </>
       )}
+      {isMestre && s.status === "ACTIVE" && canPromote(s.staffRoles) && (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setPromoting({ studentId: s.id, name: s.name, email: s.email, roles: s.staffRoles ?? [] })}
+          aria-label={`Promover ${s.name}`}
+        >
+          <ArrowUpCircle /> Promover a…
+        </Button>
+      )}
       {canDelete && s.status !== "INACTIVE" && (
         <Button variant="ghost" size="sm" onClick={() => setDeleting(s)}>
           Inativar
@@ -298,7 +319,9 @@ export function AlunosPage() {
         onRetry={() => void list.refetch()}
         getRowId={(s) => s.id}
         searchPlaceholder="Buscar por nome, documento, telefone…"
-        emptyMessage={lp.filters.status || lp.filters.unitId ? "Nenhum aluno com esses filtros." : "Nenhum aluno cadastrado ainda."}
+        emptyMessage={
+          lp.filters.status || lp.filters.unitId || lp.filters.role ? "Nenhum aluno com esses filtros." : "Nenhum aluno cadastrado ainda."
+        }
         cards={{
           active: view === "cards",
           render: (s) => (
@@ -328,6 +351,19 @@ export function AlunosPage() {
               {Object.entries(STUDENT_STATUS_LABEL).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
+                </option>
+              ))}
+            </NativeSelect>
+            <NativeSelect
+              aria-label="Filtrar por cargo"
+              className="w-44"
+              value={lp.filters.role}
+              onChange={(e) => lp.setFilter("role", e.target.value)}
+            >
+              <option value="">Todos os cargos</option>
+              {STAFF_ROLES.map((role) => (
+                <option key={role} value={role}>
+                  {STAFF_ROLE_LABEL[role]}
                 </option>
               ))}
             </NativeSelect>
@@ -575,6 +611,7 @@ export function AlunosPage() {
       <AcessoAlunoDialog student={accessOf} onClose={() => setAccessOf(null)} />
       <ResponsaveisDialog student={guardiansOf} onClose={() => setGuardiansOf(null)} />
       <FichaAlunoDialog student={fichaOf} onClose={() => setFichaOf(null)} />
+      <PromoverDialog target={promoting} onClose={() => setPromoting(null)} />
       <AlunoConflitoDialog
         conflict={conflict?.conflict ?? null}
         confirming={confirmingNew}

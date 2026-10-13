@@ -1,3 +1,4 @@
+import { RolesModule } from '../roles/roles.module';
 import { Module } from '@nestjs/common';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { RankingModule } from '../ranking/ranking.module';
@@ -7,7 +8,7 @@ import { GraduationsHierarchyService } from './graduations-hierarchy.service';
 import { GraduationsService } from './graduations.service';
 
 @Module({
-  imports: [StudentsModule, NotificationsModule, RankingModule],
+  imports: [StudentsModule, NotificationsModule, RankingModule, RolesModule],
   controllers: [GraduationsController],
   providers: [GraduationsService, GraduationsHierarchyService],
   exports: [GraduationsService],

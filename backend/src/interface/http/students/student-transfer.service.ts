@@ -176,7 +176,7 @@ export class StudentTransferService {
     let plan: ImportResult['plan'] = null;
     let creatable = toCreate;
     if (maxStudents) {
-      const activeStudents = await this.prisma.student.count({ where: { organizationId, status: StudentStatus.ACTIVE } });
+      const activeStudents = await this.prisma.student.count({ where: { organizationId, status: StudentStatus.ACTIVE, isStaff: false } });
       let slots = Math.max(0, maxStudents - activeStudents);
       plan = { maxStudents, planName: subscription!.plan.name, activeStudents, availableSlots: slots };
       creatable = [];
@@ -202,7 +202,7 @@ export class StudentTransferService {
       await this.prisma.$transaction(async (tx) => {
         // Reconfere o limite DENTRO da transação (outra criação pode ter ocupado vagas desde a leitura acima).
         if (maxStudents) {
-          const activeNow = await tx.student.count({ where: { organizationId, status: StudentStatus.ACTIVE } });
+          const activeNow = await tx.student.count({ where: { organizationId, status: StudentStatus.ACTIVE, isStaff: false } });
           const newActive = creatable.filter((r) => r.status === StudentStatus.ACTIVE).length;
           if (activeNow + newActive > maxStudents) {
             throw new ConflictException('O limite de alunos do plano mudou durante a importação. Tente novamente.');

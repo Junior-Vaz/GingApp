@@ -22,7 +22,7 @@ export class CreateTeacherDto {
   @IsString()
   phone?: string;
 
-  @IsIn([OrgRole.MESTRE, OrgRole.PROFESSOR])
+  @IsIn([OrgRole.MESTRE, OrgRole.PROFESSOR, OrgRole.INSTRUTOR, OrgRole.MONITOR])
   role!: OrgRole;
 
   /** Foto de perfil do usuário (User.photo — vale em todos os grupos): caminho de POST /uploads ou URL http(s). */

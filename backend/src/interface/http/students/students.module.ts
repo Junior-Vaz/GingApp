@@ -14,6 +14,6 @@ import { StudentsService } from './students.service';
   // StudentTransferController ANTES do StudentsController: `GET /students/export.csv` não pode cair em `GET /students/:id`.
   controllers: [StudentTransferController, StudentsController, StudentAccessController],
   providers: [StudentsService, StudentAccessService, StudentGuardiansService, StudentTransferService],
-  exports: [StudentsService],
+  exports: [StudentsService, StudentAccessService],
 })
 export class StudentsModule {}

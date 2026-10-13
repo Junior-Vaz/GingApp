@@ -381,7 +381,7 @@ describe("ProfessoresPage - redefinir senha", () => {
     expect(screen.getAllByRole("button", { name: /Redefinir senha de/ })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Redefinir senha de Pastinha" }));
 
-    const dialog = await screen.findByRole("dialog", { name: "Redefinir senha do professor" });
+    const dialog = await screen.findByRole("dialog", { name: "Redefinir senha do membro da equipe" });
     fireEvent.change(within(dialog).getByLabelText("Senha provisória"), { target: { value: "curta" } });
     fireEvent.change(within(dialog).getByLabelText("Confirmar senha provisória"), { target: { value: "curta" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Redefinir senha" }));
@@ -412,7 +412,7 @@ describe("ProfessoresPage - redefinir senha", () => {
     renderPage(<ProfessoresPage />);
     await screen.findByText("Pastinha");
     fireEvent.click(screen.getByRole("button", { name: "Redefinir senha de Pastinha" }));
-    const dialog = await screen.findByRole("dialog", { name: "Redefinir senha do professor" });
+    const dialog = await screen.findByRole("dialog", { name: "Redefinir senha do membro da equipe" });
     fireEvent.change(within(dialog).getByLabelText("Senha provisória"), { target: { value: TEMP } });
     fireEvent.change(within(dialog).getByLabelText("Confirmar senha provisória"), { target: { value: TEMP } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Redefinir senha" }));

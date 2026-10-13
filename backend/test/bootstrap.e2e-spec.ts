@@ -31,6 +31,10 @@ const ORACLE: Record<string, string[]> = {
   PROFESSOR: ['VCE-', 'VCE-', 'VCE-', 'VCE-', 'VCE-', '----', 'VCE-', 'VCE-', 'VCE-', 'V---', 'VCE-', 'VCE-', 'V---'],
   ALUNO: ['----', '----', '----', '----', '----', '----', 'V---', 'V---', 'V---', '----', '----', '----', 'V---'],
   RESPONSAVEL: ['----', '----', '----', '----', '----', '----', 'V---', 'V---', 'V---', '----', '----', '----', 'V---'],
+  // Fase 3 (cargos): INSTRUTOR = professor que nunca exclui, graduacoes/certificados/unidades/equipe so leitura, sem financeiro;
+  // MONITOR = so leitura + chamada (attendance VCE-), sem financeiro/equipe/dashboard/certificados.
+  INSTRUTOR: ['VCE-', 'VCE-', 'VCE-', 'VCE-', 'V---', '----', 'VCE-', 'VCE-', 'VCE-', 'V---', 'VCE-', 'V---', 'V---'],
+  MONITOR: ['V---', 'V---', 'V---', 'VCE-', 'V---', '----', 'V---', 'V---', 'V---', '----', '----', '----', 'V---'],
 };
 const oracleRows = Object.entries(ORACLE)
   .flatMap(([role, flags]) => flags.map((f, i) => `${role}/${RESOURCES[i]}:${f}`))
@@ -187,7 +191,7 @@ describe('Bootstrap de produção (e2e, bancos isolados)', () => {
     const a = await matrixOf(dbA);
     const b = await matrixOf(dbB);
     assert.equal(a.length, oracleRows.length);
-    assert.equal(oracleRows.length, 52, '13 recursos x 4 papéis');
+    assert.equal(oracleRows.length, 78, '13 recursos x 6 papéis (Fase 3: + INSTRUTOR e MONITOR)');
     assert.deepEqual(a, b, 'matriz do bootstrap difere da do seed');
     assert.deepEqual(a, oracleRows, 'matriz difere do oráculo independente');
   });

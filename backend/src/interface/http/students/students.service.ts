@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, Student } from '@prisma/client';
+import { Prisma, StaffRole, Student } from '@prisma/client';
+import { sortRoles } from '../roles/staff-roles';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
@@ -44,7 +45,18 @@ export class StudentsService {
       this.prisma.student.findMany({ where, orderBy: { id: 'desc' }, ...pageArgs(query) }),
       this.prisma.student.count({ where }),
     ]);
-    return { items, total };
+    return { items: await this.withStaffRoles(organizationId, items), total };
+  }
+
+  /** Fase 3: staffRoles (cargos ATIVOS no grupo, maior primeiro) em cada aluno - o selo de cargo das listas. */
+  async withStaffRoles<T extends { userId: number | null }>(organizationId: number, items: T[]): Promise<(T & { staffRoles: StaffRole[] })[]> {
+    const userIds = items.map((i) => i.userId).filter((v): v is number => v !== null);
+    const rows = userIds.length
+      ? await this.prisma.personRole.findMany({ where: { organizationId, userId: { in: userIds }, revokedAt: null }, select: { userId: true, role: true } })
+      : [];
+    const byUser = new Map<number, StaffRole[]>();
+    for (const r of rows) byUser.set(r.userId, sortRoles([...(byUser.get(r.userId) ?? []), r.role]));
+    return items.map((i) => ({ ...i, staffRoles: i.userId !== null ? (byUser.get(i.userId) ?? []) : [] }));
   }
 
   /**
@@ -53,7 +65,7 @@ export class StudentsService {
    */
   async listWhere(
     organizationId: number,
-    query: Pick<ListStudentsQueryDto, 'status' | 'unitId' | 'q'> = {},
+    query: Pick<ListStudentsQueryDto, 'status' | 'unitId' | 'q' | 'role'> = {},
     user?: AuthenticatedUser,
   ): Promise<Prisma.StudentWhereInput> {
     const where: Prisma.StudentWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
@@ -61,6 +73,14 @@ export class StudentsService {
     where.AND = [unitScopeFilter(await this.unitScope.resolve(user, organizationId))];
     if (query.status) where.status = query.status;
     if (query.unitId !== undefined) where.unitId = query.unitId;
+    if (query.role) {
+      // Cargo ativo da pessoa no grupo (PersonRole), pelo login da matricula.
+      const holders = await this.prisma.personRole.findMany({
+        where: { organizationId, role: query.role, revokedAt: null },
+        select: { userId: true },
+      });
+      (where.AND as Prisma.StudentWhereInput[]).push({ userId: { in: holders.map((h) => h.userId) } });
+    }
     const q = query.q?.trim();
     if (q) {
       where.OR = (['name', 'email', 'document', 'phone'] as const).map((field) => ({
@@ -307,7 +327,8 @@ export class StudentsService {
     }
 
     const activeCount = await this.prisma.student.count({
-      where: { organizationId, status: 'ACTIVE' },
+      // Fase 3: matricula da EQUIPE (isStaff) nao ocupa vaga do plano.
+      where: { organizationId, status: 'ACTIVE', isStaff: false },
     });
     if (activeCount >= maxStudents) {
       throw new BadRequestException(

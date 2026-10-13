@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrgRole, Prisma } from '@prisma/client';
+import { OrgRole, Prisma, StaffRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { pageArgs } from '../../../shared/pagination/pagination';
 import { ListTeachersQueryDto } from './dto/list-teachers-query.dto';
@@ -13,8 +13,12 @@ import { ResetMemberPasswordDto } from '../../../shared/security/reset-member-pa
 import { CreateTeacherDto } from './dto/create-teacher.dto';
 import { SetTeacherUnitsDto } from './dto/set-teacher-units.dto';
 import { UpdateTeacherDto } from './dto/update-teacher.dto';
+import { LEVEL_SELECT, levelView } from '../graduations/rope';
+import { RolesService } from '../roles/roles.service';
+import { sortRoles, STAFF_ORG_ROLES } from '../roles/staff-roles';
 
-const TEACHER_ROLES = [OrgRole.MESTRE, OrgRole.PROFESSOR];
+// Fase 3: a equipe inclui INSTRUTOR e MONITOR (cargos acumulaveis; o papel da membership e o MAIOR cargo).
+const TEACHER_ROLES = STAFF_ORG_ROLES;
 const TEACHER_SELECT = {
   id: true,
   role: true,
@@ -38,6 +42,7 @@ export class TeachersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly roles: RolesService,
   ) {}
 
   async findAll(organizationId: number, query: ListTeachersQueryDto = {}) {
@@ -68,7 +73,11 @@ export class TeachersService {
     ]);
     // unitIds (E08): unidades de atuação de cada professor da página, numa única consulta (vazio = sem restrição).
     const unitsByUser = await this.unitIdsByUser(organizationId, rows.map((r) => r.user.id));
-    return { items: rows.map((r) => ({ ...withPhoto(r), unitIds: unitsByUser.get(r.user.id) ?? [] })), total };
+    const extras = await this.staffExtras(organizationId, rows.map((r) => r.user.id));
+    return {
+      items: rows.map((r) => ({ ...withPhoto(r), unitIds: unitsByUser.get(r.user.id) ?? [], ...extras.get(r.user.id)! })),
+      total,
+    };
   }
 
   async findOne(organizationId: number, id: number) {
@@ -80,7 +89,40 @@ export class TeachersService {
       throw new NotFoundException('Professor não encontrado.');
     }
     const unitsByUser = await this.unitIdsByUser(organizationId, [membership.user.id]);
-    return { ...withPhoto(membership), unitIds: unitsByUser.get(membership.user.id) ?? [] };
+    const extras = await this.staffExtras(organizationId, [membership.user.id]);
+    return { ...withPhoto(membership), unitIds: unitsByUser.get(membership.user.id) ?? [], ...extras.get(membership.user.id)! };
+  }
+
+  /**
+   * Fase 3: cargos ATIVOS (`roles`, maior primeiro; o papel legado conta enquanto o backfill nao materializa) e a
+   * matricula de ALUNO da pessoa no grupo (`student: {id, status, level}` = graduacao mais recente) - staff tambem e aluno.
+   */
+  private async staffExtras(organizationId: number, userIds: number[]) {
+    const [roles, memberships, students] = await Promise.all([
+      this.roles.rolesByUser(organizationId, userIds),
+      this.prisma.organizationUser.findMany({ where: { organizationId, userId: { in: userIds } }, select: { userId: true, role: true } }),
+      this.prisma.student.findMany({
+        where: { organizationId, userId: { in: userIds } },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          graduations: { select: { graduationLevel: { select: LEVEL_SELECT } }, orderBy: [{ graduatedAt: 'desc' }, { id: 'desc' }], take: 1 },
+        },
+      }),
+    ]);
+    const roleOf = new Map(memberships.map((m) => [m.userId, m.role]));
+    const studentOf = new Map(students.map((s) => [s.userId!, s]));
+    return new Map(
+      userIds.map((userId) => {
+        const list: StaffRole[] = [...(roles.get(userId) ?? [])];
+        const legacy = roleOf.get(userId);
+        if (legacy && (STAFF_ORG_ROLES as string[]).includes(legacy) && !list.includes(legacy as StaffRole)) list.unshift(legacy as StaffRole);
+        const s = studentOf.get(userId);
+        const level = s?.graduations[0]?.graduationLevel;
+        return [userId, { roles: sortRoles(list), student: s ? { id: s.id, status: s.status, level: level ? levelView(level) : null } : null }];
+      }),
+    );
   }
 
   /** Unidades de atuação (UserUnitAccess) dos usuários, ordenadas por id, na organização informada. */
@@ -110,7 +152,7 @@ export class TeachersService {
    */
   async setUnits(organizationId: number, id: number, dto: SetTeacherUnitsDto): Promise<{ unitIds: number[] }> {
     const membership = await this.findOne(organizationId, id); // 404 se não existir ou for de outro grupo
-    if (membership.role !== OrgRole.PROFESSOR) {
+    if (membership.role === OrgRole.MESTRE) {
       throw new BadRequestException('O Mestre enxerga todas as unidades do grupo; defina unidades só para professores.');
     }
     const unitIds = [...new Set(dto.unitIds)].sort((a, b) => a - b);
@@ -161,6 +203,7 @@ export class TeachersService {
       });
     });
 
+    await this.roles.syncFromTeacherScreen(organizationId, membership.user.id, null);
     await this.audit.record({
       organizationId,
       action: AuditAction.TEACHER_CREATE,
@@ -186,6 +229,7 @@ export class TeachersService {
         where: { id },
         data: { role: dto.role, status: dto.status },
       });
+      if (dto.role !== undefined) await this.roles.syncFromTeacherScreen(organizationId, membership.user.id, null);
     }
 
     await this.audit.record({
@@ -214,7 +258,7 @@ export class TeachersService {
       organizationId,
       userId: membership.user.id,
       newPassword: dto.newPassword,
-      roles: [OrgRole.PROFESSOR],
+      roles: [OrgRole.PROFESSOR, OrgRole.INSTRUTOR, OrgRole.MONITOR],
       notFoundMessage: 'Professor não encontrado.',
       wrongRoleMessage: 'A senha de um Mestre só pode ser redefinida pela equipe GingApp.',
     });

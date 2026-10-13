@@ -3,7 +3,8 @@ import { OrgRole } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 /** Papéis que podem ser "professor responsável" (turma) ou "professor da aula" (mesma regra de TeachersService). */
-export const TEACHER_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR];
+// Fase 3: INSTRUTOR e MONITOR tambem podem ser o responsavel de uma turma/aula ("as turmas dele").
+export const TEACHER_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR, OrgRole.INSTRUTOR, OrgRole.MONITOR];
 
 /**
  * SSOT de "professor válido para esta organização": `userId` precisa ter membership ATIVA

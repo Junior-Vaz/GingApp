@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Award, Building2, CalendarDays, Layers, Mail, Phone, Wallet } from "lucide-react";
+import { RoleBadges } from "@/components/painel/role-badges";
 import { RopeSwatch } from "@/components/painel/rope-swatch";
 import { Badge } from "@/components/ui/badge";
 import { dayOnly, fmt, initials } from "@/lib/format";
@@ -92,6 +93,7 @@ export function StudentCard({
           {isMinor(s.birthDate) && <Badge variant="outline">Menor</Badge>}
           <Badge variant={s.status === "ACTIVE" ? "default" : "secondary"}>{STUDENT_STATUS_LABEL[s.status]}</Badge>
           <Badge variant={s.userId ? "default" : "secondary"}>{s.userId ? "Com acesso" : "Sem acesso"}</Badge>
+          <RoleBadges roles={s.staffRoles} />
         </div>
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">

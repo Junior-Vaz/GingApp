@@ -14,6 +14,7 @@ import {
   useClasses,
   useFinance,
   useFinanceSummary,
+  isRoleNotification,
   isTransferNotification,
   useMyStudent,
   useMyUnit,
@@ -478,6 +479,8 @@ export function NotificationsPage() {
                     if (notice.readAt === null) markOne.mutate(notice.id);
                     // Avisos de transferência levam direto à tela onde o pedido é decidido.
                     if (isTransferNotification(notice.type)) void navigate({ to: "/transferencias" });
+                    // Avisos de cargo (concedido/revogado/sugestão) levam ao Perfil.
+                    else if (isRoleNotification(notice.type)) void navigate({ to: "/perfil" });
                   }}
                 >
                   <div className="notice-meta">

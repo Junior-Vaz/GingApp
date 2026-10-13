@@ -62,7 +62,7 @@ export class MapController {
   @UseGuards(UserThrottlerGuard)
   @Throttle(GEOCODE_THROTTLE)
   async geocode(@CurrentUser() user: AuthenticatedUser, @Body() dto: GeocodeDto) {
-    const allowed = user.role === OrgRole.MESTRE || user.role === OrgRole.PROFESSOR || user.userType === 'PLATFORM';
+    const allowed = user.role === OrgRole.MESTRE || user.role === OrgRole.PROFESSOR || user.role === OrgRole.INSTRUTOR || user.userType === 'PLATFORM';
     if (!allowed) throw new ForbiddenException('Sem permissão para geocodificar endereços.');
     if (!this.geocoding.isEnabled()) {
       throw new NotFoundException('Geocodificação indisponível: a chave do Google não está configurada no servidor.');

@@ -143,7 +143,11 @@ describe('Graduations: cordas multicoloridas, duplicar, reordenar e modelos (e2e
   describe('contrato de leitura {id, name, order, color, style, colors}', () => {
     before(async () => {
       graduationId = (
-        await api().post(`/api/graduations/students/${anaId}`).set(auth(mestreToken)).send({ graduationLevelId: levelIds.split, graduatedAt: new Date().toISOString() }).expect(201)
+        await api().post(`/api/graduations/students/${anaId}`).set(auth(mestreToken)).send({
+          graduationLevelId: levelIds.split,
+          // Data civil de HOJE em Sao Paulo (o relatorio fecha o periodo em "hoje" SP; new Date() em UTC passava do dia apos 21h).
+          graduatedAt: `${new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })}T12:00:00.000Z`,
+        }).expect(201)
       ).body.id;
       certificateId = (
         await api().post('/api/certificates').set(auth(mestreToken)).send({ studentId: anaId, title: `${tag} certificado`, studentGraduationId: graduationId }).expect(201)

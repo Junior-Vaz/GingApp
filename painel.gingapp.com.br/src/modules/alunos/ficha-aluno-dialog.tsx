@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
+import { RoleBadges } from "@/components/painel/role-badges";
 import { RopeSwatch } from "@/components/painel/rope-swatch";
 import { StudentAvatar } from "@/components/painel/student-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,7 @@ import {
 import { errorMessage } from "@/lib/api";
 import { dayOnly, fmt } from "@/lib/format";
 import { ropeOf } from "@/lib/rope";
+import { STAFF_ROLE_LABEL } from "@/lib/staff-roles";
 import { DOCUMENT_KIND_LABEL, useStudentFicha, type SharedFromOtherGroup } from "./ficha";
 import { STUDENT_STATUS_LABEL, type Student } from "./schema";
 
@@ -180,10 +182,25 @@ export function FichaAlunoDialog({ student, onClose }: { student: Student | null
                       <span className="font-medium">{e.organization.name}</span>
                       {e.unit && <span className="text-muted-foreground">{e.unit.name}</span>}
                       <Badge variant={e.isCurrent ? "default" : "secondary"}>{STUDENT_STATUS_LABEL[e.status]}</Badge>
+                      <RoleBadges roles={e.roles} />
                       <span className="text-xs text-muted-foreground">
                         desde {date(e.since)}
                         {e.until ? ` até ${date(e.until)}` : ""}
                       </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Section>
+
+            <Section title="Cargos" empty="Nenhum cargo na equipe: esta pessoa é apenas aluna.">
+              {(data.roles ?? []).length > 0 && (
+                <ul className="grid gap-1.5" data-testid="ficha-roles">
+                  {(data.roles ?? []).map((r) => (
+                    <li key={`${r.organization.id}-${r.role}`} className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm">
+                      <Badge variant="default">{STAFF_ROLE_LABEL[r.role]}</Badge>
+                      <span className="font-medium">{r.organization.name}</span>
+                      <span className="text-xs text-muted-foreground">desde {date(r.grantedAt)}</span>
                     </li>
                   ))}
                 </ul>

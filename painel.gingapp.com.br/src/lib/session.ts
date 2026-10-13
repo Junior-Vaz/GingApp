@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { STAFF_ROLE_LABEL, type StaffRole } from "@/lib/staff-roles";
 
 /**
  * Sessão do painel de gestão. Chaves PRÓPRIAS (gestao_token / gestao_user) para não colidir com
@@ -7,21 +8,21 @@ import { useSyncExternalStore } from "react";
 export const TOKEN_STORAGE_KEY = "gestao_token";
 export const USER_STORAGE_KEY = "gestao_user";
 
-export type OrgRole = "ALUNO" | "RESPONSAVEL" | "MESTRE" | "PROFESSOR";
+export type OrgRole = "ALUNO" | "RESPONSAVEL" | StaffRole;
 
 export const ROLE_LABEL: Record<OrgRole, string> = {
-  MESTRE: "Mestre",
-  PROFESSOR: "Professor",
+  ...STAFF_ROLE_LABEL,
   ALUNO: "Aluno",
   RESPONSAVEL: "Responsável",
 };
 
 /**
- * Papéis que acessam o painel. Espelha a matriz RolePermission do backend (seed): só MESTRE e
- * PROFESSOR têm `dashboard:view` (e as demais telas de gestão); ALUNO/RESPONSAVEL usam o app.
- * A autorização real continua no backend (CanAccessGuard) - isto é só a primeira barreira de UX.
+ * Papéis que acessam o painel: a equipe (MESTRE, PROFESSOR, INSTRUTOR e MONITOR - o papel é o MAIOR cargo da pessoa
+ * no grupo). Espelha a matriz RolePermission do backend; ALUNO/RESPONSAVEL usam o app. O menu e as ações de cada
+ * papel são restritos (ver `roleCan` e `lib/nav.ts`). A autorização real continua no backend (CanAccessGuard) -
+ * isto é só a primeira barreira de UX.
  */
-export const PANEL_ROLES: readonly OrgRole[] = ["MESTRE", "PROFESSOR"];
+export const PANEL_ROLES: readonly OrgRole[] = ["MESTRE", "PROFESSOR", "INSTRUTOR", "MONITOR"];
 
 export interface AuthUser {
   id: number;
@@ -31,7 +32,10 @@ export interface AuthUser {
   isSuperAdmin: boolean;
   organizationId: number;
   organizationSlug: string;
+  /** Papel de acesso = o MAIOR cargo da pessoa no grupo (pode ser INSTRUTOR/MONITOR). */
   role: OrgRole;
+  /** Cargos ativos no grupo, do maior para o menor (GET /auth/me traz; o login pode não trazer). */
+  roles?: StaffRole[];
   /** Senha definida por outra pessoa (conta criada/redefinida pelo Mestre): o painel exige a troca antes de tudo. */
   mustChangePassword?: boolean;
   /** Termos de Uso/Política de Privacidade (E10): true = há aceite pendente; o painel mostra a tela bloqueante. */
@@ -43,7 +47,7 @@ export interface AuthUser {
   recoveryCodesRemaining?: number;
 }
 
-/** O usuário pode usar o painel de gestão? (MEMBER com papel MESTRE ou PROFESSOR.) */
+/** O usuário pode usar o painel de gestão? (MEMBER com papel MESTRE, PROFESSOR, INSTRUTOR ou MONITOR.) */
 export function canAccessPanel(user: AuthUser | null | undefined): boolean {
   return !!user && user.userType === "MEMBER" && PANEL_ROLES.includes(user.role);
 }
@@ -156,20 +160,36 @@ export type PermissionResource =
   | "announcements"
   | "teachers"
   | "certificates"
-  | "units";
+  | "units"
+  | "dashboard";
 
 /**
- * Espelho de UX da matriz RolePermission do backend (backend/prisma/seed.ts): MESTRE pode tudo;
- * PROFESSOR = view/create/edit sem delete, exceto `teachers` e `units` (só view) e `finance` (nada). Outros
- * papéis não usam o painel. O backend decide de fato (CanAccessGuard, 403) - isto só evita
+ * Espelho de UX da matriz RolePermission do backend (backend/prisma/permission-matrix.ts): MESTRE pode tudo;
+ * PROFESSOR = view/create/edit sem delete, exceto `teachers` e `units` (só view) e `finance` (nada).
+ * INSTRUTOR = como PROFESSOR, mas graduações e certificados só leitura (além de `teachers`/`units` só leitura e
+ * `finance` nada). MONITOR = só leitura (alunos, turmas, aulas, graduações, eventos, rodas, comunicados, unidades)
+ * + chamada (`attendance` view/create/edit); sem `finance`, `teachers`, `dashboard` e `certificates`.
+ * ALUNO/RESPONSAVEL não usam o painel. O backend decide de fato (CanAccessGuard, 403) - isto só evita
  * mostrar botão que sempre falharia. Sem sessão = nega (falha fechada).
  */
-const PROFESSOR_ACTIONS: Partial<Record<PermissionResource, readonly PermissionAction[]>> = {
-  teachers: ["view"],
-  units: ["view"],
-  finance: [],
+const VIEW: readonly PermissionAction[] = ["view"];
+const NONE: readonly PermissionAction[] = [];
+const EDITOR: readonly PermissionAction[] = ["view", "create", "edit"];
+
+const STAFF_ACTIONS: Record<
+  Exclude<StaffRole, "MESTRE">,
+  { fallback: readonly PermissionAction[]; by: Partial<Record<PermissionResource, readonly PermissionAction[]>> }
+> = {
+  PROFESSOR: { fallback: EDITOR, by: { teachers: VIEW, units: VIEW, finance: NONE } },
+  INSTRUTOR: {
+    fallback: EDITOR,
+    by: { teachers: VIEW, units: VIEW, finance: NONE, graduations: VIEW, certificates: VIEW },
+  },
+  MONITOR: {
+    fallback: VIEW,
+    by: { attendance: EDITOR, teachers: NONE, finance: NONE, dashboard: NONE, certificates: NONE },
+  },
 };
-const PROFESSOR_DEFAULT: readonly PermissionAction[] = ["view", "create", "edit"];
 
 export function roleCan(
   role: OrgRole | undefined,
@@ -177,7 +197,10 @@ export function roleCan(
   action: PermissionAction,
 ): boolean {
   if (role === "MESTRE") return true;
-  if (role === "PROFESSOR") return (PROFESSOR_ACTIONS[resource] ?? PROFESSOR_DEFAULT).includes(action);
+  if (role === "PROFESSOR" || role === "INSTRUTOR" || role === "MONITOR") {
+    const rules = STAFF_ACTIONS[role];
+    return (rules.by[resource] ?? rules.fallback).includes(action);
+  }
   return false;
 }
 

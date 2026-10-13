@@ -13,6 +13,7 @@ import { imageSrc } from "@/lib/uploads";
 import {
   useGraduations,
   useMyIdentity,
+  useMyRoles,
   useMyStudent,
   useMyUnit,
   usePassport,
@@ -27,6 +28,7 @@ import { FichaEditSection } from "./ficha-edit";
 import { ImageUploadControl } from "./image-upload";
 import { MyDataSection } from "./legal";
 import { QrDialog } from "./journey";
+import { PanelShortcut, RoleBadges } from "./roles";
 import { TwoFactorSection } from "./two-factor";
 import { PageHeading, StateMessage } from "./shared";
 import { Avatar } from "./avatar";
@@ -38,6 +40,8 @@ const ROLE_LABEL: Record<string, string> = {
   RESPONSAVEL: "Responsável",
   MESTRE: "Mestre",
   PROFESSOR: "Professor",
+  INSTRUTOR: "Instrutor",
+  MONITOR: "Monitor",
 };
 
 const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; icon: typeof Instagram; placeholder: string }[] = [
@@ -131,6 +135,7 @@ export function ProfilePage() {
   const passport = usePassport();
   const myUnit = useMyUnit();
   const identity = useMyIdentity();
+  const roles = useMyRoles();
   const graduations = useGraduations(student?.id); // passaporte e graduação: do aluno ATIVO (seletor)
   const [qrOpen, setQrOpen] = useState(false);
 
@@ -176,8 +181,9 @@ export function ProfilePage() {
             <Avatar name={user?.name} src={own?.photo} size={72} groupName={identity.groupName ?? p?.organization.name} groupLogoUrl={identity.groupLogoUrl} />
             <div>
               <h2>{user?.name}</h2>
+              <RoleBadges roles={roles} className="mb-1" />
               <p>
-                {ROLE_LABEL[user?.role ?? ""] ?? user?.role}
+                {roles.length > 0 ? "Aluno" : (ROLE_LABEL[user?.role ?? ""] ?? user?.role)}
                 {first ? ` · ${first.graduationLevel.name}` : ""}
               </p>
               {p && <span className="badge mt-2">{p.organization.name}</span>}
@@ -208,6 +214,7 @@ export function ProfilePage() {
               Sua senha foi definida pelo seu mestre ou professor. Crie uma senha nova abaixo para continuar usando o aplicativo.
             </p>
           )}
+          {!user?.mustChangePassword && <PanelShortcut roles={roles} />}
           {!user?.mustChangePassword && <PersonCodeCard />}
           {!user?.mustChangePassword && <TransfersShortcut />}
           {!user?.mustChangePassword && own && student?.id === own.id && <FichaEditSection />}

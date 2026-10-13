@@ -21,6 +21,7 @@ vi.mock("@/lib/queries", async (importOriginal) => {
     ...actual,
     useHierarchy: () => ({ ...state.hierarchy, refetch: vi.fn() }),
     useGraduations: () => ({ data: state.graduations, isLoading: false, error: null }),
+    useMyRoles: () => [],
     useMyStudent: () => ({ student: { id: 7, name: "Camila" }, isLoading: false, error: null }),
     usePassport: () => ({ data: { organization: { name: "Grupo Semente" }, stats: { rodas: 2, eventos: 1, graduacoes: 1 } }, isLoading: false, error: null }),
     useCertificates: () => ({ ...idle, data: [] }),

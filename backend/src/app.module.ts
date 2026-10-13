@@ -53,6 +53,7 @@ import { isLessonsCronEnabled } from './jobs/lessons-cron.service';
 import { isTransferCronEnabled } from './jobs/transfer-cron.service';
 import { RankingModule } from './interface/http/ranking/ranking.module';
 import { PeopleModule } from './interface/http/people/people.module';
+import { RolesModule } from './interface/http/roles/roles.module';
 
 const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
 
@@ -101,6 +102,7 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     DataDeletionRequestsModule,
     RankingModule,
     PeopleModule,
+    RolesModule,
     AuditModule,
 
     // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador

@@ -113,13 +113,13 @@ describe("Fotos nos formulários", () => {
   it("Professor: o envio da foto vai em `photo` no POST /teachers", async () => {
     const calls = mockApi({ "GET /teachers": () => page([]), "POST /teachers": () => json(201, { id: 5 }) });
     renderUi(<ProfessoresPage />);
-    fireEvent.click(await screen.findByRole("button", { name: /Novo professor/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Novo membro/ }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Prof Novo" } });
     fireEvent.change(within(dialog).getByLabelText("E-mail"), { target: { value: "novo@x.com" } });
     fireEvent.change(within(dialog).getByLabelText("Senha inicial"), { target: { value: "123456" } });
     fireEvent.change(within(dialog).getByTestId("image-file-input"), { target: { files: [fileOf()] } });
-    await waitFor(() => expect(within(dialog).getByAltText("Foto do professor")).toBeInTheDocument());
+    await waitFor(() => expect(within(dialog).getByAltText("Foto do membro da equipe")).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/teachers")).toBe(true));
     expect(calls.find((c) => c.method === "POST" && c.path === "/teachers")!.body).toMatchObject({ name: "Prof Novo", photo: UPLOADED });

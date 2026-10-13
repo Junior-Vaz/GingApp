@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isValidCpf, onlyDigits } from "@/lib/cpf";
 import type { RopeStyle } from "@/lib/rope";
+import type { StaffRole } from "@/lib/staff-roles";
 import { isImageRef } from "@/lib/uploads";
 import { billingFieldsError } from "@/modules/financeiro/collection";
 
@@ -20,6 +21,8 @@ export interface Student {
   photo?: string | null;
   status: StudentStatus;
   joinedAt: string | null;
+  /** Cargos ativos da equipe (todo mundo é aluno; os cargos se somam), do maior para o menor. */
+  staffRoles?: StaffRole[] | undefined;
   /** Ficha única da pessoa (id e código GingApp), quando o servidor envia. */
   person?: { id: number; gingappCode: string } | null | undefined;
   /** Opcionais (exibidos no card quando o servidor os envia): turmas ativas e corda/graduação atual. */

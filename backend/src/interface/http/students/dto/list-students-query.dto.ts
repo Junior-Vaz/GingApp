@@ -1,4 +1,4 @@
-import { StudentStatus } from '@prisma/client';
+import { StaffRole, StudentStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import { IsEnum, IsInt, IsOptional } from 'class-validator';
 import { PageQueryDto } from '../../../../shared/pagination/pagination';
@@ -13,4 +13,9 @@ export class ListStudentsQueryDto extends PageQueryDto {
   @Type(() => Number)
   @IsInt()
   unitId?: number;
+
+  /** Fase 3: so alunos com este cargo ATIVO no grupo (MESTRE/PROFESSOR/INSTRUTOR/MONITOR). */
+  @IsOptional()
+  @IsEnum(StaffRole)
+  role?: StaffRole;
 }

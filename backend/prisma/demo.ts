@@ -36,10 +36,12 @@ import {
   Prisma,
   PrismaClient,
   RecordStatus,
+  StaffRole,
   StudentStatus,
   SubscriptionStatus,
   UserType,
 } from '@prisma/client';
+import { isStaffOrgRole, sortRoles } from '../src/interface/http/roles/staff-roles';
 import * as bcrypt from 'bcrypt';
 import { BCRYPT_ROUNDS } from '../src/shared/security/password-policy';
 import { findUserIdsByEmail } from '../src/shared/security/email-lookup';
@@ -411,6 +413,7 @@ export async function runDemo(
   await stepAnnouncements(ctx);
   await stepCertificatesAndPassports(ctx);
   await stepRanking(ctx);
+  await stepStaffRoles(ctx);
 
   const counts = await countEntities(prisma, ctx.orgId);
   const accounts = ACCOUNTS.map((a) => demoEmail(a.local, emailDomain));
@@ -521,12 +524,54 @@ async function ensureMembership(ctx: Ctx, tx: Tx, orgId: number, userId: number,
   const membership = await tx.organizationUser.findUnique({
     where: { organizationId_userId: { organizationId: orgId, userId } },
   });
+  // Fase 3 (cargos): o papel de acesso e o MAIOR cargo ativo (ex.: aluno1 promovido a Instrutor) - nunca rebaixa.
+  const active = await tx.personRole.findMany({ where: { organizationId: orgId, userId, revokedAt: null }, select: { role: true } });
+  const [top] = sortRoles([...active.map((r) => r.role), ...(isStaffOrgRole(role) ? [role as StaffRole] : [])]);
+  const target: OrgRole = top ? (top as OrgRole) : role;
   if (!membership) {
-    await tx.organizationUser.create({ data: { organizationId: orgId, userId, role, status: 'ACTIVE' } });
+    await tx.organizationUser.create({ data: { organizationId: orgId, userId, role: target, status: 'ACTIVE' } });
     bump(ctx, 'members', 1);
-  } else if (membership.role !== role || membership.status !== 'ACTIVE') {
-    await tx.organizationUser.update({ where: { id: membership.id }, data: { role, status: 'ACTIVE' } });
+  } else if (membership.role !== target || membership.status !== 'ACTIVE') {
+    await tx.organizationUser.update({ where: { id: membership.id }, data: { role: target, status: 'ACTIVE' } });
   }
+}
+
+/** Demo com a Fase 3: regras de corda por cargo e 1 Instrutor (aluno3) + 1 Monitor (aluno2), alunos do grupo (aluno1 segue so aluno, vitrine do app). Idempotente. */
+export const DEMO_ROLE_RULES: { role: StaffRole; minLevelOrder: number }[] = [
+  { role: StaffRole.MONITOR, minLevelOrder: 4 },
+  { role: StaffRole.INSTRUTOR, minLevelOrder: 6 },
+  { role: StaffRole.PROFESSOR, minLevelOrder: 8 },
+];
+export const DEMO_STAFF_PROMOTIONS: { key: AccountKey; role: StaffRole }[] = [
+  { key: 'aluno3', role: StaffRole.INSTRUTOR },
+  { key: 'aluno2', role: StaffRole.MONITOR },
+];
+
+async function stepStaffRoles(ctx: Ctx): Promise<void> {
+  await block(ctx, 'cargos (regras de corda, instrutor e monitor)', async (tx) => {
+    const system = await tx.graduationSystem.findFirst({ where: { organizationId: ctx.orgId, name: GRADUATION_SYSTEM.name } });
+    // Regras so quando o sistema ainda nao tem nenhuma (o Mestre pode ter ajustado: nao sobrescreve).
+    if (system && (await tx.graduationRoleRule.count({ where: { graduationSystemId: system.id } })) === 0) {
+      const orders = new Set((await tx.graduationLevel.findMany({ where: { graduationSystemId: system.id }, select: { order: true } })).map((l) => l.order));
+      const rules = DEMO_ROLE_RULES.filter((r) => orders.has(r.minLevelOrder));
+      await tx.graduationRoleRule.createMany({
+        data: rules.map((r) => ({ organizationId: ctx.orgId, graduationSystemId: system.id, role: r.role, minLevelOrder: r.minLevelOrder })),
+      });
+      bump(ctx, 'roleRules', rules.length);
+    }
+    for (const promo of DEMO_STAFF_PROMOTIONS) {
+      const userId = uid(ctx, promo.key);
+      // Ja concedido (ou revogado pelo Mestre) antes: respeita o historico.
+      if (await tx.personRole.count({ where: { organizationId: ctx.orgId, userId, role: promo.role } })) continue;
+      const person = await tx.person.findUnique({ where: { userId }, select: { id: true } });
+      await tx.personRole.create({
+        data: { organizationId: ctx.orgId, userId, personId: person?.id ?? null, role: promo.role, source: 'DEMO', grantedByUserId: uid(ctx, 'mestre') },
+      });
+      bump(ctx, 'staffRoles', 1);
+      const account = ACCOUNTS.find((a) => a.key === promo.key)!;
+      await ensureMembership(ctx, tx, ctx.orgId, userId, account.role);
+    }
+  });
 }
 
 async function stepOrganization(ctx: Ctx): Promise<void> {

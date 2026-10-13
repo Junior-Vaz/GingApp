@@ -280,7 +280,8 @@ describe('Units: CRUD, matriz, limite do plano e RBAC (e2e)', () => {
       const flags = Object.fromEntries(
         rows.map((r) => [r.role, `${r.canView ? 'V' : '-'}${r.canCreate ? 'C' : '-'}${r.canEdit ? 'E' : '-'}${r.canDelete ? 'D' : '-'}`]),
       );
-      assert.deepEqual(flags, { MESTRE: 'VCED', PROFESSOR: 'V---', ALUNO: 'V---', RESPONSAVEL: 'V---' });
+      // Fase 3: INSTRUTOR e MONITOR tambem so visualizam unidades.
+      assert.deepEqual(flags, { MESTRE: 'VCED', PROFESSOR: 'V---', ALUNO: 'V---', RESPONSAVEL: 'V---', INSTRUTOR: 'V---', MONITOR: 'V---' });
     });
   });
 

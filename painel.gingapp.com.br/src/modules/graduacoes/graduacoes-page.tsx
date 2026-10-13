@@ -18,8 +18,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/api";
 import { ropeOf } from "@/lib/rope";
-import { useCan } from "@/lib/session";
+import { useCan, useSessionUser } from "@/lib/session";
 import { dayOnly, fmt } from "@/lib/format";
+import { CargosPorCorda } from "./cargos-por-corda";
 import {
   levelOptions,
   systems,
@@ -111,6 +112,8 @@ function SistemasTab() {
   const canEdit = useCan("graduations", "edit");
   const canCreate = useCan("graduations", "create");
   const canDelete = useCan("graduations", "delete");
+  // Regras de cargo por corda: leitura para quem vê graduações, gravação só do Mestre (PUT .../role-rules).
+  const isMestre = useSessionUser()?.role === "MESTRE";
   const [newSystem, setNewSystem] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
   const [levelFor, setLevelFor] = useState<GraduationSystem | null>(null);
@@ -195,6 +198,7 @@ function SistemasTab() {
                     onReorder={(systemId, order) => reorderLevels.mutate({ systemId, order })}
                   />
                 )}
+                <CargosPorCorda system={system} canEdit={isMestre} />
               </CardContent>
             </Card>
           );

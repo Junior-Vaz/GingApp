@@ -5,6 +5,9 @@ import { GINGAPP_CODE_ALPHABET, generateGingappCode, normalizeGingappCode } from
 import { namesLookAlike } from '../src/interface/http/people/person-linker';
 import { transferContestDays, transferExpiryDays } from '../src/interface/http/people/transfers.service';
 import { isTransferCronEnabled } from '../src/jobs/transfer-cron.service';
+import { principalRole, sortRoles, suggestedRoles } from '../src/interface/http/roles/staff-roles';
+import { buildPermissionMatrix } from '../prisma/permission-matrix';
+import { shouldRunRolesBackfill } from '../prisma/roles-backfill';
 import { parseStudentRow } from '../src/interface/http/students/student-import';
 import {
   decryptPersonDocument,
@@ -109,6 +112,33 @@ describe('ficha unica - regras puras', () => {
     assert.equal(transferContestDays({ TRANSFER_CONTEST_DAYS: '0' }), 7);
     assert.equal(isTransferCronEnabled({ TRANSFER_CRON: 'false' }), false);
     assert.equal(isTransferCronEnabled({}), true);
+  });
+
+  it('fase 3: maior cargo vira o acesso; sugestao so acima do cargo atual; matriz de MONITOR/INSTRUTOR', () => {
+    assert.deepEqual(sortRoles(['MONITOR', 'MESTRE', 'INSTRUTOR', 'MONITOR']), ['MESTRE', 'INSTRUTOR', 'MONITOR']);
+    assert.equal(principalRole(['MONITOR', 'INSTRUTOR'], { hasStudent: true, isGuardian: false }), 'INSTRUTOR');
+    assert.equal(principalRole([], { hasStudent: true, isGuardian: true }), 'ALUNO');
+    assert.equal(principalRole([], { hasStudent: false, isGuardian: true }), 'RESPONSAVEL');
+    const rules = [
+      { role: 'MONITOR' as const, minLevelOrder: 3 },
+      { role: 'INSTRUTOR' as const, minLevelOrder: 5 },
+    ];
+    assert.deepEqual(suggestedRoles(2, rules, []), []);
+    assert.deepEqual(suggestedRoles(5, rules, []), ['INSTRUTOR', 'MONITOR']);
+    assert.deepEqual(suggestedRoles(5, rules, ['MONITOR']), ['INSTRUTOR']);
+    assert.deepEqual(suggestedRoles(9, rules, ['PROFESSOR']), []);
+    const matrix = buildPermissionMatrix();
+    const row = (role: string, resource: string) => matrix.find((r) => r.role === role && r.resource === resource)!;
+    assert.equal(matrix.length, 6 * 13);
+    assert.equal(row('MONITOR', 'finance').canView, false);
+    assert.equal(row('MONITOR', 'attendance').canEdit, true);
+    assert.equal(row('MONITOR', 'students').canCreate, false);
+    assert.ok(matrix.filter((r) => r.role === 'INSTRUTOR').every((r) => !r.canDelete), 'INSTRUTOR nunca exclui');
+    assert.equal(row('INSTRUTOR', 'finance').canView, false);
+    assert.equal(row('INSTRUTOR', 'students').canCreate, true);
+    assert.equal(shouldRunRolesBackfill('auto', {}, 0), false);
+    assert.equal(shouldRunRolesBackfill('auto', {}, 2), true);
+    assert.equal(shouldRunRolesBackfill('auto', { ROLES_BACKFILL: 'false' }, 2), false);
   });
 
   it('linha do CSV: CPF do responsavel exige nascimento e CPF valido; codigo GingApp validado', () => {

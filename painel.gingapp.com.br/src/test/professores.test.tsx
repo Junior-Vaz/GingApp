@@ -86,11 +86,11 @@ describe("ProfessoresPage", () => {
     expect(first.query.has("status")).toBe(false);
     expect(first.query.has("q")).toBe(false);
 
-    fireEvent.change(screen.getByLabelText("Filtrar por papel"), { target: { value: "PROFESSOR" } });
+    fireEvent.change(screen.getByLabelText("Filtrar por cargo"), { target: { value: "PROFESSOR" } });
     await waitFor(() => expect(screen.queryByText("Mestre Bimba")).not.toBeInTheDocument());
     expect(screen.getByText("Pastinha")).toBeInTheDocument();
     expect(calls.at(-1)!.query.get("role")).toBe("PROFESSOR");
-    fireEvent.change(screen.getByLabelText("Filtrar por papel"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Filtrar por cargo"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "ACTIVE" } });
     await waitFor(() => expect(calls.at(-1)!.query.get("status")).toBe("ACTIVE"));
     expect(calls.at(-1)!.query.has("role")).toBe(false);
@@ -123,7 +123,7 @@ describe("ProfessoresPage", () => {
     fireEvent.click(screen.getByLabelText("Próxima página"));
     expect(await screen.findByText("Prof 11")).toBeInTheDocument();
     expect(calls.at(-1)!.query.get("offset")).toBe("10");
-    fireEvent.change(screen.getByLabelText("Filtrar por papel"), { target: { value: "MESTRE" } });
+    fireEvent.change(screen.getByLabelText("Filtrar por cargo"), { target: { value: "MESTRE" } });
     await waitFor(() => expect(calls.at(-1)!.query.get("role")).toBe("MESTRE"));
     expect(calls.at(-1)!.query.get("offset")).toBe("0");
     expect(await screen.findByText("Página 1 de 3")).toBeInTheDocument();
@@ -136,14 +136,14 @@ describe("ProfessoresPage", () => {
     first.unmount();
     mockApi({ "GET /teachers": () => json(200, []) });
     renderPage(<ProfessoresPage />);
-    expect(await screen.findByTestId("table-empty")).toHaveTextContent("Nenhum professor cadastrado ainda.");
+    expect(await screen.findByTestId("table-empty")).toHaveTextContent("Nenhum membro da equipe cadastrado ainda.");
   });
 
   it("cria: valida senha curta, depois POST /teachers", async () => {
     const calls = mockApi({ ...base(), "POST /teachers": () => json(201, { id: 12 }) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
-    fireEvent.click(screen.getByRole("button", { name: /Novo professor/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Novo membro/ }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Novo Prof" } });
     fireEvent.change(within(dialog).getByLabelText("E-mail"), { target: { value: "novo@x.com" } });
@@ -153,14 +153,14 @@ describe("ProfessoresPage", () => {
     expect(calls.some((c) => c.method === "POST")).toBe(false);
 
     fireEvent.change(within(dialog).getByLabelText("Senha inicial"), { target: { value: "segredo1" } });
-    fireEvent.change(within(dialog).getByLabelText("Papel"), { target: { value: "MESTRE" } });
+    fireEvent.change(within(dialog).getByLabelText("Cargo"), { target: { value: "MESTRE" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
     expect(calls.find((c) => c.method === "POST")).toMatchObject({
       path: "/teachers",
       body: { name: "Novo Prof", email: "novo@x.com", password: "segredo1", role: "MESTRE" },
     });
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Professor cadastrado."));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Membro da equipe cadastrado."));
   });
 
   it("edita: e-mail bloqueado, sem senha, PATCH /teachers/:id (id da membership)", async () => {
@@ -216,14 +216,14 @@ describe("ProfessoresPage", () => {
     const alert = await screen.findByRole("alertdialog");
     fireEvent.click(within(alert).getByRole("button", { name: "Inativar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/teachers/10")).toBe(true));
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Professor inativado."));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Membro da equipe inativado."));
   });
 
-  it("RBAC: MESTRE vê Novo professor/Editar/Inativar; PROFESSOR (só teachers:view) não vê nenhum nem a coluna Ações", async () => {
+  it("RBAC: MESTRE vê Novo membro/Editar/Inativar; PROFESSOR (só teachers:view) não vê nenhum nem a coluna Ações", async () => {
     mockApi(base());
     const mestre = renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
-    expect(screen.getByRole("button", { name: /Novo professor/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Novo membro/ })).toBeInTheDocument();
     expect(screen.getAllByText("Editar").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Inativar")).toHaveLength(1);
     mestre.unmount();
@@ -231,7 +231,7 @@ describe("ProfessoresPage", () => {
     loginAs("PROFESSOR");
     renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
-    expect(screen.queryByRole("button", { name: /Novo professor/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Novo membro/ })).toBeNull();
     expect(screen.queryByText("Editar")).toBeNull();
     expect(screen.queryByText("Inativar")).toBeNull();
     expect(screen.queryByRole("columnheader", { name: "Ações" })).toBeNull();
@@ -242,7 +242,7 @@ describe("ProfessoresPage", () => {
     mockApi({ ...base(), "POST /teachers": () => json(400, { message: "E-mail já cadastrado." }) });
     renderPage(<ProfessoresPage />);
     await screen.findByText("Mestre Bimba");
-    fireEvent.click(screen.getByRole("button", { name: /Novo professor/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Novo membro/ }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Dup" } });
     fireEvent.change(within(dialog).getByLabelText("E-mail"), { target: { value: "bimba@x.com" } });

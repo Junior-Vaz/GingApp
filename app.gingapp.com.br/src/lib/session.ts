@@ -7,7 +7,11 @@ import { useSyncExternalStore } from "react";
 export const TOKEN_STORAGE_KEY = "mb_token";
 export const USER_STORAGE_KEY = "mb_user";
 
-export type OrgRole = "ALUNO" | "RESPONSAVEL" | "MESTRE" | "PROFESSOR";
+/** Cargos acumuláveis por grupo (Ficha única, Fase 3). */
+export type StaffRole = "MESTRE" | "PROFESSOR" | "INSTRUTOR" | "MONITOR";
+
+/** Papel de acesso no grupo (o maior cargo; quem não tem cargo é ALUNO ou RESPONSAVEL). */
+export type OrgRole = "ALUNO" | "RESPONSAVEL" | StaffRole;
 
 export interface AuthUser {
   id: number;
@@ -18,6 +22,8 @@ export interface AuthUser {
   organizationId: number;
   organizationSlug: string;
   role: OrgRole;
+  /** Cargos ativos no grupo do token, maior primeiro. Ausente em sessões/backends antigos. */
+  roles?: StaffRole[];
   /** Senha definida pelo Mestre/Professor (conta criada ou senha redefinida): a troca é obrigatória no primeiro acesso. */
   mustChangePassword?: boolean;
   /** Termos de Uso/Política de Privacidade (E10): true = há aceite pendente; o app mostra a tela bloqueante de aceite. */

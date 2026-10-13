@@ -69,7 +69,7 @@ export class GraduationsHierarchyService {
         where: {
           organizationId,
           status: 'ACTIVE',
-          role: { in: [OrgRole.MESTRE, OrgRole.PROFESSOR] },
+          role: { in: [OrgRole.MESTRE, OrgRole.PROFESSOR, OrgRole.INSTRUTOR, OrgRole.MONITOR] },
           user: { status: 'ACTIVE' },
         },
         orderBy: { id: 'asc' },
@@ -195,7 +195,7 @@ export class GraduationsHierarchyService {
       .filter((s) => s.role === OrgRole.MESTRE)
       .map((s) => personOf(s.user))
       .sort(byName);
-    const teacherUsers = staff.filter((s) => s.role === OrgRole.PROFESSOR).map((s) => s.user);
+    const teacherUsers = staff.filter((s) => s.role !== OrgRole.MESTRE).map((s) => s.user);
 
     const myTeacherIds = new Set<number>();
     if (viewer && teacherUsers.length > 0) {

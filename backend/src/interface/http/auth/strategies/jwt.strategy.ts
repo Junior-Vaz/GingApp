@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { OrgRole } from '@prisma/client';
 import { resolveJwtSecret } from '../../../../shared/config/runtime-config';
 import { PrismaService } from '../../../../shared/prisma/prisma.service';
 import { AuthenticatedUser, JwtPayload } from '../../../../shared/interfaces/jwt-payload.interface';
@@ -46,6 +47,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     // Token escopado a um grupo: a membership precisa continuar ativa (professor inativado
     // perde o acesso na hora, sem esperar o token expirar).
+    let membershipRole: OrgRole | undefined;
     if (payload.organizationId != null) {
       const membership = await this.prisma.organizationUser.findFirst({
         where: {
@@ -69,6 +71,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       ) {
         throw new UnauthorizedException(INACTIVE_STUDENT_MESSAGE);
       }
+      membershipRole = membership.role;
     }
 
     return {
@@ -77,7 +80,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       userType: user.userType,
       isSuperAdmin: user.isSuperAdmin,
       organizationId: payload.organizationId,
-      role: payload.role,
+      // Papel SEMPRE do banco (Fase 3: cargos concedidos/revogados valem na hora, sem esperar o token expirar).
+      role: membershipRole ?? payload.role,
       // Sempre do banco (nunca do token): ver shared/access/access-gate.ts (aplicado pelo JwtAuthGuard).
       mustChangePassword: user.mustChangePassword,
       acceptedTermsVersion: user.acceptedTermsVersion,

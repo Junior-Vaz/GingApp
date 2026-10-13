@@ -32,6 +32,9 @@ import { PrismaService } from '../prisma/prisma.service';
  */
 export type UnitScope = number[] | 'ALL';
 
+/** Papeis da equipe sujeitos ao escopo por unidade (Fase 3: INSTRUTOR e MONITOR seguem a mesma regra do PROFESSOR). */
+export const SCOPED_STAFF_ROLES: OrgRole[] = [OrgRole.PROFESSOR, OrgRole.INSTRUTOR, OrgRole.MONITOR];
+
 export const UNIT_ACCESS_DENIED = 'Você não tem acesso a esta unidade.';
 
 export function isRestricted(scope: UnitScope): scope is number[] {
@@ -114,7 +117,7 @@ export class UnitScopeService {
    * services) = 'ALL'.
    */
   async resolve(user: AuthenticatedUser | undefined, organizationId: number): Promise<UnitScope> {
-    if (!user || user.userType !== UserType.MEMBER || user.isSuperAdmin || user.role !== OrgRole.PROFESSOR) {
+    if (!user || user.userType !== UserType.MEMBER || user.isSuperAdmin || !SCOPED_STAFF_ROLES.includes(user.role as OrgRole)) {
       return 'ALL';
     }
     const rows = await this.prisma.userUnitAccess.findMany({

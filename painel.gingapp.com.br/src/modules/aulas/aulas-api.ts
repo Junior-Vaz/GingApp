@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { createCrud } from "@/lib/crud";
+import type { StaffRole } from "@/lib/staff-roles";
 
 /** Aula. `date` chega como meia-noite UTC (use dayOnly de @/lib/format para exibir). */
 export interface Lesson {
@@ -29,7 +30,7 @@ export interface ClassOption {
 
 export interface TeacherMembership {
   id: number;
-  role: "MESTRE" | "PROFESSOR";
+  role: StaffRole;
   status: string;
   user: { id: number; name: string; email: string; phone: string | null; photo?: string | null };
 }

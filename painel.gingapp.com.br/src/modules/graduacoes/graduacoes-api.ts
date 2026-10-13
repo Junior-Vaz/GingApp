@@ -3,6 +3,8 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { createCrud, notifyError } from "@/lib/crud";
 import type { RopeStyle } from "@/lib/rope";
+import type { StaffRole } from "@/lib/staff-roles";
+import { roleErrorMessage, SUGGESTIONS_KEY, type RoleLevel } from "@/modules/professores/roles-api";
 
 export type { RopeStyle } from "@/lib/rope";
 
@@ -251,4 +253,44 @@ export function levelOptions(list: GraduationSystem[] | undefined) {
     }
   }
   return options;
+}
+
+/** Regra de um cargo: a partir de qual nível (`order`) do sistema ele é possível. */
+export interface RoleRule {
+  role: StaffRole;
+  minLevelOrder: number;
+  level: RoleLevel | null;
+}
+
+/** GET/PUT /graduations/systems/:id/role-rules. */
+export interface RoleRules {
+  systemId: number;
+  rules: RoleRule[];
+}
+
+const roleRulesKey = (systemId: number) => ["graduacoes", "role-rules", systemId] as const;
+
+/** GET: quem vê graduações lê as regras. Sem retry para o erro de permissão aparecer de imediato. */
+export function useRoleRules(systemId: number, enabled = true) {
+  return useQuery({
+    queryKey: roleRulesKey(systemId),
+    queryFn: () => api.get<RoleRules>(`/graduations/systems/${systemId}/role-rules`),
+    enabled,
+    retry: false,
+  });
+}
+
+/** PUT: substitui as regras do sistema (só o Mestre). Atualiza também as sugestões de promoção. */
+export function useSaveRoleRules(systemId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (rules: { role: StaffRole; minLevelOrder: number }[]) =>
+      api.put<RoleRules>(`/graduations/systems/${systemId}/role-rules`, { rules }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: roleRulesKey(systemId) });
+      void queryClient.invalidateQueries({ queryKey: SUGGESTIONS_KEY });
+      toast.success("Regras de cargo por corda salvas.");
+    },
+    onError: (error) => toast.error(roleErrorMessage(error, "Não foi possível salvar as regras de cargo.")),
+  });
 }

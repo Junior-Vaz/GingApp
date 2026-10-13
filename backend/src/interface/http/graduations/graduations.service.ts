@@ -1,3 +1,4 @@
+import { RolesService } from '../roles/roles.service';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
@@ -30,6 +31,7 @@ export class GraduationsService {
     private readonly unitScope: UnitScopeService,
     private readonly audit: AuditService,
     private readonly ranking: RankingService,
+    private readonly roles: RolesService,
   ) {}
 
   /** Sistemas de graduação configuráveis do grupo, com seus níveis (projeto.txt §26). */
@@ -416,6 +418,8 @@ export class GraduationsService {
       meta: { studentId, graduationLevelId: dto.graduationLevelId },
     });
     this.ranking.queueSync(studentId); // Ginga Rank (fire-and-forget): 100 x ordem da corda
+    // Fase 3: corda que libera um cargo => aviso aos Mestres (1x por aluno+cargo; segundo plano, nunca derruba a graduacao).
+    void this.roles.notifyNewSuggestions(organizationId, studentId);
     return withGraduationRope(graduation);
   }
 

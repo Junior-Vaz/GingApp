@@ -112,6 +112,10 @@ export const AuditAction = {
   TRANSFER_CONTEST: 'TRANSFER_CONTEST',
   TRANSFER_CANCEL: 'TRANSFER_CANCEL',
   TRANSFER_EXPIRE: 'TRANSFER_EXPIRE',
+  // Cargos acumulaveis (ficha unica, Fase 3)
+  ROLE_GRANT: 'ROLE_GRANT',
+  ROLE_REVOKE: 'ROLE_REVOKE',
+  GRADUATION_ROLE_RULES_SET: 'GRADUATION_ROLE_RULES_SET',
 } as const;
 
 export type AuditActionCode = (typeof AuditAction)[keyof typeof AuditAction];
@@ -149,4 +153,5 @@ export const AuditEntity = {
   RANKING_PROFILE: 'ranking_profile',
   PERSON: 'person',
   TRANSFER: 'transfer',
+  PERSON_ROLE: 'person_role',
 } as const;

@@ -3,7 +3,7 @@ import { createMemoryHistory, createRouter } from "@tanstack/react-router";
 import { QueryClient } from "@tanstack/react-query";
 import { routeTree } from "@/routeTree.gen";
 import { toast } from "sonner";
-import { NAV_ITEMS, ROUTE_FORBIDDEN_MESSAGE, canAccessRoute, navItemsFor } from "@/lib/nav";
+import { NAV_ITEMS, ROUTE_FORBIDDEN_MESSAGE, canAccessRoute, homeFor, navItemsFor } from "@/lib/nav";
 import { TOKEN_STORAGE_KEY, USER_STORAGE_KEY, roleCan, saveSession, type AuthUser } from "@/lib/session";
 import { login, PANEL_FORBIDDEN_MESSAGE, safeRedirect } from "@/lib/auth";
 
@@ -49,8 +49,8 @@ describe("guard de rotas", () => {
     expect(router.state.location.pathname).toBe("/login");
   });
 
-  it("MESTRE e PROFESSOR entram em /alunos", async () => {
-    for (const role of ["MESTRE", "PROFESSOR"] as const) {
+  it("MESTRE, PROFESSOR, INSTRUTOR e MONITOR entram em /alunos", async () => {
+    for (const role of ["MESTRE", "PROFESSOR", "INSTRUTOR", "MONITOR"] as const) {
       localStorage.clear();
       saveSession("t", makeUser(role));
       const router = makeRouter("/alunos");
@@ -131,6 +131,48 @@ describe("guard de rotas", () => {
     },
   );
 
+  it("INSTRUTOR entra em Dashboard, Equipe, Certificados e Ranking; em Financeiro/Unidades vai à tela inicial com aviso", async () => {
+    saveSession("t", makeUser("INSTRUTOR"));
+    vi.mocked(toast.error).mockClear();
+    for (const path of ["/dashboard", "/professores", "/certificados", "/ranking", "/graduacoes"]) {
+      const router = makeRouter(path);
+      await router.load();
+      expect(router.state.location.pathname).toBe(path);
+    }
+    expect(toast.error).not.toHaveBeenCalled();
+    for (const path of ["/financeiro", "/unidades", "/configuracoes"]) {
+      const router = makeRouter(path);
+      await router.load();
+      expect(router.state.location.pathname).toBe("/dashboard");
+    }
+    expect(toast.error).toHaveBeenCalledWith(ROUTE_FORBIDDEN_MESSAGE);
+    expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("t");
+  });
+
+  it("MONITOR: / e /login vão para /alunos (sem Dashboard); Dashboard, Equipe, Certificados e Financeiro levam a /alunos com aviso, sem deslogar", async () => {
+    saveSession("t", makeUser("MONITOR"));
+    for (const path of ["/", "/login"]) {
+      const router = makeRouter(path);
+      await router.load();
+      expect(router.state.location.pathname).toBe("/alunos");
+    }
+    for (const path of ["/dashboard", "/professores", "/certificados", "/financeiro"]) {
+      vi.mocked(toast.error).mockClear();
+      const router = makeRouter(path);
+      await router.load();
+      expect(router.state.location.pathname).toBe("/alunos");
+      expect(toast.error).toHaveBeenCalledWith(ROUTE_FORBIDDEN_MESSAGE);
+    }
+    for (const path of ["/alunos", "/turmas", "/aulas", "/frequencia", "/graduacoes", "/ranking", "/relatorios", "/eventos", "/rodas", "/comunicados"]) {
+      vi.mocked(toast.error).mockClear();
+      const router = makeRouter(path);
+      await router.load();
+      expect(router.state.location.pathname).toBe(path);
+      expect(toast.error).not.toHaveBeenCalled();
+    }
+    expect(localStorage.getItem(TOKEN_STORAGE_KEY)).toBe("t");
+  });
+
   it("roleCan espelha a matriz do seed: MESTRE tudo; PROFESSOR sem delete, teachers só view, finance nada", () => {
     const resources = ["students", "classes", "lessons", "attendance", "graduations", "events", "rodas", "announcements", "certificates"] as const;
     const actions = ["view", "create", "edit", "delete"] as const;
@@ -148,6 +190,23 @@ describe("guard de rotas", () => {
     // unidades (E02): MESTRE tudo; PROFESSOR só view (espelha o override `units` de permission-matrix.ts)
     for (const a of actions) expect(roleCan("MESTRE", "units", a)).toBe(true);
     expect(actions.map((a) => roleCan("PROFESSOR", "units", a))).toEqual([true, false, false, false]);
+    // INSTRUTOR: como PROFESSOR, mas graduações e certificados só leitura; equipe/unidades só leitura; sem financeiro
+    for (const r of resources) expect(roleCan("INSTRUTOR", r, "view")).toBe(true);
+    for (const r of ["students", "classes", "lessons", "attendance", "events", "rodas", "announcements"] as const) {
+      expect(actions.map((a) => roleCan("INSTRUTOR", r, a))).toEqual([true, true, true, false]);
+    }
+    for (const r of ["graduations", "certificates", "teachers", "units"] as const) {
+      expect(actions.map((a) => roleCan("INSTRUTOR", r, a))).toEqual([true, false, false, false]);
+    }
+    expect(actions.map((a) => roleCan("INSTRUTOR", "finance", a))).toEqual([false, false, false, false]);
+    // MONITOR: só leitura + chamada; sem financeiro, equipe, dashboard e certificados
+    for (const r of ["students", "classes", "lessons", "graduations", "events", "rodas", "announcements", "units"] as const) {
+      expect(actions.map((a) => roleCan("MONITOR", r, a))).toEqual([true, false, false, false]);
+    }
+    expect(actions.map((a) => roleCan("MONITOR", "attendance", a))).toEqual([true, true, true, false]);
+    for (const r of ["finance", "teachers", "dashboard", "certificates"] as const) {
+      expect(actions.map((a) => roleCan("MONITOR", r, a))).toEqual([false, false, false, false]);
+    }
     // sem sessão / papéis do app: nega (falha fechada)
     for (const role of [undefined, "ALUNO", "RESPONSAVEL"] as const) expect(roleCan(role, "students", "view")).toBe(false);
   });
@@ -202,6 +261,38 @@ describe("menu por papel", () => {
     expect(navItemsFor(undefined).map((i) => i.label)).not.toContain("Financeiro");
   });
 
+  it("INSTRUTOR vê o mesmo menu do PROFESSOR (13); MONITOR vê 10 (sem Dashboard, Equipe, Certificados, Financeiro etc.)", () => {
+    const professor = navItemsFor("PROFESSOR").map((i) => i.label);
+    const instrutor = navItemsFor("INSTRUTOR").map((i) => i.label);
+    expect(instrutor).toEqual(professor);
+    expect(instrutor).toHaveLength(13);
+    expect(instrutor).toContain("Equipe");
+    expect(instrutor).not.toContain("Financeiro");
+    const monitor = navItemsFor("MONITOR").map((i) => i.label);
+    expect(monitor).toEqual([
+      "Alunos",
+      "Turmas",
+      "Aulas",
+      "Frequência",
+      "Graduações",
+      "Ranking",
+      "Eventos",
+      "Rodas",
+      "Comunicados",
+      "Relatórios",
+    ]);
+    expect(navItemsFor("MESTRE").map((i) => i.label)).toContain("Equipe");
+    expect(navItemsFor("MESTRE").map((i) => i.label)).not.toContain("Professores");
+  });
+
+  it("homeFor: Dashboard, ou /alunos para quem não tem Dashboard (MONITOR)", () => {
+    expect(homeFor("MESTRE")).toBe("/dashboard");
+    expect(homeFor("PROFESSOR")).toBe("/dashboard");
+    expect(homeFor("INSTRUTOR")).toBe("/dashboard");
+    expect(homeFor("MONITOR")).toBe("/alunos");
+    expect(homeFor(undefined)).toBe("/dashboard");
+  });
+
   it("canAccessRoute: /financeiro só MESTRE; rota sem restrição ou fora do menu é livre", () => {
     expect(canAccessRoute("MESTRE", "/financeiro")).toBe(true);
     expect(canAccessRoute("PROFESSOR", "/financeiro")).toBe(false);
@@ -226,6 +317,22 @@ describe("login", () => {
     await login({ email: " m@g.com ", password: "x" });
     expect(localStorage.getItem("gestao_token")).toBe("jwt");
     expect(localStorage.getItem("mb_token")).toBeNull();
+  });
+
+  it.each(["INSTRUTOR", "MONITOR"] as const)("%s: o painel aceita o login e grava a sessão", async (role) => {
+    stubLogin(makeUser(role));
+    const user = await login({ email: "x@g.com", password: "x" });
+    expect(user).toMatchObject({ role });
+    expect(localStorage.getItem("gestao_token")).toBe("jwt");
+  });
+
+  it("safeRedirect sem destino leva ao Dashboard, ou a /alunos para o MONITOR", () => {
+    saveSession("t", makeUser("MONITOR"));
+    expect(safeRedirect(undefined)).toBe("/alunos");
+    expect(safeRedirect("/turmas")).toBe("/turmas");
+    localStorage.clear();
+    saveSession("t", makeUser("INSTRUTOR"));
+    expect(safeRedirect(undefined)).toBe("/dashboard");
   });
 
   it("ALUNO: rejeita com mensagem e não grava sessão", async () => {

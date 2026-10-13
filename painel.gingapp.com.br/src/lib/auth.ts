@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "@/lib/api";
-import { canAccessPanel, clearSession, saveSession, type AuthUser } from "@/lib/session";
+import { homeFor } from "@/lib/nav";
+import { canAccessPanel, clearSession, getUser, saveSession, type AuthUser } from "@/lib/session";
 
 export interface LoginCredentials {
   email: string;
@@ -36,7 +37,7 @@ export const isChallengeExpired = (error: unknown): boolean =>
   error instanceof ApiError && error.status === 400 && /expir|desafio/i.test(error.message);
 
 export const PANEL_FORBIDDEN_MESSAGE =
-  "Este painel é exclusivo da gestão (mestre e professor). Alunos e responsáveis acessam pelo app do aluno.";
+  "Este painel é exclusivo da equipe de gestão (mestre, professor, instrutor e monitor). Alunos e responsáveis acessam pelo app do aluno.";
 
 /** Persiste a sessão se o papel puder usar o painel; senão nada é gravado e o erro explica. */
 function startSession(data: LoginResponse): AuthUser {
@@ -93,7 +94,7 @@ export function logout(queryClient: QueryClient): void {
   queryClient.clear();
 }
 
-/** `redirect` só aceita caminhos internos (evita open redirect). */
+/** `redirect` só aceita caminhos internos (evita open redirect); sem destino vai à tela inicial do papel da sessão. */
 export function safeRedirect(target: string | undefined): string {
-  return target && target.startsWith("/") && !target.startsWith("//") ? target : "/dashboard";
+  return target && target.startsWith("/") && !target.startsWith("//") ? target : homeFor(getUser()?.role);
 }

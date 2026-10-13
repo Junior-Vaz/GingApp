@@ -1,6 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { toast } from "sonner";
-import { canAccessRoute, ROUTE_FORBIDDEN_MESSAGE } from "@/lib/nav";
+import { canAccessRoute, homeFor, ROUTE_FORBIDDEN_MESSAGE } from "@/lib/nav";
 import { getUser } from "@/lib/session";
 import { UnidadesPage } from "@/modules/unidades/unidades-page";
 
@@ -10,7 +10,7 @@ export const Route = createFileRoute("/_app/unidades")({
   beforeLoad: () => {
     if (!canAccessRoute(getUser()?.role, "/unidades")) {
       toast.error(ROUTE_FORBIDDEN_MESSAGE);
-      throw redirect({ to: "/dashboard" });
+      throw redirect({ to: homeFor(getUser()?.role) });
     }
   },
   head: () => ({ meta: [{ title: "Unidades — Painel GingApp" }] }),

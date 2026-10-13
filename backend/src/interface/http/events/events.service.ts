@@ -33,7 +33,7 @@ import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { AddEventParticipantDto } from './dto/add-event-participant.dto';
 
-const ADMIN_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR];
+const ADMIN_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR, OrgRole.INSTRUTOR];
 
 /** Agregados de vagas anexados a cada evento listado (ver withParticipationSummary). */
 export interface EventSpotsSummary {

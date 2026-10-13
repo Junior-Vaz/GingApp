@@ -167,10 +167,12 @@ describe('Students CRUD (e2e)', () => {
     assert.deepEqual(after.socialLinks, before.socialLinks);
   });
 
-  it('PATCH /students/me/profile logado sem Student próprio (MESTRE) retorna 404', async () => {
+  // Fase 3 (cargos): a equipe tambem e aluno (o backfill da matricula vale para o MESTRE); quem nao tem Student proprio e o RESPONSAVEL.
+  it('PATCH /students/me/profile logado sem Student próprio (RESPONSAVEL) retorna 404', async () => {
+    const responsavelToken = await login(app, 'responsavel@gingabrasil.com.br');
     await request(app.getHttpServer())
       .patch('/api/students/me/profile')
-      .set('Authorization', `Bearer ${mestreToken}`)
+      .set('Authorization', `Bearer ${responsavelToken}`)
       .send({ coverPhoto: 'https://images.unsplash.com/photo-e2e-profile-3?w=800' })
       .expect(404);
   });
@@ -519,10 +521,10 @@ describe('Students: aluno limpa foto/capa/redes do proprio perfil (e2e)', () => 
     assert.deepEqual(a2.socialLinks, FULL.socialLinks);
   });
 
-  it('RBAC inalterado: sem token 401; MESTRE sem Student proprio 404 mesmo enviando null (nada e gravado)', async () => {
+  it('RBAC inalterado: sem token 401; RESPONSAVEL sem Student proprio 404 mesmo enviando null (nada e gravado)', async () => {
     await resetAna();
     await request(app.getHttpServer()).patch('/api/students/me/profile').send({ photo: null }).expect(401);
-    await patchMe(mestreToken, { photo: null, coverPhoto: null, socialLinks: null }).expect(404);
+    await patchMe(await login(app, 'responsavel@gingabrasil.com.br'), { photo: null, coverPhoto: null, socialLinks: null }).expect(404);
     const p = await ana();
     assert.equal(p.photo, FULL.photo);
     assert.deepEqual(p.socialLinks, FULL.socialLinks);

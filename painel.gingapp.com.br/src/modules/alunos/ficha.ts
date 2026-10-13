@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { RopeStyle } from "@/lib/rope";
+import type { StaffRole } from "@/lib/staff-roles";
 import type { StudentStatus } from "./schema";
 
 /** Contrato de GET /students/:id/ficha (ficha única do capoeirista; staff do grupo). */
@@ -24,7 +25,11 @@ export interface StudentFicha {
     since: string;
     until: string | null;
     isCurrent: boolean;
+    /** Cargos ativos da pessoa nesse grupo (todo mundo é aluno; os cargos se somam). */
+    roles?: StaffRole[];
   }[];
+  /** Cargos acumulados por grupo, com a data em que foram concedidos. */
+  roles?: { organization: { id: number; name: string }; role: StaffRole; grantedAt: string }[];
   graduations: {
     id: number;
     studentId: number;

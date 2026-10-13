@@ -487,7 +487,10 @@ describe('Grupo demo (prisma/demo.ts) (e2e)', () => {
       const units = await get(app, 'units', token);
       assert.equal(units.body.length, 3);
       const teachers = await get(app, 'teachers', token);
-      assert.equal(teachers.total, 4);
+      // Fase 3: equipe = 4 contas de equipe + aluno3 (Instrutor) e aluno2 (Monitor), que seguem alunos do grupo.
+      assert.equal(teachers.total, 6);
+      const byRole = Object.fromEntries(teachers.body.map((t: { user: { email: string }; roles: string[] }) => [t.user.email.split('@')[0], t.roles]));
+      assert.deepEqual([byRole.aluno3, byRole.aluno2], [['INSTRUTOR'], ['MONITOR']]);
 
       const finance = await get(app, 'finance?limit=200', token);
       assert.equal(finance.status, 200);

@@ -1,7 +1,7 @@
 # Ficha única do capoeirista — desenho e fases
 
-> Status: **Fase 1 implementada** (commit 1f28bec) e **Fase 2 implementada** (2026-10-12, sem commit; seção 4).
-> Fases 3–5 desenhadas aqui, não implementadas.
+> Status: **Fase 1** (commit 1f28bec), **Fase 2** (commit 5f4b67a) e **Fase 3 — cargos** (sem commit; seção 5) implementadas.
+> Fases 4–5 desenhadas aqui, não implementadas.
 > Visão do owner: *o cadastro de um aluno é único, vinculado ao CPF; uma pessoa tem uma única ficha no GingApp; quando ela
 > sai de um grupo e vai para outro, o outro grupo recebe a ficha inteira (aulas, faltas, punições, expulsões); nunca se
 > duplica; se ao cadastrar a pessoa já existe, faz-se uma TRANSFERÊNCIA. Mestre, professor, monitor e instrutor também são
@@ -257,13 +257,59 @@ A mantida herda o que não tem (login, CPF, nascimento, foto, apelido, contato);
 - Treinar em dois grupos ao mesmo tempo continua sem fluxo próprio (a transferência sempre encerra a origem).
 - Push de `TRANSFER_*` abre `/notificacoes` (categoria "avisos"); o app leva de lá para `/transferencias`.
 
-## 5. Fase 3 — Cargos (todo mundo é aluno)
-- `PersonRole` + `GraduationRoleRule`; o `OrgRole` atual (MESTRE/PROFESSOR/ALUNO/RESPONSAVEL) continua sendo a
-  **permissão** (RBAC); o cargo é **título** capoeirístico acumulável.
-- Mestre/professor existentes ganham `Student` + Person no próprio grupo (backfill: `OrganizationUser` MESTRE/PROFESSOR sem
-  `Student` ativo → cria matrícula e liga pelo `userId`).
-- Sugestão: ao graduar, se `level.order >= minLevelOrder` de um cargo → `PersonRole SUGGESTED` + notificação ao mestre;
-  `POST /people/:id/roles/:role/confirm`. Arquivos: graduations.service, hierarchy (usar cargos), teachers.
+## 5. Fase 3 — Cargos acumuláveis (IMPLEMENTADA, 2026-10-12/13)
+
+### 5.1 Decisões
+- **Menor impacto nas permissões:** `MONITOR` e `INSTRUTOR` foram **acrescentados ao `OrgRole`** (a matriz `RolePermission`,
+  `@CanAccess`, guards e o token continuam iguais); o cargo capoeirístico acumulável fica em **`PersonRole`** (enum `StaffRole`).
+  O **maior** cargo ativo (MESTRE > PROFESSOR > INSTRUTOR > MONITOR) é gravado em `OrganizationUser.role` e a `JwtStrategy`
+  passa a **reler o papel do banco a cada requisição** (conceder/revogar vale na hora; antes valia o papel do token).
+- **Matriz nova** (`prisma/permission-matrix.ts`, 6 papéis × 13 recursos = 78 linhas; bootstrap só insere as ausentes):
+  INSTRUTOR = PROFESSOR que **nunca exclui**, graduações/certificados/unidades/equipe só leitura, **sem financeiro**;
+  MONITOR = leitura de alunos/turmas/aulas/graduações/eventos/rodas/comunicados/unidades + **chamada** (attendance
+  view/create/edit); **sem** financeiro, equipe, dashboard e certificados. Escopo por unidade (UserUnitAccess) vale para
+  PROFESSOR, INSTRUTOR e MONITOR; INSTRUTOR/MONITOR podem ser o responsável de turma/aula; INSTRUTOR administra eventos/rodas.
+- **Quem nomeia:** só o **MESTRE** do grupo concede/revoga qualquer cargo, **inclusive outro MESTRE** (co-mestre; auditado).
+  O último MESTRE ativo do grupo não pode ser revogado (409 `LAST_MESTRE`). PROFESSOR/INSTRUTOR/MONITOR não concedem (403).
+- **Staff também é aluno:** a migration materializa cada MESTRE/PROFESSOR ativo como cargo (`source MIGRATION`, acesso
+  intacto); o backfill (`npm run roles:backfill` / boot `ROLES_BACKFILL`) cria a matrícula de aluno de quem é da equipe e
+  não tem (**`Student.isStaff = true`: não conta em `Plan.maxStudents` e não gera mensalidade** — só quem tem
+  `StudentBilling` é cobrado) e liga à ficha. A tela Equipe (criar/editar membro) sincroniza o cargo; **não** cria matrícula
+  sozinha (o backfill do boot cobre; evita quebrar limpezas de specs que apagam usuários).
+- **Conceder exige matrícula ATIVA no grupo** (cargo para pessoa de outro grupo = transferência antes) e **login**: sem User,
+  400 `LOGIN_REQUIRED`; com `email` + `password` (ou `sendInvite`) reutiliza o fluxo de acesso do aluno (nunca duplica User).
+  Revogar mantém a matrícula; sem cargo restante o acesso volta a ALUNO (ou RESPONSAVEL se só acompanha dependente) e as
+  unidades de atuação são limpas. Histórico preservado (`revokedAt`).
+- **Sugestões:** `GraduationRoleRule {graduationSystemId, role, minLevelOrder}` (único por sistema+cargo); sugerido = aluno
+  ATIVO cuja graduação mais recente tem `order >= minLevelOrder` e que não tem o cargo **nem um maior**. Ao lançar uma
+  graduação, os MESTRES recebem **um** aviso `ROLE_SUGGESTION` por aluno+cargo (`RoleSuggestionNotice`, nunca repete).
+
+### 5.2 Contrato exato
+- **POST /api/roles/grant** (MESTRE; `teachers:create`) `{studentId?|personId?, role: MESTRE|PROFESSOR|INSTRUTOR|MONITOR,
+  email?, password?, sendInvite?}` → **201** `{studentId, userId, roles: StaffRole[], accessRole}`. Erros: 400
+  `ROLE_TARGET_REQUIRED`, `LOGIN_REQUIRED` (e os do acesso do aluno: senha fraca, convite desligado...); 404 aluno de outro
+  grupo/inexistente; 409 `STUDENT_NOT_ACTIVE`, `ROLE_ALREADY_ACTIVE`, e-mail indisponível. Notifica `ROLE_GRANTED`.
+- **POST /api/roles/revoke** (MESTRE; `teachers:edit`) `{studentId?|personId?, role}` → **200** mesma view; 409
+  `ROLE_NOT_ACTIVE`, `LAST_MESTRE`. Notifica `ROLE_REVOKED`.
+- **GET /api/roles/suggestions** (MESTRE) → `[{studentId, personId, name, photo, hasLogin, currentRoles, role, level:{id,name,
+  order,color,style,colors}, system:{id,name}, graduatedAt}]`.
+- **GET /api/graduations/systems/:id/role-rules** (`graduations:view`; outro grupo 404) e **PUT** (MESTRE; `graduations:edit`)
+  `{rules:[{role, minLevelOrder}]}` (substitui) → `{systemId, rules:[{role, minLevelOrder, level|null}]}`; 400
+  `INVALID_LEVEL_ORDER` (ordem inexistente no sistema), `DUPLICATE_ROLE_RULE`.
+- **GET /api/teachers** (lista "Equipe"; `?role=` aceita os 4 cargos): cada item ganhou `roles: StaffRole[]` (o papel legado
+  conta enquanto o backfill não materializa) e `student: {id, status, level|null} | null`. POST/PATCH `/teachers` aceitam
+  INSTRUTOR/MONITOR; `PUT /teachers/:id/units` vale para qualquer cargo exceto MESTRE.
+- **GET /api/students**: `staffRoles: StaffRole[]` por item; filtro `?role=`.
+- **Ficha** (`/students/:id/ficha`, `/people/me/ficha`): `enrollments[].roles` e `roles:[{organization:{id,name}, role, grantedAt}]`.
+- **GET /api/auth/me**: `roles: StaffRole[]` (grupo do token); `role` pode ser INSTRUTOR/MONITOR.
+
+### 5.3 Riscos / limites
+- MONITOR faz chamada de **qualquer** turma dentro do seu escopo de unidade (não há vínculo monitor↔turma além de ser o
+  responsável da turma); a regra "só as turmas dele" exigiria checagem por turma no AttendanceService (pendência).
+- O backfill cria matrícula de aluno para toda a equipe: listas de alunos, dashboard, relatórios e o ranking do grupo passam
+  a incluir mestres/professores (intencional: todo mundo é aluno; ranking aberto segue o opt-in).
+- Papel no token deixou de valer: um MESTRE rebaixado perde as permissões na próxima requisição (antes só no novo login).
+- `Plan.maxStudents` ignora `isStaff`; um aluno promovido continua contando (ele já ocupava a vaga).
 
 ## 6. Fase 4 — Ocorrências
 - `Occurrence` (tipo, data, motivo ≤ 280, autor, contestação). Escrita: MESTRE do grupo da matrícula. Leitura: MESTRE do

@@ -61,10 +61,28 @@ const DEFAULT_MATRIX: Record<OrgRole, Perms> = {
   [OrgRole.PROFESSOR]: { view: true, create: true, edit: true, delete: false },
   [OrgRole.ALUNO]: NO_ACCESS,
   [OrgRole.RESPONSAVEL]: NO_ACCESS,
+  // Fase 3 (cargos): INSTRUTOR = professor limitado (nunca exclui); MONITOR = so leitura + chamada (overrides abaixo).
+  [OrgRole.INSTRUTOR]: { view: true, create: true, edit: true, delete: false },
+  [OrgRole.MONITOR]: MEMBER_VIEW_ONLY,
 };
 const MEMBER_VISIBLE: Partial<Record<OrgRole, Perms>> = {
   [OrgRole.ALUNO]: MEMBER_VIEW_ONLY,
   [OrgRole.RESPONSAVEL]: MEMBER_VIEW_ONLY,
+  [OrgRole.MONITOR]: MEMBER_VIEW_ONLY,
+};
+// Fase 3 (cargos acumulaveis, docs/FICHA_UNICA.md secao 5): o RBAC usa o MAIOR cargo da pessoa no grupo
+// (MESTRE > PROFESSOR > INSTRUTOR > MONITOR > ALUNO). INSTRUTOR = PROFESSOR limitado: nunca exclui, nao gradua nem emite
+// certificado, sem financeiro. MONITOR = leitura de alunos/turmas/aulas/graduacoes + chamada (attendance view/create/edit);
+// sem financeiro, equipe, painel administrativo ou certificados.
+const INSTRUCTOR_LIMITED: Partial<Record<OrgRole, Perms>> = { [OrgRole.INSTRUTOR]: MEMBER_VIEW_ONLY };
+const STAFF_OVERRIDES: Partial<Record<string, Partial<Record<OrgRole, Perms>>>> = {
+  graduations: INSTRUCTOR_LIMITED,
+  certificates: { [OrgRole.INSTRUTOR]: MEMBER_VIEW_ONLY, [OrgRole.MONITOR]: NO_ACCESS },
+  units: { [OrgRole.INSTRUTOR]: MEMBER_VIEW_ONLY, [OrgRole.MONITOR]: MEMBER_VIEW_ONLY },
+  teachers: { [OrgRole.INSTRUTOR]: MEMBER_VIEW_ONLY, [OrgRole.MONITOR]: NO_ACCESS },
+  finance: { [OrgRole.INSTRUTOR]: NO_ACCESS, [OrgRole.MONITOR]: NO_ACCESS },
+  dashboard: { [OrgRole.MONITOR]: NO_ACCESS },
+  attendance: { [OrgRole.MONITOR]: { view: true, create: true, edit: true, delete: false } },
 };
 // "teachers" (equipe interna do grupo) é mais restrito que o padrão: só MESTRE gerencia,
 // PROFESSOR só enxerga a lista de colegas, aluno/responsável não precisam disso.
@@ -155,7 +173,7 @@ export function buildPermissionMatrix(): PermissionRow[] {
   for (const role of Object.values(OrgRole)) {
     for (const resource of PERMISSION_RESOURCES) {
       const perms =
-        RESOURCE_OVERRIDES[resource]?.[role] ?? DEFAULT_MATRIX[role];
+        RESOURCE_OVERRIDES[resource]?.[role] ?? STAFF_OVERRIDES[resource]?.[role] ?? DEFAULT_MATRIX[role];
       rows.push({
         role,
         resource,

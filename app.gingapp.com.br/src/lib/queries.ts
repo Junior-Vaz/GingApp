@@ -4,7 +4,8 @@ import { toast } from "sonner";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { pickEventInfo, type EncounterInfo, type EventInfoFields } from "@/lib/event-info";
 import { fmt, startOfToday } from "@/lib/format";
-import { getUser, setStoredStudentId, useSessionUser, useStoredStudentId } from "@/lib/session";
+import { isStaffRole, normalizeRoles } from "@/lib/roles";
+import { getUser, setStoredStudentId, useSessionUser, useStoredStudentId, type StaffRole } from "@/lib/session";
 import rodaImage from "@/assets/capoeira-roda.jpg";
 import communityImage from "@/assets/capoeira-community.jpg";
 
@@ -527,6 +528,15 @@ export interface FichaEnrollment {
   since: string | null;
   until: string | null;
   isCurrent: boolean;
+  /** Cargos ativos nesta matrícula/grupo (Fase 3). Ausente em backend antigo. */
+  roles?: StaffRole[];
+}
+
+/** Cargo (Mestre, Professor, Instrutor, Monitor) que a pessoa tem em um grupo. */
+export interface StaffRoleInfo {
+  organization: { id: number; name: string };
+  role: StaffRole;
+  grantedAt: string;
 }
 
 export interface Ficha {
@@ -541,6 +551,8 @@ export interface Ficha {
     documentKind: string | null;
   };
   enrollments: FichaEnrollment[];
+  /** Cargos da pessoa em todos os grupos (Fase 3). Ausente em backend antigo. */
+  roles?: StaffRoleInfo[];
   graduations: unknown[];
   attendanceByGroup: { organization: { id: number; name: string }; present: number; absent: number; total: number }[];
   certificates: unknown[];
@@ -599,6 +611,9 @@ export interface PersonTransferView {
 /** Tipos de notificação que levam à tela de pedidos de transferência. */
 export const isTransferNotification = (type: string | null | undefined): boolean => !!type && type.startsWith("TRANSFER_");
 
+/** Avisos de cargo (ROLE_GRANTED/ROLE_REVOKED/ROLE_SUGGESTION): tocar leva ao Perfil. */
+export const isRoleNotification = (type: string | null | undefined): boolean => !!type && type.startsWith("ROLE_");
+
 /**
  * Pedidos de transferência da própria pessoa e dos dependentes do responsável (sem filtro de aluno
  * ativo: o servidor já devolve tudo o que o usuário enxerga). Erro (ex.: backend antigo) não é repetido.
@@ -618,6 +633,23 @@ export const pendingTransfersOf = (list: PersonTransferView[] | undefined): Pers
 export function usePendingTransferCount(): number {
   const { data } = useTransfers();
   return pendingTransfersOf(data).length;
+}
+
+/**
+ * Cargos ativos do usuário no grupo do token. Fonte: GET /auth/me (`roles`); enquanto carrega, ou se o
+ * servidor for antigo/falhar, cai no que a sessão já sabe (`roles` do login ou o `role` de equipe).
+ * Nunca lança: sem cargo devolve lista vazia e o app segue como aluno.
+ */
+export function useMyRoles(): StaffRole[] {
+  const user = useSessionUser();
+  const me = useQuery({
+    queryKey: ["auth-me"],
+    queryFn: () => api.get<{ roles?: unknown }>("/auth/me"),
+    enabled: !!user,
+    retry: false,
+  });
+  if (me.data && Array.isArray(me.data.roles)) return normalizeRoles(me.data.roles);
+  return normalizeRoles(user?.roles ?? (isStaffRole(user?.role) ? [user?.role] : []));
 }
 
 /** Atualiza a ficha do aluno (PATCH /people/me): apelido, telefone etc. */

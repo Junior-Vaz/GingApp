@@ -1,5 +1,7 @@
 import { ConflictException, Injectable } from '@nestjs/common';
+import { StaffRole } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { sortRoles } from '../roles/staff-roles';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { buildTermsStatus, LEGAL_VERSION } from '../../../shared/legal/legal-documents';
 import { TermsStatus } from '../../../shared/legal/legal-types';
@@ -32,6 +34,8 @@ export type MeResponse = AuthResponse['user'] & {
   /** 2FA TOTP ativo + quantos codigos de recuperacao ainda restam (nunca o segredo nem os hashes). */
   twoFactorEnabled: boolean;
   recoveryCodesRemaining: number;
+  /** Fase 3: cargos ATIVOS (MESTRE/PROFESSOR/INSTRUTOR/MONITOR) no grupo do token, maior primeiro. */
+  roles: StaffRole[];
 };
 
 /**
@@ -42,6 +46,15 @@ export type MeResponse = AuthResponse['user'] & {
 @Injectable()
 export class AccountService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private async activeRoles(organizationId: number, userId: number): Promise<StaffRole[]> {
+    const rows = await this.prisma.personRole.findMany({ where: { organizationId, userId, revokedAt: null }, select: { role: true } });
+    const roles = new Set(rows.map((r) => r.role));
+    // Papel de equipe legado ainda sem cargo materializado (o backfill cria): conta como cargo.
+    const membership = await this.prisma.organizationUser.findUnique({ where: { organizationId_userId: { organizationId, userId } }, select: { role: true } });
+    if (membership && (Object.values(StaffRole) as string[]).includes(membership.role)) roles.add(membership.role as StaffRole);
+    return sortRoles(roles);
+  }
 
   async me(actor: AuthenticatedUser): Promise<MeResponse> {
     const user = await this.prisma.user.findUniqueOrThrow({
@@ -70,6 +83,8 @@ export class AccountService {
       ...(actor.organizationId != null ? { organizationId: actor.organizationId } : {}),
       ...(organization ? { organizationSlug: organization.slug } : {}),
       ...(actor.role ? { role: actor.role } : {}),
+      // Fase 3: cargos ATIVOS no grupo do token (maior primeiro); o role acima e o papel de acesso (= o maior cargo).
+      roles: actor.organizationId != null ? await this.activeRoles(actor.organizationId, user.id) : [],
       mustChangePassword: user.mustChangePassword,
       ...buildTermsStatus(user),
       pendingDeletionRequest: pending ? { id: pending.id, requestedAt: pending.requestedAt } : null,

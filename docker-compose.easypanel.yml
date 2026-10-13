@@ -103,6 +103,9 @@ services:
       TRANSFER_CRON: "${TRANSFER_CRON:-true}"
       TRANSFER_EXPIRY_DAYS: "${TRANSFER_EXPIRY_DAYS:-14}"
       TRANSFER_CONTEST_DAYS: "${TRANSFER_CONTEST_DAYS:-7}"
+      # Cargos (ficha unica, Fase 3): no boot cria o cargo + a matricula de aluno (isStaff) da equipe que ainda nao tem
+      # (vazio = so quando ha equipe sem matricula; true = sempre; false = nunca).
+      ROLES_BACKFILL: "${ROLES_BACKFILL:-}"
       # TERMS_ENFORCEMENT=true: o servidor tambem barra (403) quem nao aceitou a versao vigente dos Termos/Politica.
       # Padrao false: so o frontend exige o aceite.
       TERMS_ENFORCEMENT: "${TERMS_ENFORCEMENT:-false}"

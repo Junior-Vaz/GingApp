@@ -25,7 +25,7 @@ export class UpdateTeacherDto {
   photo?: string | null;
 
   @ValidateIf((_, v) => v !== undefined)
-  @IsIn([OrgRole.MESTRE, OrgRole.PROFESSOR])
+  @IsIn([OrgRole.MESTRE, OrgRole.PROFESSOR, OrgRole.INSTRUTOR, OrgRole.MONITOR])
   role?: OrgRole;
 
   @ValidateIf((_, v) => v !== undefined)
