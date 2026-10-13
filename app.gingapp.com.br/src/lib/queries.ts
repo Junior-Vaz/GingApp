@@ -539,6 +539,18 @@ export interface StaffRoleInfo {
   grantedAt: string;
 }
 
+/** Graduação da ficha única: traz o grupo de origem e se foi reconhecida pelo grupo atual. */
+export interface FichaGraduation {
+  id: number;
+  studentId: number;
+  organization: { id: number; name: string };
+  graduatedAt: string;
+  level: GraduationLevel;
+  system?: { id: number; name: string };
+  /** Preenchido quando o grupo atual reconheceu a corda vinda de outro grupo (Fase 4). */
+  recognizedFromLevelId?: number | null;
+}
+
 export interface Ficha {
   person: {
     id: number;
@@ -553,14 +565,15 @@ export interface Ficha {
   enrollments: FichaEnrollment[];
   /** Cargos da pessoa em todos os grupos (Fase 3). Ausente em backend antigo. */
   roles?: StaffRoleInfo[];
-  graduations: unknown[];
+  /** Graduações de todos os grupos pelos quais a pessoa passou (Fase 4). Ausente/vazio em backend antigo. */
+  graduations: FichaGraduation[];
   attendanceByGroup: { organization: { id: number; name: string }; present: number; absent: number; total: number }[];
   certificates: unknown[];
   sharedFromOtherGroups: unknown[];
   scope: "SELF" | string;
 }
 
-/** Ficha única do aluno ATIVO (sem tela ainda; exposta para uso futuro). */
+/** Ficha única do aluno ATIVO. */
 export function useFicha(enabled = true) {
   const scope = useStudentScope();
   return useQuery({
@@ -633,6 +646,44 @@ export const pendingTransfersOf = (list: PersonTransferView[] | undefined): Pers
 export function usePendingTransferCount(): number {
   const { data } = useTransfers();
   return pendingTransfersOf(data).length;
+}
+
+/* ---------- Ocorrências registradas pelos grupos (Ficha única, Fase 5) ---------- */
+
+export type OccurrenceKind = "ADVERTENCIA" | "SUSPENSAO" | "EXPULSAO" | "OUTRA";
+export type OccurrenceStatus = "ACTIVE" | "CONTESTED" | "RETRACTED";
+
+export interface PersonOccurrenceView {
+  id: number;
+  kind: OccurrenceKind;
+  occurredAt: string;
+  /** Fim da suspensão (só faz sentido em SUSPENSAO). */
+  endsAt: string | null;
+  reason: string;
+  status: OccurrenceStatus;
+  organization: { id: number; name: string; logoUrl: string | null };
+  person: { id: number; name: string };
+  contestedAt: string | null;
+  contestNote: string | null;
+  retractedAt: string | null;
+  /** true quando ESTE usuário pode contestar agora (adulto por si; menor só o responsável). */
+  canContest: boolean;
+  decidingAs: "SELF" | "GUARDIAN" | null;
+}
+
+/** Aviso de nova ocorrência registrada por um grupo: tocar leva a "Minhas ocorrências". */
+export const isOccurrenceNotification = (type: string | null | undefined): boolean => type === "OCCURRENCE_REGISTERED";
+
+/**
+ * Ocorrências sobre a própria pessoa e os dependentes do responsável (sem filtro de aluno ativo: o
+ * servidor devolve tudo o que o usuário enxerga). Erro (ex.: backend antigo) não é repetido.
+ */
+export function useOccurrences() {
+  return useQuery({
+    queryKey: ["people", "me", "occurrences"],
+    queryFn: () => api.get<PersonOccurrenceView[]>("/people/me/occurrences"),
+    retry: false,
+  });
 }
 
 /**

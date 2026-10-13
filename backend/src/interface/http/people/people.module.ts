@@ -6,11 +6,13 @@ import { PeopleController } from './people.controller';
 import { PeopleCoreModule } from './people-core.module';
 import { TransfersController } from './transfers.controller';
 import { TransfersService } from './transfers.service';
+import { OccurrencesController } from './occurrences.controller';
+import { OccurrencesService } from './occurrences.service';
 
 @Module({
   imports: [PeopleCoreModule, StudentsModule, NotificationsModule],
-  controllers: [PeopleController, TransfersController],
-  providers: [PeopleAdminService, TransfersService],
+  controllers: [PeopleController, TransfersController, OccurrencesController],
+  providers: [PeopleAdminService, TransfersService, OccurrencesService],
   exports: [TransfersService],
 })
 export class PeopleModule {}

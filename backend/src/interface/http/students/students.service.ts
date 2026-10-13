@@ -244,7 +244,7 @@ export class StudentsService {
   /** Ficha unica da matricula `id` vista pela equipe (so as matriculas DESTE grupo nesta fase). */
   async ficha(organizationId: number, id: number, user?: AuthenticatedUser) {
     await this.findOne(organizationId, id, user); // 404: outro grupo / fora do escopo de unidade
-    return this.fichaService.forStaff(organizationId, id);
+    return this.fichaService.forStaff(organizationId, id, user ? { id: user.id, role: user.role } : undefined);
   }
 
   async update(organizationId: number, id: number, dto: UpdateStudentDto, user?: AuthenticatedUser) {

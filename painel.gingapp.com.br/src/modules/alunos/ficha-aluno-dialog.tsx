@@ -17,8 +17,12 @@ import {
 import { errorMessage } from "@/lib/api";
 import { dayOnly, fmt } from "@/lib/format";
 import { ropeOf } from "@/lib/rope";
+import { useSessionUser } from "@/lib/session";
 import { STAFF_ROLE_LABEL } from "@/lib/staff-roles";
 import { DOCUMENT_KIND_LABEL, useStudentFicha, type SharedFromOtherGroup } from "./ficha";
+import { OCCURRENCE_KIND_LABEL } from "./ocorrencias";
+import { OcorrenciasSection, OccurrenceStatusBadge } from "./ocorrencias-section";
+import { ReconhecerCorda } from "./reconhecer-corda";
 import { STUDENT_STATUS_LABEL, type Student } from "./schema";
 
 const date = (iso: string) => fmt(dayOnly(iso), "dd/MM/yyyy");
@@ -36,7 +40,7 @@ function Section({ title, empty, children }: { title: string; empty?: string | u
  * "Histórico de outros grupos (compartilhado após transferência)": o que o grupo anterior tinha da pessoa e passou a
  * ser visível aqui depois que ela aprovou a transferência. Somente leitura; some quando não há nada compartilhado.
  */
-function SharedHistory({ shared }: { shared: SharedFromOtherGroup[] }) {
+function SharedHistory({ shared, studentId, isMestre }: { shared: SharedFromOtherGroup[]; studentId: number | undefined; isMestre: boolean }) {
   return (
     <section className="grid gap-2" data-testid="ficha-shared">
       <h3 className="text-sm font-semibold">Histórico de outros grupos (compartilhado após transferência)</h3>
@@ -89,9 +93,41 @@ function SharedHistory({ shared }: { shared: SharedFromOtherGroup[] }) {
                 ))}
               </ul>
             )}
+
+            {s.occurrences !== undefined && (
+              <div className="grid gap-1.5 rounded-md border border-dashed p-2" data-testid="ficha-shared-ocorrencias">
+                <h4 className="text-sm font-semibold">Ocorrências em outros grupos</h4>
+                <p className="text-xs text-muted-foreground">
+                  Informação confidencial, visível só ao Mestre; registrada pelo grupo de origem; pode ter sido contestada.
+                </p>
+                {s.occurrences.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Nenhuma ocorrência registrada em {s.organization.name}.</p>
+                ) : (
+                  <ul className="grid gap-1" aria-label={`Ocorrências em ${s.organization.name}`}>
+                    {s.occurrences.map((o) => (
+                      <li key={o.id} className="grid gap-0.5 text-sm" data-testid="ficha-shared-ocorrencia">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <Badge variant="default">{OCCURRENCE_KIND_LABEL[o.kind]}</Badge>
+                          <span className="text-muted-foreground">
+                            {date(o.occurredAt)}
+                            {o.kind === "SUSPENSAO" && o.endsAt ? ` até ${date(o.endsAt)}` : ""}
+                          </span>
+                          <OccurrenceStatusBadge status={o.status} />
+                        </div>
+                        <p>{o.reason}</p>
+                        {o.status === "CONTESTED" && o.contestNote && (
+                          <p className="text-xs text-muted-foreground">Contestação da pessoa: {o.contestNote}</p>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
+      {isMestre && studentId !== undefined && <ReconhecerCorda studentId={studentId} />}
     </section>
   );
 }
@@ -113,6 +149,9 @@ async function copyCode(code: string) {
 export function FichaAlunoDialog({ student, onClose }: { student: Student | null; onClose: () => void }) {
   const ficha = useStudentFicha(student?.id);
   const data = ficha.data;
+  const studentId = student?.id;
+  // Ocorrências e equivalência de cordas são do Mestre (o backend responde 403 aos demais papéis).
+  const isMestre = useSessionUser()?.role === "MESTRE";
 
   return (
     <Dialog open={student !== null} onOpenChange={(o) => !o && onClose()}>
@@ -217,6 +256,7 @@ export function FichaAlunoDialog({ student, onClose }: { student: Student | null
                       <span className="text-muted-foreground">
                         {g.system.name} · {g.organization.name} · {date(g.graduatedAt)}
                       </span>
+                      {g.recognizedFromLevelId != null && <Badge variant="outline">Reconhecida</Badge>}
                     </li>
                   ))}
                 </ul>
@@ -253,8 +293,10 @@ export function FichaAlunoDialog({ student, onClose }: { student: Student | null
               )}
             </Section>
 
+            {isMestre && studentId !== undefined && <OcorrenciasSection studentId={studentId} />}
+
             {(data.sharedFromOtherGroups ?? []).length > 0 && (
-              <SharedHistory shared={data.sharedFromOtherGroups} />
+              <SharedHistory shared={data.sharedFromOtherGroups} studentId={studentId} isMestre={isMestre} />
             )}
           </div>
         )}

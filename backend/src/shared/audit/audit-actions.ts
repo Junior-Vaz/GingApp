@@ -116,6 +116,13 @@ export const AuditAction = {
   ROLE_GRANT: 'ROLE_GRANT',
   ROLE_REVOKE: 'ROLE_REVOKE',
   GRADUATION_ROLE_RULES_SET: 'GRADUATION_ROLE_RULES_SET',
+  // Ocorrencias (Fase 4) e equivalencia de cordas (Fase 5)
+  OCCURRENCE_CREATE: 'OCCURRENCE_CREATE',
+  OCCURRENCE_RETRACT: 'OCCURRENCE_RETRACT',
+  OCCURRENCE_CONTEST: 'OCCURRENCE_CONTEST',
+  OCCURRENCE_READ_SHARED: 'OCCURRENCE_READ_SHARED',
+  LEVEL_EQUIVALENCE_SET: 'LEVEL_EQUIVALENCE_SET',
+  GRADUATION_RECOGNIZE: 'GRADUATION_RECOGNIZE',
 } as const;
 
 export type AuditActionCode = (typeof AuditAction)[keyof typeof AuditAction];
@@ -154,4 +161,6 @@ export const AuditEntity = {
   PERSON: 'person',
   TRANSFER: 'transfer',
   PERSON_ROLE: 'person_role',
+  OCCURRENCE: 'occurrence',
+  LEVEL_EQUIVALENCE: 'level_equivalence',
 } as const;

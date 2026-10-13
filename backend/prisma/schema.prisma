@@ -567,6 +567,7 @@ model Student {
   rankingProfile      RankingProfile?
   achievements        Achievement[]
   roleNotices         RoleSuggestionNotice[]
+  occurrences         Occurrence[]
 
   @@unique([organizationId, userId])
   @@index([organizationId, status])
@@ -751,6 +752,70 @@ model GraduationRoleRule {
   @@index([organizationId])
 }
 
+/// Fase 4 (ficha unica): tipo de ocorrencia disciplinar.
+enum OccurrenceKind {
+  ADVERTENCIA
+  SUSPENSAO
+  EXPULSAO
+  OUTRA
+}
+
+/// ACTIVE = valendo; CONTESTED = a pessoa (ou responsavel) contestou (continua visivel com o selo); RETRACTED = o Mestre autor retratou.
+enum OccurrenceStatus {
+  ACTIVE
+  CONTESTED
+  RETRACTED
+}
+
+/// Ocorrencia (punicao/expulsao) registrada pelo MESTRE do grupo sobre uma matricula (Fase 4, docs/FICHA_UNICA.md secao 6).
+/// DADO SENSIVEL: le/escreve so o MESTRE do grupo da matricula; o MESTRE do grupo novo le (somente leitura) via
+/// EnrollmentShare ativo; a propria pessoa (ou o responsavel do menor) ve e contesta. Nunca alunos/professores/instrutores/monitores.
+/// Sem purga automatica (retencao documentada).
+model Occurrence {
+  id                 Int              @id @default(autoincrement())
+  organizationId     Int
+  studentId          Int
+  personId           Int?
+  kind               OccurrenceKind
+  occurredAt         DateTime
+  /// Fim da suspensao (so SUSPENSAO).
+  endsAt             DateTime?
+  reason             String
+  status             OccurrenceStatus @default(ACTIVE)
+  /// true = a expulsao encerrou a matricula (Student FORMER, leftReason EXPELLED).
+  expelledEnrollment Boolean          @default(false)
+  createdByUserId    Int?
+  contestedAt        DateTime?
+  contestNote        String?
+  contestedByUserId  Int?
+  retractedAt        DateTime?
+  retractNote        String?
+  retractedByUserId  Int?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, studentId])
+  @@index([personId])
+}
+
+/// Fase 5: equivalencia de corda declarada pelo grupo NOVO: a corda `fromLevelId` (de outro grupo) vale `toLevelId` (deste grupo).
+model LevelEquivalence {
+  id               Int      @id @default(autoincrement())
+  toOrganizationId Int
+  fromLevelId      Int
+  toLevelId        Int
+  declaredByUserId Int?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  fromLevel GraduationLevel @relation("EquivalenceFrom", fields: [fromLevelId], references: [id], onDelete: Cascade)
+  toLevel   GraduationLevel @relation("EquivalenceTo", fields: [toLevelId], references: [id], onDelete: Cascade)
+
+  @@unique([toOrganizationId, fromLevelId])
+}
+
 /// Marcador "o Mestre ja foi avisado de que esta matricula atingiu a corda deste cargo" (1 aviso por aluno+cargo).
 model RoleSuggestionNotice {
   id             Int       @id @default(autoincrement())
@@ -932,6 +997,8 @@ model GraduationLevel {
   organization       Organization        @relation(fields: [organizationId], references: [id])
   graduationSystem   GraduationSystem    @relation(fields: [graduationSystemId], references: [id])
   studentGraduations StudentGraduation[]
+  equivalencesFrom   LevelEquivalence[]  @relation("EquivalenceFrom")
+  equivalencesTo     LevelEquivalence[]  @relation("EquivalenceTo")
 
   @@unique([graduationSystemId, order])
   @@index([organizationId])
@@ -944,6 +1011,8 @@ model StudentGraduation {
   graduationLevelId Int
   graduatedAt       DateTime
   notes             String?
+  /// Fase 5: graduacao RECONHECIDA pelo grupo a partir da corda de origem (outro grupo) desta pessoa; null = graduacao normal.
+  recognizedFromLevelId Int?
   createdAt         DateTime @default(now())
 
   organization    Organization    @relation(fields: [organizationId], references: [id])

@@ -101,7 +101,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const groupName = passport.data?.organization.name ?? user?.organizationSlug ?? "Seu grupo";
   const myUnit = useMyUnit();
   const unitName = myUnit?.name ?? passport.data?.unit?.name ?? "";
-  const current = [...mainNav, ...communityNav, ...personalNav].find((item) => item.to === pathname)?.label ?? (pathname === "/transferencias" ? "Pedidos de transferência" : "GingApp");
+  const current = [...mainNav, ...communityNav, ...personalNav].find((item) => item.to === pathname)?.label ?? (pathname === "/transferencias" ? "Pedidos de transferência" : pathname === "/ocorrencias" ? "Minhas ocorrências" : "GingApp");
 
   function handleLogout() {
     logout(queryClient);

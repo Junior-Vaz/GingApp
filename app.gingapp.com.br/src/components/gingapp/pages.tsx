@@ -14,6 +14,7 @@ import {
   useClasses,
   useFinance,
   useFinanceSummary,
+  isOccurrenceNotification,
   isRoleNotification,
   isTransferNotification,
   useMyStudent,
@@ -481,6 +482,8 @@ export function NotificationsPage() {
                     if (isTransferNotification(notice.type)) void navigate({ to: "/transferencias" });
                     // Avisos de cargo (concedido/revogado/sugestão) levam ao Perfil.
                     else if (isRoleNotification(notice.type)) void navigate({ to: "/perfil" });
+                    // Aviso de ocorrência registrada leva a "Minhas ocorrências".
+                    else if (isOccurrenceNotification(notice.type)) void navigate({ to: "/ocorrencias" });
                   }}
                 >
                   <div className="notice-meta">
@@ -501,6 +504,18 @@ export function NotificationsPage() {
                       }}
                     >
                       Ver pedido de transferência
+                    </Link>
+                  )}
+                  {isOccurrenceNotification(notice.type) && (
+                    <Link
+                      to="/ocorrencias"
+                      className="mt-2 inline-block text-sm font-medium"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        if (notice.readAt === null) markOne.mutate(notice.id);
+                      }}
+                    >
+                      Ver minhas ocorrências
                     </Link>
                   )}
                 </article>

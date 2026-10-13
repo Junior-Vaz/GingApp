@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { RopeStyle } from "@/lib/rope";
 import type { StaffRole } from "@/lib/staff-roles";
+import type { OccurrenceKind, OccurrenceStatus } from "./ocorrencias";
 import type { StudentStatus } from "./schema";
 
 /** Contrato de GET /students/:id/ficha (ficha única do capoeirista; staff do grupo). */
@@ -37,6 +38,8 @@ export interface StudentFicha {
     graduatedAt: string;
     level: { id: number; name: string; order: number; color?: string | null; style?: RopeStyle | null; colors?: string[] | null };
     system: { id: number; name: string };
+    /** Graduação "Reconhecida": criada pelo grupo a partir de uma corda de outro grupo (id do nível de origem). */
+    recognizedFromLevelId?: number | null;
   }[];
   attendanceByGroup: { organization: { id: number; name: string }; present: number; absent: number; total: number }[];
   certificates: {
@@ -67,6 +70,18 @@ export interface SharedFromOtherGroup {
   }[];
   attendanceByClass: { class: { id: number; name: string }; present: number; absent: number; total: number }[];
   certificates: { id: number; title: string; issuedAt: string }[];
+  /** Ocorrências registradas pelo grupo de origem (confidencial: a chave só vem para o MESTRE). */
+  occurrences?: SharedOccurrence[];
+}
+
+export interface SharedOccurrence {
+  id: number;
+  kind: OccurrenceKind;
+  occurredAt: string;
+  endsAt: string | null;
+  reason: string;
+  status: OccurrenceStatus;
+  contestNote: string | null;
 }
 
 export const DOCUMENT_KIND_LABEL: Record<NonNullable<StudentFicha["person"]["documentKind"]>, string> = {

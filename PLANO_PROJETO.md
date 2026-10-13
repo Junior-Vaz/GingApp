@@ -3383,3 +3383,35 @@ Migration `20261013010000_staff_roles` (aplicada com `migrate deploy`; bootstrap
 2. Painel: botões de criação (Novo aluno/turma/aula) ainda aparecem para MONITOR (o backend responde 403).
 3. Equipe criada pela tela Equipe só ganha matrícula de aluno no próximo boot/backfill.
 4. Listas, dashboard, relatórios e ranking do grupo passam a incluir a equipe como alunos (intencional; avaliar filtro `isStaff`).
+
+### Ficha única — Fases 4 (ocorrências) e 5 (equivalência de cordas) - 2026-10-12/13
+
+**Estado:** concluídas (sem commit). Contrato exato, regras e pendências finais em [`docs/FICHA_UNICA.md`](docs/FICHA_UNICA.md)
+§6, §7 e §7b. Migration `20261013030000_occurrences_equivalences` (aplicada com `migrate deploy`; só adiciona).
+
+#### O que deu certo
+- `Occurrence` + `OccurrencesService`: só o MESTRE do grupo escreve, lê e retrata; o MESTRE do grupo novo lê as dos grupos
+  anteriores só na ficha compartilhada (retratadas fora; leitura auditada `OCCURRENCE_READ_SHARED`); a pessoa/responsável
+  vê com o motivo e contesta 1x; expulsão pode encerrar a matrícula (`leftReason EXPELLED`). Aviso `OCCURRENCE_REGISTERED`.
+- `LevelEquivalence` + `GraduationEquivalencesService`: sugestão por posição relativa, só corda compartilhada, reconhecer
+  cria a graduação no grupo novo (data de origem, nota "Reconhecida de...", idempotente); a reconhecida pontua só na matrícula
+  nova (a de origem é Ex-aluno e fica fora dos rankings) e alimenta sugestão de cargo/Hierarquia/Jornada.
+- "Quem decide pela pessoa" virou SSOT (`people/person-deciders.ts`), usado por transferências e ocorrências.
+- Painel: seção Ocorrências (só MESTRE; expulsão com confirmação forte; retratar), "Ocorrências em outros grupos" (leitura,
+  aviso de confidencialidade), "Reconhecer corda" com RopeSwatch e a sugestão. App: "Minhas ocorrências" (contestar) e
+  Jornada com "Corda de origem" / "Reconhecida pelo grupo".
+- Gates: backend build limpo OK, `test:unit` 165/165, `test:quick` completo **938/938** (79 specs), conjunto pedido com
+  bootstrap 194/194 (15 specs), smoke 74/74, `occurrences-equivalences` 6/6; painel lint OK, 588/588, build OK; app lint OK,
+  235/235, build OK.
+
+#### O que NÃO deu certo e a solução
+- Nada falhou no backend nesta fase (o spec novo passou de primeira; a varredura `member-privacy` só ganhou
+  `/api/people/me/occurrences` na allowlist). Na UI: o app quebrou 3 testes da Jornada (falta de QueryClient no mock) e o
+  painel teve um erro de tipo em `style` — corrigidos pelos agentes antes do gate.
+- `routeTree.gen.ts` do app foi editado à mão pelo agente e regenerado pelo build (diff esperado).
+
+#### Pendências (numeradas)
+1. Owner decidir a retenção das ocorrências (proposta em FICHA_UNICA §6; hoje sem purga).
+2. Sem tela de ocorrências do PRÓPRIO grupo fora da ficha (lista geral/relatório) e sem anexos.
+3. Equivalências: sem tela de gestão em massa (só por aluno na ficha) e sem revogação de equivalência declarada.
+4. Pendências gerais da ficha única: FICHA_UNICA §7b.

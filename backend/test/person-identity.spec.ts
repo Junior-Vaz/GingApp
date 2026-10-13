@@ -8,6 +8,7 @@ import { isTransferCronEnabled } from '../src/jobs/transfer-cron.service';
 import { principalRole, sortRoles, suggestedRoles } from '../src/interface/http/roles/staff-roles';
 import { buildPermissionMatrix } from '../prisma/permission-matrix';
 import { shouldRunRolesBackfill } from '../prisma/roles-backfill';
+import { suggestedPosition } from '../src/interface/http/graduations/graduation-equivalences.service';
 import { parseStudentRow } from '../src/interface/http/students/student-import';
 import {
   decryptPersonDocument,
@@ -139,6 +140,15 @@ describe('ficha unica - regras puras', () => {
     assert.equal(shouldRunRolesBackfill('auto', {}, 0), false);
     assert.equal(shouldRunRolesBackfill('auto', {}, 2), true);
     assert.equal(shouldRunRolesBackfill('auto', { ROLES_BACKFILL: 'false' }, 2), false);
+  });
+
+  it('fase 5: equivalencia sugerida pela posicao relativa da corda', () => {
+    assert.equal(suggestedPosition(3, 4, 2), 2);
+    assert.equal(suggestedPosition(1, 8, 4), 1);
+    assert.equal(suggestedPosition(4, 8, 4), 2);
+    assert.equal(suggestedPosition(8, 8, 15), 15);
+    assert.equal(suggestedPosition(1, 15, 8), 1);
+    assert.equal(suggestedPosition(2, 3, 0), 0);
   });
 
   it('linha do CSV: CPF do responsavel exige nascimento e CPF valido; codigo GingApp validado', () => {

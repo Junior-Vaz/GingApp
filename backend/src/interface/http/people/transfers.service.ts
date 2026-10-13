@@ -5,7 +5,7 @@ import { AuditService } from '../../../shared/audit/audit.service';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { hashPersonDocument, canonicalDocument, parseCpf } from '../../../shared/security/person-document';
 import { NotificationsService } from '../notifications/notifications.service';
-import { isMinor } from '../ranking/ranking-rules';
+import { decidingAs, personDeciders, personIdsVisibleTo } from './person-deciders';
 import { normalizeGingappCode } from './gingapp-code';
 import {
   PersonErrorCode,
@@ -409,30 +409,17 @@ export class TransfersService {
     return person;
   }
 
-  /** Quem decide: o proprio login (adulto) ou os responsaveis com login de qualquer matricula da pessoa (menor). */
-  private async deciders(personId: number): Promise<{ minor: boolean; selfUserId: number | null; guardianUserIds: number[]; userIds: number[] }> {
-    const person = await this.prisma.person.findUniqueOrThrow({ where: { id: personId }, select: { userId: true, birthDate: true } });
-    const minor = isMinor(person.birthDate);
-    const guardians = await this.prisma.studentGuardian.findMany({
-      where: { student: { personId }, userId: { not: null } },
-      select: { userId: true },
-    });
-    const guardianUserIds = [...new Set(guardians.map((g) => g.userId!))];
-    const userIds = minor ? guardianUserIds : person.userId ? [person.userId] : [];
-    return { minor, selfUserId: person.userId, guardianUserIds, userIds };
+  /** Quem decide: SSOT em person-deciders.ts (adulto = proprio login; menor = responsaveis). */
+  private deciders(personId: number) {
+    return personDeciders(this.prisma, personId);
   }
 
-  private decidingAs(d: { minor: boolean; selfUserId: number | null; guardianUserIds: number[] }, userId: number): 'SELF' | 'GUARDIAN' | null {
-    if (d.minor) return d.guardianUserIds.includes(userId) ? 'GUARDIAN' : null;
-    return d.selfUserId === userId ? 'SELF' : null;
+  private decidingAs(d: Parameters<typeof decidingAs>[0], userId: number) {
+    return decidingAs(d, userId);
   }
 
-  private async personIdsVisibleTo(userId: number): Promise<number[]> {
-    const [own, guarded] = await Promise.all([
-      this.prisma.person.findMany({ where: { userId }, select: { id: true } }),
-      this.prisma.studentGuardian.findMany({ where: { userId, student: { personId: { not: null } } }, select: { student: { select: { personId: true } } } }),
-    ]);
-    return [...new Set([...own.map((p) => p.id), ...guarded.map((g) => g.student.personId!)])];
+  private personIdsVisibleTo(userId: number): Promise<number[]> {
+    return personIdsVisibleTo(this.prisma, userId);
   }
 
   private async visibleToGroup(organizationId: number, id: number): Promise<RequestRow> {

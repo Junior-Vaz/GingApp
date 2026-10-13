@@ -1,7 +1,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Hierarchy, HierarchyLevel, StudentGraduation } from "@/lib/queries";
+import type { Ficha, Hierarchy, HierarchyLevel, StudentGraduation } from "@/lib/queries";
 
 /**
  * Cordas desenhadas (Rope), cartão "Minha graduação", régua do sistema e Hierarquia do grupo na Jornada.
@@ -12,7 +12,8 @@ import type { Hierarchy, HierarchyLevel, StudentGraduation } from "@/lib/queries
 const state: {
   hierarchy: { data: Hierarchy | null; isLoading: boolean; error: Error | null };
   graduations: StudentGraduation[];
-} = { hierarchy: { data: null, isLoading: false, error: null }, graduations: [] };
+  ficha: Ficha | undefined;
+} = { hierarchy: { data: null, isLoading: false, error: null }, graduations: [], ficha: undefined };
 
 vi.mock("@/lib/queries", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/queries")>();
@@ -21,6 +22,7 @@ vi.mock("@/lib/queries", async (importOriginal) => {
     ...actual,
     useHierarchy: () => ({ ...state.hierarchy, refetch: vi.fn() }),
     useGraduations: () => ({ data: state.graduations, isLoading: false, error: null }),
+    useFicha: () => ({ data: state.ficha, isLoading: false, error: null }),
     useMyRoles: () => [],
     useMyStudent: () => ({ student: { id: 7, name: "Camila" }, isLoading: false, error: null }),
     usePassport: () => ({ data: { organization: { name: "Grupo Semente" }, stats: { rodas: 2, eventos: 1, graduacoes: 1 } }, isLoading: false, error: null }),
@@ -35,6 +37,7 @@ import { HierarchyCanvas } from "@/components/gingapp/hierarchy";
 import { Rope } from "@/components/gingapp/rope";
 import { JourneyPage } from "@/components/gingapp/journey";
 import { buildLayout, centerOn, clampScale, MAX_SCALE, MIN_SCALE, progressOf, shortName, zoomAt } from "@/lib/hierarchy";
+import { buildTimeline } from "@/lib/derive";
 import { colorName, normalizeRope, ropeLabel } from "@/lib/rope";
 
 let root: Root | null = null;
@@ -55,6 +58,7 @@ beforeEach(() => {
   localStorage.clear();
   state.hierarchy = { data: null, isLoading: false, error: null };
   state.graduations = [];
+  state.ficha = undefined;
   // jsdom não tem layout: o viewport do canvas "mede" 1000x700.
   vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(1000);
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(700);
@@ -346,6 +350,44 @@ describe("Jornada: Linha do tempo | Hierarquia", () => {
     expect(q("[data-testid='hier-canvas']")).toBeNull();
     expect(q(".grad-card")).not.toBeNull();
     expect(localStorage.getItem("gingapp.journey.view")).toBe("timeline");
+  });
+
+  it("marca \"Corda de origem\" nas graduações de outro grupo e \"Reconhecida pelo grupo\" nas reconhecidas", () => {
+    state.graduations = graduated;
+    state.hierarchy = { data: sample(), isLoading: false, error: null };
+    state.ficha = {
+      person: { id: 1, gingappCode: "GA-1", name: "Camila", nickname: null, birthDate: null, photo: null, documentMasked: null, documentKind: null },
+      enrollments: [
+        { studentId: 7, organization: { id: 20, name: "Grupo Semente", logoUrl: null }, unit: null, status: "ACTIVE", since: null, until: null, isCurrent: true },
+        { studentId: 3, organization: { id: 10, name: "Grupo Antigo", logoUrl: null }, unit: null, status: "TRANSFERRED", since: null, until: null, isCurrent: false },
+      ],
+      graduations: [
+        { id: 2, studentId: 7, organization: { id: 20, name: "Grupo Semente" }, graduatedAt: "2026-05-01T00:00:00Z", level: MIXED, recognizedFromLevelId: 9 },
+        { id: 1, studentId: 3, organization: { id: 10, name: "Grupo Antigo" }, graduatedAt: "2025-12-01T00:00:00Z", level: GREEN, recognizedFromLevelId: null },
+      ],
+      attendanceByGroup: [],
+      certificates: [],
+      sharedFromOtherGroups: [],
+      scope: "SELF",
+    };
+    render(<JourneyPage />);
+    const items = container!.querySelectorAll(".timeline-item");
+    expect(items).toHaveLength(2);
+    expect(items[0]!.textContent).toContain("Reconhecida pelo grupo");
+    expect(items[0]!.textContent).not.toContain("Corda de origem");
+    expect(items[1]!.textContent).toContain("Corda de origem — Grupo Antigo");
+    expect(items[1]!.textContent).not.toContain("Reconhecida pelo grupo");
+  });
+
+  it("buildTimeline sem ficha devolve a lista sem marcas e inclui cordas que só a ficha conhece", () => {
+    expect(buildTimeline(graduated, undefined).every((g) => g.originGroup === null && !g.recognized)).toBe(true);
+    const ficha = {
+      enrollments: [{ organization: { id: 20, name: "Grupo Semente" }, isCurrent: true }],
+      graduations: [{ id: 99, studentId: 3, organization: { id: 10, name: "Grupo Antigo" }, graduatedAt: "2020-01-01T00:00:00Z", level: GREEN, recognizedFromLevelId: null }],
+    } as unknown as Ficha;
+    const merged = buildTimeline(graduated, ficha);
+    expect(merged.map((g) => g.id)).toEqual([2, 1, 99]); // mais recente primeiro
+    expect(merged[2]!.originGroup).toBe("Grupo Antigo");
   });
 
   it("sem os campos novos do backend cai para a cor única (sem régua)", () => {

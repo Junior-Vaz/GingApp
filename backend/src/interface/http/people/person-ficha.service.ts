@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PersonDocumentKind, RopeStyle, StaffRole, StudentStatus } from '@prisma/client';
+import { OccurrenceKind, OccurrenceStatus, OrgRole, PersonDocumentKind, RopeStyle, StaffRole, StudentStatus } from '@prisma/client';
 import { sortRoles } from '../roles/staff-roles';
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
@@ -26,6 +26,8 @@ export interface SharedEnrollment {
   graduations: { id: number; graduatedAt: Date; level: LevelOut; system: { id: number; name: string } }[];
   attendanceByClass: { class: { id: number; name: string }; present: number; absent: number; total: number }[];
   certificates: { id: number; title: string; issuedAt: Date | null }[];
+  /** Fase 4: SO para o MESTRE do grupo novo (a chave nem vem para outros papeis). */
+  occurrences?: { id: number; kind: OccurrenceKind; occurredAt: Date; endsAt: Date | null; reason: string; status: OccurrenceStatus; contestNote: string | null }[];
 }
 
 /** Contrato de GET /students/:id/ficha e GET /people/me/ficha (docs/FICHA_UNICA.md secao 4). */
@@ -65,6 +67,8 @@ export interface Ficha {
     graduatedAt: Date;
     level: { id: number; name: string; order: number; color: string | null; style: RopeStyle; colors: string[] };
     system: { id: number; name: string };
+    /** Fase 5: graduacao reconhecida a partir da corda de origem (outro grupo). */
+    recognizedFromLevelId: number | null;
   }[];
   attendanceByGroup: { organization: OrgRef; present: number; absent: number; total: number }[];
   certificates: { id: number; title: string; issuedAt: Date | null; verificationCode: string; organization: OrgRef }[];
@@ -87,9 +91,9 @@ export class PersonFichaService {
   ) {}
 
   /** Equipe do grupo: matricula `studentId` (ja conferida no grupo/unidade) -> ficha so com as matriculas DO grupo. */
-  async forStaff(organizationId: number, studentId: number): Promise<Ficha> {
+  async forStaff(organizationId: number, studentId: number, viewer?: { id: number; role?: OrgRole | null }): Promise<Ficha> {
     const personId = await this.identity.ensurePersonForStudent(studentId);
-    return this.build(personId, organizationId, 'OWN_GROUP');
+    return this.build(personId, organizationId, 'OWN_GROUP', viewer);
   }
 
   /**
@@ -117,7 +121,7 @@ export class PersonFichaService {
     return { personId: person.id, gingappCode: person.gingappCode, qrDataUrl };
   }
 
-  private async build(personId: number, currentOrganizationId: number, scope: Ficha['scope']): Promise<Ficha> {
+  private async build(personId: number, currentOrganizationId: number, scope: Ficha['scope'], viewer?: { id: number; role?: OrgRole | null }): Promise<Ficha> {
     const person = await canonicalPerson(this.prisma, await this.prisma.person.findUnique({ where: { id: personId } }));
     if (!person) throw personNotFound();
     const students = await this.prisma.student.findMany({
@@ -154,6 +158,7 @@ export class PersonFichaService {
           id: true,
           studentId: true,
           graduatedAt: true,
+          recognizedFromLevelId: true,
           graduationLevel: { select: { ...LEVEL_SELECT, graduationSystem: { select: { id: true, name: true } } } },
         },
         orderBy: [{ graduatedAt: 'asc' }, { id: 'asc' }],
@@ -208,6 +213,7 @@ export class PersonFichaService {
           graduatedAt: g.graduatedAt,
           level: levelView(level),
           system: graduationSystem,
+          recognizedFromLevelId: g.recognizedFromLevelId,
         };
       }),
       attendanceByGroup: [...attendanceByOrg.values()],
@@ -218,13 +224,13 @@ export class PersonFichaService {
         verificationCode: c.verificationCode,
         organization: orgOf.get(c.studentId)!,
       })),
-      sharedFromOtherGroups: scope === 'OWN_GROUP' ? await this.shared(person.id, currentOrganizationId) : [],
+      sharedFromOtherGroups: scope === 'OWN_GROUP' ? await this.shared(person.id, currentOrganizationId, viewer) : [],
       scope,
     };
   }
 
   /** Matriculas de outros grupos compartilhadas com `organizationId` (EnrollmentShare sem revokedAt). */
-  private async shared(personId: number, organizationId: number): Promise<SharedEnrollment[]> {
+  private async shared(personId: number, organizationId: number, viewer?: { id: number; role?: OrgRole | null }): Promise<SharedEnrollment[]> {
     const shares = await this.prisma.enrollmentShare.findMany({
       where: { personId, toOrganizationId: organizationId, revokedAt: null },
       orderBy: { id: 'asc' },
@@ -257,6 +263,25 @@ export class PersonFichaService {
       }),
     ]);
     const byId = new Map(students.map((s) => [s.id, s]));
+    // Fase 4: ocorrencias dos grupos anteriores SO para o MESTRE do grupo novo (somente leitura; retratadas nao entram).
+    // Toda leitura que devolve alguma e auditada (OCCURRENCE_READ_SHARED).
+    const isMestre = viewer?.role === OrgRole.MESTRE;
+    const occurrences = isMestre
+      ? await this.prisma.occurrence.findMany({
+          where: { studentId: { in: ids }, status: { not: OccurrenceStatus.RETRACTED } },
+          select: { id: true, studentId: true, kind: true, occurredAt: true, endsAt: true, reason: true, status: true, contestNote: true },
+          orderBy: [{ occurredAt: 'asc' }, { id: 'asc' }],
+        })
+      : [];
+    if (occurrences.length > 0) {
+      await this.audit.record({
+        organizationId,
+        action: AuditAction.OCCURRENCE_READ_SHARED,
+        entity: AuditEntity.OCCURRENCE,
+        entityId: personId,
+        meta: { personId, occurrenceIds: occurrences.map((o) => o.id), fromStudentIds: ids },
+      });
+    }
     return shares
       .filter((sh) => byId.has(sh.fromStudentId))
       .map((sh) => {
@@ -286,6 +311,9 @@ export class PersonFichaService {
             }),
           attendanceByClass: [...perClass.values()],
           certificates: certificates.filter((c) => c.studentId === s.id).map((c) => ({ id: c.id, title: c.title, issuedAt: c.issuedAt })),
+          ...(isMestre
+            ? { occurrences: occurrences.filter((o) => o.studentId === s.id).map(({ studentId: _sid, ...o }) => (void _sid, o)) }
+            : {}),
         };
       });
   }

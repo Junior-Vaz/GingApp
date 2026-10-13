@@ -1,7 +1,7 @@
 # Ficha única do capoeirista — desenho e fases
 
-> Status: **Fase 1** (commit 1f28bec), **Fase 2** (commit 5f4b67a) e **Fase 3 — cargos** (sem commit; seção 5) implementadas.
-> Fases 4–5 desenhadas aqui, não implementadas.
+> Status: **Fases 1–3** commitadas (1f28bec, 5f4b67a, 55fd41f); **Fases 4 (ocorrências) e 5 (equivalência de cordas)**
+> implementadas sem commit (seções 6 e 7). O que falta decidir ou rodar está na seção 7b.
 > Visão do owner: *o cadastro de um aluno é único, vinculado ao CPF; uma pessoa tem uma única ficha no GingApp; quando ela
 > sai de um grupo e vai para outro, o outro grupo recebe a ficha inteira (aulas, faltas, punições, expulsões); nunca se
 > duplica; se ao cadastrar a pessoa já existe, faz-se uma TRANSFERÊNCIA. Mestre, professor, monitor e instrutor também são
@@ -311,15 +311,76 @@ A mantida herda o que não tem (login, CPF, nascimento, foto, apelido, contato);
 - Papel no token deixou de valer: um MESTRE rebaixado perde as permissões na próxima requisição (antes só no novo login).
 - `Plan.maxStudents` ignora `isStaff`; um aluno promovido continua contando (ele já ocupava a vaga).
 
-## 6. Fase 4 — Ocorrências
-- `Occurrence` (tipo, data, motivo ≤ 280, autor, contestação). Escrita: MESTRE do grupo da matrícula. Leitura: MESTRE do
-  grupo (e do grupo novo **após** transferência aprovada); **nunca** alunos, responsáveis ou professores; a própria pessoa
-  vê que existe e contesta (`POST /occurrences/:id/contest`). Auditoria de toda leitura cross-group. `member-privacy`
-  ganha marcadores de ocorrência.
+## 6. Fase 4 — Ocorrências (IMPLEMENTADA, 2026-10-13)
 
-## 7. Fase 5 — Equivalência de cordas
-- `LevelEquivalence` declarada pelo grupo novo ao receber uma transferência ("Azul do grupo X = Verde/Amarela aqui");
-  sugestão automática por `order` relativo; usada na ficha e em cargos (F3). Nunca altera graduações antigas.
+Migration `20261013030000_occurrences_equivalences` (só adiciona). `Occurrence {organizationId, studentId (matrícula),
+personId, kind ADVERTENCIA|SUSPENSAO|EXPULSAO|OUTRA, occurredAt, endsAt? (só suspensão), reason (3–280), status
+ACTIVE|CONTESTED|RETRACTED, expelledEnrollment, createdByUserId, contestedAt/contestNote/contestedByUserId,
+retractedAt/retractNote/retractedByUserId}` (FK para a matrícula com cascade; sem purga automática).
+
+**Regras (decisões):**
+- Escreve, lê e retrata: **só o MESTRE do grupo da matrícula** (`MestreOnlyGuard`). PROFESSOR, INSTRUTOR, MONITOR, ALUNO e
+  RESPONSAVEL recebem 403; MESTRE de outro grupo recebe 404.
+- **Grupo novo:** o MESTRE lê as ocorrências dos grupos anteriores **só** dentro de `sharedFromOtherGroups[].occurrences` da
+  ficha (EnrollmentShare ativo = transferência aprovada), somente leitura; **retratadas não vão**; toda leitura que devolve
+  alguma é auditada (`OCCURRENCE_READ_SHARED`, com os ids). Para os demais papéis a chave **nem vem**.
+- **A pessoa** (adulto) ou **o responsável** (menor) vê as ocorrências **com o motivo** (decisão: sem o motivo não há como
+  contestar) e contesta uma vez (nota 3–280): vira CONTESTED, o Mestre é avisado e vê a nota; quem lê (inclusive o grupo
+  novo) vê o selo "contestada". O Mestre autor pode retratar (RETRACTED, com nota).
+- Registrar avisa a pessoa/responsável (`OCCURRENCE_REGISTERED`, sem o motivo no texto do aviso). Expulsão com
+  `expel: true` encerra a matrícula (Ex-aluno, `leftReason='EXPELLED'`, turmas inativas; o vínculo ALUNO do login cai).
+- Auditoria: `OCCURRENCE_CREATE`, `OCCURRENCE_RETRACT`, `OCCURRENCE_CONTEST`, `OCCURRENCE_READ_SHARED`.
+- **Retenção:** sem purga automática nesta versão. Recomendação para o owner decidir: retratadas apagadas após 1 ano;
+  advertências após 5 anos; expulsões mantidas enquanto a ficha existir; pedido de exclusão (LGPD) avaliado caso a caso.
+
+**Contrato:**
+- `POST /api/students/:id/occurrences` `{kind, occurredAt, reason, endsAt?, expel?}` → 201 OccurrenceView; 400
+  `EXPEL_ONLY_FOR_EXPULSION`, `ENDS_AT_ONLY_FOR_SUSPENSION`, `INVALID_ENDS_AT`.
+- `GET /api/students/:id/occurrences` → OccurrenceView[] (só as do próprio grupo).
+- `PATCH /api/students/:id/occurrences/:occurrenceId/retract` `{note?}` → OccurrenceView; 409 `OCCURRENCE_ALREADY_RETRACTED`.
+- `OccurrenceView = {id, kind, occurredAt, endsAt, reason, status, expelledEnrollment, createdAt, createdBy:{id,name}|null,
+  contestedAt, contestNote, retractedAt, retractNote}`.
+- `GET /api/people/me/occurrences` → `[{id, kind, occurredAt, endsAt, reason, status, organization:{id,name,logoUrl},
+  person:{id,name}, contestedAt, contestNote, retractedAt, canContest, decidingAs}]` (própria ficha + dependentes).
+- `POST /api/people/me/occurrences/:id/contest` `{note}` → 200 (mesma visão); 404 sem direito; 409 `OCCURRENCE_NOT_CONTESTABLE`.
+- Ficha da equipe: `sharedFromOtherGroups[].occurrences: [{id, kind, occurredAt, endsAt, reason, status, contestNote}]` (só MESTRE).
+
+## 7. Fase 5 — Equivalência de cordas (IMPLEMENTADA, 2026-10-13)
+
+`LevelEquivalence {toOrganizationId, fromLevelId (outro grupo), toLevelId (deste grupo), declaredByUserId}` (único por
+grupo + corda de origem) e `StudentGraduation.recognizedFromLevelId`.
+
+**Regras (decisões):**
+- Só o MESTRE. O grupo só enxerga cordas de outro grupo que chegaram por **compartilhamento** (EnrollmentShare ativo);
+  corda não compartilhada = 404 (não dá para enumerar os sistemas dos outros grupos).
+- **Sugestão** por posição relativa: posição da corda no sistema de origem ÷ nº de cordas × nº de cordas do sistema destino
+  (arredondado, entre 1 e N). Exemplo: a 3ª de 4 vira a 2ª de 2. O sistema destino é o das graduações do aluno no grupo; na
+  falta delas, o primeiro sistema ativo com cordas.
+- **Reconhecer** cria a graduação do grupo no nível equivalente, com a **data da graduação de origem** e a nota
+  "Reconhecida de <grupo> (<corda>)". A antiga não muda. É idempotente: reconhecer de novo não duplica, só acompanha a
+  equivalência corrigida.
+- **Pontos (decisão anti-duplicidade):** a reconhecida pontua como GRADUATION na matrícula **nova**. A de origem continua na
+  matrícula antiga, que virou Ex-aluno na transferência e fica fora dos rankings (só alunos ATIVOS). A pessoa nunca soma as
+  duas. A corda reconhecida também alimenta Hierarquia, Jornada e sugestões de cargo (vale a graduação mais recente).
+- Auditoria: `LEVEL_EQUIVALENCE_SET`, `GRADUATION_RECOGNIZE`.
+
+**Contrato:**
+- `GET /api/graduations/equivalences/suggestions?studentId=` → `[{fromLevel, fromSystem:{id,name,levelsCount},
+  fromOrganization:{id,name,logoUrl}, graduatedAt, declared|null, suggested|null, toSystem:{id,name}|null, recognized}]`.
+- `POST /api/graduations/equivalences` `{fromLevelId, toLevelId, recognizeForStudentId?}` → 201 `{equivalence:{id,
+  fromLevel, toLevel, fromOrganization}, recognizedGraduation:{id, graduatedAt, graduationLevelId, notes}|null}`; 404 corda
+  não compartilhada; 400 `INVALID_TO_LEVEL`, `NOT_SHARED_GRADUATION`.
+- `GET /api/graduations/equivalences` → `[{id, fromLevel, toLevel, fromOrganization, createdAt}]`.
+- Ficha: `graduations[].recognizedFromLevelId`.
+
+## 7b. Pendências finais da ficha única (o que falta o owner decidir ou rodar)
+1. **Produção (antes do deploy):** definir `PERSON_DOC_KEY` e `PERSON_DOC_PEPPER` (nunca trocar); conferir no log do boot
+   `[person]` e `[roles]`; revisar `GET /api/people/duplicates` e mesclar o que for a mesma pessoa.
+2. **Decidir:** a retenção das ocorrências (proposta na §6); se mestres/professores devem aparecer nas listas, no dashboard e
+   no ranking como alunos (hoje sim, `isStaff` permite filtrar); a restrição "monitor só nas turmas dele".
+3. **Técnico, adiado:** `Student.personId NOT NULL` (seed, demo e specs ainda criam aluno sem ficha); remover o CPF em
+   claro de `Student.document` do banco; "desfazer transferência" e "desmesclar"; convite guiado para adulto sem login
+   aprovar transferência; tela do admin para duplicatas e mescla; anonimização da Person num pedido de exclusão (LGPD).
 
 ## 8. Migração segura (produção)
 1. Deploy da imagem: `migrate deploy` (só adiciona) → bootstrap → demo → **person-backfill --auto** → ranking → API.
@@ -356,8 +417,8 @@ A mantida herda o que não tem (login, CPF, nascimento, foto, apelido, contato);
 ## 11. LGPD
 - Base legal: execução de contrato/legítimo interesse do grupo para identificação única; CPF minimizado (cifrado + hash,
   máscara na API, nunca em log/auditoria — `sanitizeAuditMeta` remove chaves `hash`).
-- Transparência: a pessoa vê a própria ficha (`/people/me/ficha`) e o código; exportação LGPD (`/auth/me/export`) ainda não
-  inclui a Person (pendência).
+- Transparência: a pessoa vê a própria ficha (`/people/me/ficha`), o código e as ocorrências (`/people/me/occurrences`); a
+  exportação LGPD (`/auth/me/export`) inclui a Person e as transferências (Fase 2).
 - Compartilhamento entre grupos só com aprovação do titular/responsável (F2); ocorrências com contestação (F4).
 - Pedido de exclusão (`DataDeletionRequest`) passa a precisar tratar a Person (anonimizar nome/foto/documento, manter
   `gingappCode` para integridade histórica) — procedimento a escrever na F2.

@@ -1,6 +1,8 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { UpdateMyPersonDto } from './dto/transfers.dto';
 import { TransfersService } from './transfers.service';
+import { OccurrencesService } from './occurrences.service';
+import { ContestOccurrenceDto } from './occurrences.controller';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
@@ -25,6 +27,7 @@ export class PeopleController {
     private readonly admin: PeopleAdminService,
     private readonly students: StudentsService,
     private readonly transfers: TransfersService,
+    private readonly occurrences: OccurrencesService,
   ) {}
 
   private async linkedStudentId(organizationId: number, userId: number, studentId?: number): Promise<number | undefined> {
@@ -72,6 +75,18 @@ export class PeopleController {
   @HttpCode(HttpStatus.OK)
   decline(@CurrentUser('id') userId: number, @Param('id', ParseIntPipe) id: number) {
     return this.transfers.decide(userId, id, false);
+  }
+
+  /** Ocorrencias registradas por grupos sobre a propria pessoa e os dependentes (com o motivo, para poder contestar). */
+  @Get('me/occurrences')
+  myOccurrences(@CurrentUser('id') userId: number) {
+    return this.occurrences.listMine(userId);
+  }
+
+  @Post('me/occurrences/:id/contest')
+  @HttpCode(HttpStatus.OK)
+  contestOccurrence(@CurrentUser('id') userId: number, @Param('id', ParseIntPipe) id: number, @Body() dto: ContestOccurrenceDto) {
+    return this.occurrences.contest(userId, id, dto.note);
   }
 
   @Get('duplicates')

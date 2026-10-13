@@ -1,5 +1,14 @@
 import { dayOnly, fmt, startOfToday } from "@/lib/format";
-import type { AttendanceRecord, ClassItem, FinanceStatus, FinancialRecord, Lesson, Passport } from "@/lib/queries";
+import type {
+  AttendanceRecord,
+  ClassItem,
+  Ficha,
+  FinanceStatus,
+  FinancialRecord,
+  Lesson,
+  Passport,
+  StudentGraduation,
+} from "@/lib/queries";
 
 /**
  * Que ações de compartilhamento do passaporte a tela deve oferecer. Espelha as regras do
@@ -146,4 +155,47 @@ export function effectiveFinanceStatus(
 ): FinanceStatus {
   if (record.status === "PENDING" && dayOnly(record.dueDate).getTime() < today.getTime()) return "OVERDUE";
   return record.status;
+}
+
+/** Graduação da linha do tempo da Jornada, com a origem (outro grupo) e o reconhecimento (Ficha única, Fase 4). */
+export interface TimelineGraduation extends StudentGraduation {
+  /** Nome do grupo de origem quando a corda foi dada por OUTRO grupo que não o atual. */
+  originGroup: string | null;
+  /** true quando o grupo atual reconheceu a corda vinda de outro grupo. */
+  recognized: boolean;
+}
+
+/**
+ * Junta as graduações do aluno ativo com as da ficha única: marca as de outro grupo (organização
+ * diferente da matrícula atual) e as reconhecidas pelo grupo, e inclui as que só a ficha conhece
+ * (cordas de grupos anteriores). Sem ficha (carregando, erro, backend antigo) devolve a lista como veio.
+ */
+export function buildTimeline(list: StudentGraduation[], ficha: Ficha | undefined | null): TimelineGraduation[] {
+  const fichaGraduations = Array.isArray(ficha?.graduations) ? ficha.graduations : [];
+  if (fichaGraduations.length === 0) return list.map((item) => ({ ...item, originGroup: null, recognized: false }));
+  const currentOrgId = ficha?.enrollments?.find((e) => e.isCurrent)?.organization.id ?? null;
+  const byId = new Map(fichaGraduations.map((g) => [g.id, g]));
+  const origin = (orgId: number, name: string) => (currentOrgId !== null && orgId !== currentOrgId ? name : null);
+
+  const merged: TimelineGraduation[] = list.map((item) => {
+    const f = byId.get(item.id);
+    return {
+      ...item,
+      originGroup: f ? origin(f.organization.id, f.organization.name) : null,
+      recognized: f?.recognizedFromLevelId != null,
+    };
+  });
+  const known = new Set(list.map((item) => item.id));
+  const extras = fichaGraduations
+    .filter((g) => !known.has(g.id))
+    .map<TimelineGraduation>((g) => ({
+      id: g.id,
+      graduatedAt: g.graduatedAt,
+      notes: null,
+      graduationLevel: g.level,
+      originGroup: origin(g.organization.id, g.organization.name),
+      recognized: g.recognizedFromLevelId != null,
+    }));
+  if (extras.length === 0) return merged;
+  return [...merged, ...extras].sort((a, b) => b.graduatedAt.localeCompare(a.graduatedAt));
 }

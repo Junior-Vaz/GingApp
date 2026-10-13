@@ -33,6 +33,7 @@ import { TwoFactorSection } from "./two-factor";
 import { PageHeading, StateMessage } from "./shared";
 import { Avatar } from "./avatar";
 import { Rope } from "./rope";
+import { OccurrencesShortcut } from "./occurrences";
 import { TransfersShortcut } from "./transfers";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -217,6 +218,7 @@ export function ProfilePage() {
           {!user?.mustChangePassword && <PanelShortcut roles={roles} />}
           {!user?.mustChangePassword && <PersonCodeCard />}
           {!user?.mustChangePassword && <TransfersShortcut />}
+          {!user?.mustChangePassword && <OccurrencesShortcut />}
           {!user?.mustChangePassword && own && student?.id === own.id && <FichaEditSection />}
           <ChangePasswordSection />
           {!user?.mustChangePassword && <TwoFactorSection />}

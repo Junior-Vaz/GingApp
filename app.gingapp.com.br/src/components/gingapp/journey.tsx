@@ -8,10 +8,12 @@ import { errorMessage } from "@/lib/api";
 import { downloadCertificatePdf } from "@/lib/certificate-pdf";
 import { dayOnly, fmt, readableIconColor, softenColor, verificationUrl } from "@/lib/format";
 import { STAFF_ROLE_LABEL } from "@/lib/roles";
+import { buildTimeline } from "@/lib/derive";
 import { readJourneyView, storeJourneyView, type JourneyView } from "@/lib/hierarchy";
 import {
   useAttendance,
   useCertificates,
+  useFicha,
   useGraduations,
   useHierarchy,
   useMyRoles,
@@ -135,10 +137,12 @@ export function JourneyPage() {
   const hierarchy = useHierarchy(); // mesma consulta da aba Hierarquia: alimenta a régua de cordas do sistema
   const passport = usePassport();
   const roles = useMyRoles();
+  const ficha = useFicha(); // origem/reconhecimento das cordas; se falhar, a Jornada segue só com as graduações do aluno
   const attendance = useAttendance({ limit: 1 }); // só precisa do % dos 30 dias (agregado no servidor)
 
   const list = graduations.data ?? [];
   const current = list[0] ?? null;
+  const timeline = buildTimeline(list, ficha.data);
   const percent = attendance.data?.last30dPercent ?? null;
   const stats = passport.data?.stats;
   const loading = loadingStudent || graduations.isLoading;
@@ -203,9 +207,9 @@ export function JourneyPage() {
             {(hierarchy.data?.levels.length ?? 0) > 0 && (
               <RopeRuler levels={hierarchy.data?.levels ?? []} currentOrder={current?.graduationLevel.order ?? null} />
             )}
-            {list.length > 0 ? (
+            {timeline.length > 0 ? (
               <div className="timeline">
-                {list.map((item) => {
+                {timeline.map((item) => {
                   const itemColor = softenColor(item.graduationLevel.color);
                   return (
                     <article key={item.id} className="timeline-item">
@@ -220,6 +224,12 @@ export function JourneyPage() {
                         <Rope {...item.graduationLevel} orientation="horizontal" length={52} thickness={12} />
                         <h3>{item.graduationLevel.name}</h3>
                       </div>
+                      {(item.originGroup || item.recognized) && (
+                        <p className="mt-1 flex flex-wrap gap-1" data-testid="timeline-origin">
+                          {item.originGroup && <span className="badge">Corda de origem — {item.originGroup}</span>}
+                          {item.recognized && <span className="badge">Reconhecida pelo grupo</span>}
+                        </p>
+                      )}
                       {item.notes && <p>{item.notes}</p>}
                     </article>
                   );
