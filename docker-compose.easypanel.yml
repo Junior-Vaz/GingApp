@@ -106,6 +106,9 @@ services:
       # Cargos (ficha unica, Fase 3): no boot cria o cargo + a matricula de aluno (isStaff) da equipe que ainda nao tem
       # (vazio = so quando ha equipe sem matricula; true = sempre; false = nunca).
       ROLES_BACKFILL: "${ROLES_BACKFILL:-}"
+      # Cargos DO GRUPO (secao 13): no boot cria os 4 cargos padrao dos grupos sem eles e liga cargos antigos ao padrao
+      # (vazio = so quando ha pendencia; true = sempre; false = nunca). Nunca muda acesso.
+      GROUP_ROLES_BACKFILL: "${GROUP_ROLES_BACKFILL:-}"
       # TERMS_ENFORCEMENT=true: o servidor tambem barra (403) quem nao aceitou a versao vigente dos Termos/Politica.
       # Padrao false: so o frontend exige o aceite.
       TERMS_ENFORCEMENT: "${TERMS_ENFORCEMENT:-false}"

@@ -155,7 +155,7 @@ function SistemasTab() {
         {list.data.map((system) => {
           return (
             <Card key={system.id}>
-              <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+              <CardHeader className="flex-row items-start justify-between gap-3 space-y-0 max-sm:flex-col">
                 <div className="min-w-0">
                   <CardTitle className="flex items-center gap-2 text-base">
                     {system.name}
@@ -163,7 +163,7 @@ function SistemasTab() {
                   </CardTitle>
                   {system.description && <CardDescription className="mt-1">{system.description}</CardDescription>}
                 </div>
-                <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                <div className="flex shrink-0 flex-wrap justify-end gap-1 max-sm:w-full max-sm:justify-start">
                   {canCreate && (
                     <Button variant="outline" size="sm" onClick={() => setLevelFor(system)} aria-label={`Novo nível em ${system.name}`}>
                       <Plus /> Novo nível

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import type { Badge } from "@/lib/roles";
 
 /**
  * Sessão do aluno. Chaves específicas deste app (mb_token / mb_user) para não colidir com
@@ -22,8 +23,8 @@ export interface AuthUser {
   organizationId: number;
   organizationSlug: string;
   role: OrgRole;
-  /** Cargos ativos no grupo do token, maior primeiro. Ausente em sessões/backends antigos. */
-  roles?: StaffRole[];
+  /** Cargos do grupo no grupo do token, maior rank primeiro. Backends antigos mandam só os papéis de acesso (string[]); ausente em sessões antigas. */
+  roles?: (Badge | StaffRole)[];
   /** Senha definida pelo Mestre/Professor (conta criada ou senha redefinida): a troca é obrigatória no primeiro acesso. */
   mustChangePassword?: boolean;
   /** Termos de Uso/Política de Privacidade (E10): true = há aceite pendente; o app mostra a tela bloqueante de aceite. */

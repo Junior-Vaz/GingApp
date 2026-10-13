@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Check } from "lucide-react";
-import { RoleBadges } from "@/components/painel/role-badges";
+import { RoleBadge, RoleBadges } from "@/components/painel/role-badges";
 import { RopeSwatch } from "@/components/painel/rope-swatch";
 import { StudentAvatar } from "@/components/painel/student-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -9,11 +9,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/api";
 import { dayOnly, fmt } from "@/lib/format";
 import { ropeOf } from "@/lib/rope";
-import { STAFF_ROLE_LABEL } from "@/lib/staff-roles";
 import { useRoleSuggestions, type RoleSuggestion } from "./roles-api";
 import { useGrantRole } from "./use-grant-role";
 
-const suggestionKey = (s: RoleSuggestion) => `${s.studentId}-${s.role}`;
+const suggestionKey = (s: RoleSuggestion) => `${s.studentId}-${s.groupRoleId}`;
 
 /**
  * "Sugestões de promoção": quem atingiu a corda mínima de um cargo (regras "Cargos por corda" do sistema de
@@ -27,7 +26,12 @@ export function SugestoesPromocao() {
   async function confirm(suggestion: RoleSuggestion) {
     setBusy(suggestionKey(suggestion));
     try {
-      await grant({ studentId: suggestion.studentId, role: suggestion.role, name: suggestion.name });
+      await grant({
+        studentId: suggestion.studentId,
+        groupRoleId: suggestion.groupRoleId,
+        roleName: suggestion.role.name,
+        name: suggestion.name,
+      });
     } finally {
       setBusy(null);
     }
@@ -61,7 +65,7 @@ export function SugestoesPromocao() {
         data-testid="suggestions-empty"
       >
         Nenhuma sugestão de promoção no momento. Defina em Graduações, em &quot;Cargos por corda&quot;, a partir de qual corda
-        cada cargo é possível.
+        cada cargo do grupo é possível.
       </div>
     );
   }
@@ -93,13 +97,13 @@ export function SugestoesPromocao() {
             </div>
             <div className="flex items-center gap-3">
               <span className="text-sm">
-                Cargo sugerido: <Badge variant="default">{STAFF_ROLE_LABEL[s.role]}</Badge>
+                Cargo sugerido: <RoleBadge badge={s.role} />
               </span>
               <Button
                 size="sm"
                 onClick={() => void confirm(s)}
                 disabled={isPending}
-                aria-label={`Confirmar ${STAFF_ROLE_LABEL[s.role]} para ${s.name}`}
+                aria-label={`Confirmar ${s.role.name} para ${s.name}`}
               >
                 <Check /> {busy === suggestionKey(s) ? "Confirmando…" : "Confirmar"}
               </Button>

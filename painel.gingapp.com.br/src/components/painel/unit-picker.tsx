@@ -111,7 +111,7 @@ export function UnitPicker({
 
   const searchBox = (
     <div className={cn("relative", isFilter && "w-36")}>
-      <Search aria-hidden className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+      <Search aria-hidden className="pointer-events-none absolute left-2.5 top-3.5 md:top-2.5 size-4 text-muted-foreground" />
       <Input
         id={searchId}
         type="search"

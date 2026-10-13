@@ -4,13 +4,14 @@ import { toast } from "sonner";
 import { CreateAccountDialog } from "@/components/painel/account-dialogs";
 import { api } from "@/lib/api";
 import type { CreateAccountPayload } from "@/lib/provisional-password";
-import { STAFF_ROLE_LABEL, type StaffRole } from "@/lib/staff-roles";
 import { isLoginRequired, roleErrorMessage, useRefreshRoles, type RoleView } from "./roles-api";
 
-/** Pedido de cargo: quem (a matrícula de aluno), qual cargo e o nome/e-mail só para as mensagens e o login. */
+/** Pedido de cargo: quem (a matrícula de aluno), qual cargo do grupo e o nome/e-mail só para as mensagens e o login. */
 export interface GrantRequest {
   studentId: number;
-  role: StaffRole;
+  groupRoleId: number;
+  /** Nome do cargo (só para as mensagens). */
+  roleName: string;
   name: string;
   /** E-mail já conhecido da pessoa (sugerido ao criar o login, se ela ainda não tiver). */
   email?: string | null | undefined;
@@ -28,7 +29,7 @@ export function useGrantRole(options: { onGranted?: () => void } = {}) {
     mutationFn: ({ request, account }: { request: GrantRequest; account?: CreateAccountPayload | undefined }) =>
       api.post<RoleView>("/roles/grant", {
         studentId: request.studentId,
-        role: request.role,
+        groupRoleId: request.groupRoleId,
         ...account,
       }),
   });
@@ -37,7 +38,7 @@ export function useGrantRole(options: { onGranted?: () => void } = {}) {
     await mutation.mutateAsync({ request, account });
     refresh();
     setPending(null);
-    toast.success(`${request.name} agora é ${STAFF_ROLE_LABEL[request.role]}.`);
+    toast.success(`${request.name} agora é ${request.roleName}.`);
     options.onGranted?.();
   }
 
@@ -71,7 +72,7 @@ export function useGrantRole(options: { onGranted?: () => void } = {}) {
       title="Criar acesso para conceder o cargo"
       description={
         pending
-          ? `${pending.name} ainda não tem login. Informe o e-mail e uma senha provisória (ou envie um convite) para ${STAFF_ROLE_LABEL[pending.role]}.`
+          ? `${pending.name} ainda não tem login. Informe o e-mail e uma senha provisória (ou envie um convite) para ${pending.roleName}.`
           : undefined
       }
       defaultEmail={pending?.email ?? ""}

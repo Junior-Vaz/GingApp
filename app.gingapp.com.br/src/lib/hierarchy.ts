@@ -1,4 +1,5 @@
 import type { Hierarchy, HierarchyLevel, HierarchyPerson, HierarchyTeacher } from "@/lib/queries";
+import { legacyBadge, type Badge } from "@/lib/roles";
 
 /* ---------- Escolha Linha do tempo | Hierarquia (lembrada no navegador) ---------- */
 
@@ -68,7 +69,7 @@ const GAP_Y = 70;
 const GAP_X = 22;
 const ROW_MAX = 5;
 
-export type NodeKind = "root" | "master" | "teacher" | "level" | "mine" | "below";
+export type NodeKind = "root" | "master" | "teacher" | "staff" | "level" | "mine" | "below";
 
 export interface LayoutNode {
   key: string;
@@ -78,6 +79,8 @@ export interface LayoutNode {
   w: number;
   h: number;
   person?: HierarchyPerson | HierarchyTeacher;
+  /** Cargo do grupo da pessoa (nós "staff"; em "master"/"teacher" legados vem do papel de acesso). */
+  badge?: Badge;
   level?: HierarchyLevel;
   /** Nó do aluno ativo ("mine") sem nível: só a pessoa. */
   me?: Hierarchy["me"];
@@ -101,6 +104,33 @@ export interface Layout {
   mine: { x: number; y: number; w: number; h: number } | null;
 }
 
+/** Um cargo do grupo com as suas pessoas (uma linha da árvore, ou mais se passar de 5). */
+export interface StaffTier {
+  badge: Badge;
+  people: HierarchyTeacher[];
+  /** "staff" = veio de `staff`; "master"/"teacher" = fallback de backend antigo (masters/teachers). */
+  kind: "staff" | "master" | "teacher";
+}
+
+/**
+ * Cargos do grupo da árvore, do maior rank para o menor. Usa `staff` quando traz alguém; senão (backend antigo,
+ * `staff` ausente/vazio) cai no comportamento antigo: mestres e depois professores, com o nome do papel de acesso.
+ */
+export function staffTiers(h: Hierarchy): StaffTier[] {
+  const tiers: StaffTier[] = (h.staff ?? [])
+    .filter((g) => g.people.length > 0)
+    .map((g) => ({ badge: g.groupRole, people: g.people, kind: "staff" as const }))
+    .sort((a, b) => b.badge.rank - a.badge.rank);
+  if (tiers.length > 0) return tiers;
+  const legacy: StaffTier[] = [];
+  if (h.masters.length > 0) legacy.push({ badge: legacyBadge("MESTRE"), people: h.masters.map((p) => ({ ...p, isMyTeacher: false })), kind: "master" });
+  if (h.teachers.length > 0) legacy.push({ badge: legacyBadge("PROFESSOR"), people: h.teachers, kind: "teacher" });
+  return legacy;
+}
+
+/** O aluno ativo tem "meu professor" na equipe (qualquer cargo)? */
+export const hasMyTeacher = (h: Hierarchy): boolean => staffTiers(h).some((t) => t.people.some((p) => p.isMyTeacher));
+
 /** Linha de uma folha até o "barramento" (rampa com canto suave). */
 function downPath(px: number, pb: number, jy: number, r = 18): string {
   if (Math.abs(px) < 1) return `M${px} ${pb}V${jy}`;
@@ -118,8 +148,8 @@ function upPath(cx: number, jy: number, ct: number, r = 18): string {
 }
 
 /**
- * Monta a árvore DE CIMA PARA BAIXO centrada em x=0: raiz (grupo) -> mestres -> professores (em linhas de até 5)
- * -> níveis do mais alto até o MEU (destacado) -> bloco esmaecido "N alunos abaixo de você". Sem nível meu
+ * Monta a árvore DE CIMA PARA BAIXO centrada em x=0: raiz (grupo) -> um bloco por CARGO DO GRUPO, do maior rank
+ * para o menor (em linhas de até 5; sem `staff`: mestres e professores) -> níveis do mais alto até o MEU (destacado) -> bloco esmaecido "N alunos abaixo de você". Sem nível meu
  * (aluno sem graduação) mostra todos os níveis e um nó "você" ao final. Funções puras: testáveis sem DOM.
  */
 export function buildLayout(h: Hierarchy): Layout {
@@ -140,7 +170,7 @@ export function buildLayout(h: Hierarchy): Layout {
       edges.push({
         key: `${tag}-c${i}`,
         d: upPath(c.x + c.w / 2, jy, c.y),
-        tone: c.kind === "teacher" && (c.person as HierarchyTeacher | undefined)?.isMyTeacher ? "mine" : tone,
+        tone: (c.kind === "teacher" || c.kind === "staff") && (c.person as HierarchyTeacher | undefined)?.isMyTeacher ? "mine" : tone,
       }),
     );
   };
@@ -165,11 +195,17 @@ export function buildLayout(h: Hierarchy): Layout {
   // raiz: grupo + sistema
   place([{ key: "root", kind: "root", w: ROOT_W, h: ROOT_H }], "normal", "root", false);
 
-  const masters = h.masters.map((p) => ({ key: `m${p.id}`, kind: "master" as const, w: PERSON_W, h: PERSON_H, person: p }));
-  for (let i = 0; i < masters.length; i += ROW_MAX) place(masters.slice(i, i + ROW_MAX), "normal", "ms", i === 0);
-
-  const teachers = h.teachers.map((p) => ({ key: `t${p.id}`, kind: "teacher" as const, w: PERSON_W, h: PERSON_H, person: p }));
-  for (let i = 0; i < teachers.length; i += ROW_MAX) place(teachers.slice(i, i + ROW_MAX), "normal", "ts", i === 0);
+  staffTiers(h).forEach((tier, ti) => {
+    const people = tier.people.map((p) => ({
+      key: `${tier.kind === "staff" ? `s${tier.badge.slug}-` : tier.kind === "master" ? "m" : "t"}${p.id}`,
+      kind: tier.kind,
+      w: PERSON_W,
+      h: PERSON_H,
+      person: p,
+      badge: tier.badge,
+    }));
+    for (let i = 0; i < people.length; i += ROW_MAX) place(people.slice(i, i + ROW_MAX), "normal", `st${ti}-${i}`, i === 0);
+  });
 
   const mineIndex = h.levels.findIndex((l) => l.isMine);
   const shown = mineIndex < 0 ? h.levels : h.levels.slice(0, mineIndex + 1);

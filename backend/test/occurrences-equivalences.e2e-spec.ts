@@ -205,7 +205,8 @@ describe('ocorrencias e equivalencia de cordas - fases 4 e 5 (e2e)', () => {
     const sug = await http().get('/api/roles/suggestions').set(auth(B.mestre.token)).expect(200);
     const mine = sug.body.find((s: { studentId: number }) => s.studentId === anaB);
     assert.ok(mine, 'aluna transferida com corda reconhecida aparece como sugestao');
-    assert.equal(mine.role, 'MONITOR');
+    // Cargos personalizados: a sugestão traz o cargo do grupo (objeto), com o perfil de acesso base.
+    assert.equal(mine.role.accessRole, 'MONITOR');
     assert.equal(mine.level.name, 'Graduado B');
   });
 });

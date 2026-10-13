@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import { Check, Medal } from "lucide-react";
 import { ropeLabel, type RopeSpec } from "@/lib/rope";
+import type { Badge } from "@/lib/roles";
 import { Rope } from "./rope";
+import { RoleChip } from "./roles";
 
 /** Cartão "Minha graduação": medalha à esquerda, textos e a CORDA vertical desenhada à direita (altura do cartão). */
 export function GraduationCard({
@@ -9,7 +11,7 @@ export function GraduationCard({
   rope,
   subtitle,
   loading = false,
-  roleLabel,
+  role,
   label = "Minha graduação",
 }: {
   /** Nome do nível atual; null = sem graduação. */
@@ -17,8 +19,8 @@ export function GraduationCard({
   rope: RopeSpec | null;
   subtitle: string;
   loading?: boolean;
-  /** Cargo atual no grupo (ex.: "Instrutor"); ausente para quem é só aluno. */
-  roleLabel?: string | null;
+  /** Cargo atual no grupo (selo principal, ex.: "Contramestre" com a cor do grupo); ausente para quem é só aluno. */
+  role?: Badge | null;
   /** Rótulo do cartão; "Graduação de <nome>" quando um dependente está selecionado. */
   label?: string;
 }) {
@@ -31,11 +33,7 @@ export function GraduationCard({
         <span className="grad-eyebrow">{label}</span>
         <h2>{name ?? (loading ? "Carregando…" : "Sem graduação")}</h2>
         <p>{subtitle}</p>
-        {roleLabel && (
-          <span className="badge mt-2" data-testid="journey-role">
-            {roleLabel}
-          </span>
-        )}
+        {role && <RoleChip badge={role} className="mt-2" testId="journey-role" />}
       </div>
       {name && rope && <Rope {...rope} orientation="vertical" length={104} thickness={20} className="grad-rope" />}
     </div>

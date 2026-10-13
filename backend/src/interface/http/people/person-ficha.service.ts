@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { OccurrenceKind, OccurrenceStatus, OrgRole, PersonDocumentKind, RopeStyle, StaffRole, StudentStatus } from '@prisma/client';
-import { sortRoles } from '../roles/staff-roles';
+import { ROLE_LABEL_BR, STAFF_ROLE_RANK } from '../roles/staff-roles';
+import { badgeOf, GROUP_ROLE_BADGE_SELECT, GroupRoleBadge, rolesPayload, sortBadges } from '../roles/group-roles';
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
@@ -55,11 +56,13 @@ export interface Ficha {
     leftReason: string | null;
     /** Matricula do grupo do token. */
     isCurrent: boolean;
-    /** Fase 3: cargos ATIVOS da pessoa neste grupo (maior primeiro). */
-    roles: StaffRole[];
+    /** Fase 3 + secao 13: cargos DO GRUPO ativos da pessoa neste grupo (selos, maior rank primeiro). */
+    roles: GroupRoleBadge[];
+    /** Slugs dos cargos (compatibilidade). */
+    roleKeys: string[];
   }[];
-  /** Fase 3: cargos ATIVOS por grupo (equipe: so o grupo do token; a propria pessoa: todos). */
-  roles: { organization: OrgRef; role: StaffRole; grantedAt: Date }[];
+  /** Fase 3: cargos ATIVOS por grupo (equipe: so o grupo do token; a propria pessoa: todos). role = perfil de acesso. */
+  roles: { organization: OrgRef; role: StaffRole; groupRole: GroupRoleBadge; grantedAt: Date }[];
   graduations: {
     id: number;
     studentId: number;
@@ -147,10 +150,15 @@ export class PersonFichaService {
         OR: [{ personId: person.id }, ...(person.userId ? [{ userId: person.userId }] : [])],
         ...(scope === 'OWN_GROUP' ? { organizationId: currentOrganizationId } : {}),
       },
-      select: { role: true, grantedAt: true, organization: { select: { id: true, name: true } } },
+      select: { id: true, role: true, grantedAt: true, organization: { select: { id: true, name: true } }, groupRole: { select: GROUP_ROLE_BADGE_SELECT } },
       orderBy: { grantedAt: 'asc' },
     });
-    const rolesOfOrg = (organizationId: number) => sortRoles(roleRows.filter((r) => r.organization.id === organizationId).map((r) => r.role));
+    // Secao 13: selo do cargo DO GRUPO (cargo excluido -> selo com o nome do perfil, sem id de cargo).
+    const badgeOfRow = (r: (typeof roleRows)[number]): GroupRoleBadge =>
+      r.groupRole
+        ? badgeOf(r.groupRole)
+        : { id: 0, name: ROLE_LABEL_BR[r.role], slug: r.role.toLowerCase(), color: null, icon: null, accessRole: r.role, rank: STAFF_ROLE_RANK[r.role] * 10 };
+    const rolesOfOrg = (organizationId: number) => sortBadges(roleRows.filter((r) => r.organization.id === organizationId).map(badgeOfRow));
     const [graduations, attendance, certificates] = await Promise.all([
       this.prisma.studentGraduation.findMany({
         where: { studentId: { in: ids } },
@@ -201,9 +209,9 @@ export class PersonFichaService {
         until: s.leftAt,
         leftReason: s.leftReason,
         isCurrent: s.organization.id === currentOrganizationId,
-        roles: rolesOfOrg(s.organization.id),
+        ...rolesPayload(rolesOfOrg(s.organization.id)),
       })),
-      roles: roleRows.map((r) => ({ organization: r.organization, role: r.role, grantedAt: r.grantedAt })),
+      roles: roleRows.map((r) => ({ organization: r.organization, role: r.role, groupRole: badgeOfRow(r), grantedAt: r.grantedAt })),
       graduations: graduations.map((g) => {
         const { graduationSystem, ...level } = g.graduationLevel;
         return {

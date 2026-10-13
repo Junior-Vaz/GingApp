@@ -21,7 +21,7 @@ export function StudentCardPhoto({ name, photo }: { name: string; photo?: string
   return (
     <div
       data-testid="student-card-photo"
-      className="relative h-40 w-full shrink-0 overflow-hidden bg-secondary sm:h-auto sm:min-h-44 sm:w-44 lg:w-52"
+      className="relative h-28 w-full shrink-0 overflow-hidden bg-secondary sm:h-auto sm:min-h-44 sm:w-44 lg:w-52"
     >
       {hasPhoto ? (
         <img

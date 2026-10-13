@@ -22,8 +22,17 @@ class RoleTargetDto {
   @Min(1)
   personId?: number;
 
+  /** Cargo DO GRUPO (GET /group-roles). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  groupRoleId?: number;
+
+  /** LEGADO: enum do perfil; mapeado para o cargo padrao do grupo (slug mestre/professor/instrutor/monitor). */
+  @IsOptional()
   @IsEnum(StaffRole)
-  role!: StaffRole;
+  role?: StaffRole;
 }
 
 export class GrantRoleDto extends RoleTargetDto {
@@ -44,8 +53,16 @@ export class GrantRoleDto extends RoleTargetDto {
 export class RevokeRoleDto extends RoleTargetDto {}
 
 class RoleRuleDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  groupRoleId?: number;
+
+  /** LEGADO (enum); prefira groupRoleId. */
+  @IsOptional()
   @IsEnum(StaffRole)
-  role!: StaffRole;
+  role?: StaffRole;
 
   @Type(() => Number)
   @IsInt()
@@ -55,7 +72,7 @@ class RoleRuleDto {
 
 export class SetRoleRulesDto {
   @IsArray()
-  @ArrayMaxSize(4)
+  @ArrayMaxSize(20)
   @ValidateNested({ each: true })
   @Type(() => RoleRuleDto)
   rules!: RoleRuleDto[];

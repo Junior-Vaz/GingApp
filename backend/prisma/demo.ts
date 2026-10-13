@@ -42,6 +42,7 @@ import {
   UserType,
 } from '@prisma/client';
 import { isStaffOrgRole, sortRoles } from '../src/interface/http/roles/staff-roles';
+import { ensureDefaultGroupRoles } from '../src/interface/http/roles/group-roles';
 import * as bcrypt from 'bcrypt';
 import { BCRYPT_ROUNDS } from '../src/shared/security/password-policy';
 import { findUserIdsByEmail } from '../src/shared/security/email-lookup';
@@ -536,36 +537,76 @@ async function ensureMembership(ctx: Ctx, tx: Tx, orgId: number, userId: number,
   }
 }
 
-/** Demo com a Fase 3: regras de corda por cargo e 1 Instrutor (aluno3) + 1 Monitor (aluno2), alunos do grupo (aluno1 segue so aluno, vitrine do app). Idempotente. */
-export const DEMO_ROLE_RULES: { role: StaffRole; minLevelOrder: number }[] = [
-  { role: StaffRole.MONITOR, minLevelOrder: 4 },
-  { role: StaffRole.INSTRUTOR, minLevelOrder: 6 },
-  { role: StaffRole.PROFESSOR, minLevelOrder: 8 },
+/**
+ * Demo com a Fase 3 + cargos DO GRUPO (secao 13): os 4 cargos padrao + "Contramestre" (perfil Professor, rank 35) e
+ * "Formado" (perfil Instrutor, rank 25); regras de corda por cargo; 1 Instrutor + Formado (aluno3), 1 Monitor (aluno2) e
+ * 1 Contramestre (professor1). aluno1 segue so aluno (vitrine do app). Idempotente; nunca sobrescreve o que o Mestre mudou.
+ */
+export const DEMO_CUSTOM_GROUP_ROLES: { slug: string; name: string; accessRole: StaffRole; rank: number; color: string; icon: string; minLevelOrder: number }[] = [
+  { slug: 'contramestre', name: 'Contramestre', accessRole: StaffRole.PROFESSOR, rank: 35, color: '#B91C1C', icon: 'medal', minLevelOrder: 8 },
+  { slug: 'formado', name: 'Formado', accessRole: StaffRole.INSTRUTOR, rank: 25, color: '#0E7490', icon: 'star', minLevelOrder: 7 },
 ];
-export const DEMO_STAFF_PROMOTIONS: { key: AccountKey; role: StaffRole }[] = [
-  { key: 'aluno3', role: StaffRole.INSTRUTOR },
-  { key: 'aluno2', role: StaffRole.MONITOR },
+/** Regras dos cargos padrao (slug -> corda minima). */
+export const DEMO_ROLE_RULES: { slug: string; minLevelOrder: number }[] = [
+  { slug: 'monitor', minLevelOrder: 4 },
+  { slug: 'instrutor', minLevelOrder: 6 },
+  { slug: 'professor', minLevelOrder: 8 },
+];
+export const DEMO_STAFF_PROMOTIONS: { key: AccountKey; slug: string }[] = [
+  { key: 'aluno3', slug: 'instrutor' },
+  { key: 'aluno2', slug: 'monitor' },
+  { key: 'professor1', slug: 'contramestre' },
+  { key: 'aluno3', slug: 'formado' },
 ];
 
 async function stepStaffRoles(ctx: Ctx): Promise<void> {
-  await block(ctx, 'cargos (regras de corda, instrutor e monitor)', async (tx) => {
+  await block(ctx, 'cargos do grupo (padrao + Contramestre/Formado, regras de corda e promocoes)', async (tx) => {
+    bump(ctx, 'groupRoles', await ensureDefaultGroupRoles(tx, ctx.orgId));
     const system = await tx.graduationSystem.findFirst({ where: { organizationId: ctx.orgId, name: GRADUATION_SYSTEM.name } });
-    // Regras so quando o sistema ainda nao tem nenhuma (o Mestre pode ter ajustado: nao sobrescreve).
-    if (system && (await tx.graduationRoleRule.count({ where: { graduationSystemId: system.id } })) === 0) {
-      const orders = new Set((await tx.graduationLevel.findMany({ where: { graduationSystemId: system.id }, select: { order: true } })).map((l) => l.order));
-      const rules = DEMO_ROLE_RULES.filter((r) => orders.has(r.minLevelOrder));
+    const orders = system
+      ? new Set((await tx.graduationLevel.findMany({ where: { graduationSystemId: system.id }, select: { order: true } })).map((l) => l.order))
+      : new Set<number>();
+    // Cargos proprios do demo: criados uma vez (com a regra de corda); se o Mestre renomear/excluir, nao recria por cima.
+    for (const custom of DEMO_CUSTOM_GROUP_ROLES) {
+      if (await tx.groupRole.findUnique({ where: { organizationId_slug: { organizationId: ctx.orgId, slug: custom.slug } } })) continue;
+      if (await tx.auditLog.count({ where: { organizationId: ctx.orgId, action: 'GROUP_ROLE_DELETE', metadata: { path: ['name'], equals: custom.name } } })) continue;
+      const created = await tx.groupRole.create({
+        data: { organizationId: ctx.orgId, name: custom.name, slug: custom.slug, accessRole: custom.accessRole, rank: custom.rank, color: custom.color, icon: custom.icon },
+      });
+      bump(ctx, 'groupRoles', 1);
+      if (system && orders.has(custom.minLevelOrder)) {
+        await tx.graduationRoleRule.create({
+          data: { organizationId: ctx.orgId, graduationSystemId: system.id, role: custom.accessRole, groupRoleId: created.id, minLevelOrder: custom.minLevelOrder },
+        });
+        bump(ctx, 'roleRules', 1);
+      }
+    }
+    // Regras dos cargos padrao so quando o sistema ainda nao tem nenhuma delas (o Mestre pode ter ajustado: nao sobrescreve).
+    const defaults = await tx.groupRole.findMany({ where: { organizationId: ctx.orgId, isDefault: true } });
+    if (system && (await tx.graduationRoleRule.count({ where: { graduationSystemId: system.id, groupRoleId: { in: defaults.map((d) => d.id) } } })) === 0) {
+      const rules = DEMO_ROLE_RULES.map((r) => ({ ...r, groupRole: defaults.find((d) => d.slug === r.slug) })).filter((r) => r.groupRole && orders.has(r.minLevelOrder));
       await tx.graduationRoleRule.createMany({
-        data: rules.map((r) => ({ organizationId: ctx.orgId, graduationSystemId: system.id, role: r.role, minLevelOrder: r.minLevelOrder })),
+        data: rules.map((r) => ({ organizationId: ctx.orgId, graduationSystemId: system.id, role: r.groupRole!.accessRole, groupRoleId: r.groupRole!.id, minLevelOrder: r.minLevelOrder })),
       });
       bump(ctx, 'roleRules', rules.length);
     }
     for (const promo of DEMO_STAFF_PROMOTIONS) {
+      const groupRole = await tx.groupRole.findUnique({ where: { organizationId_slug: { organizationId: ctx.orgId, slug: promo.slug } } });
+      if (!groupRole || !groupRole.active) continue;
       const userId = uid(ctx, promo.key);
       // Ja concedido (ou revogado pelo Mestre) antes: respeita o historico.
-      if (await tx.personRole.count({ where: { organizationId: ctx.orgId, userId, role: promo.role } })) continue;
+      if (await tx.personRole.count({ where: { organizationId: ctx.orgId, userId, groupRoleId: groupRole.id } })) continue;
       const person = await tx.person.findUnique({ where: { userId }, select: { id: true } });
       await tx.personRole.create({
-        data: { organizationId: ctx.orgId, userId, personId: person?.id ?? null, role: promo.role, source: 'DEMO', grantedByUserId: uid(ctx, 'mestre') },
+        data: {
+          organizationId: ctx.orgId,
+          userId,
+          personId: person?.id ?? null,
+          role: groupRole.accessRole,
+          groupRoleId: groupRole.id,
+          source: 'DEMO',
+          grantedByUserId: uid(ctx, 'mestre'),
+        },
       });
       bump(ctx, 'staffRoles', 1);
       const account = ACCOUNTS.find((a) => a.key === promo.key)!;

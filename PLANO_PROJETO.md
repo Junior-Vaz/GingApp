@@ -3493,3 +3493,39 @@ Origem: relatório de QA integrado (navegador + backend real). Sem commit; traba
 #### Pendências
 1. Revisão visual no navegador (item 2 acima). 2. A orgs `[audit] Grupo 224735` (sessão de auditoria) não foi apagada por ser ambígua.
 3. Specs e2e ainda deixam resíduos por falta de limpeza própria (`authpwd`, `dto-hardening`, planos "Plano E2E cargos"); repetir o script de limpeza quando preciso.
+
+### Ficha única — Seção 13: cargos DO GRUPO (backend + painel + app) - 2026-10-13
+Estado: **concluído, sem commit**. Detalhe/contrato: `docs/FICHA_UNICA.md` seção 13; deploy: `docs/EASYPANEL.md` seção 23.
+
+#### O que foi feito
+- **Backend:** tabela `GroupRole` (migration `20261015000000_group_roles`, só adiciona) + `groupRoleId` em `PersonRole`,
+  `GraduationRoleRule`, `RoleSuggestionNotice`. SSOT `src/interface/http/roles/group-roles.ts` (padrões, selos, `badgesByUser`,
+  sugestão por rank, backfill); CRUD `GroupRolesService/Controller` (`/api/group-roles`, reorder, migrate); `RolesService` por
+  `groupRoleId` (aceita `role` legado); acesso efetivo = maior `accessRole`, selo = maior rank; `createGroup` cria os 4 padrão;
+  teachers/students/ficha//auth/me devolvem selos + `roleKeys`; hierarquia ganhou `staff` por cargo; auditoria
+  `GROUP_ROLE_CREATE/UPDATE/DELETE/REORDER/MIGRATE`; demo com Contramestre (PROFESSOR 35) e Formado (INSTRUTOR 25).
+- **Boot:** `prisma/group-roles-backfill.ts --auto` (flag `GROUP_ROLES_BACKFILL`, `|| echo`) antes do roles-backfill;
+  `npm run group-roles:backfill`. `.env.example`, `.env.easypanel.example`, `docker-compose.easypanel.yml`, `Dockerfile`.
+- **Painel:** aba "Cargos do grupo" em Equipe (só MESTRE): ordenar, criar/editar (perfil em cartões, cor, ícone, rank),
+  inativar, migrar, excluir; selos coloridos em Equipe/Alunos/Ficha/Sugestões; promover/revogar/regras por `groupRoleId`.
+- **App:** selo do cargo do grupo (nome/cor/ícone) no Perfil/Jornada; Hierarquia desenhada por cargo (rank), fallback legado.
+
+#### Números (medidos)
+- Migração no banco de dev: memberships e cargos ativos por perfil **idênticos** antes/depois; 12 cargos padrão (3 grupos);
+  10/10 cargos e 3/3 regras ligados; 0 divergência perfil×cargo; `prisma migrate diff` sem diferença; backfill 2x = 0 alterações.
+- Backend: `npm run build` OK; `test:unit` 171/171; `test:quick` (group-roles, staff-roles, bootstrap, teachers, students,
+  student-access, person, transfers, graduations, ranking, member-privacy, demo-seed; 17 specs) 223 testes: 221 + 2 ajustes de
+  contrato (allowlist de chaves do teachers e `roles`→`roleKeys` no demo-seed) → reexecutados 41/41; smoke 75/75.
+- Painel: lint OK, 645/645 testes, build OK. App: lint OK, 252/252 testes, build OK.
+
+#### O que NÃO deu certo / observações
+1. `prisma generate` falhou no rename da DLL do engine (EPERM: um `node dist/main.js` em execução segura o arquivo); o client TS
+   foi gerado (o engine não muda com o schema). Reiniciar a API local para pegar o código novo.
+2. 1ª versão do `migrate` contava Mestres só por `PersonRole` e barrava (409) grupo cujo Mestre ainda não tinha cargo
+   materializado; corrigido para contar pelo acesso efetivo (membership). O `LAST_MESTRE` do revogar também passou a contar o legado.
+3. `tsc` do projeto inteiro acusa erros PRÉ-EXISTENTES em `test/certificate-pdf.e2e-spec.ts` e `test/map-places.e2e-spec.ts` (não tocados).
+
+#### Pendências
+1. Revisão visual (painel e app) com o backend real. 2. `POST/PATCH /teachers` continuam por perfil (`role`), criando o cargo
+padrão; aceitar `groupRoleId` ali é opcional. 3. "Promover a…" no painel só oferece cargos de rank maior que o atual (decisão de UI).
+4. Rodar o demo no ambiente com `DEMO_PASSWORD` para ganhar Contramestre/Formado (o spec demo-seed já cobre em grupo isolado).

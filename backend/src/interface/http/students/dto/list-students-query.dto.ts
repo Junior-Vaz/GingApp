@@ -19,6 +19,12 @@ export class ListStudentsQueryDto extends PageQueryDto {
   @IsEnum(StaffRole)
   role?: StaffRole;
 
+  /** Secao 13: so alunos que exercem este cargo DO GRUPO (GET /group-roles). */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  groupRoleId?: number;
+
   /** Ordenacao: 'name' = alfabetica (A-Z); 'recent' (padrao da API) = mais recentemente cadastrado primeiro. */
   @IsOptional()
   @IsIn(['name', 'recent'])

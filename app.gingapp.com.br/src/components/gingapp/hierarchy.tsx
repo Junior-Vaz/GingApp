@@ -8,6 +8,7 @@ import {
   clampScale,
   cssTransform,
   fitScale,
+  hasMyTeacher,
   progressOf,
   shortName,
   zoomAt,
@@ -16,8 +17,10 @@ import {
   type Transform,
 } from "@/lib/hierarchy";
 import { useHierarchy, type Hierarchy, type HierarchyLevel, type HierarchyPerson, type HierarchyTeacher } from "@/lib/queries";
+import type { Badge } from "@/lib/roles";
 import { Avatar } from "./avatar";
 import { Rope } from "./rope";
+import { RoleChip } from "./roles";
 import { plural } from "@/lib/plural";
 
 const ZOOM_STEP = 1.25;
@@ -39,7 +42,7 @@ function AvatarStack({ students, total, className = "" }: { students: HierarchyL
   );
 }
 
-function PersonNode({ person, role, group }: { person: HierarchyPerson | HierarchyTeacher; role: string; group: Hierarchy["group"] }) {
+function PersonNode({ person, badge, group }: { person: HierarchyPerson | HierarchyTeacher; badge: Badge; group: Hierarchy["group"] }) {
   const mine = "isMyTeacher" in person && person.isMyTeacher;
   return (
     <div className={`hier-card hier-person ${mine ? "is-my-teacher" : ""}`} data-testid={mine ? "my-teacher" : undefined}>
@@ -48,9 +51,9 @@ function PersonNode({ person, role, group }: { person: HierarchyPerson | Hierarc
           <ShieldCheck aria-hidden="true" /> Seu professor
         </span>
       )}
-      <Avatar name={person.displayName} src={person.photo} size={role === "Mestre" ? 78 : 68} groupName={group.name} groupLogoUrl={group.logoUrl} badgeLetters={1} />
+      <Avatar name={person.displayName} src={person.photo} size={badge.accessRole === "MESTRE" ? 78 : 68} groupName={group.name} groupLogoUrl={group.logoUrl} badgeLetters={1} />
       <strong className="hier-name">{person.displayName}</strong>
-      <span className="hier-role">{role}</span>
+      <RoleChip badge={badge} />
       {person.level && <Rope {...person.level} orientation="horizontal" length={56} thickness={12} />}
     </div>
   );
@@ -156,9 +159,9 @@ function renderNode(node: LayoutNode, h: Hierarchy, selectedId: number | null, o
     case "root":
       return <RootNode h={h} />;
     case "master":
-      return node.person ? <PersonNode person={node.person} role="Mestre" group={h.group} /> : null;
     case "teacher":
-      return node.person ? <PersonNode person={node.person} role="Professor" group={h.group} /> : null;
+    case "staff":
+      return node.person && node.badge ? <PersonNode person={node.person} badge={node.badge} group={h.group} /> : null;
     case "level":
       return node.level ? <LevelNode level={node.level} onOpen={open} selected={selectedId === node.level.id} /> : null;
     case "mine":
@@ -224,8 +227,8 @@ function HierarchySkeleton() {
 /* ---------- Canvas ---------- */
 
 /**
- * Hierarquia do grupo em TELA CHEIA (mesmo contêiner do mapa): árvore de cima para baixo — grupo, mestres,
- * professores e as cordas do mais alto até a minha. Arrastar = pan; roda/pinça/botões = zoom; "Centralizar em mim".
+ * Hierarquia do grupo em TELA CHEIA (mesmo contêiner do mapa): árvore de cima para baixo — grupo, cargos do
+ * grupo (do maior rank ao menor, com selo colorido) e as cordas do mais alto até a minha. Arrastar = pan; roda/pinça/botões = zoom; "Centralizar em mim".
  * Pan/zoom são só `transform` CSS sobre o "mundo" (sem bibliotecas).
  */
 export function HierarchyCanvas({ viewToggle }: { viewToggle: ReactNode }) {
@@ -533,7 +536,7 @@ function HierarchyTree({ h, viewToggle }: { h: Hierarchy; viewToggle: ReactNode 
             <li>
               <i className="lg-me" /> Você
             </li>
-            {h.teachers.some((p: HierarchyTeacher) => p.isMyTeacher) && (
+            {hasMyTeacher(h) && (
               <li>
                 <i className="lg-teacher" /> Seu professor
               </li>

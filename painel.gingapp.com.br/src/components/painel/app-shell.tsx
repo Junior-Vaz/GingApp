@@ -5,6 +5,8 @@ import { LogOut } from "lucide-react";
 import { Brand } from "@/components/painel/brand";
 import { ChangePasswordButton } from "@/components/painel/change-password-dialog";
 import { MyDataButton } from "@/components/painel/legal";
+import { MobileNav } from "@/components/painel/mobile-nav";
+import { OfflineBanner, UpdatePrompt } from "@/components/painel/pwa-prompts";
 import { TwoFactorButton } from "@/components/painel/two-factor-dialog";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -94,8 +96,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       </Sidebar>
 
       <SidebarInset className="min-w-0">
-        <header className="sticky top-0 z-10 flex h-14 min-w-0 items-center gap-2 border-b bg-card px-3 sm:gap-3 sm:px-4">
-          <SidebarTrigger aria-label="Alternar menu" className="shrink-0" />
+        {/* Celular: cabeçalho compacto que respeita o entalhe/status bar (safe-area); a navegação fica na barra inferior. */}
+        <header className="sticky top-0 z-10 flex h-[calc(3rem+env(safe-area-inset-top))] min-w-0 items-center gap-2 border-b bg-card px-3 pt-[env(safe-area-inset-top)] sm:gap-3 sm:px-4 md:h-14 md:pt-0">
+          <SidebarTrigger aria-label="Alternar menu" className="shrink-0 max-md:hidden" />
           {/* Celular/tablet: o menu vira gaveta e a marca some da tela; o logo do grupo (ou o do GingApp) fica no cabeçalho. */}
           <img
             data-testid="topbar-logo"
@@ -114,25 +117,33 @@ export function AppShell({ children }: { children: ReactNode }) {
                     {initials(user.name)}
                   </AvatarFallback>
                 </Avatar>
-                <div className="hidden text-left leading-tight sm:block">
+                <div className="hidden text-left leading-tight lg:block">
                   <p className="text-sm font-semibold">{user.name}</p>
                   <p className="text-xs text-muted-foreground">{user.organizationSlug}</p>
                 </div>
-                <Badge variant="secondary" className="hidden sm:inline-flex">
+                <Badge variant="secondary" className="hidden lg:inline-flex">
                   {ROLE_LABEL[user.role]}
                 </Badge>
               </div>
             )}
-            <MyDataButton />
-            <ChangePasswordButton />
-            <TwoFactorButton />
-            <Button variant="ghost" size="sm" onClick={handleLogout}>
-              <LogOut />
-              <span className="hidden sm:inline">Sair</span>
-            </Button>
+            {/* Celular: estas ações moram na folha "Mais" da barra inferior (MobileNav). */}
+            <div className="flex items-center gap-1 max-md:hidden sm:gap-3">
+              <MyDataButton />
+              <ChangePasswordButton />
+              <TwoFactorButton />
+              <Button variant="ghost" size="sm" onClick={handleLogout}>
+                <LogOut />
+                <span className="hidden lg:inline">Sair</span>
+              </Button>
+            </div>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 md:px-8 md:py-8">{children}</main>
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 pt-4 pb-[calc(9rem+env(safe-area-inset-bottom))] md:px-8 md:py-8">
+          <OfflineBanner />
+          {children}
+        </main>
+        <MobileNav onLogout={handleLogout} />
+        <UpdatePrompt />
       </SidebarInset>
     </SidebarProvider>
   );

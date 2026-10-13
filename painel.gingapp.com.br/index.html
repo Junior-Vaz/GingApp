@@ -2,13 +2,18 @@
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#164d38" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="GingApp" />
     <title>Painel GingApp</title>
     <link rel="icon" href="/favicon.png" type="image/png" />
     <link rel="icon" href="/icone.png" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Sem <link rel="manifest"> aqui de propósito: o vite-plugin-pwa o injeta no BUILD (manifest.webmanifest). No dev
+         (devOptions.enabled=false) o arquivo não existe e o servidor devolveria o index.html ("Manifest: Syntax error"). -->
   </head>
   <body>
     <div id="root"></div>

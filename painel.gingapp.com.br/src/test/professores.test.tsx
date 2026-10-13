@@ -33,12 +33,14 @@ function renderPage(ui: React.ReactElement) {
 }import { ProfessoresPage } from "@/modules/professores/professores-page";
 import { createTeacherSchema, editPayload, createPayload } from "@/modules/professores/schema";
 import { clickMenuAction, expectMenuAction, queryMenuAction } from "./row-menu";
+import { defaultGroupRoles, MESTRE_BADGE, PROFESSOR_BADGE } from "./group-roles";
 
 const teachers = [
-  { id: 10, role: "MESTRE", status: "ACTIVE", user: { id: 1, name: "Mestre Bimba", email: "bimba@x.com", phone: "7133" } },
-  { id: 11, role: "PROFESSOR", status: "INACTIVE", user: { id: 2, name: "Pastinha", email: "pastinha@x.com", phone: null } },
+  { id: 10, role: "MESTRE", roles: [MESTRE_BADGE], status: "ACTIVE", user: { id: 1, name: "Mestre Bimba", email: "bimba@x.com", phone: "7133" } },
+  { id: 11, role: "PROFESSOR", roles: [PROFESSOR_BADGE], status: "INACTIVE", user: { id: 2, name: "Pastinha", email: "pastinha@x.com", phone: null } },
 ];
-const base = () => ({ "GET /teachers": () => json(200, teachers, { "X-Total-Count": String(teachers.length) }) });
+const groupRolesRoute = { "GET /group-roles": () => json(200, defaultGroupRoles()) };
+const base = () => ({ ...groupRolesRoute, "GET /teachers": () => json(200, teachers, { "X-Total-Count": String(teachers.length) }) });
 
 beforeEach(() => {
   loginAs("MESTRE"); // a UI esconde ações conforme o papel (useCan); os testes de PROFESSOR trocam o papel
@@ -66,12 +68,13 @@ describe("schema de professores", () => {
 describe("ProfessoresPage", () => {
   it("lista com papel/status e envia papel, status e busca ao SERVIDOR", async () => {
     const calls = mockApi({
+      ...groupRolesRoute,
       "GET /teachers": (c) => {
-        const role = c.query.get("role");
+        const role = c.query.get("groupRoleId");
         const status = c.query.get("status");
         const q = c.query.get("q")?.toLowerCase();
         const rows = teachers.filter(
-          (t) => (!role || t.role === role) && (!status || t.status === status) && (!q || t.user.email.includes(q)),
+          (t) => (!role || t.roles.some((r) => String(r.id) === role)) && (!status || t.status === status) && (!q || t.user.email.includes(q)),
         );
         return json(200, rows, { "X-Total-Count": String(rows.length) });
       },
@@ -83,18 +86,20 @@ describe("ProfessoresPage", () => {
     const first = calls.find((c) => c.path === "/teachers")!;
     expect(first.query.get("limit")).toBe("10");
     expect(first.query.get("offset")).toBe("0");
-    expect(first.query.has("role")).toBe(false);
+    expect(first.query.has("groupRoleId")).toBe(false);
     expect(first.query.has("status")).toBe(false);
     expect(first.query.has("q")).toBe(false);
 
-    fireEvent.change(screen.getByLabelText("Filtrar por cargo"), { target: { value: "PROFESSOR" } });
+    // O filtro por cargo lista os cargos do grupo e envia ?groupRoleId=
+    await waitFor(() => expect(within(screen.getByLabelText("Filtrar por cargo")).getAllByRole("option")).toHaveLength(5));
+    fireEvent.change(screen.getByLabelText("Filtrar por cargo"), { target: { value: String(PROFESSOR_BADGE.id) } });
     await waitFor(() => expect(screen.queryByText("Mestre Bimba")).not.toBeInTheDocument());
     expect(screen.getByText("Pastinha")).toBeInTheDocument();
-    expect(calls.at(-1)!.query.get("role")).toBe("PROFESSOR");
+    expect(calls.at(-1)!.query.get("groupRoleId")).toBe(String(PROFESSOR_BADGE.id));
     fireEvent.change(screen.getByLabelText("Filtrar por cargo"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "ACTIVE" } });
     await waitFor(() => expect(calls.at(-1)!.query.get("status")).toBe("ACTIVE"));
-    expect(calls.at(-1)!.query.has("role")).toBe(false);
+    expect(calls.at(-1)!.query.has("groupRoleId")).toBe(false);
     expect(await screen.findByText("Mestre Bimba")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "" } });
 
@@ -111,6 +116,7 @@ describe("ProfessoresPage", () => {
       ...teachers[0]!, id: 100 + i, user: { ...teachers[0]!.user, id: 100 + i, name: `Prof ${String(i + 1).padStart(2, "0")}` },
     }));
     const calls = mockApi({
+      ...groupRolesRoute,
       "GET /teachers": (c) => {
         const offset = Number(c.query.get("offset") ?? 0);
         const limit = Number(c.query.get("limit") ?? 50);
@@ -124,8 +130,9 @@ describe("ProfessoresPage", () => {
     fireEvent.click(screen.getByLabelText("Próxima página"));
     expect(await screen.findByText("Prof 11")).toBeInTheDocument();
     expect(calls.at(-1)!.query.get("offset")).toBe("10");
-    fireEvent.change(screen.getByLabelText("Filtrar por cargo"), { target: { value: "MESTRE" } });
-    await waitFor(() => expect(calls.at(-1)!.query.get("role")).toBe("MESTRE"));
+    await waitFor(() => expect(within(screen.getByLabelText("Filtrar por cargo")).getAllByRole("option")).toHaveLength(5));
+    fireEvent.change(screen.getByLabelText("Filtrar por cargo"), { target: { value: String(MESTRE_BADGE.id) } });
+    await waitFor(() => expect(calls.at(-1)!.query.get("groupRoleId")).toBe(String(MESTRE_BADGE.id)));
     expect(calls.at(-1)!.query.get("offset")).toBe("0");
     expect(await screen.findByText("Página 1 de 3")).toBeInTheDocument();
   });
@@ -154,7 +161,7 @@ describe("ProfessoresPage", () => {
     expect(calls.some((c) => c.method === "POST")).toBe(false);
 
     fireEvent.change(within(dialog).getByLabelText("Senha inicial"), { target: { value: "segredo1" } });
-    fireEvent.change(within(dialog).getByLabelText("Cargo"), { target: { value: "MESTRE" } });
+    fireEvent.change(within(dialog).getByLabelText("Perfil de acesso"), { target: { value: "MESTRE" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
     expect(calls.find((c) => c.method === "POST")).toMatchObject({

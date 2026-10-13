@@ -99,12 +99,13 @@ export function FormDialog<T extends FieldValues>({
   if (as === "sheet") {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className={cn("overflow-y-auto sm:max-w-md", className)}>
+        {/* Celular: tela cheia (largura total); o rodapé Cancelar/Salvar é fixo (sticky) e o corpo rola. */}
+        <SheetContent className={cn("overflow-y-auto sm:max-w-md max-sm:w-full max-sm:p-4", className)}>
           <SheetHeader>
             <SheetTitle>{title}</SheetTitle>
             <SheetDescription>{description ?? "Preencha os dados abaixo."}</SheetDescription>
           </SheetHeader>
-          <div className="px-4 pb-4">{body}</div>
+          <div className="pb-4 sm:px-4">{body}</div>
         </SheetContent>
       </Sheet>
     );
@@ -112,7 +113,9 @@ export function FormDialog<T extends FieldValues>({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("max-h-[92dvh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden", className)}>
+      <DialogContent
+        className={cn("max-h-[92dvh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden max-sm:overflow-hidden", className)}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description ?? "Preencha os dados abaixo."}</DialogDescription>
@@ -145,8 +148,12 @@ function FooterButtons({
     </>
   );
   return as === "sheet" ? (
-    <SheetFooter className="sticky bottom-0 -mx-4 flex-row justify-end border-t bg-background px-4 py-3">{buttons}</SheetFooter>
+    <SheetFooter className="sticky bottom-0 -mx-4 flex-row justify-end gap-2 border-t bg-background px-4 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] max-sm:[&>button]:flex-1">
+      {buttons}
+    </SheetFooter>
   ) : (
-    <DialogFooter className="border-t pt-4">{buttons}</DialogFooter>
+    <DialogFooter className="border-t pt-4 max-sm:flex-row max-sm:gap-2 max-sm:pt-3 max-sm:[&>button]:flex-1">
+      {buttons}
+    </DialogFooter>
   );
 }

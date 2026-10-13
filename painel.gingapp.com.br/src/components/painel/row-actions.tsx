@@ -44,7 +44,7 @@ export function RowActions({ actions, subject }: { actions: MaybeRowAction[]; su
           type="button"
           variant="ghost"
           size="icon"
-          className={cn("size-8", a.destructive && "text-destructive hover:text-destructive")}
+          className={cn("md:size-8", a.destructive && "text-destructive hover:text-destructive")}
           title={a.label}
           aria-label={a.ariaLabel ?? a.label}
           onClick={a.onSelect}
@@ -56,7 +56,7 @@ export function RowActions({ actions, subject }: { actions: MaybeRowAction[]; su
         // modal=false: abrir um diálogo a partir de um item não deixa o body com pointer-events travado.
         <DropdownMenu modal={false}>
           <DropdownMenuTrigger asChild>
-            <Button type="button" variant="ghost" size="icon" className="size-8" title="Mais ações" aria-label={moreLabel}>
+            <Button type="button" variant="ghost" size="icon" className="md:size-8" title="Mais ações" aria-label={moreLabel}>
               <MoreHorizontal />
             </Button>
           </DropdownMenuTrigger>

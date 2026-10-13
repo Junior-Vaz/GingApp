@@ -489,8 +489,15 @@ describe('Grupo demo (prisma/demo.ts) (e2e)', () => {
       const teachers = await get(app, 'teachers', token);
       // Fase 3: equipe = 4 contas de equipe + aluno3 (Instrutor) e aluno2 (Monitor), que seguem alunos do grupo.
       assert.equal(teachers.total, 6);
-      const byRole = Object.fromEntries(teachers.body.map((t: { user: { email: string }; roles: string[] }) => [t.user.email.split('@')[0], t.roles]));
-      assert.deepEqual([byRole.aluno3, byRole.aluno2], [['INSTRUTOR'], ['MONITOR']]);
+      // Secao 13: cargos DO GRUPO (selos; roleKeys = slugs). Contramestre/Formado sao cargos proprios do demo.
+      const byRole = Object.fromEntries(teachers.body.map((t: { user: { email: string }; roleKeys: string[] }) => [t.user.email.split('@')[0], t.roleKeys]));
+      assert.deepEqual([byRole.aluno3, byRole.aluno2], [['formado', 'instrutor'], ['monitor']]);
+      assert.equal(byRole.professor1[0], 'contramestre');
+      const groupRoles = await get(app, 'group-roles', token);
+      assert.deepEqual(
+        groupRoles.body.map((r: { slug: string; accessRole: string; rank: number }) => [r.slug, r.accessRole, r.rank]),
+        [['mestre', 'MESTRE', 40], ['contramestre', 'PROFESSOR', 35], ['professor', 'PROFESSOR', 30], ['formado', 'INSTRUTOR', 25], ['instrutor', 'INSTRUTOR', 20], ['monitor', 'MONITOR', 10]],
+      );
 
       const finance = await get(app, 'finance?limit=200', token);
       assert.equal(finance.status, 200);

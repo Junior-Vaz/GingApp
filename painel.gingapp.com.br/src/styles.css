@@ -10,6 +10,17 @@
 }
 :root { --background: oklch(.976 .003 150); --foreground: oklch(.25 .022 155); --card: oklch(1 0 0); --primary: oklch(.365 .067 158); --primary-foreground: oklch(.99 .005 150); --secondary: oklch(.938 .025 147); --muted: oklch(.949 .006 155); --muted-foreground: oklch(.55 .015 155); --border: oklch(.907 .009 150); --highlight: oklch(.89 .12 120); --warning: oklch(.65 .135 70); --destructive: oklch(.57 .18 25); --shadow: 0 4px 20px oklch(.2 .03 155 / .035); --radius: 8px; }
 @layer base { * { border-color: var(--border); } body { margin:0; background:var(--background); color:var(--foreground); font-family:var(--font-sans); letter-spacing:0; } h1,h2,h3,h4 { font-family:var(--font-display); letter-spacing:0; } button,a,input,select { -webkit-tap-highlight-color:transparent; } button,a { touch-action:manipulation; } }
+
+/* Celular (< md): campos com fonte >= 16px (o iOS dá zoom ao focar menos que isso) e área de toque >= 44px. As regras
+   ficam fora de @layer de propósito: vencem as utilitárias (h-9, text-sm) dos vários campos nativos do painel. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; overflow-x: clip; }
+@media (max-width: 767px) {
+  select, textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]) { font-size: 16px; }
+  select, input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="hidden"]) { min-height: 2.75rem; }
+  /* Checkbox/switch/radio pequenos: a área de toque cresce (44px) sem mexer no desenho. */
+  [role="checkbox"], [role="switch"], [role="radio"] { position: relative; }
+  [role="checkbox"]::after, [role="switch"]::after, [role="radio"]::after { content: ""; position: absolute; inset: -0.75rem; }
+}
 .brand { display:flex; align-items:center; gap:8px; color:var(--primary); font-family:var(--font-display); font-size:24px; font-weight:850; }
 .brand img { display:block; height:32px; width:auto; max-width:100%; object-fit:contain; }
 .brand-lg img { height:44px; }

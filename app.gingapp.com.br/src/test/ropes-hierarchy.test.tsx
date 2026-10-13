@@ -36,7 +36,9 @@ import { GraduationCard, RopeRuler } from "@/components/gingapp/graduation-parts
 import { HierarchyCanvas } from "@/components/gingapp/hierarchy";
 import { Rope } from "@/components/gingapp/rope";
 import { JourneyPage } from "@/components/gingapp/journey";
-import { buildLayout, centerOn, clampScale, MAX_SCALE, MIN_SCALE, progressOf, shortName, zoomAt } from "@/lib/hierarchy";
+import { buildLayout, centerOn, clampScale, MAX_SCALE, MIN_SCALE, progressOf, shortName, staffTiers, zoomAt } from "@/lib/hierarchy";
+import { normalizeStaff } from "@/lib/queries";
+import type { Badge } from "@/lib/roles";
 import { buildTimeline } from "@/lib/derive";
 import { colorName, normalizeRope, ropeLabel } from "@/lib/rope";
 
@@ -244,6 +246,9 @@ describe("Hierarquia (canvas)", () => {
     expect(text()).toContain("Mestre Bimba Filho");
     expect(text()).toContain("Prof Ana");
     expect(q("[data-testid='my-teacher']")!.textContent).toContain("Seu professor");
+    // sem `staff` (backend antigo): selos do papel de acesso, Mestre antes de Professor
+    const roleNames = [...container!.querySelectorAll(".hier-person .badge")].map((n) => n.textContent);
+    expect(roleNames).toEqual(["Mestre", "Professor", "Professor"]);
     expect(text()).toContain("Corda azul");
     expect(q("[data-testid='hier-me']")!.textContent).toContain("Você está aqui");
     expect(q("[data-testid='hier-me']")!.textContent).toContain("Camila Souza Lima");
@@ -255,6 +260,80 @@ describe("Hierarquia (canvas)", () => {
     expect(names.indexOf("Corda azul")).toBeLessThan(names.indexOf("Camila Souza Lima"));
     // miniaturas: máx. 6 + "+N"
     expect(q(".hier-level .hier-more")!.textContent).toBe("+3");
+  });
+
+  it("com `staff`: um bloco por cargo do grupo na ordem do rank, com selo colorido; 'seu professor' continua destacado", () => {
+    const badge = (id: number, name: string, rank: number, color: string | null, icon: string | null, accessRole: Badge["accessRole"]): Badge => ({
+      id, name, slug: name.toLowerCase(), color, icon, accessRole, rank,
+    });
+    const contramestre = badge(1, "Contramestre", 90, "#dc2626", "crown", "PROFESSOR");
+    const formado = badge(2, "Formado", 50, "#facc15", "graduation-cap", "INSTRUTOR");
+    const monitor = badge(3, "Monitor", 10, null, null, "MONITOR");
+    const person = (id: number, displayName: string, isMyTeacher = false) => ({ id, displayName, photo: null, level: null, isMyTeacher });
+    state.hierarchy = {
+      data: sample({
+        // propositalmente fora de ordem: o app ordena por rank desc
+        staff: [
+          { groupRole: monitor, people: [person(30, "Zeca Monitor")] },
+          { groupRole: contramestre, people: [person(10, "Mestre Joao"), person(11, "Mestra Lia")] },
+          { groupRole: formado, people: [person(20, "Prof Ana", true)] },
+        ],
+        masters: [],
+        teachers: [],
+      }),
+      isLoading: false,
+      error: null,
+    };
+    render(<HierarchyCanvas viewToggle={null} />);
+
+    const cards = [...container!.querySelectorAll(".hier-person")].map((c) => ({
+      name: c.querySelector(".hier-name")!.textContent,
+      role: c.querySelector(".badge")!.textContent,
+    }));
+    expect(cards).toEqual([
+      { name: "Mestre Joao", role: "Contramestre" },
+      { name: "Mestra Lia", role: "Contramestre" },
+      { name: "Prof Ana", role: "Formado" },
+      { name: "Zeca Monitor", role: "Monitor" },
+    ]);
+    const chip = q("[data-testid='role-badge-contramestre']")!;
+    expect(chip.style.backgroundColor).toBe("rgb(220, 38, 38)");
+    expect(chip.querySelector("svg")).not.toBeNull();
+    expect(q("[data-testid='role-badge-monitor']")!.style.backgroundColor).toBe("");
+    // meu professor (cargo Formado) destacado e na legenda
+    expect(q("[data-testid='my-teacher']")!.textContent).toContain("Prof Ana");
+    expect(q("[data-testid='my-teacher']")!.textContent).toContain("Formado");
+    expect(q(".hier-legend")!.textContent).toContain("Seu professor");
+    // as pessoas ficam ANTES das cordas na árvore
+    const names = [...container!.querySelectorAll(".hier-node .hier-name")].map((n) => n.textContent);
+    expect(names.indexOf("Zeca Monitor")).toBeLessThan(names.indexOf("Corda azul"));
+  });
+
+  it("staffTiers: ordena por rank, ignora cargos sem pessoas e cai em masters/teachers quando `staff` falta ou vem vazio", () => {
+    const b = (name: string, rank: number): Badge => ({ id: rank, name, slug: name.toLowerCase(), color: null, icon: null, accessRole: "MONITOR", rank });
+    const p = { id: 1, displayName: "X", photo: null, level: null, isMyTeacher: false };
+    const tiers = staffTiers(sample({ staff: [{ groupRole: b("Baixo", 1), people: [p] }, { groupRole: b("Vazio", 50), people: [] }, { groupRole: b("Alto", 99), people: [p] }] }));
+    expect(tiers.map((t) => t.badge.name)).toEqual(["Alto", "Baixo"]);
+    expect(tiers.every((t) => t.kind === "staff")).toBe(true);
+
+    for (const over of [{}, { staff: [] }]) {
+      const legacy = staffTiers(sample(over));
+      expect(legacy.map((t) => `${t.kind}:${t.badge.name}:${t.people.length}`)).toEqual(["master:Mestre:1", "teacher:Professor:2"]);
+    }
+    // o layout usa os mesmos nós: sem staff = 1 master + 2 teachers (comportamento antigo)
+    expect(buildLayout(sample()).nodes.filter((n) => n.kind === "master" || n.kind === "teacher")).toHaveLength(3);
+  });
+
+  it("normalizeStaff (select de useHierarchy): resposta fora do contrato vira [] e o rank manda na ordem", () => {
+    expect(normalizeStaff(undefined)).toEqual([]);
+    expect(normalizeStaff("x")).toEqual([]);
+    const out = normalizeStaff([
+      { groupRole: { id: 3, name: "Monitor", slug: "monitor", color: null, icon: null, accessRole: "MONITOR", rank: 10 }, people: [] },
+      { groupRole: { id: 1, name: "Contramestre", slug: "contramestre", color: "#dc2626", icon: "crown", accessRole: "PROFESSOR", rank: 90 }, people: [] },
+      { groupRole: null, people: [] },
+      { groupRole: { name: "Sem lista" } },
+    ]);
+    expect(out.map((g) => g.groupRole.name)).toEqual(["Contramestre", "Monitor"]);
   });
 
   it("clicar em um nível abre o cartão com alunos (nome curto) e Esc fecha", () => {

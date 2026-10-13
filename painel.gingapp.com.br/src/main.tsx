@@ -14,6 +14,7 @@ import "@fontsource/manrope/800.css";
 import "./styles.css";
 import { router, queryClient } from "./router";
 import { setUnauthorizedHandler } from "@/lib/api";
+import { registerAppWorker } from "@/lib/pwa";
 
 // 401 em qualquer chamada: a sessão já foi limpa pelo api.ts; aqui limpamos o cache e
 // voltamos ao login (com redirect para a página atual).
@@ -35,3 +36,6 @@ if (rootElement) {
     </StrictMode>,
   );
 }
+
+// Service worker (só em produção) + captura do convite "Instalar app".
+void registerAppWorker();

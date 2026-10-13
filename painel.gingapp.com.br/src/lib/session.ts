@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { STAFF_ROLE_LABEL, type StaffRole } from "@/lib/staff-roles";
+import { STAFF_ROLE_LABEL, type RoleBadgeData, type StaffRole } from "@/lib/staff-roles";
 
 /**
  * Sessão do painel de gestão. Chaves PRÓPRIAS (gestao_token / gestao_user) para não colidir com
@@ -36,8 +36,10 @@ export interface AuthUser {
   organizationLogoUrl?: string | null;
   /** Papel de acesso = o MAIOR cargo da pessoa no grupo (pode ser INSTRUTOR/MONITOR). */
   role: OrgRole;
-  /** Cargos ativos no grupo, do maior para o menor (GET /auth/me traz; o login pode não trazer). */
-  roles?: StaffRole[];
+  /** Selos dos cargos ativos no grupo, do maior rank para o menor (GET /auth/me traz; o login pode não trazer). */
+  roles?: RoleBadgeData[];
+  /** Chaves (slugs) dos cargos ativos. */
+  roleKeys?: string[];
   /** Senha definida por outra pessoa (conta criada/redefinida pelo Mestre): o painel exige a troca antes de tudo. */
   mustChangePassword?: boolean;
   /** Termos de Uso/Política de Privacidade (E10): true = há aceite pendente; o painel mostra a tela bloqueante. */

@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  SlidersHorizontal,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -130,6 +140,9 @@ export function DataTable<T>({
   const [localQuery, setLocalQuery] = useState("");
   const [sort, setSort] = useState<{ id: string; dir: "asc" | "desc" } | null>(null);
   const [localPage, setLocalPage] = useState(0);
+  // Celular: a tabela vira CARDS empilhados e os filtros (toolbar) ficam recolhidos atrás do botão "Filtros".
+  const isMobile = useIsMobile();
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Modo servidor: o texto digitado é local; só o valor com debounce sobe para o servidor.
   const [text, setText] = useState(server?.query ?? "");
@@ -240,7 +253,31 @@ export function DataTable<T>({
     ));
   }
 
-  function renderCards(): ReactNode {
+  /**
+   * Celular sem visão `cards` própria: cada linha vira um cartão (1ª coluna = título, demais = rótulo/valor) e as
+   * ações da linha ficam no rodapé do cartão. Reaproveita as MESMAS colunas e `rowActions` da tabela.
+   */
+  function renderAutoCard(row: T): ReactNode {
+    const [titleColumn, ...otherColumns] = columns;
+    const cellOf = (column: Column<T>) =>
+      column.cell ? column.cell(row) : String(column.sortValue?.(row) ?? "");
+    return (
+      <div className="space-y-2 rounded-lg border bg-card p-3" data-testid="auto-card">
+        {titleColumn && <div className="min-w-0 break-words text-sm font-semibold">{cellOf(titleColumn)}</div>}
+        <dl className="grid gap-1.5 text-sm">
+          {otherColumns.map((column) => (
+            <div key={column.id} className="flex items-start justify-between gap-3">
+              {column.header && <dt className="shrink-0 text-xs text-muted-foreground">{column.header}</dt>}
+              <dd className="min-w-0 break-words text-right">{cellOf(column)}</dd>
+            </div>
+          ))}
+        </dl>
+        {rowActions && <div className="-mb-1 flex justify-end border-t pt-1.5">{rowActions(row)}</div>}
+      </div>
+    );
+  }
+
+  function renderCards(renderItem: (row: T) => ReactNode): ReactNode {
     if (isLoading) {
       return (
         <div className="grid gap-3" data-testid="cards-loading">
@@ -275,10 +312,10 @@ export function DataTable<T>({
       );
     }
     return (
-      <ul className="grid gap-3" data-testid="cards-list">
+      <ul className="grid grid-cols-[minmax(0,1fr)] gap-3" data-testid="cards-list">
         {visible.map((row) => (
           <li key={getRowId(row)} className={rowClassName?.(row)}>
-            {cards?.render(row)}
+            {renderItem(row)}
           </li>
         ))}
       </ul>
@@ -290,8 +327,8 @@ export function DataTable<T>({
       {(showSearch || toolbar) && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           {showSearch ? (
-            <div className="relative w-full max-w-xs">
-              <Search className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
+            <div className="relative w-full md:max-w-xs">
+              <Search className="pointer-events-none absolute left-2.5 top-3.5 size-4 text-muted-foreground md:top-2.5" />
               <Input
                 value={server ? text : localQuery}
                 onChange={(event) => {
@@ -310,13 +347,41 @@ export function DataTable<T>({
           ) : (
             <span />
           )}
-          {toolbar}
+          {toolbar &&
+            (isMobile ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-between"
+                  aria-expanded={filtersOpen}
+                  aria-controls="table-filters"
+                  data-testid="filters-toggle"
+                  onClick={() => setFiltersOpen((open) => !open)}
+                >
+                  <span className="inline-flex items-center gap-2">
+                    <SlidersHorizontal /> Filtros
+                  </span>
+                  <ChevronDown className={cn("transition-transform", filtersOpen && "rotate-180")} />
+                </Button>
+                {/* Os campos do toolbar ocupam a largura toda no celular (um por linha). */}
+                <div
+                  id="table-filters"
+                  hidden={!filtersOpen}
+                  className="w-full rounded-lg border bg-card p-3 [&>div]:flex-col [&>div]:items-stretch [&_input]:w-full! [&_select]:w-full! [&_[role=combobox]]:w-full! [&>div>*]:w-full! [&>div>*]:max-w-none [&_div.relative]:w-full!"
+                >
+                  {toolbar}
+                </div>
+              </>
+            ) : (
+              toolbar
+            ))}
         </div>
       )}
 
-      {cards?.active ? (
+      {cards?.active || isMobile ? (
         <div className={cn(server?.isFetching && "opacity-60 transition-opacity")}>
-          {renderCards()}
+          {cards?.active ? renderCards((row) => cards.render(row)) : renderCards(renderAutoCard)}
         </div>
       ) : (
         <div
@@ -384,20 +449,23 @@ export function DataTable<T>({
             <Button
               variant="outline"
               size="icon"
-              className="size-8"
+              className="md:size-8"
               aria-label="Página anterior"
               disabled={current === 0}
               onClick={() => setPage(current - 1)}
             >
               <ChevronLeft />
             </Button>
-            <span>
+            <span className="max-sm:sr-only">
               Página {current + 1} de {pageCount}
+            </span>
+            <span className="sm:hidden" aria-hidden="true">
+              {current + 1}/{pageCount}
             </span>
             <Button
               variant="outline"
               size="icon"
-              className="size-8"
+              className="md:size-8"
               aria-label="Próxima página"
               disabled={current >= pageCount - 1}
               onClick={() => setPage(current + 1)}

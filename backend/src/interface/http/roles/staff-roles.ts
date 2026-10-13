@@ -1,5 +1,6 @@
 import { OrgRole, Prisma, PrismaClient, StaffRole, StudentStatus } from '@prisma/client';
 import { linkStudentToPerson, STUDENT_IDENTITY_SELECT } from '../people/person-linker';
+import { defaultGroupRoleFor } from './group-roles';
 
 /**
  * Regras PURAS + nucleo sem Nest dos CARGOS acumulaveis (ficha unica, Fase 3 - docs/FICHA_UNICA.md secao 5).
@@ -54,8 +55,27 @@ export async function ensureMembershipRole(db: Db, organizationId: number, userI
   const exists = await db.personRole.findFirst({ where: { organizationId, userId, role, revokedAt: null }, select: { id: true } });
   if (exists) return false;
   const person = await db.person.findUnique({ where: { userId }, select: { id: true } });
-  await db.personRole.create({ data: { organizationId, userId, personId: person?.id ?? null, role, source } });
+  // Cargo do grupo (secao 13): o cargo PADRAO do mesmo perfil de acesso.
+  const groupRole = await defaultGroupRoleFor(db, organizationId, role);
+  await db.personRole.create({ data: { organizationId, userId, personId: person?.id ?? null, role, groupRoleId: groupRole.id, source } });
   return true;
+}
+
+/**
+ * Recalcula o ACESSO (OrganizationUser.role) do login a partir dos cargos ativos (maior accessRole); sem cargo volta a
+ * ALUNO (ou RESPONSAVEL se so acompanha dependente) e perde as unidades de atuacao. Devolve o papel gravado.
+ */
+export async function recomputeAccess(db: Db, organizationId: number, userId: number): Promise<OrgRole> {
+  const active = await db.personRole.findMany({ where: { organizationId, userId, revokedAt: null }, select: { role: true } });
+  const roles = active.map((r) => r.role);
+  const [hasStudent, isGuardian] = await Promise.all([
+    db.student.count({ where: { organizationId, userId } }).then((n) => n > 0),
+    db.studentGuardian.count({ where: { organizationId, userId } }).then((n) => n > 0),
+  ]);
+  const principal = principalRole(roles, { hasStudent, isGuardian });
+  await db.organizationUser.updateMany({ where: { organizationId, userId }, data: { role: principal } });
+  if (roles.length === 0) await db.userUnitAccess.deleteMany({ where: { organizationId, userId } });
+  return principal;
 }
 
 export interface RolesBackfillReport {

@@ -3,7 +3,7 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { createCrud, notifyError } from "@/lib/crud";
 import type { RopeStyle } from "@/lib/rope";
-import type { StaffRole } from "@/lib/staff-roles";
+import type { AccessRole, RoleBadgeData } from "@/lib/staff-roles";
 import { roleErrorMessage, SUGGESTIONS_KEY, type RoleLevel } from "@/modules/professores/roles-api";
 
 export type { RopeStyle } from "@/lib/rope";
@@ -255,9 +255,12 @@ export function levelOptions(list: GraduationSystem[] | undefined) {
   return options;
 }
 
-/** Regra de um cargo: a partir de qual nível (`order`) do sistema ele é possível. */
+/** Regra de um cargo do grupo: a partir de qual nível (`order`) do sistema ele é possível. */
 export interface RoleRule {
-  role: StaffRole;
+  groupRoleId: number;
+  groupRole: RoleBadgeData & { active: boolean };
+  /** Perfil de acesso do cargo (legado). */
+  role?: AccessRole;
   minLevelOrder: number;
   level: RoleLevel | null;
 }
@@ -284,7 +287,7 @@ export function useRoleRules(systemId: number, enabled = true) {
 export function useSaveRoleRules(systemId: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (rules: { role: StaffRole; minLevelOrder: number }[]) =>
+    mutationFn: (rules: { groupRoleId: number; minLevelOrder: number }[]) =>
       api.put<RoleRules>(`/graduations/systems/${systemId}/role-rules`, { rules }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: roleRulesKey(systemId) });

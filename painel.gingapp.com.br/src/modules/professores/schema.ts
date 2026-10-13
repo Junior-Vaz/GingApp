@@ -1,10 +1,10 @@
 import { z } from "zod";
 import type { RopeStyle } from "@/lib/rope";
-import { STAFF_ROLE_LABEL, type StaffRole } from "@/lib/staff-roles";
+import { STAFF_ROLE_LABEL, type RoleBadgeData, type StaffRole } from "@/lib/staff-roles";
 import { isImageRef } from "@/lib/uploads";
 import type { Unit } from "@/modules/unidades/units";
 
-/** Cargo da equipe (Mestre, Professor, Instrutor ou Monitor); o `role` da membership é o MAIOR cargo da pessoa. */
+/** Perfil de acesso da membership (Mestre, Professor, Instrutor ou Monitor): o do cargo de MAIOR rank da pessoa. */
 export type TeacherRole = StaffRole;
 
 /** Matrícula de aluno da pessoa da equipe (todo mundo é aluno): situação e corda atual. */
@@ -17,10 +17,12 @@ export interface TeacherStudent {
 /** Item de GET /teachers: é a membership (OrganizationUser); `id` é o da membership, não do User. */
 export interface Teacher {
   id: number;
-  /** Papel de acesso = o MAIOR cargo. */
+  /** Papel de acesso = o perfil de acesso do cargo de maior rank. */
   role: TeacherRole;
-  /** Todos os cargos ativos, do maior para o menor (ausente em respostas antigas: vale `[role]`). */
-  roles?: TeacherRole[];
+  /** Selos de todos os cargos ativos, do maior rank para o menor. */
+  roles?: RoleBadgeData[];
+  /** Chaves (slugs) dos cargos ativos. */
+  roleKeys?: string[];
   /** Matrícula de aluno da pessoa e a corda atual; `null` quando não há matrícula. */
   student?: TeacherStudent | null;
   status: string;
@@ -53,9 +55,8 @@ export interface TeacherInput {
 
 export const TEACHER_ROLE_LABEL: Record<TeacherRole, string> = STAFF_ROLE_LABEL;
 
-/** Cargos do membro para exibir: `roles` do servidor ou, na falta, só o papel de acesso. */
-export const teacherRoles = (t: Pick<Teacher, "role" | "roles">): TeacherRole[] =>
-  t.roles && t.roles.length > 0 ? t.roles : [t.role];
+/** Selos dos cargos do membro para exibir (`roles` do servidor, maior rank primeiro). */
+export const teacherRoles = (t: Pick<Teacher, "roles">): RoleBadgeData[] => t.roles ?? [];
 
 export const TEACHER_STATUS_LABEL: Record<string, string> = {
   ACTIVE: "Ativo",

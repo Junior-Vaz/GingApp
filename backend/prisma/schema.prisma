@@ -425,6 +425,7 @@ model Organization {
   transfersOut          TransferRequest[] @relation("TransferFrom")
   transfersIn           TransferRequest[] @relation("TransferTo")
   personRoles           PersonRole[]
+  groupRoles            GroupRole[]
 
   @@index([status])
 }
@@ -741,7 +742,12 @@ model PersonRole {
   organizationId  Int
   userId          Int
   personId        Int?
+  /// PERFIL DE ACESSO do cargo (copia de GroupRole.accessRole no momento da concessao; o maior entre os ativos vira o
+  /// OrganizationUser.role). O accessRole de um GroupRole so muda quando ninguem o exerce, entao a copia nao diverge.
   role            StaffRole
+  /// Cargo DO GRUPO (docs/FICHA_UNICA.md secao 13): nome/cor/icone/rank que o grupo definiu. Null so em historico de
+  /// cargo excluido (o `role` acima preserva o acesso que valia).
+  groupRoleId     Int?
   /// MIGRATION (papel MESTRE/PROFESSOR que ja existia), GRANT (concedido pelo Mestre), TEACHER (tela Equipe), ORG (criacao do grupo).
   source          String    @default("GRANT")
   grantedAt       DateTime  @default(now())
@@ -752,25 +758,59 @@ model PersonRole {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation("PersonRoleUser", fields: [userId], references: [id], onDelete: Cascade)
   person       Person?      @relation(fields: [personId], references: [id], onDelete: SetNull)
+  groupRole    GroupRole?   @relation(fields: [groupRoleId], references: [id], onDelete: SetNull)
 
   @@index([organizationId, userId, revokedAt])
   @@index([personId])
+  @@index([groupRoleId, revokedAt])
 }
 
-/// Regra do sistema de graduacao do grupo: a partir de qual corda (GraduationLevel.order) o cargo e possivel (o
-/// sistema SUGERE; o Mestre confirma).
+/// CARGO DO GRUPO (docs/FICHA_UNICA.md secao 13): cada grupo cria/edita os seus (Contramestre, Formado, Monitor...).
+/// accessRole = PERFIL DE ACESSO base (um dos papeis da matriz: MESTRE|PROFESSOR|INSTRUTOR|MONITOR; ALUNO nao e cargo).
+/// rank = hierarquia visual (maior = mais senior): ordena listas, escolhe o selo principal e a arvore da Jornada.
+/// isDefault = os 4 cargos padrao (slug mestre/professor/instrutor/monitor; nunca excluidos, so renomeados/inativados).
+model GroupRole {
+  id             Int       @id @default(autoincrement())
+  organizationId Int
+  name           String
+  /// Identificador estavel (kebab, unico no grupo; nao muda ao renomear). roleKeys das respostas = slugs.
+  slug           String
+  accessRole     StaffRole
+  rank           Int
+  /// Cor hex (#RRGGBB) do selo.
+  color          String?
+  /// Nome curto de icone lucide (lista permitida em roles/group-roles.ts).
+  icon           String?
+  isDefault      Boolean   @default(false)
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  personRoles  PersonRole[]
+  rules        GraduationRoleRule[]
+  notices      RoleSuggestionNotice[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, rank])
+}
+
+/// Regra do sistema de graduacao do grupo: a partir de qual corda (GraduationLevel.order) o cargo DO GRUPO e possivel
+/// (o sistema SUGERE; o Mestre confirma). `role` = copia do accessRole do cargo (legado/consulta).
 model GraduationRoleRule {
   id                 Int       @id @default(autoincrement())
   organizationId     Int
   graduationSystemId Int
   role               StaffRole
+  groupRoleId        Int?
   minLevelOrder      Int
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
   graduationSystem GraduationSystem @relation(fields: [graduationSystemId], references: [id], onDelete: Cascade)
+  groupRole        GroupRole?       @relation(fields: [groupRoleId], references: [id], onDelete: Cascade)
 
-  @@unique([graduationSystemId, role])
+  @@unique([graduationSystemId, groupRoleId])
   @@index([organizationId])
 }
 
@@ -844,11 +884,13 @@ model RoleSuggestionNotice {
   organizationId Int
   studentId      Int
   role           StaffRole
+  groupRoleId    Int?
   createdAt      DateTime  @default(now())
 
-  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  student   Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  groupRole GroupRole? @relation(fields: [groupRoleId], references: [id], onDelete: Cascade)
 
-  @@unique([studentId, role])
+  @@unique([studentId, groupRoleId])
 }
 
 /// Cobranca mensal do aluno (E07): valor da mensalidade (centavos) e dia de vencimento (1..31; em meses

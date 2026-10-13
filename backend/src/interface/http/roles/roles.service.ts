@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OrgRole, StaffRole, StudentStatus } from '@prisma/client';
+import { GroupRole, OrgRole, StaffRole, StudentStatus } from '@prisma/client';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
@@ -9,22 +9,27 @@ import { PersonIdentityService } from '../people/person-identity.service';
 import { canonicalPerson } from '../people/person-linker';
 import { StudentAccessService } from '../students/student-access.service';
 import {
-  ensureMembershipRole,
-  principalRole,
-  ROLE_LABEL_BR,
-  sortRoles,
-  STAFF_ROLE_RANK,
-  STAFF_ROLES,
-  suggestedRoles,
-} from './staff-roles';
+  badgeOf,
+  badgesByUser,
+  GROUP_ROLE_BADGE_SELECT,
+  groupRoleForLegacy,
+  rolesPayload,
+  suggestedGroupRoles,
+} from './group-roles';
+import { ensureMembershipRole, principalRole, recomputeAccess, STAFF_ROLE_RANK, STAFF_ROLES, sortRoles } from './staff-roles';
 
 export interface RoleTargetInput {
   studentId?: number;
   personId?: number;
 }
 
-export interface GrantRoleInput extends RoleTargetInput {
-  role: StaffRole;
+/** Cargo pedido: `groupRoleId` (cargo do grupo) ou, legado, `role` (enum, mapeado pelo slug padrao). */
+export interface GroupRoleRef {
+  groupRoleId?: number;
+  role?: StaffRole;
+}
+
+export interface GrantRoleInput extends RoleTargetInput, GroupRoleRef {
   /** Login para quem ainda nao tem acesso (mesmo fluxo do acesso do aluno: senha provisoria OU convite por e-mail). */
   email?: string;
   password?: string;
@@ -37,9 +42,9 @@ const badRequest = (code: string, message: string, extra: Record<string, unknown
   new BadRequestException({ statusCode: 400, error: 'Bad Request', code, message, ...extra });
 
 /**
- * CARGOS acumulaveis (Fase 3): conceder/revogar (so o MESTRE do grupo; ele tambem pode nomear outro MESTRE - decisao
- * documentada), regras de corda por cargo no sistema de graduacao, sugestoes de promocao e o aviso ao Mestre (1x por
- * aluno+cargo). Revogar NUNCA apaga a matricula de aluno.
+ * CARGOS acumulaveis (Fase 3) sobre os CARGOS DO GRUPO (secao 13): conceder/revogar (so o MESTRE do grupo; ele tambem
+ * pode nomear outro cargo com acesso de Mestre), regras de corda por cargo no sistema de graduacao, sugestoes de promocao
+ * e o aviso ao Mestre (1x por aluno+cargo). Revogar NUNCA apaga a matricula de aluno.
  */
 @Injectable()
 export class RolesService {
@@ -53,23 +58,11 @@ export class RolesService {
     private readonly access: StudentAccessService,
   ) {}
 
-  /** Cargos ATIVOS (maior primeiro) do login no grupo; materializa o cargo do papel de equipe legado. */
+  /** PERFIS DE ACESSO dos cargos ATIVOS (maior primeiro) do login no grupo; materializa o cargo do papel de equipe legado. */
   async activeRoles(organizationId: number, userId: number): Promise<StaffRole[]> {
     await ensureMembershipRole(this.prisma, organizationId, userId);
     const rows = await this.prisma.personRole.findMany({ where: { organizationId, userId, revokedAt: null }, select: { role: true } });
     return sortRoles(rows.map((r) => r.role));
-  }
-
-  /** Cargos ativos por login (sem materializar; para listas). */
-  async rolesByUser(organizationId: number, userIds: number[]): Promise<Map<number, StaffRole[]>> {
-    const map = new Map<number, StaffRole[]>();
-    if (userIds.length === 0) return map;
-    const rows = await this.prisma.personRole.findMany({
-      where: { organizationId, userId: { in: userIds }, revokedAt: null },
-      select: { userId: true, role: true },
-    });
-    for (const r of rows) map.set(r.userId, sortRoles([...(map.get(r.userId) ?? []), r.role]));
-    return map;
   }
 
   /** Mantem o cargo coerente com a tela Equipe (criar/editar membro da equipe com um papel). Nunca lanca. */
@@ -79,7 +72,7 @@ export class RolesService {
       if (!membership || !STAFF_ROLES.includes(membership.role as StaffRole)) return;
       const role = membership.role as StaffRole;
       await this.prisma.$transaction(async (tx) => {
-        // Papel principal rebaixado na tela Equipe: os cargos MAIORES que ele deixam de valer (historico preservado).
+        // Papel principal rebaixado na tela Equipe: os cargos com perfil MAIOR que ele deixam de valer (historico preservado).
         await tx.personRole.updateMany({
           where: { organizationId, userId, revokedAt: null, role: { in: STAFF_ROLES.filter((r) => STAFF_ROLE_RANK[r] > STAFF_ROLE_RANK[role]) } },
           data: { revokedAt: new Date(), revokedByUserId: actorUserId },
@@ -106,8 +99,21 @@ export class RolesService {
     return student;
   }
 
+  /** Cargo do grupo pedido (groupRoleId do proprio grupo; ou o enum legado pelo slug padrao). 404 se de outro grupo. */
+  async resolveGroupRole(organizationId: number, ref: GroupRoleRef): Promise<GroupRole> {
+    if (ref.groupRoleId) {
+      const found = await this.prisma.groupRole.findFirst({ where: { id: ref.groupRoleId, organizationId } });
+      if (!found) throw new NotFoundException({ statusCode: 404, error: 'Not Found', code: 'GROUP_ROLE_NOT_FOUND', message: 'Cargo não encontrado neste grupo.' });
+      return found;
+    }
+    if (ref.role) return groupRoleForLegacy(this.prisma, organizationId, ref.role);
+    throw badRequest('GROUP_ROLE_REQUIRED', 'Informe o cargo (groupRoleId).');
+  }
+
   async grant(organizationId: number, actorUserId: number, input: GrantRoleInput) {
     const student = await this.resolveStudent(organizationId, input);
+    const groupRole = await this.resolveGroupRole(organizationId, input);
+    if (!groupRole.active) throw conflict('GROUP_ROLE_INACTIVE', `O cargo ${groupRole.name} está inativo: reative-o em Cargos do grupo.`);
     if (student.status !== StudentStatus.ACTIVE) throw conflict('STUDENT_NOT_ACTIVE', 'Só um aluno ativo pode receber um cargo.');
     const personId = await this.people.ensurePersonForStudent(student.id);
     const person = await this.prisma.person.findUniqueOrThrow({ where: { id: personId } });
@@ -127,13 +133,22 @@ export class RolesService {
     }
 
     const active = await this.activeRoles(organizationId, userId);
-    if (active.includes(input.role)) throw conflict('ROLE_ALREADY_ACTIVE', `Esta pessoa já é ${ROLE_LABEL_BR[input.role]} neste grupo.`);
+    const already = await this.prisma.personRole.count({ where: { organizationId, userId, groupRoleId: groupRole.id, revokedAt: null } });
+    if (already > 0) throw conflict('ROLE_ALREADY_ACTIVE', `Esta pessoa já é ${groupRole.name} neste grupo.`);
 
-    const roles = sortRoles([...active, input.role]);
-    const principal = principalRole(roles, { hasStudent: true, isGuardian: false });
+    // Acesso efetivo = o MAIOR perfil de acesso entre os cargos ativos.
+    const principal = principalRole([...active, groupRole.accessRole], { hasStudent: true, isGuardian: false });
     const created = await this.prisma.$transaction(async (tx) => {
       const row = await tx.personRole.create({
-        data: { organizationId, userId: userId!, personId: person.id, role: input.role, grantedByUserId: actorUserId, source: 'GRANT' },
+        data: {
+          organizationId,
+          userId: userId!,
+          personId: person.id,
+          role: groupRole.accessRole,
+          groupRoleId: groupRole.id,
+          grantedByUserId: actorUserId,
+          source: 'GRANT',
+        },
       });
       await tx.organizationUser.upsert({
         where: { organizationId_userId: { organizationId, userId: userId! } },
@@ -148,52 +163,60 @@ export class RolesService {
       action: AuditAction.ROLE_GRANT,
       entity: AuditEntity.PERSON_ROLE,
       entityId: created.id,
-      meta: { role: input.role, studentId: student.id, userId, principal },
+      meta: { groupRoleId: groupRole.id, groupRoleName: groupRole.name, role: groupRole.accessRole, studentId: student.id, userId, principal },
     });
     const org = await this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true } });
     await this.notifications.safely('role-grant', () =>
       this.notifications.notifyUsers(organizationId, [userId!], {
         type: 'ROLE_GRANTED',
-        title: `Você agora é ${ROLE_LABEL_BR[input.role]}`,
-        body: `${org?.name ?? 'Seu grupo'} confirmou você como ${ROLE_LABEL_BR[input.role]}. Você continua aluno(a), com a sua ficha.`,
+        title: `Você agora é ${groupRole.name}`,
+        body: `${org?.name ?? 'Seu grupo'} confirmou você como ${groupRole.name}. Você continua aluno(a), com a sua ficha.`,
       }),
     );
     return this.view(organizationId, student.id, userId);
   }
 
-  async revoke(organizationId: number, actorUserId: number, input: RoleTargetInput & { role: StaffRole }) {
+  async revoke(organizationId: number, actorUserId: number, input: RoleTargetInput & GroupRoleRef) {
     const student = await this.resolveStudent(organizationId, input);
+    const groupRole = await this.resolveGroupRole(organizationId, input);
     const userId = student.userId;
     if (!userId) throw conflict('ROLE_NOT_ACTIVE', 'Esta pessoa não tem esse cargo neste grupo.');
-    const active = await this.activeRoles(organizationId, userId);
-    if (!active.includes(input.role)) throw conflict('ROLE_NOT_ACTIVE', 'Esta pessoa não tem esse cargo neste grupo.');
-    if (input.role === StaffRole.MESTRE) {
-      const mestres = await this.prisma.personRole.count({ where: { organizationId, role: StaffRole.MESTRE, revokedAt: null, userId: { not: userId } } });
+    await ensureMembershipRole(this.prisma, organizationId, userId);
+    const activeRows = await this.prisma.personRole.findMany({
+      where: { organizationId, userId, revokedAt: null },
+      select: { id: true, role: true, groupRoleId: true },
+    });
+    let target = activeRows.filter((r) => r.groupRoleId === groupRole.id);
+    // Legado (`role` enum): o cargo daquele perfil que a pessoa tiver, se nao tiver o padrao.
+    if (target.length === 0 && !input.groupRoleId && input.role) target = activeRows.filter((r) => r.role === input.role).slice(0, 1);
+    if (target.length === 0) throw conflict('ROLE_NOT_ACTIVE', 'Esta pessoa não tem esse cargo neste grupo.');
+    const targetIds = new Set(target.map((r) => r.id));
+    const remaining = activeRows.filter((r) => !targetIds.has(r.id));
+    if (target.some((r) => r.role === StaffRole.MESTRE) && !remaining.some((r) => r.role === StaffRole.MESTRE)) {
+      // Outro Mestre com acesso efetivo (membership; inclui papel legado sem cargo materializado) ou com cargo de perfil MESTRE.
+      const mestres =
+        (await this.prisma.organizationUser.count({ where: { organizationId, role: OrgRole.MESTRE, status: 'ACTIVE', userId: { not: userId } } })) +
+        (await this.prisma.personRole.count({ where: { organizationId, role: StaffRole.MESTRE, revokedAt: null, userId: { not: userId } } }));
       if (mestres === 0) throw conflict('LAST_MESTRE', 'O grupo precisa de pelo menos um Mestre: nomeie outro antes de revogar este.');
     }
-    const remaining = active.filter((r) => r !== input.role);
-    const isGuardian = (await this.prisma.studentGuardian.count({ where: { organizationId, userId } })) > 0;
-    const principal = principalRole(remaining, { hasStudent: true, isGuardian });
-    await this.prisma.$transaction(async (tx) => {
-      await tx.personRole.updateMany({
-        where: { organizationId, userId, role: input.role, revokedAt: null },
-        data: { revokedAt: new Date(), revokedByUserId: actorUserId },
-      });
-      await tx.organizationUser.updateMany({ where: { organizationId, userId }, data: { role: principal } });
-      // Sem cargo de equipe: deixa de ter escopo de unidade de professor.
-      if (!remaining.length) await tx.userUnitAccess.deleteMany({ where: { organizationId, userId } });
+    const principal = await this.prisma.$transaction(async (tx) => {
+      await tx.personRole.updateMany({ where: { id: { in: [...targetIds] } }, data: { revokedAt: new Date(), revokedByUserId: actorUserId } });
+      return recomputeAccess(tx, organizationId, userId);
     });
+    const revokedGroupRole =
+      target[0]!.groupRoleId === groupRole.id ? groupRole : await this.prisma.groupRole.findUnique({ where: { id: target[0]!.groupRoleId ?? -1 } });
+    const name = revokedGroupRole?.name ?? groupRole.name;
     await this.audit.record({
       organizationId,
       action: AuditAction.ROLE_REVOKE,
       entity: AuditEntity.PERSON_ROLE,
       entityId: userId,
-      meta: { role: input.role, studentId: student.id, userId, principal },
+      meta: { groupRoleId: target[0]!.groupRoleId, groupRoleName: name, role: target[0]!.role, studentId: student.id, userId, principal },
     });
     await this.notifications.safely('role-revoke', () =>
       this.notifications.notifyUsers(organizationId, [userId], {
         type: 'ROLE_REVOKED',
-        title: `Cargo de ${ROLE_LABEL_BR[input.role]} encerrado`,
+        title: `Cargo de ${name} encerrado`,
         body: 'Sua matrícula de aluno(a) e a sua ficha continuam valendo.',
       }),
     );
@@ -201,50 +224,84 @@ export class RolesService {
   }
 
   private async view(organizationId: number, studentId: number, userId: number) {
-    const [roles, membership] = await Promise.all([
-      this.activeRoles(organizationId, userId),
+    const [badges, membership] = await Promise.all([
+      badgesByUser(this.prisma, organizationId, [userId]),
       this.prisma.organizationUser.findUnique({ where: { organizationId_userId: { organizationId, userId } }, select: { role: true, status: true } }),
     ]);
-    return { studentId, userId, roles, accessRole: membership?.role ?? null };
+    return { studentId, userId, ...rolesPayload(badges.get(userId) ?? []), accessRole: membership?.role ?? null };
   }
 
   // ------------------------------------------------------------------------------------------- regras de corda
 
+  /** Regras sem cargo do grupo (dados antigos fora da migration): liga ao cargo padrao do mesmo perfil. */
+  private async linkLegacyRules(organizationId: number, systemId: number) {
+    const orphans = await this.prisma.graduationRoleRule.findMany({ where: { graduationSystemId: systemId, groupRoleId: null } });
+    for (const r of orphans) {
+      const gr = await groupRoleForLegacy(this.prisma, organizationId, r.role);
+      await this.prisma.graduationRoleRule.update({ where: { id: r.id }, data: { groupRoleId: gr.id } }).catch(() => undefined);
+    }
+  }
+
   async getRules(organizationId: number, systemId: number) {
-    const system = await this.prisma.graduationSystem.findFirst({
-      where: { id: systemId, organizationId },
-      include: { levels: { select: LEVEL_SELECT, orderBy: { order: 'asc' } }, roleRules: true },
+    const exists = await this.prisma.graduationSystem.findFirst({ where: { id: systemId, organizationId }, select: { id: true } });
+    if (!exists) throw new NotFoundException('Sistema de graduação não encontrado.');
+    await this.linkLegacyRules(organizationId, systemId);
+    const system = await this.prisma.graduationSystem.findUniqueOrThrow({
+      where: { id: systemId },
+      include: {
+        levels: { select: LEVEL_SELECT, orderBy: { order: 'asc' } },
+        roleRules: { where: { groupRoleId: { not: null } }, include: { groupRole: { select: { ...GROUP_ROLE_BADGE_SELECT, active: true } } } },
+      },
     });
-    if (!system) throw new NotFoundException('Sistema de graduação não encontrado.');
     const levelByOrder = new Map(system.levels.map((l) => [l.order, l]));
-    return {
-      systemId: system.id,
-      rules: sortRoles(system.roleRules.map((r) => r.role)).map((role) => {
-        const rule = system.roleRules.find((r) => r.role === role)!;
+    const rules = system.roleRules
+      .filter((r) => r.groupRole)
+      .sort((a, b) => b.groupRole!.rank - a.groupRole!.rank || a.groupRole!.id - b.groupRole!.id)
+      .map((rule) => {
         const level = levelByOrder.get(rule.minLevelOrder);
-        return { role, minLevelOrder: rule.minLevelOrder, level: level ? levelView(level) : null };
-      }),
-    };
+        const { active, ...badge } = rule.groupRole!;
+        return {
+          groupRoleId: badge.id,
+          groupRole: { ...badgeOf(badge), active },
+          role: badge.accessRole,
+          minLevelOrder: rule.minLevelOrder,
+          level: level ? levelView(level) : null,
+        };
+      });
+    return { systemId: system.id, rules };
   }
 
   /** Substitui as regras do sistema (lista vazia = sem sugestoes). minLevelOrder tem de ser a `order` de um nivel do sistema. */
-  async setRules(organizationId: number, systemId: number, rules: { role: StaffRole; minLevelOrder: number }[]) {
+  async setRules(organizationId: number, systemId: number, rules: (GroupRoleRef & { minLevelOrder: number })[]) {
     const system = await this.prisma.graduationSystem.findFirst({
       where: { id: systemId, organizationId },
       include: { levels: { select: { order: true } } },
     });
     if (!system) throw new NotFoundException('Sistema de graduação não encontrado.');
     const orders = new Set(system.levels.map((l) => l.order));
-    const seen = new Set<StaffRole>();
+    const resolved: { groupRole: GroupRole; minLevelOrder: number }[] = [];
     for (const r of rules) {
-      if (seen.has(r.role)) throw badRequest('DUPLICATE_ROLE_RULE', `Cargo repetido: ${r.role}.`);
-      seen.add(r.role);
+      let groupRole: GroupRole;
+      try {
+        groupRole = await this.resolveGroupRole(organizationId, r);
+      } catch (error) {
+        if (error instanceof NotFoundException) throw badRequest('GROUP_ROLE_NOT_FOUND', `Cargo ${r.groupRoleId} não existe neste grupo.`);
+        throw error;
+      }
+      if (resolved.some((x) => x.groupRole.id === groupRole.id)) throw badRequest('DUPLICATE_ROLE_RULE', `Cargo repetido: ${groupRole.name}.`);
       if (!orders.has(r.minLevelOrder)) throw badRequest('INVALID_LEVEL_ORDER', `A corda de ordem ${r.minLevelOrder} não existe neste sistema.`);
+      resolved.push({ groupRole, minLevelOrder: r.minLevelOrder });
     }
     await this.prisma.$transaction([
       this.prisma.graduationRoleRule.deleteMany({ where: { graduationSystemId: systemId } }),
       this.prisma.graduationRoleRule.createMany({
-        data: rules.map((r) => ({ organizationId, graduationSystemId: systemId, role: r.role, minLevelOrder: r.minLevelOrder })),
+        data: resolved.map((r) => ({
+          organizationId,
+          graduationSystemId: systemId,
+          role: r.groupRole.accessRole,
+          groupRoleId: r.groupRole.id,
+          minLevelOrder: r.minLevelOrder,
+        })),
       }),
     ]);
     await this.audit.record({
@@ -252,16 +309,19 @@ export class RolesService {
       action: AuditAction.GRADUATION_ROLE_RULES_SET,
       entity: AuditEntity.GRADUATION_SYSTEM,
       entityId: systemId,
-      meta: { rules },
+      meta: { rules: resolved.map((r) => ({ groupRoleId: r.groupRole.id, name: r.groupRole.name, minLevelOrder: r.minLevelOrder })) },
     });
     return this.getRules(organizationId, systemId);
   }
 
   // ------------------------------------------------------------------------------------------- sugestoes
 
-  /** Alunos ATIVOS que atingiram a corda minima de um cargo e ainda nao o tem (nem um maior). */
+  /** Alunos ATIVOS que atingiram a corda minima de um cargo do grupo e ainda nao tem cargo de rank igual ou maior. */
   async suggestions(organizationId: number, onlyStudentId?: number) {
-    const rules = await this.prisma.graduationRoleRule.findMany({ where: { organizationId }, select: { graduationSystemId: true, role: true, minLevelOrder: true } });
+    const rules = await this.prisma.graduationRoleRule.findMany({
+      where: { organizationId, groupRoleId: { not: null } },
+      select: { graduationSystemId: true, minLevelOrder: true, groupRole: { select: { ...GROUP_ROLE_BADGE_SELECT, active: true } } },
+    });
     if (rules.length === 0) return [];
     const students = await this.prisma.student.findMany({
       where: { organizationId, status: StudentStatus.ACTIVE, ...(onlyStudentId ? { id: onlyStudentId } : {}) },
@@ -280,22 +340,26 @@ export class RolesService {
       orderBy: { name: 'asc' },
     });
     const graded = students.filter((s) => s.graduations.length > 0);
-    const roles = await this.rolesByUser(organizationId, graded.map((s) => s.userId).filter((v): v is number => v !== null));
+    const held = await badgesByUser(this.prisma, organizationId, graded.map((s) => s.userId).filter((v): v is number => v !== null));
     const out = [];
     for (const s of graded) {
       const level = s.graduations[0]!.graduationLevel;
-      const systemRules = rules.filter((r) => r.graduationSystemId === level.graduationSystem.id);
-      const active = s.userId ? (roles.get(s.userId) ?? []) : [];
-      for (const role of suggestedRoles(level.order, systemRules, active)) {
+      const systemRules = rules.filter((r) => r.graduationSystemId === level.graduationSystem.id && r.groupRole).map((r) => ({ minLevelOrder: r.minLevelOrder, groupRole: r.groupRole! }));
+      const current = s.userId ? (held.get(s.userId) ?? []) : [];
+      for (const gr of suggestedGroupRoles(level.order, systemRules, current.map((b) => b.rank))) {
         const { graduationSystem, ...lv } = level;
+        const badge = badgeOf(gr);
         out.push({
           studentId: s.id,
           personId: s.personId,
           name: s.name,
           photo: s.photo,
           hasLogin: s.userId !== null,
-          currentRoles: active,
-          role,
+          currentRoles: current,
+          currentRoleKeys: current.map((b) => b.slug),
+          role: badge,
+          groupRoleId: badge.id,
+          accessRole: badge.accessRole,
           level: levelView(lv),
           system: graduationSystem,
           graduatedAt: s.graduations[0]!.graduatedAt,
@@ -312,7 +376,7 @@ export class RolesService {
       let sent = 0;
       for (const s of found) {
         const created = await this.prisma.roleSuggestionNotice.createMany({
-          data: [{ organizationId, studentId, role: s.role }],
+          data: [{ organizationId, studentId, role: s.role.accessRole, groupRoleId: s.role.id }],
           skipDuplicates: true,
         });
         if (created.count === 0) continue;
@@ -323,8 +387,8 @@ export class RolesService {
         await this.notifications.safely('role-suggestion', () =>
           this.notifications.notifyUsers(organizationId, mestres.map((m) => m.userId), {
             type: 'ROLE_SUGGESTION',
-            title: `Sugestão: ${s.name} pode ser ${ROLE_LABEL_BR[s.role]}`,
-            body: `${s.name} atingiu a corda ${s.level.name}, mínima para ${ROLE_LABEL_BR[s.role]}. Confirme em Equipe > Sugestões.`,
+            title: `Sugestão: ${s.name} pode ser ${s.role.name}`,
+            body: `${s.name} atingiu a corda ${s.level.name}, mínima para ${s.role.name}. Confirme em Equipe > Sugestões.`,
           }),
         );
         sent++;

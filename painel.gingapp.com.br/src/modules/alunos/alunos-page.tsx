@@ -21,7 +21,7 @@ import { api } from "@/lib/api";
 import { maskCpfInput } from "@/lib/cpf";
 import { createCrud, notifyError } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
-import { canPromote, STAFF_ROLES, STAFF_ROLE_LABEL } from "@/lib/staff-roles";
+import { canPromote, topRank } from "@/lib/staff-roles";
 import { useCan, useSessionUser } from "@/lib/session";
 import { dayOnly, fmt, formatCurrency } from "@/lib/format";
 import { useUnitNames } from "@/lib/unit-lookup";
@@ -39,6 +39,7 @@ import { createErrorMessage, parseStudentConflict, type StudentConflict } from "
 import { AlunoConflitoDialog } from "./aluno-conflito-dialog";
 import { FichaAlunoDialog } from "./ficha-aluno-dialog";
 import { PromoverDialog, type PromoteTarget } from "@/modules/professores/promover-dialog";
+import { useGroupRoles } from "@/modules/professores/roles-api";
 import { ImportarAlunosDialog } from "./importar-alunos-dialog";
 import { NativeSelect } from "./native-select";
 import { ResponsaveisDialog } from "./responsaveis-dialog";
@@ -89,7 +90,7 @@ function ViewToggle({ view, onChange }: { view: StudentsView; onChange: (view: S
 
 export function AlunosPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
-  const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "", role: "" } });
+  const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "", groupRoleId: "" } });
   // Ordem A-Z por padrão (cards e tabela, em todas as páginas e filtros); o total e a paginação vêm do servidor.
   const list = students.usePage({ ...lp.params, order: "name" });
   const update = students.useUpdate();
@@ -117,6 +118,8 @@ export function AlunosPage() {
   const [view, setView] = useStudentsView();
   // Importação em massa é só do Mestre (backend: POST /students/import exige o MESTRE).
   const isMestre = useSessionUser()?.role === "MESTRE";
+  // Cargos do grupo: opções do filtro por cargo e o que "Promover a…" pode oferecer (quem lê alunos lê a lista).
+  const groupRolesQuery = useGroupRoles();
 
   // Nomes só das unidades desta página (GET /units/:id por id distinto): não depende de lista com teto.
   const nameOfUnit = useUnitNames((list.items ?? []).map((s) => s.unitId));
@@ -151,7 +154,7 @@ export function AlunosPage() {
     {
       id: "staffRoles",
       header: "Cargos",
-      sortValue: (s) => Math.min(STAFF_ROLES.length, ...(s.staffRoles ?? []).map((r) => STAFF_ROLES.indexOf(r))),
+      sortValue: (s) => topRank(s.staffRoles),
       cell: (s) => (s.staffRoles && s.staffRoles.length > 0 ? <RoleBadges roles={s.staffRoles} /> : "—"),
     },
     {
@@ -272,7 +275,7 @@ export function AlunosPage() {
     },
     isMestre &&
       s.status === "ACTIVE" &&
-      canPromote(s.staffRoles) && {
+      canPromote(groupRolesQuery.data, s.staffRoles) && {
         key: "promote",
         label: "Promover a…",
         ariaLabel: `Promover ${s.name}`,
@@ -319,7 +322,7 @@ export function AlunosPage() {
         getRowId={(s) => s.id}
         searchPlaceholder="Buscar por nome, documento, telefone…"
         emptyMessage={
-          lp.filters.status || lp.filters.unitId || lp.filters.role ? "Nenhum aluno com esses filtros." : "Nenhum aluno cadastrado ainda."
+          lp.filters.status || lp.filters.unitId || lp.filters.groupRoleId ? "Nenhum aluno com esses filtros." : "Nenhum aluno cadastrado ainda."
         }
         cards={{
           active: view === "cards",
@@ -356,13 +359,13 @@ export function AlunosPage() {
             <NativeSelect
               aria-label="Filtrar por cargo"
               className="w-44"
-              value={lp.filters.role}
-              onChange={(e) => lp.setFilter("role", e.target.value)}
+              value={lp.filters.groupRoleId}
+              onChange={(e) => lp.setFilter("groupRoleId", e.target.value)}
             >
               <option value="">Todos os cargos</option>
-              {STAFF_ROLES.map((role) => (
-                <option key={role} value={role}>
-                  {STAFF_ROLE_LABEL[role]}
+              {(groupRolesQuery.data ?? []).map((role) => (
+                <option key={role.id} value={String(role.id)}>
+                  {role.active ? role.name : `${role.name} (inativo)`}
                 </option>
               ))}
             </NativeSelect>

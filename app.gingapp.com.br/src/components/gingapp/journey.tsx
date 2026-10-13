@@ -8,7 +8,6 @@ import { errorMessage } from "@/lib/api";
 import { downloadCertificatePdf } from "@/lib/certificate-pdf";
 import { dayOnly, fmt, readableIconColor, softenColor, verificationUrl } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
-import { STAFF_ROLE_LABEL } from "@/lib/roles";
 import { buildTimeline, graduationCardLabel } from "@/lib/derive";
 import { readJourneyView, storeJourneyView, type JourneyView } from "@/lib/hierarchy";
 import {
@@ -171,7 +170,7 @@ export function JourneyPage() {
               name={current ? current.graduationLevel.name : null}
               rope={current ? current.graduationLevel : null}
               loading={loading}
-              roleLabel={roles[0] ? STAFF_ROLE_LABEL[roles[0]] : null}
+              role={roles[0] ?? null}
               subtitle={
                 [
                   passport.data?.organization.name,

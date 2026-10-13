@@ -155,18 +155,18 @@ export function TermsGate() {
         </p>
         <ul className="mt-3 list-disc pl-5 text-sm">
           <li>
-            <a href="/termos" target="_blank" rel="noopener noreferrer" className="underline">
+            <a href="/termos" target="_blank" rel="noopener noreferrer" className="inline-block py-2 underline md:py-0">
               Termos de Uso
             </a>
           </li>
           <li>
-            <a href="/privacidade" target="_blank" rel="noopener noreferrer" className="underline">
+            <a href="/privacidade" target="_blank" rel="noopener noreferrer" className="inline-block py-2 underline md:py-0">
               Política de Privacidade
             </a>
           </li>
         </ul>
-        <label className="mt-4 flex items-start gap-2 text-sm">
-          <input type="checkbox" className="mt-0.5 size-4" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
+        <label className="mt-4 flex min-h-11 items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-0.5 size-5 md:size-4" checked={agreed} onChange={(event) => setAgreed(event.target.checked)} />
           <span>Li e concordo com os Termos de Uso e com a Política de Privacidade.</span>
         </label>
         <div className="mt-5 flex flex-wrap gap-2">

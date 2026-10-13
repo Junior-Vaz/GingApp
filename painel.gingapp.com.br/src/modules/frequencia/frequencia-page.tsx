@@ -252,7 +252,7 @@ export function FrequenciaPage() {
               Aulas dos últimos 7 e próximos 30 dias.{" "}
               <button
                 type="button"
-                className="underline underline-offset-2 hover:text-foreground"
+                className="inline-flex min-h-11 items-center underline underline-offset-2 hover:text-foreground md:min-h-0"
                 onClick={() => {
                   setShowAll(true);
                   setLessonId("");
@@ -265,7 +265,7 @@ export function FrequenciaPage() {
             <p className="text-xs text-muted-foreground">
               <button
                 type="button"
-                className="underline underline-offset-2 hover:text-foreground"
+                className="inline-flex min-h-11 items-center underline underline-offset-2 hover:text-foreground md:min-h-0"
                 onClick={() => {
                   setShowAll(false);
                   setLessonId("");

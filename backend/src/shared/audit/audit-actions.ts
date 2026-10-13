@@ -119,6 +119,12 @@ export const AuditAction = {
   ROLE_GRANT: 'ROLE_GRANT',
   ROLE_REVOKE: 'ROLE_REVOKE',
   GRADUATION_ROLE_RULES_SET: 'GRADUATION_ROLE_RULES_SET',
+  // Cargos DO GRUPO (secao 13 da ficha unica): CRUD do Mestre
+  GROUP_ROLE_CREATE: 'GROUP_ROLE_CREATE',
+  GROUP_ROLE_UPDATE: 'GROUP_ROLE_UPDATE',
+  GROUP_ROLE_DELETE: 'GROUP_ROLE_DELETE',
+  GROUP_ROLE_REORDER: 'GROUP_ROLE_REORDER',
+  GROUP_ROLE_MIGRATE: 'GROUP_ROLE_MIGRATE',
   // Ocorrencias (Fase 4) e equivalencia de cordas (Fase 5)
   OCCURRENCE_CREATE: 'OCCURRENCE_CREATE',
   OCCURRENCE_RETRACT: 'OCCURRENCE_RETRACT',
@@ -164,6 +170,7 @@ export const AuditEntity = {
   PERSON: 'person',
   TRANSFER: 'transfer',
   PERSON_ROLE: 'person_role',
+  GROUP_ROLE: 'group_role',
   OCCURRENCE: 'occurrence',
   LEVEL_EQUIVALENCE: 'level_equivalence',
 } as const;

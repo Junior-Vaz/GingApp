@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, StaffRole, Student } from '@prisma/client';
-import { sortRoles } from '../roles/staff-roles';
+import { Prisma, Student } from '@prisma/client';
+import { badgesByUser, GroupRoleBadge } from '../roles/group-roles';
 import { withRope } from '../graduations/rope';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
@@ -85,15 +85,20 @@ export class StudentsService {
     return items.map((i) => ({ ...i, classNames: classNames.get(i.id) ?? [], currentCord: cords.get(i.id) ?? null }));
   }
 
-  /** Fase 3: staffRoles (cargos ATIVOS no grupo, maior primeiro) em cada aluno - o selo de cargo das listas. */
-  async withStaffRoles<T extends { userId: number | null }>(organizationId: number, items: T[]): Promise<(T & { staffRoles: StaffRole[] })[]> {
+  /**
+   * Fase 3 + secao 13: `staffRoles` = cargos DO GRUPO ATIVOS (selos {id,name,slug,color,icon,accessRole,rank}, maior rank
+   * primeiro) e `staffRoleKeys` = os slugs (compatibilidade) em cada aluno - o selo de cargo das listas.
+   */
+  async withStaffRoles<T extends { userId: number | null }>(
+    organizationId: number,
+    items: T[],
+  ): Promise<(T & { staffRoles: GroupRoleBadge[]; staffRoleKeys: string[] })[]> {
     const userIds = items.map((i) => i.userId).filter((v): v is number => v !== null);
-    const rows = userIds.length
-      ? await this.prisma.personRole.findMany({ where: { organizationId, userId: { in: userIds }, revokedAt: null }, select: { userId: true, role: true } })
-      : [];
-    const byUser = new Map<number, StaffRole[]>();
-    for (const r of rows) byUser.set(r.userId, sortRoles([...(byUser.get(r.userId) ?? []), r.role]));
-    return items.map((i) => ({ ...i, staffRoles: i.userId !== null ? (byUser.get(i.userId) ?? []) : [] }));
+    const byUser = await badgesByUser(this.prisma, organizationId, userIds);
+    return items.map((i) => {
+      const badges = i.userId !== null ? (byUser.get(i.userId) ?? []) : [];
+      return { ...i, staffRoles: badges, staffRoleKeys: badges.map((b) => b.slug) };
+    });
   }
 
   /**
@@ -102,7 +107,7 @@ export class StudentsService {
    */
   async listWhere(
     organizationId: number,
-    query: Pick<ListStudentsQueryDto, 'status' | 'unitId' | 'q' | 'role'> = {},
+    query: Pick<ListStudentsQueryDto, 'status' | 'unitId' | 'q' | 'role' | 'groupRoleId'> = {},
     user?: AuthenticatedUser,
   ): Promise<Prisma.StudentWhereInput> {
     const where: Prisma.StudentWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
@@ -110,10 +115,10 @@ export class StudentsService {
     where.AND = [unitScopeFilter(await this.unitScope.resolve(user, organizationId))];
     if (query.status) where.status = query.status;
     if (query.unitId !== undefined) where.unitId = query.unitId;
-    if (query.role) {
-      // Cargo ativo da pessoa no grupo (PersonRole), pelo login da matricula.
+    if (query.role || query.groupRoleId) {
+      // Cargo ativo da pessoa no grupo (PersonRole), pelo login da matricula: por cargo DO GRUPO ou (legado) por perfil.
       const holders = await this.prisma.personRole.findMany({
-        where: { organizationId, role: query.role, revokedAt: null },
+        where: { organizationId, revokedAt: null, ...(query.groupRoleId ? { groupRoleId: query.groupRoleId } : { role: query.role }) },
         select: { userId: true },
       });
       (where.AND as Prisma.StudentWhereInput[]).push({ userId: { in: holders.map((h) => h.userId) } });

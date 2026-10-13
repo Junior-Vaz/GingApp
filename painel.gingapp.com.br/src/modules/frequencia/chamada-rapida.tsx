@@ -4,8 +4,10 @@ import { Check, CheckCheck, ClipboardCheck, Layers, Loader2, X } from "lucide-re
 import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { StudentAvatar } from "@/components/painel/student-avatar";
 import { Button } from "@/components/ui/button";
-import { Popover, PopoverClose, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { errorMessage } from "@/lib/api";
 import { useCan } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -41,16 +43,27 @@ function QuickAttendanceFab() {
   const sessions = useMemo(() => sessionsQuery.data ?? [], [sessionsQuery.data]);
   const hasOngoing = sessions.some((s) => s.status === "ONGOING");
   const count = sessions.length;
+  // Celular: o painel abre como folha de baixo (quase tela cheia) em vez de popover ancorado ao botão.
+  const isMobile = useIsMobile();
+  const panel = (
+    <QuickAttendancePanel
+      sessions={sessions}
+      isLoading={sessionsQuery.isLoading}
+      error={sessionsQuery.error}
+      onRetry={() => void sessionsQuery.refetch()}
+      onClose={() => setOpen(false)}
+    />
+  );
 
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
+  const fab = (
         <button
           type="button"
+          onClick={isMobile ? () => setOpen(true) : undefined}
           data-testid="quick-attendance-fab"
           aria-label={count > 0 ? `Chamada rápida (${count} ${count === 1 ? "aula" : "aulas"} hoje)` : "Chamada rápida"}
-          style={{ bottom: "calc(1rem + env(safe-area-inset-bottom))", right: "calc(1rem + env(safe-area-inset-right))" }}
-          className="fixed z-40 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:size-16"
+          // Celular: acima da barra inferior (4rem + área segura); a partir de md volta ao canto da tela.
+          style={{ right: "calc(1rem + env(safe-area-inset-right))" }}
+          className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 flex size-14 md:bottom-[calc(1rem+env(safe-area-inset-bottom))] items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 md:size-16"
         >
           {hasOngoing && (
             <span
@@ -70,7 +83,30 @@ function QuickAttendanceFab() {
             </span>
           )}
         </button>
-      </PopoverTrigger>
+  );
+
+  if (isMobile) {
+    return (
+      <>
+        {fab}
+        <Sheet open={open} onOpenChange={setOpen}>
+          <SheetContent
+            side="bottom"
+            aria-label="Chamada rápida"
+            className="flex h-[92dvh] flex-col gap-0 overflow-hidden rounded-t-2xl p-0 [&>button.absolute]:hidden"
+          >
+            <SheetTitle className="sr-only">Chamada rápida</SheetTitle>
+            <SheetDescription className="sr-only">Marque presente ou ausente para os alunos das aulas de hoje.</SheetDescription>
+            {panel}
+          </SheetContent>
+        </Sheet>
+      </>
+    );
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{fab}</PopoverTrigger>
       <PopoverContent
         side="top"
         align="end"
@@ -79,12 +115,7 @@ function QuickAttendanceFab() {
         aria-label="Chamada rápida"
         className="flex w-[min(26rem,calc(100vw-2rem))] max-h-[min(40rem,calc(100dvh-7rem))] flex-col overflow-hidden p-0"
       >
-        <QuickAttendancePanel
-          sessions={sessions}
-          isLoading={sessionsQuery.isLoading}
-          error={sessionsQuery.error}
-          onRetry={() => void sessionsQuery.refetch()}
-        />
+        {panel}
       </PopoverContent>
     </Popover>
   );
@@ -95,11 +126,13 @@ function QuickAttendancePanel({
   isLoading,
   error,
   onRetry,
+  onClose,
 }: {
   sessions: QuickSession[];
   isLoading: boolean;
   error: unknown;
   onRetry: () => void;
+  onClose: () => void;
 }) {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [rows, setRows] = useState<RosterRow[]>([]);
@@ -175,8 +208,8 @@ function QuickAttendancePanel({
     return (
       <ul aria-label={`Alunos de ${selected?.className ?? "aula"}`} className="divide-y">
         {rows.map((row) => (
-          <li key={row.studentId} className="flex items-center gap-3 px-4 py-2.5" data-testid="quick-student-row">
-            <StudentAvatar name={row.studentName} photo={row.photo} className="size-12 text-sm" />
+          <li key={row.studentId} className="flex items-center gap-2.5 px-3 py-2 sm:gap-3 sm:px-4 sm:py-2.5" data-testid="quick-student-row">
+            <StudentAvatar name={row.studentName} photo={row.photo} className="size-10 text-sm sm:size-12" />
             <span className="min-w-0 flex-1 break-words text-sm font-semibold leading-tight">{row.studentName}</span>
             <div role="group" aria-label={`Presença de ${row.studentName}`} className="flex shrink-0 gap-1.5">
               <button
@@ -185,11 +218,11 @@ function QuickAttendancePanel({
                 aria-label={`Presente: ${row.studentName}`}
                 onClick={() => mark(row.studentId, true)}
                 className={cn(
-                  "inline-flex h-11 min-w-[4.25rem] items-center justify-center gap-1 rounded-md border px-2 text-xs font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "inline-flex h-12 min-w-11 items-center justify-center gap-1 rounded-md border px-2 text-xs font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring min-[380px]:min-w-[4.25rem] md:h-11",
                   row.present === true ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:bg-secondary",
                 )}
               >
-                <Check className="size-4" aria-hidden /> Presente
+                <Check className="size-4" aria-hidden /> <span className="max-[379px]:sr-only">Presente</span>
               </button>
               <button
                 type="button"
@@ -197,13 +230,13 @@ function QuickAttendancePanel({
                 aria-label={`Ausente: ${row.studentName}`}
                 onClick={() => mark(row.studentId, false)}
                 className={cn(
-                  "inline-flex h-11 min-w-[4.25rem] items-center justify-center gap-1 rounded-md border px-2 text-xs font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "inline-flex h-12 min-w-11 items-center justify-center gap-1 rounded-md border px-2 text-xs font-bold outline-none focus-visible:ring-2 focus-visible:ring-ring min-[380px]:min-w-[4.25rem] md:h-11",
                   row.present === false
                     ? "border-destructive bg-destructive text-destructive-foreground"
                     : "bg-card hover:bg-secondary",
                 )}
               >
-                <X className="size-4" aria-hidden /> Ausente
+                <X className="size-4" aria-hidden /> <span className="max-[379px]:sr-only">Ausente</span>
               </button>
             </div>
           </li>
@@ -289,7 +322,7 @@ function QuickAttendancePanel({
           )}
           {renderRoster()}
         </div>
-        <div className="flex shrink-0 items-center justify-between gap-3 border-t p-3">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-t p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
           <p className="text-xs text-muted-foreground" aria-live="polite">
             {dirty
               ? "Alterações não salvas."
@@ -312,11 +345,9 @@ function QuickAttendancePanel({
     <>
       <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
         <h2 className="font-display text-base font-extrabold">Chamada rápida</h2>
-        <PopoverClose asChild>
-          <Button variant="ghost" size="icon" className="size-8" aria-label="Fechar chamada rápida">
-            <X />
-          </Button>
-        </PopoverClose>
+        <Button variant="ghost" size="icon" aria-label="Fechar chamada rápida" onClick={onClose}>
+          <X />
+        </Button>
       </div>
       {body}
     </>

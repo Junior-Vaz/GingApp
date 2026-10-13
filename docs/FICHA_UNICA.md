@@ -285,6 +285,8 @@ A mantida herda o que não tem (login, CPF, nascimento, foto, apelido, contato);
   graduação, os MESTRES recebem **um** aviso `ROLE_SUGGESTION` por aluno+cargo (`RoleSuggestionNotice`, nunca repete).
 
 ### 5.2 Contrato exato
+> **Superado em parte pela seção 13 (cargos DO GRUPO):** o cargo agora é um `GroupRole` do grupo (`groupRoleId`); os campos
+> `roles`/`staffRoles` viraram objetos (selos) e ganharam `roleKeys`/`staffRoleKeys`. O `role` enum abaixo segue aceito como legado.
 - **POST /api/roles/grant** (MESTRE; `teachers:create`) `{studentId?|personId?, role: MESTRE|PROFESSOR|INSTRUTOR|MONITOR,
   email?, password?, sendInvite?}` → **201** `{studentId, userId, roles: StaffRole[], accessRole}`. Erros: 400
   `ROLE_TARGET_REQUIRED`, `LOGIN_REQUIRED` (e os do acesso do aluno: senha fraca, convite desligado...); 404 aluno de outro
@@ -516,3 +518,81 @@ com largura fixa de 240px e título que não encolhia; `PageHeader` com ações 
 Gates na seção "Ficha única — pendências A–F" do `PLANO_PROJETO.md`. Pendências que continuam: `Student.personId NOT NULL`,
 remover o CPF em claro de `Student.document`, "desfazer transferência"/"desmesclar", retenção/purga das ocorrências (a regra de
 anonimização acima não substitui a política de purga), MONITOR só pode ver (não filtrar) as demais turmas na UI.
+
+## 13. Cargos DO GRUPO (IMPLEMENTADA, 2026-10-13)
+
+**Problema (owner):** os cargos eram um enum fixo (`StaffRole` MONITOR/INSTRUTOR/PROFESSOR/MESTRE); na capoeira há
+Contramestre, Formado, Treinel... e cada grupo é diferente. **Agora cada grupo cria/edita os seus cargos.**
+
+### 13.1 Modelo (migration `20261015000000_group_roles`, só adiciona)
+- `GroupRole {id, organizationId, name, slug (único no grupo, estável: não muda ao renomear), accessRole (StaffRole), rank Int,
+  color String? (#RRGGBB), icon String? (lucide da lista permitida), isDefault, active, createdAt, updatedAt}`.
+- **`accessRole` = PERFIL DE ACESSO base** (um dos papéis da matriz `RolePermission`: MESTRE|PROFESSOR|INSTRUTOR|MONITOR;
+  ALUNO não é cargo). A matriz, os guards, `@CanAccess`, o token e o `session.ts` do painel **não mudaram**: continuam por papel.
+- **`rank`** = hierarquia visual (maior = mais sênior): ordena listas, escolhe o **selo principal** e a árvore da Jornada.
+- `PersonRole.groupRoleId` (FK, `SetNull` só para histórico de cargo excluído). `PersonRole.role` passou a ser a **cópia do
+  accessRole** do cargo no momento da concessão (o accessRole de um cargo só muda quando ninguém o exerce, então não diverge).
+  `GraduationRoleRule.groupRoleId` e `RoleSuggestionNotice.groupRoleId` (únicos por sistema+cargo e aluno+cargo; `role` = cópia).
+  O enum `StaffRole` ficou como tipo do perfil de acesso (legado + accessRole).
+- **Acesso efetivo** (`OrganizationUser.role`) = o MAIOR accessRole entre os cargos ativos (mesma lógica da Fase 3, agora sobre o
+  perfil). **Selo principal** = o cargo de maior rank. Ex.: Contramestre (PROFESSOR, 35) + Formado (INSTRUTOR, 25) → acesso
+  PROFESSOR, selo "Contramestre".
+- **Padrões** (todo grupo; `isDefault`): Mestre 40/MESTRE/#B45309/crown, Professor 30/PROFESSOR/#1D4ED8/graduation-cap,
+  Instrutor 20/INSTRUTOR/#047857/award, Monitor 10/MONITOR/#7C3AED/clipboard-check (slugs `mestre|professor|instrutor|monitor`).
+
+### 13.2 Migração sem regressão
+- A migration cria os 4 padrão em cada grupo (`type GROUP`) e aponta cada `PersonRole`/regra/aviso existente para o padrão do
+  mesmo accessRole. `PersonRole.role` e `OrganizationUser.role` **não mudam**. Banco de dev (medido antes/depois): memberships
+  MESTRE 3 / PROFESSOR 5 / INSTRUTOR 1 / MONITOR 1 / ALUNO 2 / RESPONSAVEL 2 e cargos ativos MESTRE 3 / PROFESSOR 5 /
+  INSTRUTOR 1 / MONITOR 1 **idênticos**; 3 grupos → 12 cargos padrão; 10/10 `PersonRole` e 3/3 regras ligados; 0 divergências
+  perfil×cargo; `prisma migrate diff` sem diferença.
+- Backfill idempotente `npm run group-roles:backfill` / boot `GROUP_ROLES_BACKFILL` (vazio = só com pendência; `true` sempre;
+  `false` nunca; roda antes do `roles-backfill`, com `|| echo`). As rotas também criam os padrão sob demanda (grupos criados por
+  fora do `createGroup`, ex.: fixtures). `createGroup` já cria os 4.
+
+### 13.3 Regras
+- Só o **MESTRE** (acesso efetivo) cria/edita/exclui/reordena/migra. Leitura (`GET /group-roles`) = quem lê alunos (`students:view`).
+- Nome 2–30 (espaços colapsados), sem duplicata case-insensitive no grupo; até **20** cargos; ícone da lista permitida; cor hex.
+- **Em uso** (alguém o exerce hoje) → não exclui, não inativa, não muda o perfil (409 `GROUP_ROLE_IN_USE` com `peopleCount`;
+  ofereça inativar/migrar). Os 4 padrão **nunca** são excluídos (409 `DEFAULT_GROUP_ROLE`), só renomeados/recoloridos/
+  reordenados/inativados (se sem uso). Sempre resta **um cargo ativo com perfil MESTRE** (409 `LAST_MESTRE_ROLE`).
+- Excluir cargo sem uso: histórico (`PersonRole` revogado) fica com `groupRoleId` nulo e o perfil preservado; regras/avisos em cascata.
+- **Migrar** (`POST /group-roles/:id/migrate {targetGroupRoleId}`): revoga o cargo de origem (histórico) e concede o destino a
+  cada pessoa, recalculando o acesso (maior perfil); 409 `LAST_MESTRE` se o grupo ficaria sem nenhum Mestre (pela membership).
+- Conceder exige cargo ATIVO (409 `GROUP_ROLE_INACTIVE`). `LAST_MESTRE` (revogar) passou a contar também o Mestre de papel
+  legado sem cargo materializado.
+- Notificações `ROLE_GRANTED/ROLE_REVOKED/ROLE_SUGGESTION` usam o **nome do cargo do grupo**; auditoria `ROLE_GRANT/REVOKE` com
+  `groupRoleId/groupRoleName`; CRUD auditado: `GROUP_ROLE_CREATE/UPDATE/DELETE/REORDER/MIGRATE` (entidade `group_role`).
+- Sugestão: regra atingida (`order >= minLevelOrder`) de cargo ATIVO com **rank maior** que o maior cargo que a pessoa já tem.
+
+### 13.4 Contrato exato (prefixo `/api`)
+`Badge = {id, name, slug, color|null, icon|null, accessRole, rank}`.
+- `GET /group-roles` → `[{id, name, slug, accessRole, rank, color, icon, isDefault, active, peopleCount, createdAt}]` (rank desc).
+- `POST /group-roles {name, accessRole, rank?, color?, icon?, active?}` → **201** item. 400 `INVALID_GROUP_ROLE_NAME` (e validação
+  de cor/ícone/perfil); 409 `GROUP_ROLE_NAME_TAKEN`, `GROUP_ROLE_LIMIT`. Sem `rank`: logo acima do maior cargo do mesmo perfil.
+- `PATCH /group-roles/:id {name?, accessRole?, rank?, color?|null, icon?|null, active?}` → 200 item; 404 outro grupo; 409
+  `GROUP_ROLE_IN_USE`, `LAST_MESTRE_ROLE`, `GROUP_ROLE_NAME_TAKEN`.
+- `DELETE /group-roles/:id` → **204**; 409 `DEFAULT_GROUP_ROLE`, `GROUP_ROLE_IN_USE`, `LAST_MESTRE_ROLE`.
+- `PUT /group-roles/reorder {order:[todos os ids, mais sênior primeiro]}` → 200 lista (rank = n·10 … 10); 400 `INVALID_ROLE_ORDER`.
+- `POST /group-roles/:id/migrate {targetGroupRoleId}` → 200 `{moved, from:{id,name}, to:{id,name}}`.
+- `POST /roles/grant {studentId|personId, groupRoleId, email?, password?, sendInvite?}` (aceita `role` legado → cargo de slug padrão)
+  → 201 `{studentId, userId, roles: Badge[], roleKeys: string[], accessRole}`; novos erros 404 `GROUP_ROLE_NOT_FOUND`, 409
+  `GROUP_ROLE_INACTIVE`, 400 `GROUP_ROLE_REQUIRED`. `POST /roles/revoke {studentId|personId, groupRoleId}` (ou `role`) → 200 idem.
+- `GET /roles/suggestions` → `[{studentId, personId, name, photo, hasLogin, currentRoles: Badge[], currentRoleKeys, role: Badge,
+  groupRoleId, accessRole, level, system, graduatedAt}]`.
+- `GET|PUT /graduations/systems/:id/role-rules` — PUT `{rules:[{groupRoleId, minLevelOrder}]}` (até 20; aceita `role` legado) →
+  `{systemId, rules:[{groupRoleId, groupRole: Badge & {active}, role, minLevelOrder, level|null}]}` (rank desc); 400
+  `GROUP_ROLE_NOT_FOUND`, `DUPLICATE_ROLE_RULE`, `INVALID_LEVEL_ORDER`.
+- `GET /teachers`: `roles: Badge[]` + `roleKeys` (slugs); filtro `?groupRoleId=` (o `?role=` continua).
+- `GET /students`: `staffRoles: Badge[]` + `staffRoleKeys`; filtro `?groupRoleId=` (o `?role=` continua).
+- Ficha: `enrollments[].roles: Badge[]` + `enrollments[].roleKeys`; `roles: [{organization, role (perfil), groupRole: Badge, grantedAt}]`.
+- `GET /auth/me`: `roles: Badge[]` + `roleKeys`; `role` = papel de acesso.
+- `GET /graduations/hierarchy`: **`staff: [{groupRole:{id, name, slug, color, icon, rank, accessRole}, people:[{id, displayName,
+  photo, level, isMyTeacher}]}]`** (rank desc; cada pessoa só no seu cargo de maior rank); `masters`/`teachers` mantidos (derivados).
+- **Mudança de forma:** `roles`/`staffRoles`/`enrollments[].roles` e `suggestions[].role` deixaram de ser strings (enum) e viraram
+  objetos; consumidores antigos devem usar `roleKeys`/`staffRoleKeys`/`accessRole`.
+
+### 13.5 Demo (idempotente)
+Grupo demo ganha **Contramestre** (PROFESSOR, rank 35, #B91C1C, medal; regra corda ordem 8) e **Formado** (INSTRUTOR, rank 25,
+#0E7490, star; regra ordem 7) — criados uma vez (não recria se o Mestre excluiu: confere a auditoria); `professor1` vira
+Contramestre e `aluno3` ganha Formado (além de Instrutor). Regras dos padrão só se o sistema não tem nenhuma.

@@ -2,7 +2,7 @@ import { plural } from "@/lib/plural";
 import type { ReactNode } from "react";
 import { Copy } from "lucide-react";
 import { toast } from "sonner";
-import { RoleBadges } from "@/components/painel/role-badges";
+import { RoleBadge, RoleBadges } from "@/components/painel/role-badges";
 import { RopeSwatch } from "@/components/painel/rope-swatch";
 import { StudentAvatar } from "@/components/painel/student-avatar";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +19,6 @@ import { errorMessage } from "@/lib/api";
 import { dayOnly, fmt } from "@/lib/format";
 import { ropeOf } from "@/lib/rope";
 import { useSessionUser } from "@/lib/session";
-import { STAFF_ROLE_LABEL } from "@/lib/staff-roles";
 import { DOCUMENT_KIND_LABEL, useStudentFicha, type SharedFromOtherGroup } from "./ficha";
 import { OCCURRENCE_KIND_LABEL } from "./ocorrencias";
 import { OcorrenciasSection, OccurrenceStatusBadge } from "./ocorrencias-section";
@@ -237,8 +236,8 @@ export function FichaAlunoDialog({ student, onClose }: { student: Student | null
               {(data.roles ?? []).length > 0 && (
                 <ul className="grid gap-1.5" data-testid="ficha-roles">
                   {(data.roles ?? []).map((r) => (
-                    <li key={`${r.organization.id}-${r.role}`} className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm">
-                      <Badge variant="default">{STAFF_ROLE_LABEL[r.role]}</Badge>
+                    <li key={`${r.organization.id}-${r.groupRole.id}`} className="flex flex-wrap items-center gap-2 rounded-md border p-2 text-sm">
+                      <RoleBadge badge={r.groupRole} />
                       <span className="font-medium">{r.organization.name}</span>
                       <span className="text-xs text-muted-foreground">desde {date(r.grantedAt)}</span>
                     </li>

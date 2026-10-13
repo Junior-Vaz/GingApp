@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { RopeStyle } from "@/lib/rope";
-import type { StaffRole } from "@/lib/staff-roles";
+import type { AccessRole, RoleBadgeData } from "@/lib/staff-roles";
 import type { OccurrenceKind, OccurrenceStatus } from "./ocorrencias";
 import type { StudentStatus } from "./schema";
 
@@ -26,11 +26,12 @@ export interface StudentFicha {
     since: string;
     until: string | null;
     isCurrent: boolean;
-    /** Cargos ativos da pessoa nesse grupo (todo mundo é aluno; os cargos se somam). */
-    roles?: StaffRole[];
+    /** Selos dos cargos ativos da pessoa nesse grupo (todo mundo é aluno; os cargos se somam). */
+    roles?: RoleBadgeData[];
+    roleKeys?: string[];
   }[];
-  /** Cargos acumulados por grupo, com a data em que foram concedidos. */
-  roles?: { organization: { id: number; name: string }; role: StaffRole; grantedAt: string }[];
+  /** Cargos acumulados por grupo (`role` = perfil de acesso; `groupRole` = o selo), com a data em que foram concedidos. */
+  roles?: { organization: { id: number; name: string }; role: AccessRole; groupRole: RoleBadgeData; grantedAt: string }[];
   graduations: {
     id: number;
     studentId: number;

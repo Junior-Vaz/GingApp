@@ -119,7 +119,7 @@ export function ChangePasswordButton() {
     <>
       <Button variant="ghost" size="sm" onClick={() => setOpen(true)} aria-label="Alterar senha">
         <KeyRound />
-        <span className="hidden sm:inline">Alterar senha</span>
+        <span className="hidden lg:inline">Alterar senha</span>
       </Button>
       <ChangePasswordDialog open={open} onOpenChange={setOpen} />
     </>

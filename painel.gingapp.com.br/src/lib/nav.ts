@@ -80,6 +80,27 @@ export function navItemsFor(role: OrgRole | undefined): NavItem[] {
   return NAV_ITEMS.filter((item) => !item.roles || (role !== undefined && item.roles.includes(role)));
 }
 
+/**
+ * Atalhos da BARRA INFERIOR (celular), em ordem de preferência: Início, Alunos, Frequência/Chamada, Financeiro e, para
+ * quem não tem Financeiro, Turmas/Aulas. Só entram os que o papel enxerga (mesma regra do menu: `navItemsFor`).
+ */
+const MOBILE_TAB_PREFERENCE = ["/dashboard", "/alunos", "/frequencia", "/financeiro", "/turmas", "/aulas"] as const;
+export const MOBILE_TAB_COUNT = 4;
+
+/** Os 4 atalhos da barra inferior do papel (o 5º botão é sempre o "Mais"). */
+export function mobileTabsFor(role: OrgRole | undefined): NavItem[] {
+  const allowed = navItemsFor(role);
+  return MOBILE_TAB_PREFERENCE.map((to) => allowed.find((item) => item.to === to))
+    .filter((item): item is NavItem => item !== undefined)
+    .slice(0, MOBILE_TAB_COUNT);
+}
+
+/** O que sobra para o menu "Mais" (todo o resto que o papel enxerga, na ordem do menu). */
+export function mobileMoreFor(role: OrgRole | undefined): NavItem[] {
+  const tabs = new Set(mobileTabsFor(role).map((item) => item.to));
+  return navItemsFor(role).filter((item) => !tabs.has(item.to));
+}
+
 /** Tela inicial do papel: o Dashboard, ou /alunos para quem não tem Dashboard (MONITOR). */
 export function homeFor(role: OrgRole | undefined): "/dashboard" | "/alunos" {
   return role !== undefined && !canAccessRoute(role, "/dashboard") ? "/alunos" : "/dashboard";

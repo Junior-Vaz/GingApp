@@ -1,7 +1,6 @@
 import { ConflictException, Injectable } from '@nestjs/common';
-import { StaffRole } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
-import { sortRoles } from '../roles/staff-roles';
+import { badgesByUser, GroupRoleBadge, rolesPayload } from '../roles/group-roles';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { buildTermsStatus, LEGAL_VERSION } from '../../../shared/legal/legal-documents';
 import { TermsStatus } from '../../../shared/legal/legal-types';
@@ -34,8 +33,10 @@ export type MeResponse = AuthResponse['user'] & {
   /** 2FA TOTP ativo + quantos codigos de recuperacao ainda restam (nunca o segredo nem os hashes). */
   twoFactorEnabled: boolean;
   recoveryCodesRemaining: number;
-  /** Fase 3: cargos ATIVOS (MESTRE/PROFESSOR/INSTRUTOR/MONITOR) no grupo do token, maior primeiro. */
-  roles: StaffRole[];
+  /** Fase 3 + secao 13: cargos DO GRUPO ativos no grupo do token (selos), maior rank primeiro. */
+  roles: GroupRoleBadge[];
+  /** Slugs dos cargos (compatibilidade). */
+  roleKeys: string[];
 };
 
 /**
@@ -47,13 +48,11 @@ export type MeResponse = AuthResponse['user'] & {
 export class AccountService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private async activeRoles(organizationId: number, userId: number): Promise<StaffRole[]> {
-    const rows = await this.prisma.personRole.findMany({ where: { organizationId, userId, revokedAt: null }, select: { role: true } });
-    const roles = new Set(rows.map((r) => r.role));
-    // Papel de equipe legado ainda sem cargo materializado (o backfill cria): conta como cargo.
+  /** Cargos DO GRUPO ativos (selos, maior rank primeiro); papel de equipe legado sem cargo materializado = cargo padrao. */
+  private async activeRoles(organizationId: number, userId: number): Promise<GroupRoleBadge[]> {
     const membership = await this.prisma.organizationUser.findUnique({ where: { organizationId_userId: { organizationId, userId } }, select: { role: true } });
-    if (membership && (Object.values(StaffRole) as string[]).includes(membership.role)) roles.add(membership.role as StaffRole);
-    return sortRoles(roles);
+    const legacy = membership ? new Map([[userId, membership.role]]) : undefined;
+    return (await badgesByUser(this.prisma, organizationId, [userId], legacy)).get(userId) ?? [];
   }
 
   async me(actor: AuthenticatedUser): Promise<MeResponse> {
@@ -83,8 +82,9 @@ export class AccountService {
       ...(actor.organizationId != null ? { organizationId: actor.organizationId } : {}),
       ...(organization ? { organizationSlug: organization.slug, organizationLogoUrl: organization.logo ?? null } : {}),
       ...(actor.role ? { role: actor.role } : {}),
-      // Fase 3: cargos ATIVOS no grupo do token (maior primeiro); o role acima e o papel de acesso (= o maior cargo).
-      roles: actor.organizationId != null ? await this.activeRoles(actor.organizationId, user.id) : [],
+      // Fase 3 + secao 13: cargos DO GRUPO ativos no grupo do token (maior rank primeiro) e os slugs; o role acima e o
+      // papel de ACESSO (= o maior perfil de acesso entre os cargos).
+      ...rolesPayload(actor.organizationId != null ? await this.activeRoles(actor.organizationId, user.id) : []),
       mustChangePassword: user.mustChangePassword,
       ...buildTermsStatus(user),
       pendingDeletionRequest: pending ? { id: pending.id, requestedAt: pending.requestedAt } : null,

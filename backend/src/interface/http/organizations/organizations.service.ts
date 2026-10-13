@@ -19,6 +19,7 @@ import { BCRYPT_ROUNDS, isForbiddenPassword, normalizeEmail } from '../../../sha
 import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
 import { revocationCutoff } from '../../../shared/security/token-revocation';
 import { buildSlugCandidate, slugify } from './organizations.rules';
+import { ensureDefaultGroupRoles } from '../roles/group-roles';
 
 /** Tentativas de gerar um slug livre quando duas criações concorrentes disputam o mesmo (P2002). */
 const MAX_SLUG_ATTEMPTS = 5;
@@ -322,6 +323,8 @@ export class OrganizationsService {
           await tx.unit.create({
             data: { organizationId: organization.id, name: MAIN_UNIT_NAME, isMain: true, status: RecordStatus.ACTIVE },
           });
+          // ...e com os 4 cargos padrão (Mestre/Professor/Instrutor/Monitor), que o Mestre renomeia/amplia em Cargos do grupo.
+          await ensureDefaultGroupRoles(tx, organization.id);
           return { ...organization, mestre: user };
         });
         await this.audit.record({

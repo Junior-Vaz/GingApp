@@ -64,7 +64,7 @@ describe('cargos acumulaveis - fase 3 (e2e)', () => {
     // Antes do backfill o papel legado ja aparece como cargo (sem materializar) e o acesso e o mesmo.
     const me = await http().get('/api/auth/me').set(auth(A.professor.token)).expect(200);
     assert.equal(me.body.role, 'PROFESSOR');
-    assert.deepEqual(me.body.roles, ['PROFESSOR']);
+    assert.deepEqual(me.body.roleKeys, ['professor']);
     await http().get('/api/students').set(auth(A.professor.token)).expect(200);
 
     const first = await backfillStaffRoles(prisma, { organizationIds: [A.organizationId] });
@@ -82,7 +82,8 @@ describe('cargos acumulaveis - fase 3 (e2e)', () => {
 
     const team = await http().get('/api/teachers').set(auth(A.mestre.token)).expect(200);
     const mestre = (team.body.items ?? team.body).find((t: { user: { id: number } }) => t.user.id === A.mestre.userId);
-    assert.deepEqual(mestre.roles, ['MESTRE']);
+    assert.deepEqual(mestre.roleKeys, ['mestre']);
+    assert.equal(mestre.roles[0].name, 'Mestre');
     assert.ok(mestre.student?.id, 'staff tambem e aluno: matricula ligada');
     // Ranking/Jornada funcionam para o staff como aluno (antes do backfill era 404 para quem nao tinha matricula).
     await http().get('/api/ranking/me').set(auth(A.mestre.token)).expect(200);
@@ -105,7 +106,7 @@ describe('cargos acumulaveis - fase 3 (e2e)', () => {
     assert.equal(noLogin.body.code, 'LOGIN_REQUIRED');
     const email = `monitor-${stamp}${DOMAIN}`;
     const res = await http().post('/api/roles/grant').set(auth(A.mestre.token)).send({ studentId: s.id, role: 'MONITOR', email, password: PASSWORD }).expect(201);
-    assert.deepEqual(res.body.roles, ['MONITOR']);
+    assert.deepEqual(res.body.roleKeys, ['monitor']);
     assert.equal(res.body.accessRole, 'MONITOR');
     const dup = await http().post('/api/roles/grant').set(auth(A.mestre.token)).send({ studentId: s.id, role: 'MONITOR' }).expect(409);
     assert.equal(dup.body.code, 'ROLE_ALREADY_ACTIVE');
@@ -113,7 +114,7 @@ describe('cargos acumulaveis - fase 3 (e2e)', () => {
     monitor = { studentId: s.id, userId: res.body.userId, token: await login(email) };
     const me = await http().get('/api/auth/me').set(auth(monitor.token)).expect(200);
     assert.equal(me.body.role, 'MONITOR');
-    assert.deepEqual(me.body.roles, ['MONITOR']);
+    assert.deepEqual(me.body.roleKeys, ['monitor']);
     assert.equal(await prisma.notification.count({ where: { userId: monitor.userId, type: 'ROLE_GRANTED' } }), 1);
     assert.equal(await prisma.auditLog.count({ where: { organizationId: A.organizationId, action: 'ROLE_GRANT' } }), 1);
   });
@@ -133,16 +134,16 @@ describe('cargos acumulaveis - fase 3 (e2e)', () => {
     await http().post('/api/roles/grant').set(auth(A.mestre.token)).send({ studentId: monitor.studentId, role: 'INSTRUTOR' }).expect(201);
     const me = await http().get('/api/auth/me').set(auth(monitor.token)).expect(200);
     assert.equal(me.body.role, 'INSTRUTOR');
-    assert.deepEqual(me.body.roles, ['INSTRUTOR', 'MONITOR']);
+    assert.deepEqual(me.body.roleKeys, ['instrutor', 'monitor']);
     const s = (await http().post('/api/students').set(auth(monitor.token)).send({ name: `${PREFIX} Pelo instrutor` }).expect(201)).body;
     await http().delete(`/api/students/${s.id}`).set(auth(monitor.token)).expect(403);
     await http().get('/api/finance').set(auth(monitor.token)).expect(403);
     const list = await http().get('/api/students?role=INSTRUTOR').set(auth(A.mestre.token)).expect(200);
     const items = list.body.items ?? list.body;
     assert.deepEqual(items.map((i: { id: number }) => i.id), [monitor.studentId]);
-    assert.deepEqual(items[0].staffRoles, ['INSTRUTOR', 'MONITOR']);
+    assert.deepEqual(items[0].staffRoleKeys, ['instrutor', 'monitor']);
     const ficha = await http().get(`/api/students/${monitor.studentId}/ficha`).set(auth(A.mestre.token)).expect(200);
-    assert.deepEqual(ficha.body.enrollments[0].roles, ['INSTRUTOR', 'MONITOR']);
+    assert.deepEqual(ficha.body.enrollments[0].roleKeys, ['instrutor', 'monitor']);
     assert.equal(ficha.body.roles.length, 2);
   });
 
@@ -176,7 +177,8 @@ describe('cargos acumulaveis - fase 3 (e2e)', () => {
     const suggestions = await http().get('/api/roles/suggestions').set(auth(A.mestre.token)).expect(200);
     const mine = suggestions.body.filter((s: { studentId: number }) => s.studentId === kid.id);
     assert.equal(mine.length, 1);
-    assert.equal(mine[0].role, 'MONITOR');
+    assert.equal(mine[0].accessRole, 'MONITOR');
+    assert.equal(mine[0].role.name, 'Monitor');
     assert.equal(mine[0].level.name, 'Amarela');
     await http().get('/api/roles/suggestions').set(auth(A.professor.token)).expect(403);
     // Aviso em segundo plano: espera curta e confere que veio UMA vez (mesmo com duas graduacoes acima da regra).

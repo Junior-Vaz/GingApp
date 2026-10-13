@@ -22,12 +22,14 @@ import { api } from "@/lib/api";
 import { createCrud, notifyError } from "@/lib/crud";
 import { useListParams } from "@/lib/list-params";
 import { ropeOf } from "@/lib/rope";
-import { canPromote, STAFF_ROLES, STAFF_ROLE_LABEL } from "@/lib/staff-roles";
+import { canPromote, STAFF_ROLES, STAFF_ROLE_LABEL, topRank } from "@/lib/staff-roles";
 import { useCan, useSessionUser } from "@/lib/session";
 import { NativeSelect } from "@/modules/alunos/native-select";
 import { units as unitsCrud } from "@/modules/unidades/units";
+import { CargosGrupo } from "./cargos-grupo";
 import { PromoverDialog, type PromoteTarget } from "./promover-dialog";
 import { RevogarDialog, type RevokeTarget } from "./revogar-dialog";
+import { useGroupRoles } from "./roles-api";
 import { SugestoesPromocao } from "./sugestoes-promocao";
 import { UnidadesAtuacaoDialog } from "./unidades-atuacao-dialog";
 import {
@@ -54,7 +56,7 @@ const teachers = createCrud<Teacher, TeacherInput>("/teachers", {
 /** "Equipe": mestres, professores, instrutores e monitores do grupo (cargos acumuláveis; o maior vira o acesso). */
 export function ProfessoresPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
-  const lp = useListParams({ pageSize: 10, filters: { role: "", status: "" } });
+  const lp = useListParams({ pageSize: 10, filters: { groupRoleId: "", status: "" } });
   const list = teachers.usePage(lp.params);
   const create = teachers.useCreate();
   const update = teachers.useUpdate();
@@ -76,6 +78,9 @@ export function ProfessoresPage() {
   const [revoking, setRevoking] = useState<RevokeTarget | null>(null);
   // Unidades do grupo (nomes da coluna e checkboxes do diálogo "Unidades de atuação").
   const unitsQuery = unitsCrud.useList({ limit: 200 });
+  // Cargos do grupo: filtro da lista e "Promover a…" (só carrega para quem pode ver a lista de cargos).
+  const groupRolesQuery = useGroupRoles();
+  const groupRoles = groupRolesQuery.data ?? [];
   const allUnits = unitsQuery.data ?? [];
   // POST /teachers/:id/reset-password (204): só o Mestre (teachers:edit) e para qualquer membro da equipe que não seja Mestre.
   const resetPassword = useMutation({
@@ -103,7 +108,7 @@ export function ProfessoresPage() {
     {
       id: "role",
       header: "Cargos",
-      sortValue: (t) => STAFF_ROLES.indexOf(t.role),
+      sortValue: (t) => topRank(teacherRoles(t)),
       cell: (t) => <RoleBadges roles={teacherRoles(t)} />,
     },
     {
@@ -141,7 +146,7 @@ export function ProfessoresPage() {
       !!t.student &&
       t.status === "ACTIVE" &&
       t.student.status === "ACTIVE" &&
-      canPromote(teacherRoles(t)) && {
+      canPromote(groupRolesQuery.data, teacherRoles(t)) && {
         key: "promote",
         label: "Promover a…",
         ariaLabel: `Promover ${t.user.name}`,
@@ -199,20 +204,20 @@ export function ProfessoresPage() {
       getRowId={(t) => t.id}
       searchPlaceholder="Buscar por nome ou e-mail…"
       emptyMessage={
-        lp.filters.role || lp.filters.status ? "Nenhum membro da equipe com esses filtros." : "Nenhum membro da equipe cadastrado ainda."
+        lp.filters.groupRoleId || lp.filters.status ? "Nenhum membro da equipe com esses filtros." : "Nenhum membro da equipe cadastrado ainda."
       }
       toolbar={
         <div className="flex flex-wrap gap-2">
           <NativeSelect
             aria-label="Filtrar por cargo"
             className="w-44"
-            value={lp.filters.role}
-            onChange={(e) => lp.setFilter("role", e.target.value)}
+            value={lp.filters.groupRoleId}
+            onChange={(e) => lp.setFilter("groupRoleId", e.target.value)}
           >
             <option value="">Todos os cargos</option>
-            {STAFF_ROLES.map((role) => (
-              <option key={role} value={role}>
-                {STAFF_ROLE_LABEL[role]}
+            {groupRoles.map((role) => (
+              <option key={role.id} value={String(role.id)}>
+                {role.active ? role.name : `${role.name} (inativo)`}
               </option>
             ))}
           </NativeSelect>
@@ -236,7 +241,7 @@ export function ProfessoresPage() {
     <>
       <PageHeader
         title="Equipe"
-        description="Mestres, professores, instrutores e monitores do grupo. Todo mundo é aluno: os cargos se somam e o maior define o acesso ao painel."
+        description="A equipe do grupo. Todo mundo é aluno: os cargos se somam, o de maior rank é o selo principal e define o acesso ao painel."
         actions={
           canCreate ? (
             <Button onClick={() => setEditing("new")}>
@@ -250,12 +255,16 @@ export function ProfessoresPage() {
           <TabsList>
             <TabsTrigger value="equipe">Equipe</TabsTrigger>
             <TabsTrigger value="sugestoes">Sugestões de promoção</TabsTrigger>
+            <TabsTrigger value="cargos">Cargos do grupo</TabsTrigger>
           </TabsList>
           <TabsContent value="equipe" className="mt-4">
             {table}
           </TabsContent>
           <TabsContent value="sugestoes" className="mt-4">
             <SugestoesPromocao />
+          </TabsContent>
+          <TabsContent value="cargos" className="mt-4">
+            <CargosGrupo />
           </TabsContent>
         </Tabs>
       ) : (
@@ -327,7 +336,7 @@ export function ProfessoresPage() {
               name="role"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Cargo</FormLabel>
+                  <FormLabel>Perfil de acesso</FormLabel>
                   <FormControl>
                     <NativeSelect {...field}>
                       {[...STAFF_ROLES].reverse().map((role) => (

@@ -22,7 +22,7 @@ interface LevelRulerProps {
 }
 
 const iconButton =
-  "inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30";
+  "inline-flex size-11 items-center justify-center rounded-md text-muted-foreground md:size-7 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-30";
 
 /**
  * "Régua de cordas": faixa com todas as cordas do sistema lado a lado (legenda) e, abaixo, um cartão por nível
@@ -86,7 +86,7 @@ export function LevelRuler({ system, canCreate, canEdit, canDelete, busy, onEdit
               setOverId(null);
             }}
             className={cn(
-              "flex items-center gap-3 rounded-lg border bg-card p-2.5 transition-colors",
+              "flex items-center gap-3 rounded-lg border bg-card p-2.5 transition-colors max-sm:flex-wrap",
               dragId === level.id && "opacity-50",
               overId === level.id && dragId !== level.id && "border-primary bg-primary/5",
             )}
@@ -102,7 +102,7 @@ export function LevelRuler({ system, canCreate, canEdit, canDelete, busy, onEdit
                 )}
               </p>
             </div>
-            <div className="flex shrink-0 flex-wrap justify-end">
+            <div className="flex shrink-0 flex-wrap justify-end max-sm:w-full">
               {canEdit && (
                 <>
                   <button type="button" className={iconButton} aria-label={`Subir nível ${level.name}`} disabled={busy || index === 0} onClick={() => move(index, index - 1)}>

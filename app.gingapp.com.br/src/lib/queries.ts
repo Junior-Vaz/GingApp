@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { pickEventInfo, type EncounterInfo, type EventInfoFields } from "@/lib/event-info";
 import { fmt, startOfToday } from "@/lib/format";
-import { isStaffRole, normalizeRoles } from "@/lib/roles";
+import { isStaffRole, normalizeBadges, toBadge, type Badge } from "@/lib/roles";
 import { getUser, setStoredStudentId, useSessionUser, useStoredStudentId, type StaffRole } from "@/lib/session";
 import rodaImage from "@/assets/capoeira-roda.jpg";
 import communityImage from "@/assets/capoeira-community.jpg";
@@ -452,16 +452,39 @@ export interface HierarchyLevel extends GraduationLevel {
   students: HierarchyLevelStudent[];
 }
 
+/** Um cargo do grupo (ex.: Contramestre) com as pessoas que o têm como cargo MAIS ALTO. */
+export interface HierarchyStaffGroup {
+  groupRole: Badge;
+  people: HierarchyTeacher[];
+}
+
 export interface Hierarchy {
   group: { id: number; name: string; logoUrl: string | null };
   system: { id: number; name: string } | null;
+  /** Equipe por cargo do grupo, do maior rank para o menor. Ausente/vazio em backend antigo: cai em masters/teachers. */
+  staff?: HierarchyStaffGroup[];
+  /** Legado (derivado): quem tem acesso MESTRE. */
   masters: HierarchyPerson[];
+  /** Legado (derivado): os demais da equipe, com `isMyTeacher`. */
   teachers: HierarchyTeacher[];
   /** Do nível MAIS ALTO para o mais baixo. */
   levels: HierarchyLevel[];
   me: { studentId: number; displayName: string; photo: string | null; level: GraduationLevel | null; order: number | null } | null;
   higherCount: number;
   totalStudents: number;
+}
+
+/** `staff` fora do contrato (ausente, malformado) vira lista vazia; cargos ficam do maior rank para o menor. */
+export function normalizeStaff(value: unknown): HierarchyStaffGroup[] {
+  if (!Array.isArray(value)) return [];
+  const groups: HierarchyStaffGroup[] = [];
+  for (const item of value) {
+    const badge = toBadge((item as { groupRole?: unknown } | null)?.groupRole);
+    const people = (item as { people?: unknown } | null)?.people;
+    if (!badge || !Array.isArray(people)) continue;
+    groups.push({ groupRole: badge, people: people as HierarchyTeacher[] });
+  }
+  return groups.sort((a, b) => b.groupRole.rank - a.groupRole.rank);
 }
 
 /** Árvore de cordas do grupo do aluno ATIVO (espera o aluno ser conhecido: senão iria sem `studentId`). */
@@ -472,7 +495,13 @@ export function useHierarchy(enabled = true) {
     queryFn: () => api.get<Hierarchy>(withQuery("/graduations/hierarchy", { studentId: scope.studentId })),
     enabled: enabled && scope.ready,
     // Resposta fora do contrato (backend antigo/parcial) vira "sem cordas" em vez de quebrar a tela.
-    select: (data): Hierarchy => ({ ...data, levels: data?.levels ?? [], masters: data?.masters ?? [], teachers: data?.teachers ?? [] }),
+    select: (data): Hierarchy => ({
+      ...data,
+      levels: data?.levels ?? [],
+      masters: data?.masters ?? [],
+      teachers: data?.teachers ?? [],
+      staff: normalizeStaff(data?.staff),
+    }),
   });
   return scoped(query, scope);
 }
@@ -528,14 +557,17 @@ export interface FichaEnrollment {
   since: string | null;
   until: string | null;
   isCurrent: boolean;
-  /** Cargos ativos nesta matrícula/grupo (Fase 3). Ausente em backend antigo. */
-  roles?: StaffRole[];
+  /** Cargos do grupo nesta matrícula (maior rank primeiro). Backend antigo manda string[]: use `normalizeBadges`. */
+  roles?: (Badge | StaffRole)[];
+  /** Slugs dos cargos (os 4 padrão: mestre/professor/instrutor/monitor). */
+  roleKeys?: string[];
 }
 
-/** Cargo (Mestre, Professor, Instrutor, Monitor) que a pessoa tem em um grupo. */
+/** Cargo que a pessoa tem em um grupo: `role` é o papel de ACESSO; `groupRole` é o cargo do grupo (nome/cor/ícone). */
 export interface StaffRoleInfo {
   organization: { id: number; name: string };
   role: StaffRole;
+  groupRole?: Badge;
   grantedAt: string;
 }
 
@@ -687,11 +719,11 @@ export function useOccurrences() {
 }
 
 /**
- * Cargos ativos do usuário no grupo do token. Fonte: GET /auth/me (`roles`); enquanto carrega, ou se o
- * servidor for antigo/falhar, cai no que a sessão já sabe (`roles` do login ou o `role` de equipe).
- * Nunca lança: sem cargo devolve lista vazia e o app segue como aluno.
+ * Cargos do grupo do usuário no grupo do token (maior rank primeiro). Fonte: GET /auth/me (`roles: Badge[]`);
+ * enquanto carrega, ou se o servidor for antigo/falhar, cai no que a sessão já sabe (`roles` do login ou o `role`
+ * de equipe, convertido em Badge). Nunca lança: sem cargo devolve lista vazia e o app segue como aluno.
  */
-export function useMyRoles(): StaffRole[] {
+export function useMyRoles(): Badge[] {
   const user = useSessionUser();
   const me = useQuery({
     queryKey: ["auth-me"],
@@ -699,8 +731,8 @@ export function useMyRoles(): StaffRole[] {
     enabled: !!user,
     retry: false,
   });
-  if (me.data && Array.isArray(me.data.roles)) return normalizeRoles(me.data.roles);
-  return normalizeRoles(user?.roles ?? (isStaffRole(user?.role) ? [user?.role] : []));
+  if (me.data && Array.isArray(me.data.roles)) return normalizeBadges(me.data.roles);
+  return normalizeBadges(user?.roles ?? (isStaffRole(user?.role) ? [user?.role] : []));
 }
 
 /** Atualiza a ficha do aluno (PATCH /people/me): apelido, telefone etc. */

@@ -6,6 +6,7 @@ import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { StudentsService } from '../students/students.service';
 import { displayNameOf } from '../ranking/ranking-rules';
 import { LEVEL_SELECT, LevelView, levelView } from './rope';
+import { badgesByUser, GroupRoleBadge, sortBadges } from '../roles/group-roles';
 
 /** Máximo de alunos listados por nível (o `count` traz o total real). */
 export const HIERARCHY_STUDENTS_PER_LEVEL = 12;
@@ -198,12 +199,12 @@ export class GraduationsHierarchyService {
     const teacherUsers = staff.filter((s) => s.role !== OrgRole.MESTRE).map((s) => s.user);
 
     const myTeacherIds = new Set<number>();
-    if (viewer && teacherUsers.length > 0) {
+    if (viewer && staff.length > 0) {
       const classes = await this.prisma.class.findMany({
         where: {
           organizationId,
           status: RecordStatus.ACTIVE,
-          teacherUserId: { in: teacherUsers.map((t) => t.id) },
+          teacherUserId: { in: staffUserIds },
           classStudents: { some: { studentId: viewer.id, status: RecordStatus.ACTIVE } },
         },
         select: { teacherUserId: true },
@@ -214,9 +215,26 @@ export class GraduationsHierarchyService {
       .map((u) => ({ ...personOf(u), isMyTeacher: myTeacherIds.has(u.id) }))
       .sort(byName);
 
+    // Secao 13: a arvore POR CARGO DO GRUPO (maior rank primeiro); cada pessoa entra no seu cargo de MAIOR rank.
+    const badges = await badgesByUser(this.prisma, organizationId, staffUserIds, new Map(staff.map((s) => [s.user.id, s.role])));
+    const groups = new Map<number, { groupRole: GroupRoleBadge; people: (HierarchyPerson & { isMyTeacher: boolean })[] }>();
+    for (const s of staff) {
+      const top = badges.get(s.user.id)?.[0];
+      if (!top) continue;
+      const entry = groups.get(top.id) ?? { groupRole: top, people: [] };
+      entry.people.push({ ...personOf(s.user), isMyTeacher: myTeacherIds.has(s.user.id) });
+      groups.set(top.id, entry);
+    }
+    const staffByRole = sortBadges([...groups.values()].map((g) => ({ ...g, id: g.groupRole.id, rank: g.groupRole.rank }))).map(({ groupRole, people }) => ({
+      groupRole: { id: groupRole.id, name: groupRole.name, slug: groupRole.slug, color: groupRole.color, icon: groupRole.icon, rank: groupRole.rank, accessRole: groupRole.accessRole },
+      people: people.sort(byName),
+    }));
+
     return {
       group: { id: organization.id, name: organization.name, logoUrl: organization.logo ?? null },
       system: system ? { id: system.id, name: system.name } : null,
+      staff: staffByRole,
+      // Legados (derivados): masters = acesso MESTRE; teachers = demais cargos.
       masters,
       teachers,
       levels,
