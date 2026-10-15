@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DiscoveryPage } from "@/components/gingapp/discovery";
 import { fmt, startOfToday } from "@/lib/format";
 import {
+  addressLine,
   directionsUrl,
   haversineKm,
   formatDistance,
@@ -937,6 +938,57 @@ describe("abre centralizado na turma atual do aluno", () => {
     await waitFor(() => expect(pinTitles()).toHaveLength(3));
     await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 50))));
     expect(lastMap().fits).toBe(1);
+  });
+});
+
+describe("treino com local PRÓPRIO (coordenada da turma) vs herdado da unidade", () => {
+  const own = place("CLASS:21", "CLASS", "Treino da Praça", {
+    weekday: 2,
+    startTime: "18:00",
+    endTime: "19:00",
+    latitude: -16.68,
+    longitude: -49.25,
+    address: "Av. Sol, 5",
+    city: "Goiânia",
+    state: "GO",
+    locationLabel: "Praça do Sol",
+  });
+  // O servidor já devolve a posição certa por treino: o app só desenha o que recebe.
+  const scenario = [
+    place("UNIT:1", "UNIT", "Sede Cordão de Ouro"),
+    place("CLASS:20", "CLASS", "Treino herdado", { weekday: 1 }), // mesmas coordenadas da unidade
+    own,
+  ];
+
+  it("cada treino com coordenada própria vira o seu pin; quem herda empilha sobre a unidade", async () => {
+    mockApi({ config: mapNoId, places: () => scenario });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(fake.state.markers.length).toBe(3));
+    const anchorY = (title: string) => (iconOf(markerFor(title)) as { anchor: { y: number } }).anchor.y;
+    expect(anchorY("Sede Cordão")).toBe(46);
+    expect(anchorY("Treino herdado")).toBe(46 + 44); // mesma coordenada da unidade: balão empilhado
+    expect(anchorY("Treino da Praça")).toBe(46); // posição própria: no chão, sem empilhar
+  });
+
+  it("o cartão do treino mostra o local do treino (nome + endereço) e a rota usa a posição própria", async () => {
+    mockApi({ places: () => scenario });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await openPin("Treino da Praça");
+    const el = card()!;
+    expect(el.textContent).toContain("Praça do Sol — Av. Sol, 5 — Goiânia/GO");
+    expect(el.textContent).not.toContain("Rua da Roda");
+    expect(el.querySelector<HTMLAnchorElement>("a")!.href).toBe(
+      "https://www.google.com/maps/dir/?api=1&destination=-16.68,-49.25",
+    );
+  });
+
+  it("addressLine: sem nome do local mantém o formato antigo", () => {
+    expect(addressLine({ address: "Rua X, 10", city: "Goiânia", state: "GO" })).toBe("Rua X, 10 — Goiânia/GO");
+    expect(addressLine({ address: "Rua X, 10", city: "Goiânia", state: "GO", locationLabel: "Praça" })).toBe(
+      "Praça — Rua X, 10 — Goiânia/GO",
+    );
   });
 });
 

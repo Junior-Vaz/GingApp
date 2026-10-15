@@ -43,6 +43,11 @@ export interface MapPlace {
   weekday?: number | null;
   startTime?: string | null;
   endTime?: string | null;
+  /**
+   * Treinos: nome livre do local do treino (ex.: "Praça X"). Com local PRÓPRIO, latitude/longitude/address/city/state
+   * já são os do treino (o servidor decide; sem local próprio vêm os da unidade) — o app só mostra o que recebe.
+   */
+  locationLabel?: string | null;
   organization: PlaceOrganization;
   distanceKm?: number | null;
   imageUrl?: string | null;
@@ -269,10 +274,12 @@ export function countByType(places: MapPlace[]): Record<PlaceType, number> {
   return counts;
 }
 
-/** Endereço em uma linha: "Rua X, 10 — Cidade/UF". */
-export function addressLine(place: Pick<MapPlace, "address" | "city" | "state">): string {
+/** Endereço em uma linha: "[Praça X —] Rua X, 10 — Cidade/UF" (o nome do local do treino, quando há, vem na frente). */
+export function addressLine(
+  place: Pick<MapPlace, "address" | "city" | "state"> & { locationLabel?: string | null },
+): string {
   const cityUf = [place.city, place.state].filter(Boolean).join("/");
-  return [place.address, cityUf].filter(Boolean).join(" — ");
+  return [place.locationLabel, place.address, cityUf].filter(Boolean).join(" — ");
 }
 
 const WEEKDAY_FULL = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];

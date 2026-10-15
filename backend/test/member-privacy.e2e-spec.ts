@@ -196,7 +196,8 @@ describe('Privacidade de ALUNO/RESPONSAVEL — varredura de rotas GET + fluxo do
     const mestre = await loginAs(app, 'mestre@gingabrasil.com.br');
     mestreToken = mestre.token;
     orgAId = mestre.organizationId;
-    professorToken = (await loginAs(app, 'professor@gingabrasil.com.br')).token;
+    const professor = await loginAs(app, 'professor@gingabrasil.com.br');
+    professorToken = professor.token;
     const aluno = await loginAs(app, 'aluno@gingabrasil.com.br');
     alunoToken = aluno.token;
     alunoUserId = aluno.userId;
@@ -227,7 +228,7 @@ describe('Privacidade de ALUNO/RESPONSAVEL — varredura de rotas GET + fluxo do
     const anaClass = await prisma.classStudent.findFirstOrThrow({ where: { organizationId: orgAId, studentId: anaStudentId } });
     await prisma.classStudent.create({ data: { organizationId: orgAId, classId: anaClass.classId, studentId: zeca.id } });
     const lesson = await prisma.lesson.create({
-      data: { organizationId: orgAId, classId: anaClass.classId, date: new Date(), notes: `[e2e-privacy] ${tag}` },
+      data: { organizationId: orgAId, classId: anaClass.classId, date: new Date(), notes: `[e2e-privacy] ${tag}`, teacherUserId: professor.userId }, // atribuida ao professor: ele so le a chamada das aulas dele
     });
     zecaLessonId = lesson.id;
     await prisma.attendance.create({

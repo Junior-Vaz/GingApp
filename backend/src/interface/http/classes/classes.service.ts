@@ -18,6 +18,8 @@ import {
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
+import { resolveCoordinatesInput } from '../../../shared/geo/coordinates';
+import { GeocodingService } from '../../../shared/geo/geocoding.service';
 import { civilTodayStart } from '../finance/finance.service';
 import {
   DAY_MS,
@@ -72,6 +74,18 @@ function parseCivilDate(value: string, field: string): Date {
   return date;
 }
 
+/** A turma tem local do treino PROPRIO (qualquer campo preenchido)? Senão herda endereço/posição da unidade. */
+export function hasOwnLocation(c: {
+  locationLabel: string | null;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}): boolean {
+  return [c.locationLabel, c.address, c.city, c.state, c.latitude, c.longitude].some((value) => value !== null);
+}
+
 /** Janela (dias) da frequência na lista de alunos da turma (presences/ttendanceRate). */
 export const ATTENDANCE_PERIOD_DAYS = 90;
 
@@ -85,6 +99,7 @@ export class ClassesService {
     private readonly audit: AuditService,
     private readonly rolling: ClassLessonsRollingService,
     private readonly ranking: RankingService,
+    private readonly geocoding: GeocodingService,
   ) {}
 
   /**
@@ -171,6 +186,10 @@ export class ClassesService {
       await assertActiveTeacher(this.prisma, organizationId, dto.teacherUserId);
     }
 
+    // Local do treino proprio: coordenadas do corpo, ou geocodificadas (so' com chave do Google; falha = sem coordenadas,
+    // a turma e' salva igual e herda a posicao da unidade no mapa).
+    const coordinates = await this.geocoding.forCreate(dto, this.locationParts(dto));
+
     const created = await this.prisma.class.create({
       data: {
         organizationId,
@@ -183,6 +202,12 @@ export class ClassesService {
         endTime: dto.endTime,
         photo: dto.photo,
         autoGenerateLessons: dto.autoGenerateLessons,
+        locationLabel: dto.locationLabel,
+        address: dto.address,
+        city: dto.city,
+        state: dto.state,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
       },
       include: CLASS_INCLUDE,
     });
@@ -191,7 +216,7 @@ export class ClassesService {
       action: AuditAction.CLASS_CREATE,
       entity: AuditEntity.CLASS,
       entityId: created.id,
-      meta: { name: created.name, unitId: created.unitId },
+      meta: { name: created.name, unitId: created.unitId, ownLocation: hasOwnLocation(created) },
     });
     // Aulas continuas: turma nova com dia da semana ganha as aulas ate o horizonte (fire-and-forget; silencioso).
     if (created.weekday !== null && created.autoGenerateLessons) this.rolling.queueEnsureHorizon(created.id);
@@ -217,6 +242,8 @@ export class ClassesService {
       await assertActiveTeacher(this.prisma, organizationId, dto.teacherUserId);
     }
 
+    const coordinates = await this.coordinatesForUpdate(current, dto);
+
     const updated = await this.prisma.class.update({
       where: { id },
       data: {
@@ -230,6 +257,12 @@ export class ClassesService {
         photo: dto.photo,
         autoGenerateLessons: dto.autoGenerateLessons,
         status: dto.status,
+        locationLabel: dto.locationLabel,
+        address: dto.address,
+        city: dto.city,
+        state: dto.state,
+        latitude: coordinates?.latitude,
+        longitude: coordinates?.longitude,
       },
       include: CLASS_INCLUDE,
     });
@@ -257,6 +290,43 @@ export class ClassesService {
       this.rolling.queueEnsureHorizon(id);
     }
     return updated;
+  }
+
+  /** Partes do endereco do treino para geocodificar (sem endereco, o rotulo — ex.: "Praca X" — ancora a busca). */
+  private locationParts(input: { locationLabel?: string | null; address?: string | null; city?: string | null; state?: string | null }) {
+    return [input.address ?? input.locationLabel, input.city, input.state];
+  }
+
+  /**
+   * Coordenadas do local do treino a gravar no PATCH (undefined = nao mexer): as do corpo (as duas juntas; null/null
+   * limpa); senao, se address/city/state/locationLabel mudaram, geocodifica o texto novo (so' com chave do Google).
+   * Diferente da Unidade: se o texto mudou e NAO ha como geocodificar, as coordenadas antigas (do endereco antigo) sao
+   * LIMPAS — a turma volta a herdar a posicao da unidade em vez de ficar com um pino no lugar errado.
+   */
+  private async coordinatesForUpdate(
+    current: Pick<ClassView, 'locationLabel' | 'address' | 'city' | 'state' | 'latitude' | 'longitude'>,
+    dto: UpdateClassDto,
+  ): Promise<{ latitude: number | null; longitude: number | null } | undefined> {
+    const given = resolveCoordinatesInput(dto); // 400 se so' uma das duas veio
+    if (given) return given;
+    const touched = [dto.locationLabel, dto.address, dto.city, dto.state].some((value) => value !== undefined);
+    if (!touched) return undefined;
+    const next = {
+      locationLabel: dto.locationLabel === undefined ? current.locationLabel : dto.locationLabel,
+      address: dto.address === undefined ? current.address : dto.address,
+      city: dto.city === undefined ? current.city : dto.city,
+      state: dto.state === undefined ? current.state : dto.state,
+    };
+    const textChanged =
+      next.locationLabel !== current.locationLabel ||
+      next.address !== current.address ||
+      next.city !== current.city ||
+      next.state !== current.state;
+    if (!textChanged) return undefined;
+    const found = await this.geocoding.forUpdate(dto, true, this.locationParts(next));
+    if (found) return found;
+    if (current.latitude === null && current.longitude === null) return undefined;
+    return { latitude: null, longitude: null };
   }
 
   /**

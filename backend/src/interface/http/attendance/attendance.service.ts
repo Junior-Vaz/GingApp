@@ -7,7 +7,7 @@ import { civilTodayStart } from '../finance/finance.service';
 import { timeToMinutes, isTimeOfDay } from '../../../shared/dates/time-of-day';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
-import { lessonScopeFilter, monitorLessonFilter, UnitScopeService } from '../../../shared/access/unit-scope';
+import { lessonScopeFilter, ownLessonFilter, UnitScopeService } from '../../../shared/access/unit-scope';
 import { AttendanceNoticeService } from './attendance-notice.service';
 import { RankingService } from '../ranking/ranking.service';
 import { StudentsService } from '../students/students.service';
@@ -92,7 +92,7 @@ export class AttendanceService {
   async findAll(organizationId: number, user?: AuthenticatedUser) {
     const scope = await this.unitScope.resolve(user, organizationId);
     return this.prisma.attendance.findMany({
-      where: { organizationId, lesson: { AND: [lessonScopeFilter(scope), monitorLessonFilter(user)] } },
+      where: { organizationId, lesson: { AND: [lessonScopeFilter(scope), ownLessonFilter(user)] } },
       orderBy: { id: 'desc' },
       take: 50,
     });
@@ -205,7 +205,8 @@ export class AttendanceService {
 
   /**
    * Chamada rápida (botão flutuante do painel): as aulas de HOJE (data civil de America/Sao_Paulo) da organização
-   * visíveis ao usuário (escopo de unidade, igual a /attendance/lessons/:id), de turmas ATIVAS. As ATIVAS vêm primeiro;
+   * visíveis ao usuário (escopo de unidade + ownLessonFilter, igual a /attendance/lessons/:id: MESTRE vê todas; PROFESSOR/
+   * INSTRUTOR/MONITOR só as das turmas em que são o responsável ou as aulas atribuídas a eles), de turmas ATIVAS. As ATIVAS vêm primeiro;
    * as CANCELADAS de hoje vêm por último com `cancelled: true` (para a chamada rápida dizer "Cancelada" em vez de "Nenhuma
    * aula hoje" e oferecer "Reativar aula"; não marcam presença e o status por horário delas é sempre o do relógio).
    * `status` pelo horário atual de São Paulo: ENDED (já passou do fim), UPCOMING (ainda não começou) ou ONGOING
@@ -221,7 +222,7 @@ export class AttendanceService {
         organizationId,
         date: { gte: today, lt: new Date(today.getTime() + DAY_MS) },
         class: { status: 'ACTIVE' },
-        AND: [lessonScopeFilter(scope), monitorLessonFilter(user)],
+        AND: [lessonScopeFilter(scope), ownLessonFilter(user)],
       },
       include: {
         class: { select: { id: true, name: true, photo: true, startTime: true, endTime: true, unit: { select: { name: true } } } },
@@ -348,7 +349,7 @@ export class AttendanceService {
   private async assertLessonBelongsToOrganization(organizationId: number, lessonId: number, user?: AuthenticatedUser) {
     const scope = await this.unitScope.resolve(user, organizationId);
     const lesson = await this.prisma.lesson.findFirst({
-      where: { id: lessonId, organizationId, AND: [lessonScopeFilter(scope), monitorLessonFilter(user)] },
+      where: { id: lessonId, organizationId, AND: [lessonScopeFilter(scope), ownLessonFilter(user)] },
     });
     if (!lesson) {
       throw new NotFoundException('Aula não encontrada.');

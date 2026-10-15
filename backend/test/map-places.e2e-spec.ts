@@ -188,7 +188,7 @@ describe('Mapa da comunidade (e2e)', () => {
 
       const unit = items.find((i: { id: string }) => i.id === `UNIT:${unitId}`);
       assert.deepEqual(Object.keys(unit).sort(), [
-        'address', 'capacity', 'city', 'description', 'distanceKm', 'endTime', 'endsAt', 'id', 'imageUrl', 'isMine', 'latitude', 'longitude',
+        'address', 'capacity', 'city', 'description', 'distanceKm', 'endTime', 'endsAt', 'id', 'imageUrl', 'isMine', 'latitude', 'locationLabel', 'longitude',
         'organization', 'spotsLeft', 'startTime', 'startsAt', 'state', 'title', 'type', 'unitName', 'weekday',
       ]);
       assert.equal(unit.type, 'UNIT');

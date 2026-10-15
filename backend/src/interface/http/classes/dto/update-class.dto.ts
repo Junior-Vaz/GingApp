@@ -1,6 +1,10 @@
 import { RecordStatus } from '@prisma/client';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min, MinLength, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
+import { BR_UFS } from '../../../../shared/geo/br-states';
+import { IsOptionalLatitude, IsOptionalLongitude } from '../../../../shared/geo/coordinates';
+import { UF_MESSAGE } from '../../units/dto/create-unit.dto';
+import { trimOrNull, ufOrNull } from '../../units/dto/update-unit.dto';
 import { blankImageToNull, IsImageRef } from '../../../../shared/uploads/image-ref';
 import { IsAfterTimeOf, IsTimeOfDay } from '../../../../shared/dates/time-of-day';
 
@@ -57,4 +61,38 @@ export class UpdateClassDto {
   @ValidateIf((_, v) => v !== undefined)
   @IsBoolean()
   autoGenerateLessons?: boolean;
+
+  /**
+   * LOCAL DO TREINO proprio. Campo ausente = nao mexe; `null` (ou texto vazio) LIMPA. Para "voltar a usar o endereco da
+   * unidade" mande TODOS null (locationLabel, address, city, state, latitude e longitude).
+   */
+  @IsOptional()
+  @Transform(trimOrNull)
+  @IsString()
+  @MaxLength(120)
+  locationLabel?: string | null;
+
+  @IsOptional()
+  @Transform(trimOrNull)
+  @IsString()
+  @MaxLength(200)
+  address?: string | null;
+
+  @IsOptional()
+  @Transform(trimOrNull)
+  @IsString()
+  @MaxLength(100)
+  city?: string | null;
+
+  @IsOptional()
+  @Transform(ufOrNull)
+  @IsIn(BR_UFS, { message: UF_MESSAGE })
+  state?: string | null;
+
+  /** Coordenadas (as DUAS juntas; ambas null limpam). Sem elas, mudar address/city/state re-geocodifica (se houver chave). */
+  @IsOptionalLatitude()
+  latitude?: number | null;
+
+  @IsOptionalLongitude()
+  longitude?: number | null;
 }

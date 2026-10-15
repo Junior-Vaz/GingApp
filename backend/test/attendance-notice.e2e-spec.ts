@@ -57,7 +57,8 @@ describe('Aviso de presença (e2e)', () => {
     app = await createTestApp({ disableThrottle: true });
     org = await createReportOrg(app, prisma, 'presenca');
     const organizationId = org.organizationId;
-    const klass = await prisma.class.create({ data: { organizationId, name: 'Turma Presença', startTime: '18:00', autoGenerateLessons: false } });
+    // teacherUserId: o PROFESSOR so marca chamada das turmas em que e o responsavel (ownLessonFilter).
+    const klass = await prisma.class.create({ data: { organizationId, name: 'Turma Presença', startTime: '18:00', autoGenerateLessons: false, teacherUserId: org.professor.userId } });
     classId = klass.id;
 
     const a = await makeUser('alunoA', OrgRole.ALUNO);

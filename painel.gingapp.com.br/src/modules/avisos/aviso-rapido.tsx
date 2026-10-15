@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Bell, Loader2, Megaphone, Send, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { Bell, BookmarkPlus, Loader2, Megaphone, Send, X, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { StudentMultiPicker } from "@/components/painel/student-multi-picker";
 import { Button } from "@/components/ui/button";
@@ -24,10 +24,16 @@ import {
   TITLE_MAX,
   TITLE_MIN,
   buildAudience,
+  splitLeadingEmoji,
+  templateTitle,
   useAudiences,
+  useQuickTemplates,
   useSendNotice,
+  useTemplateMutations,
   type AudienceScope,
+  type QuickTemplate,
 } from "./aviso-api";
+import { TemplateManager, TemplateStrip } from "./aviso-modelos";
 
 const roleLabel = (role: string) => ROLE_LABEL[role as OrgRole] ?? role;
 
@@ -118,12 +124,34 @@ function Counter({ value, max }: { value: number; max: number }) {
 function QuickNoticePanel({ onClose, focusTitle }: { onClose: () => void; focusTitle: boolean }) {
   const [form, setForm] = useState<NoticeForm>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
+  const [view, setView] = useState<"form" | "manage">("form");
+  const [templateId, setTemplateId] = useState<number | string | null>(null);
+  const [confirmNow, setConfirmNow] = useState(false);
+  const sendRef = useRef<HTMLButtonElement>(null);
+  const canManage = useCan("announcements", "delete"); // só MESTRE cria/edita/apaga modelos
   const audiences = useAudiences();
+  const templates = useQuickTemplates();
+  const { create: saveTemplate } = useTemplateMutations();
   const send = useSendNotice();
   const set = <K extends keyof NoticeForm>(key: K, value: NoticeForm[K]) => {
     setForm((f) => ({ ...f, [key]: value }));
     setFormError(null);
+    setConfirmNow(false);
   };
+  /** Digitar por cima do texto do modelo desfaz a seleção (o "Enviar já" é só para o modelo como está). */
+  const setText = (key: "title" | "body", value: string) => {
+    set(key, value);
+    setTemplateId(null);
+  };
+
+  /** Tocar num modelo PREENCHE título e mensagem (continuam editáveis) e leva o foco ao envio. */
+  function pickTemplate(t: QuickTemplate) {
+    setForm((f) => ({ ...f, title: templateTitle(t), body: t.body }));
+    setTemplateId(t.id);
+    setFormError(null);
+    setConfirmNow(false);
+    setTimeout(() => sendRef.current?.focus(), 0);
+  }
 
   const title = form.title.trim();
   const body = form.body.trim();
@@ -144,9 +172,38 @@ function QuickNoticePanel({ onClose, focusTitle }: { onClose: () => void; focusT
   const classes = audiences.data?.classes ?? [];
   const unitName = (id: number | null) => audiences.data?.units.find((u) => u.id === id)?.name;
 
+  /** Para onde vai, em palavras: usado na confirmação do "Enviar já". */
+  const audienceText = (() => {
+    switch (form.scope) {
+      case "GROUP":
+        return "todo o grupo";
+      case "UNIT":
+        return `a unidade ${unitName(Number(form.unitId)) ?? ""}`.trim();
+      case "CLASS":
+        return `a turma ${classes.find((c) => String(c.id) === form.classId)?.name ?? ""}`.trim();
+      case "ROLE":
+        return `o perfil ${roleLabel(form.role)}`;
+      case "STUDENTS":
+        return plural(form.students.length, "aluno escolhido", "alunos escolhidos");
+    }
+  })();
+
+  async function handleSaveTemplate() {
+    if (!titleOk || !bodyOk) return;
+    const { emoji, title: plainTitle } = splitLeadingEmoji(title);
+    setFormError(null);
+    try {
+      await saveTemplate.mutateAsync({ title: plainTitle, body, ...(emoji ? { emoji } : {}) });
+      toast.success("Modelo salvo.");
+    } catch (error) {
+      setFormError(errorMessage(error, "Não foi possível salvar o modelo. Tente novamente."));
+    }
+  }
+
   async function handleSend() {
     if (!audience || !canSend) return;
     setFormError(null);
+    setConfirmNow(false);
     try {
       const result = await send.mutateAsync({
         title,
@@ -157,6 +214,7 @@ function QuickNoticePanel({ onClose, focusTitle }: { onClose: () => void; focusT
       const people = plural(result?.sent ?? 0, "pessoa");
       toast.success(result?.announcementId ? `Enviado para ${people} e publicado no mural.` : `Enviado para ${people}.`);
       setForm(EMPTY_FORM);
+      setTemplateId(null);
       onClose();
     } catch (error) {
       if (error instanceof ApiError && error.code === "NO_RECIPIENTS") setFormError("Ninguém neste alcance. Escolha outro alcance.");
@@ -164,6 +222,8 @@ function QuickNoticePanel({ onClose, focusTitle }: { onClose: () => void; focusT
       else setFormError(errorMessage(error, "Não foi possível enviar o aviso. Tente novamente."));
     }
   }
+
+  if (view === "manage" && canManage) return <TemplateManager onBack={() => setView("form")} />;
 
   return (
     <form
@@ -182,7 +242,40 @@ function QuickNoticePanel({ onClose, focusTitle }: { onClose: () => void; focusT
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4" data-testid="quick-notice-body">
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overflow-x-hidden p-4" data-testid="quick-notice-body">
+        <TemplateStrip
+          templates={templates.data ?? []}
+          loading={templates.isLoading}
+          selectedId={templateId}
+          onPick={pickTemplate}
+          onManage={canManage ? () => setView("manage") : undefined}
+        />
+
+        {templateId !== null && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2" data-testid="quick-notice-send-now">
+            {confirmNow ? (
+              <>
+                <p className="min-w-0 flex-1 text-sm font-medium">Enviar agora para {audienceText}?</p>
+                <div className="flex gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setConfirmNow(false)}>
+                    Cancelar
+                  </Button>
+                  <Button type="button" size="sm" disabled={!canSend} onClick={() => void handleSend()}>
+                    Sim, enviar
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="min-w-0 flex-1 text-xs text-muted-foreground">Modelo aplicado. Ajuste o texto ou o alcance, ou envie direto.</p>
+                <Button type="button" variant="secondary" size="sm" disabled={!canSend} onClick={() => setConfirmNow(true)}>
+                  <Zap /> Enviar já
+                </Button>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs">
             <Label htmlFor="notice-title">Título</Label>
@@ -194,7 +287,7 @@ function QuickNoticePanel({ onClose, focusTitle }: { onClose: () => void; focusT
             maxLength={TITLE_MAX + 20}
             placeholder="Ex.: Treino de hoje cancelado"
             autoFocus={focusTitle}
-            onChange={(e) => set("title", e.target.value)}
+            onChange={(e) => setText("title", e.target.value)}
           />
         </div>
 
@@ -209,7 +302,7 @@ function QuickNoticePanel({ onClose, focusTitle }: { onClose: () => void; focusT
             value={form.body}
             maxLength={BODY_MAX + 40}
             placeholder="Escreva o aviso que os alunos vão receber."
-            onChange={(e) => set("body", e.target.value)}
+            onChange={(e) => setText("body", e.target.value)}
           />
         </div>
 
@@ -297,6 +390,18 @@ function QuickNoticePanel({ onClose, focusTitle }: { onClose: () => void; focusT
           </div>
         </div>
 
+        {canManage && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!titleOk || !bodyOk || saveTemplate.isPending}
+            onClick={() => void handleSaveTemplate()}
+          >
+            {saveTemplate.isPending ? <Loader2 className="animate-spin" /> : <BookmarkPlus />} Salvar como modelo
+          </Button>
+        )}
+
         {formError && (
           <p role="alert" data-testid="quick-notice-error" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             {formError}
@@ -308,7 +413,7 @@ function QuickNoticePanel({ onClose, focusTitle }: { onClose: () => void; focusT
         <p className="min-w-0 text-xs text-muted-foreground" aria-live="polite">
           {missing}
         </p>
-        <Button type="submit" disabled={!canSend}>
+        <Button ref={sendRef} type="submit" disabled={!canSend}>
           {send.isPending ? <Loader2 className="animate-spin" /> : <Send />}
           {send.isPending ? "Enviando…" : "Enviar"}
         </Button>

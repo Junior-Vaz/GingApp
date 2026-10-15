@@ -470,7 +470,7 @@ pt-BR por `code` (`PERSON_MERGE_SAME_GROUP` cita os grupos). `ApiError` do admin
 - Backend: `monitorLessonFilter(user)` (`shared/access/unit-scope.ts`) = aula com `Lesson.teacherUserId = user.id` **ou** de
   turma com `Class.teacherUserId = user.id`; aplicado em `GET /attendance`, `GET/POST /attendance/lessons/:id`,
   `GET /attendance/quick-sessions` e `GET /attendance/lessons/:id/checkin-token`. Fora disso = o mesmo 404 da aula
-  inexistente. INSTRUTOR/PROFESSOR/MESTRE seguem só o escopo de unidade. Leitura de turmas/aulas continua pela matriz.
+  inexistente. **Atualizado em 2026-10-15 (PLANO §10.50):** o filtro (agora `ownLessonFilter`) vale também para PROFESSOR e INSTRUTOR (bug: a chamada rápida mostrava turmas de outros); só o MESTRE vê todas as aulas do grupo (respeitando a unidade). Leitura de turmas/aulas continua pela matriz.
 - Painel: `session.ts`/`nav.ts` já espelhavam INSTRUTOR e MONITOR (conferido célula a célula com `permission-matrix.ts`, com
   teste); os botões de criar/editar (Novo aluno/turma/aula/comunicado/evento/roda, Emitir certificado, Graduações) passam a
   seguir `useCan`. Menu do MONITOR: sem Financeiro, Equipe, Dashboard, Certificados, Transferências.

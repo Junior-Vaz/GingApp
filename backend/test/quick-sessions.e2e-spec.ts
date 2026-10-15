@@ -190,6 +190,8 @@ describe('Chamada rapida: GET /attendance/quick-sessions (e2e)', () => {
   });
 
   it('escopo de unidade: PROFESSOR restrito a unidade 1 so ve as aulas da unidade 1; sem restricao ve todas', async () => {
+    // PROFESSOR so ve as turmas em que e o responsavel (ownLessonFilter): torna-o responsavel das 3 turmas ativas desta suite.
+    await prisma.class.updateMany({ where: { id: { in: [classA, classB, classInactive] } }, data: { teacherUserId: profUserId } });
     const free = await service.quickSessions(orgB.organizationId, { id: profUserId, userType: 'MEMBER', role: OrgRole.PROFESSOR, organizationId: orgB.organizationId, isSuperAdmin: false } as never, noon);
     assert.equal(free.length, 6, 'professor sem unidades atribuidas ve tudo (inclui a cancelada de hoje)');
 

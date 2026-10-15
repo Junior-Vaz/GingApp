@@ -3678,3 +3678,121 @@ Poder APAGAR DE VERDADE aulas e turmas (até então "remover" só cancelava/inat
 4. Apagar aula/turma não avisa os alunos (cancelar avisa). Se o dono quiser aviso ao apagar aula futura ativa, é regra nova.
 5. Mudar o dia da semana da turma continua não movendo as aulas já geradas (pendência 1 da seção anterior): agora dá para limpar com "Apagar canceladas" depois de cancelar em massa, mas não há "cancelar em massa" no painel.
 6. Retenção: o `AuditLog` guarda `CLASS_DELETE`/`LESSON_DELETE*` pelo prazo normal de auditoria; não há "desfazer".
+
+### 10.49 Modelos de aviso rápido (mensagens prontas, um toque) - 2026-10-15
+
+Pedido do dono: "nos avisos rápidos quero já pré-criar notificações prontas rápidas também".
+
+#### Decisões
+1. Modelo SIMPLES: `QuickNoticeTemplate` guarda só `title`, `body`, `emoji` (opcional), `sortOrder`, `createdById` (informativo, sem FK) e timestamps. NÃO guarda audiência padrão: o alcance (grupo/unidade/turma/perfil/alunos) continua sendo escolhido no envio, porque a audiência depende de ids que mudam (turma apagada, aluno inativo) e complicaria validação e escopo de unidade do professor restrito. Isso também resolve o "Enviar já": ele envia para o alcance que estiver escolhido no painel.
+2. SEM variáveis `{turma}`/`{grupo}`: o `QuickSendService` não faz substituição (o texto sai literalmente), então os modelos padrão não usam variáveis. Se um dia houver substituição no envio, é regra nova.
+3. Modelos PADRÃO (6) vivem no código (`BUILTIN_QUICK_TEMPLATES` em `quick-templates.service.ts`), não no banco: valem para todo grupo sem migration por texto novo. Ids `builtin:<chave>`, `builtin: true`, somente leitura. PATCH/DELETE neles = 400 `BUILTIN_TEMPLATE`. "Duplicar" = o painel faz um POST com o mesmo texto.
+4. Permissão: listar = `announcements:create` (a mesma do envio: MESTRE/PROFESSOR/INSTRUTOR; MONITOR/ALUNO/RESPONSAVEL = 403); escrever = `announcements:delete`, que a matriz só dá ao MESTRE. Reaproveitei a matriz RolePermission em vez de criar recurso novo (`announcements:delete` hoje == MESTRE). Pendência 1.
+5. Limite: 30 modelos próprios por grupo (400 `QUICK_TEMPLATE_LIMIT`); os padrão não contam. Apagar é DELETE de verdade (modelo não é dado de negócio; notificações já enviadas não referenciam o modelo). Tenant-scoped: modelo de outro grupo = 404.
+6. Auditoria: `QUICK_NOTICE_TEMPLATE_CREATE/UPDATE/DELETE` (entidade `quick_notice_template`) só com id, tamanhos e nomes de campos alterados, NUNCA o texto.
+7. Migration à mão `20261019010000_quick_notice_templates` (o último existente era `20261018000000`; o prefixo `202610160100xx` sugerido no pedido ficaria ANTES dele, então usei `20261019010000`, depois da `20261019000000_class_location` do outro agente). SQL sem BOM, só adiciona tabela + índice + FK `ON DELETE CASCADE` na organização.
+8. Painel: a faixa "Modelos" (chips) fica no topo do corpo do Aviso rápido, `<ul>` com `overflow-x-auto` e itens `shrink-0` (rolagem só dentro da faixa; o corpo do painel ganhou `overflow-x-hidden`). Tocar no modelo preenche título (`emoji + título`, cortado em 80) e mensagem, mantém tudo editável e leva o foco ao botão Enviar. Digitar por cima desfaz a seleção. Se a lista falhar (ou vier vazia) a faixa some e o aviso manual segue igual.
+9. "Enviar já": aparece após tocar num modelo; 1º toque pede "Enviar agora para <alcance>?" e o 2º ("Sim, enviar") envia; "Cancelar" volta. Reaproveita o `handleSend` (mesmo POST /notifications/send).
+10. "Salvar como modelo" (só MESTRE, `useCan("announcements","delete")`) a partir do que foi digitado; emoji no começo do título vira o campo `emoji`. "Gerenciar modelos" (só MESTRE) abre a tela dentro do próprio painel (sem fechar): criar, editar, subir/descer (grava `sortOrder` = posição só nos itens que mudaram), apagar com confirmação NA LINHA ("Apagar este modelo?" / "Sim, apagar") e duplicar os padrão. Confirmação inline de propósito: um AlertDialog é portal fora do Popover/Sheet e o clique nele conta como "fora", fechando o painel.
+11. Invalidação: toda escrita (criar/editar/apagar/reordenar) invalida `["notifications","quick-templates"]`.
+
+#### Contrato
+1. `GET /notifications/quick-templates` -> `[{ id: number | "builtin:<chave>", title, body, emoji: string|null, sortOrder, builtin }]`: modelos do grupo (por `sortOrder`, `id`) primeiro, depois os 6 padrão.
+2. `POST /notifications/quick-templates` `{ title(2-80), body(2-280), emoji?(<=8), sortOrder?(0-9999) }` -> 201 com o item (sem `sortOrder` vai para o fim). `PATCH /:id` (campos opcionais; `emoji: ""` limpa) -> 200. `DELETE /:id` -> 200 `{ id }`. Corpo com campo extra = 400 (whitelist global). Id inexistente/de outro grupo/não numérico = 404.
+
+#### O que deu certo / o que não deu
+1. Certo: o spec novo passou de primeira (8/8) e o painel também (9/9 novos + 10/10 do Aviso rápido antigo sem tocar neles: nenhum teste existente precisou mudar, porque a faixa some quando `GET /quick-templates` falha e o mock dos testes antigos devolve 404).
+2. Não certo (processo): o Git Bash travou/quebrou no meio (`add_item ... failed`) e um heredoc com `python -` ficou pendurado esperando entrada; solução: parar a tarefa e fazer as edições com a ferramenta de edição + PowerShell.
+3. Não certo (tipos): `tsc` acusou `onManage?: () => void` recebendo `undefined` por causa de `exactOptionalPropertyTypes`; solução: tipar `onManage?: (() => void) | undefined`.
+
+#### Testes (números reais)
+1. Backend: `test:quick quick-templates` 8/8 (CRUD mestre; professor 403 em escrita e lista com os 6 padrão; MONITOR/ALUNO 403 na lista; isolamento entre grupos; builtin 400; limite 30; validação; auditoria sem texto); `test:quick quick-send` 10/10; `test:quick audit-coverage` 5/5; `npm run build` limpo. Spec adicionado ao fim da lista `test:e2e` de `backend/package.json`.
+2. Painel: `aviso-modelos.test.tsx` 9/9 + `aviso-rapido.test.tsx` 10/10 = 19/19; `tsc --noEmit` limpo; eslint nos arquivos tocados sem avisos. Não rodei as suítes completas (instrução).
+
+#### Pendências
+1. `announcements:delete` vale como "gerenciar modelos": se um dia PROFESSOR ganhar delete de comunicado, ganha também a gestão de modelos. Se isso importar, criar recurso próprio na matriz (`quick_notices`) com migration de dados.
+2. Conferir a faixa de modelos, o "Enviar já" e o gerenciador a 375 px num navegador real (só validado por teste de DOM; o `overflow-x-auto` não é medido no jsdom).
+3. Os 6 modelos padrão estão só em português e fixos no código; editar o texto exige deploy. Se o dono quiser editá-los por grupo, é "duplicar e apagar o padrão" (não existe ocultar padrão).
+4. Sem variáveis ({turma}/{grupo}) por falta de substituição no envio.
+5. Reordenar faz até 30 PATCH em paralelo (só os itens que mudaram de posição, em geral 2); sem endpoint de reordenação em lote.
+6. Rodar a suíte completa (`npm run test:e2e`) antes do commit: o spec novo está na lista, mas não rodei a suíte inteira.
+
+### 10.50 Chamada rápida mostrava turmas de outros professores: escopo "só as minhas" para PROFESSOR/INSTRUTOR/MONITOR - 2026-10-15
+
+**Estado:** concluída (sem commit). Bug de produção: no painel, o botão flutuante/tela de Chamada rápida listava aulas de turmas que não eram do usuário logado.
+
+#### Causa raiz
+1. `GET /attendance/quick-sessions` (`AttendanceService.quickSessions`) filtrava só por `lessonScopeFilter(scope)` (escopo de UNIDADE) + `monitorLessonFilter(user)`. O `monitorLessonFilter` (`shared/access/unit-scope.ts`, desde FICHA_UNICA §12.C) devolvia `{}` para qualquer papel que não fosse MONITOR: PROFESSOR e INSTRUTOR eram decididos por design "só pelo escopo de unidade".
+2. O escopo de unidade (`UnitScopeService.resolve`) devolve `'ALL'` para o PROFESSOR/INSTRUTOR/MONITOR que não tem nenhum registro em `UserUnitAccess` (comportamento histórico) e `'ALL'` para o Mestre. Resultado em produção: como a maioria dos grupos nunca atribuiu unidades, professor e instrutor viam as aulas de hoje de TODAS as turmas do grupo (e podiam abrir o roster e marcar presença, pois `getRoster`/`markAttendance`/`GET /attendance`/`checkin-token` usam o mesmo filtro).
+3. O vínculo turma-professor existe e é `Class.teacherUserId` (User.id de membro ativo MESTRE/PROFESSOR/INSTRUTOR/MONITOR; validado por `assertActiveTeacher`) e, por aula, `Lesson.teacherUserId` (aula atribuída/substituto, copiado da turma ao gerar aulas). Não existe model Teacher nem tabela de auxiliares/monitores por turma: não há mistura Teacher.id/User.id, e não havia fallback "devolve tudo" - simplesmente o filtro de responsável só existia para MONITOR.
+4. O painel (`chamada-rapida.tsx`/`frequencia-api.ts`) não filtra nada: mostra o que o servidor devolve; o cache do React Query é limpo no logout (`auth.ts`), então não era vazamento de cache.
+
+#### Correção
+1. `shared/access/unit-scope.ts`: `monitorLessonFilter` virou `ownLessonFilter(user)`: para MEMBER não super admin com papel em `SCOPED_STAFF_ROLES` (PROFESSOR, INSTRUTOR, MONITOR) = `OR [Lesson.teacherUserId = eu, Class.teacherUserId = eu]`. MESTRE, PLATFORM/super admin, ALUNO/RESPONSAVEL e `user` omitido (chamada interna) continuam sem o filtro. Mantido `monitorLessonFilter` como alias `@deprecated`.
+2. `attendance.service.ts` (`findAll`, `quickSessions`, `assertLessonBelongsToOrganization` -> `getRoster`/`markAttendance`) e `attendance-checkin.service.ts` (`issueToken`) passaram a usar `ownLessonFilter`: aula fora do escopo = o mesmo 404 da inexistente (não vaza existência). O escopo de unidade continua somando (AND).
+3. Regra resultante: MESTRE vê todas as aulas de hoje (respeitando o escopo de unidade quando houver); PROFESSOR/INSTRUTOR/MONITOR veem só aulas de turmas em que são o responsável ou aulas atribuídas a eles. Turma SEM responsável só aparece para o Mestre.
+4. Painel: nenhuma mudança necessária (a UI já exibe o que o servidor manda).
+
+#### Testes
+1. Novo `backend/test/quick-sessions-scope.e2e-spec.ts` (6 testes, grupo próprio): professor A não vê turma do B; instrutor e monitor idem; Mestre vê todas (e turma inativa nunca entra); aula atribuída ao A numa turma do B aparece para A; cancelada própria aparece, cancelada alheia não; escopo de unidade soma ao de responsável; professor A lê/marca a própria aula (201) e recebe 404 ao ler/marcar/pedir QR da aula do B ou da turma sem responsável (nada gravado); instrutor e monitor 404 na aula alheia; Mestre marca qualquer aula; `GET /attendance` do professor só traz as aulas dele; ALUNO 403 e sem token 401. Adicionado ao fim da lista `test:e2e` do `backend/package.json`.
+2. Specs antigos que codificavam o comportamento ANTERIOR (professor/instrutor vendo tudo) foram ajustados, não removidos: `monitor-attendance` (INSTRUTOR/PROFESSOR agora 404 na aula alheia; Mestre 200), `today-lesson-visibility` (instrutor não responsável agora 404; unidade/legado com aula atribuída ao usuário), `quick-sessions` (professor responsável pelas turmas do fixture), `unit-scope` (classA tem professor A; profFree sem unidade agora 404 em chamada da turma B), `attendance-notice` (turma com `teacherUserId` = professor), `member-privacy` (aula de fixture atribuída ao professor semente).
+
+#### O que deu certo / o que não deu
+1. Certo: a causa ficou clara lendo só `unit-scope.ts` e o `quickSessions`; a correção é uma função (SSOT) aplicada nos 4 pontos de chamada, sem duplicar regra.
+2. Não certo (meu erro de teste): no primeiro run do spec novo esperei que o professor B NÃO visse a aula atribuída ao A numa turma do B; pelo desenho (OR responsável-da-turma / responsável-da-aula) o responsável da turma também a vê. Corrigi a expectativa (decisão de produto mantida, ver pendência 3).
+3. Não certo (impacto): 6 asserts de 4 specs existentes quebraram porque dependiam de "professor/instrutor vê tudo" (listados acima); ajustados para a regra nova.
+
+#### Resultados reais
+1. `test:quick quick-sessions-scope` 6/6. Conjunto afetado (reports, must-change-password, ranking, attendance*, unit-scope, today-lesson, member-privacy, checkin-self, class-students, photos-contract, lessons-reactivate, guardian-dependents, quick-sessions, monitor-attendance, rbac, events-unit-scope): 18 specs, 168 testes, 168 passaram, 0 falharam. `npm run build` limpo. `tsc --noEmit` do backend só acusa erros pré-existentes em `certificate-pdf.e2e-spec.ts` e `map-places.e2e-spec.ts` (alheios a esta tarefa).
+2. Painel: `chamada-rapida.test.tsx` 13/13 (sem alteração de código no painel).
+
+#### Pendências
+1. IMPACTO EM PRODUÇÃO (decisão do dono confirmada na tarefa): turmas SEM `teacherUserId` deixam de aparecer para professor/instrutor/monitor (só o Mestre vê). Antes de publicar, conferir no banco quantas turmas ativas têm `teacherUserId` nulo e atribuir o responsável (tela de turma), senão o professor fica com "Nenhuma aula hoje" e sem poder marcar chamada. Sugestão: no painel, avisar na Chamada rápida/Turmas quando houver turma ativa sem responsável (Mestre).
+2. O vínculo é 1 responsável por turma (+ responsável por aula). Não há co-professor/auxiliar por turma: dois professores na mesma turma só funciona atribuindo a aula (`Lesson.teacherUserId`) a cada um. Se o dono quiser auxiliares, precisa de tabela `ClassStaff` (migration).
+3. Decisão mantida: o responsável da TURMA também enxerga a aula atribuída a outro professor naquela turma (substituto); se o dono preferir "só o substituto", trocar o filtro para `teacherUserId = eu OR (teacherUserId nulo AND class.teacherUserId = eu)`.
+4. Outras telas ainda mostram turmas/aulas do grupo para o PROFESSOR pelo escopo de unidade apenas (`GET /classes`, `GET /lessons`, dashboard, alunos): decisão de produto separada; esta correção cobre só chamada (quick-sessions, roster, marcar presença, `GET /attendance`, QR de check-in). Confirmar com o dono se "minhas turmas" deve valer também nessas listas.
+5. `markAttendance` aceita qualquer aluno do grupo, mesmo não matriculado (ClassStudent ACTIVE) na turma da aula, e aceita aula CANCELADA (INACTIVE) pela API (o painel já bloqueia a cancelada). Não corrigi: pode haver uso legítimo (aula experimental/visitante) e mexe em fluxos do app; avaliar com o dono.
+6. `studentsCount` conta `ClassStudent` ACTIVE sem olhar o status do aluno (`Student.status`); conferir se aluno inativo deve sair do roster.
+7. Fuso e duplicidade conferidos: "hoje" = `civilTodayStart` (America/Sao_Paulo) e hora do status por `saoPauloMinutes`; turma inativa já é excluída; a duplicidade de aula (2 aulas da mesma turma no mesmo dia) é legítima e não é deduplicada.
+8. Atualizar o texto de `docs/FICHA_UNICA.md` §12.C (ainda diz que INSTRUTOR/PROFESSOR seguem só o escopo de unidade) - ajustado em uma linha nesta tarefa.
+
+
+### 10.51 Local do treino próprio da turma no mapa da comunidade - 2026-10-15
+Estado: concluído (backend, painel e app), sem commit. Pedido do dono: "nas turmas no mapa, falta a posição como a unidade tem; todas as turmas aparecem com o pin na localização da unidade".
+
+#### Causa
+1. A `Class` não tinha localização: `/map/places` montava o treino com `latitude/longitude/address/city/state` da `Unit` da turma. Por isso todo treino caía em cima do pin da unidade (no app, os balões empilhavam na mesma coordenada).
+
+#### Decisões
+1. Desenho IGUAL ao da Unidade (SSOT, nada novo): a Unit guarda `address` (uma string só), `city`, `state`, `latitude`, `longitude` - não há número, bairro nem CEP. A `Class` ganhou os mesmos 5 campos + `locationLabel` (nome livre do lugar, ex.: "Praça X"), todos OPCIONAIS. Migration `20261019000000_class_location` (6 colunas nulas + índice `Class(latitude, longitude)`), sem backfill.
+2. Heranca preservada: tudo nulo = a turma segue usando endereço e posição da unidade, exatamente como antes. NADA muda para turmas já existentes (produção incluída). Só passa a ter pino próprio quem receber latitude+longitude.
+3. Geocoding: reaproveita `GeocodingService.forCreate/forUpdate` (mesma chave, mesmo timeout, nunca lança). Sem lat/lng no corpo e com endereço, geocodifica `[endereço ou nome do local, cidade, UF]`. Falha/sem chave/sem resultado NÃO derruba o salvamento: salva com latitude/longitude nulas (a turma herda a unidade no mapa). Sinalização: o painel mostra "Sem posição no mapa" na lista quando há endereço próprio sem coordenadas (não criei campo novo na API).
+4. Diferença deliberada em relação à Unidade no PATCH: se o texto do local mudou, não houve lat/lng no corpo e o geocoding não achou nada, as coordenadas ANTIGAS são limpas (a Unit as mantém). Motivo: manter o pino do endereço antigo deixaria o treino no lugar errado; limpar faz a turma voltar a herdar a unidade. Editar só outros campos (nome etc.) não toca no local nem chama o Google.
+5. Contrato de "voltar a usar o endereço da unidade": PATCH com os 6 campos `null` (texto vazio vira null; lat/lng só juntas, uma sozinha = 400).
+6. `/map/places`, CLASS: posição = a própria da turma quando o par existe; senão a da unidade. Endereço/cidade/UF seguem a mesma fonte do pino (pino próprio nunca mistura com o endereço da unidade). Novo campo `locationLabel` no payload (null nos outros tipos). Turma de unidade INATIVA continua fora; turma SEM unidade agora aparece se tiver pino próprio. Busca `q` também casa no nome do local, endereço e cidade do treino. Filtros de privacidade/`mapVisible`/escopo inalterados (a turma continua expondo só nome + dia/horário + local; nada de professor/aluno).
+7. Auditoria: já existia (`CLASS_CREATE`/`CLASS_UPDATE` com a lista de campos alterados do DTO); a criação ganhou `meta.ownLocation`.
+
+#### Execução
+1. Backend: `schema.prisma` (Class), migration, `create-class.dto.ts`/`update-class.dto.ts` (validação e `trimOrNull/ufOrNull` reexportados de `update-unit.dto.ts` em vez de copiados), `classes.service.ts` (`locationParts`, `coordinatesForUpdate`, `hasOwnLocation`, GeocodingService injetado - global), `map.service.ts`. `GET /classes`, `GET /classes/:id` e `/classes/me` já devolvem as colunas novas (sem `select`).
+2. Painel: `modules/turmas/schema.ts` (campos opcionais no form, `hasOwnLocation`, `classLocationSummary`, `classLocationMissingPin`, payloads), `turmas-page.tsx` (seção "Local do treino": "Usar o endereço da unidade" (padrão; limpa os campos) / "Local diferente" com nome do local, endereço, cidade, UF e o `CoordinatesFields` da Unidade com "Localizar pelo endereço"; na lista, linha "Treino: ..." sob a unidade e aviso quando falta a posição). Não existe seletor de mapa/CEP na tela de Unidades; reaproveitei o que ela usa (endereço/cidade/UF + `CoordinatesFields`).
+3. App: `lib/map.ts` (`MapPlace.locationLabel`, `addressLine` põe o nome do local na frente). `map-explorer`/`map-markers` não precisaram de mudança: cada treino com coordenada própria já vira seu pin e a regra de empilhar na mesma coordenada continua.
+
+#### O que deu certo / o que não deu
+1. Certo: nenhuma regra nova de geocoding ou DTO; a diferença fica em 1 método pequeno do service.
+2. Não certo (meu erro de teste): no spec novo consultei o AuditLog por `entityId`/`'CLASS'`; as colunas reais são `resourceId`/`metadata` e o valor é `'class'`. Corrigido.
+3. Não certo (impacto): `map-places.e2e-spec.ts` fixava as chaves exatas do payload; incluí `locationLabel` na lista (mudança de contrato intencional, aditiva).
+4. A `package.json` (lista `test:e2e`) foi editada em paralelo por outro agente; reli e anexei `class-location.e2e-spec.ts` ao fim, depois do `quick-templates`.
+5. A migration foi aplicada no banco de dev por um `migrate deploy` de outro agente (confirmei as colunas e a linha em `_prisma_migrations`).
+
+#### Resultados reais
+1. Backend: `test:quick class-location map-places classes units-crud audit-coverage` = 6 specs, 63 testes, 63 passaram, 0 falharam; `npm run build` limpo. `class-location.e2e-spec.ts` (4 testes): heranca -> pino próprio (endereço, nome, 2ª via Prisma) -> limpar volta a herdar; meia coordenada = 400; UF inválida = 400; turma sem unidade com pino próprio aparece e sem pino nenhum não; geocoding com fetch falso (corpo sem lat/lng geocodifica; Google fora do ar salva sem coordenadas; editar endereço com Google fora limpa o pino antigo; editar só o nome não mexe); auditoria; turma inativa sai do mapa.
+2. Painel: `turmas-local-treino.test.tsx` (5 testes) + `turmas.test.tsx` = 25/25; `tsc --noEmit` só acusa um erro em `modules/avisos/aviso-rapido.tsx` (arquivo do outro agente, alheio a esta tarefa); eslint limpo nos arquivos tocados.
+3. App: `community-map.test.tsx` 37/37 (3 testes novos: pino próprio vs herdado empilhando, cartão com nome do local + rota na coordenada própria, `addressLine`); `tsc` e eslint limpos.
+
+#### Pendências
+1. Produção: aplicar a migration (`prisma migrate deploy`); turmas existentes continuam herdando da unidade. Para ganhar pino próprio, o Mestre edita a turma -> "Local diferente" (ou ajustar em lote por SQL se o dono passar os endereços).
+2. Sem chave do Google no servidor (`GOOGLE_MAPS_SERVER_KEY`), "Local diferente" exige digitar latitude/longitude à mão; com endereço e sem chave a turma fica sem posição própria (herda a unidade) e o painel avisa na lista.
+3. O endereço do treino só aparece no mapa e na lista do painel; as demais telas (app "Minhas turmas", detalhe da turma, cartão da aula) ainda mostram só a unidade. Decidir se devem mostrar o local do treino.
+4. `Unit` e `Class` guardam endereço como uma string só (sem número/bairro/CEP); se o dono quiser CEP/ViaCEP e seletor de pino no mapa, é uma evolução comum a unidade, evento, roda e turma.
+5. O admin Vue não edita turmas (não tocado).
+6. Aviso de geocoding falho é indireto (campo `latitude` nulo com endereço preenchido). Se quiser um alerta no momento de salvar, a API pode devolver `locationGeocoded: boolean`.

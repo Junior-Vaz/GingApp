@@ -156,10 +156,11 @@ describe('Aula de HOJE visivel para PROFESSOR/INSTRUTOR/MONITOR (e2e)', () => {
     }
   }
 
-  it('INSTRUTOR que NAO e o responsavel (com attendance:view) tambem ve a aula e o roster; MONITOR que nao e responsavel NAO ve (404)', async () => {
+  it('INSTRUTOR e MONITOR que NAO sao o responsavel NAO veem a aula (404); o MESTRE ve (ownLessonFilter: so as proprias turmas)', async () => {
     const sessions = await quick(staff['instrutor-other'].token);
-    assert.ok(sessions.some((s) => s.lessonId === todayLessonId), 'instrutor sem ser o responsavel ve (so o escopo de unidade restringe)');
-    await http().get(`/api/attendance/lessons/${todayLessonId}`).set(auth(staff['instrutor-other'].token)).expect(200);
+    assert.ok(!sessions.some((s) => s.lessonId === todayLessonId), 'instrutor sem ser o responsavel NAO ve a aula dos outros');
+    await http().get(`/api/attendance/lessons/${todayLessonId}`).set(auth(staff['instrutor-other'].token)).expect(404);
+    assert.ok((await quick(org.mestre.token)).some((s) => s.lessonId === todayLessonId), 'o MESTRE ve todas');
 
     const monitorSessions = await quick(staff['monitor-other'].token);
     assert.equal(monitorSessions.length, 0, 'MONITOR so ve as proprias turmas/aulas');
@@ -170,15 +171,18 @@ describe('Aula de HOJE visivel para PROFESSOR/INSTRUTOR/MONITOR (e2e)', () => {
     const organizationId = org.organizationId;
     const restricted = staff['instrutor-other'];
     await prisma.userUnitAccess.create({ data: { organizationId, userId: restricted.userId, unitId: org.unitB.id } });
-    assert.ok(!(await quick(restricted.token)).some((s) => s.lessonId === todayLessonId), 'turma da unidade A fica fora do escopo [B]');
-    await http().get(`/api/attendance/lessons/${todayLessonId}`).set(auth(restricted.token)).expect(404);
+    // Aula DELE (atribuida), mas na unidade A: o escopo de unidade [B] a esconde (o filtro de responsavel soma ao de unidade).
+    const ownInA = await prisma.lesson.create({ data: { organizationId, classId, date: utc(today), unitId: org.unitA.id, teacherUserId: restricted.userId } });
+    assert.ok(!(await quick(restricted.token)).some((s) => s.lessonId === ownInA.id), 'aula dele na unidade A fica fora do escopo [B]');
+    await http().get(`/api/attendance/lessons/${ownInA.id}`).set(auth(restricted.token)).expect(404);
+    await prisma.lesson.delete({ where: { id: ownInA.id } });
 
     // Turma sem unidade + aula sem unidade (legado): visivel ao restrito.
-    const noUnit = await prisma.class.create({ data: { organizationId, name: 'Turma sem unidade', weekday, startTime: '20:30', endTime: '21:30', autoGenerateLessons: false } });
+    const noUnit = await prisma.class.create({ data: { organizationId, name: 'Turma sem unidade', weekday, startTime: '20:30', endTime: '21:30', autoGenerateLessons: false, teacherUserId: restricted.userId } });
     const lesson = await prisma.lesson.create({ data: { organizationId, classId: noUnit.id, date: utc(today) } });
     assert.ok((await quick(restricted.token)).some((s) => s.lessonId === lesson.id), 'unitId nulo na turma E na aula = visivel');
     // Aula com unidade B numa turma da unidade A: vale a da AULA.
-    const lessonB = await prisma.lesson.create({ data: { organizationId, classId, date: utc(today), unitId: org.unitB.id } });
+    const lessonB = await prisma.lesson.create({ data: { organizationId, classId, date: utc(today), unitId: org.unitB.id, teacherUserId: restricted.userId } });
     assert.ok((await quick(restricted.token)).some((s) => s.lessonId === lessonB.id), 'a unidade da aula (B) manda sobre a da turma (A)');
     await prisma.userUnitAccess.deleteMany({ where: { organizationId, userId: restricted.userId } });
     await prisma.lesson.deleteMany({ where: { id: { in: [lesson.id, lessonB.id] } } });

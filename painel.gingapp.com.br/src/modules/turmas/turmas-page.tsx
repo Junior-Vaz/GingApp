@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Building2, Ban, CalendarPlus, Eye, Layers, Pencil, Plus, Repeat, Trash2, UserRound, Users } from "lucide-react";
+import { Building2, Ban, CalendarPlus, Eye, Layers, MapPin, Pencil, Plus, Repeat, Trash2, UserRound, Users } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
+import { CoordinatesFields } from "@/components/painel/coordinates-fields";
 import { StrongConfirmDialog } from "@/components/painel/strong-confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { EntityAvatar } from "@/components/painel/entity-avatar";
@@ -14,9 +15,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { errorMessage } from "@/lib/api";
+import { BR_UFS } from "@/lib/br-ufs";
 import { dayOnly, fmt } from "@/lib/format";
 import { plural } from "@/lib/plural";
 import { useListParams } from "@/lib/list-params";
@@ -32,6 +35,8 @@ import {
   CONTINUOUS_AHEAD_DAYS,
   WEEKDAY_LABEL,
   classLessonDiagnostic,
+  classLocationMissingPin,
+  classLocationSummary,
   classSchema,
   classToForm,
   classToCreatePayload,
@@ -98,15 +103,31 @@ export function TurmasPage() {
       id: "unit",
       header: "Unidade",
       sortValue: (c) => c.unit?.name ?? unitName(c.unitId),
-      cell: (c) =>
-        c.unitId === null && !c.unit ? (
-          "—"
-        ) : (
+      cell: (c) => {
+        const place = classLocationSummary(c);
+        return (
           <>
-            <EntityAvatar name={c.unit?.name ?? unitName(c.unitId)} photo={c.unit?.photo} icon={Building2} className="mr-2 size-6 align-middle" />
-            {c.unit?.name ?? unitName(c.unitId)}
+            {c.unitId === null && !c.unit ? (
+              "—"
+            ) : (
+              <>
+                <EntityAvatar name={c.unit?.name ?? unitName(c.unitId)} photo={c.unit?.photo} icon={Building2} className="mr-2 size-6 align-middle" />
+                {c.unit?.name ?? unitName(c.unitId)}
+              </>
+            )}
+            {place && (
+              <p data-testid="class-location" className="mt-0.5 flex items-start gap-1 text-xs text-muted-foreground">
+                <MapPin className="mt-0.5 size-3 shrink-0" aria-hidden /> <span>Treino: {place}</span>
+              </p>
+            )}
+            {classLocationMissingPin(c) && (
+              <p data-testid="class-location-warning" className="text-xs text-amber-700 dark:text-amber-400">
+                Sem posição no mapa — informe a latitude/longitude (usa a posição da unidade).
+              </p>
+            )}
           </>
-        ),
+        );
+      },
     },
     {
       id: "weekday",
@@ -265,7 +286,7 @@ export function TurmasPage() {
         defaultValues={editing && editing !== "new" ? classToForm(editing) : emptyClassForm}
         onSubmit={(values) =>
           editing && editing !== "new"
-            ? update.mutateAsync({ id: editing.id, data: classToUpdatePayload(values) })
+            ? update.mutateAsync({ id: editing.id, data: classToUpdatePayload(values, editing) })
             : create.mutateAsync(classToCreatePayload(values))
         }
       >
@@ -391,6 +412,121 @@ export function TurmasPage() {
                 </FormItem>
               )}
             />
+            <fieldset className="grid gap-3 rounded-md border p-3" data-testid="class-location-section">
+              <legend className="flex items-center gap-1.5 px-1 text-sm font-medium">
+                <MapPin className="size-4" aria-hidden /> Local do treino
+              </legend>
+              <FormField
+                control={form.control}
+                name="locationMode"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormControl>
+                      <RadioGroup
+                        value={field.value ?? "unit"}
+                        onValueChange={(mode) => {
+                          field.onChange(mode);
+                          if (mode === "unit") {
+                            // "Usar o endereço da unidade" limpa o local próprio (o PATCH manda tudo null).
+                            for (const name of ["locationLabel", "address", "city", "state", "latitude", "longitude"] as const) {
+                              form.setValue(name, "", { shouldDirty: true });
+                            }
+                          }
+                        }}
+                        className="gap-2"
+                      >
+                        <label className="flex items-center gap-2 text-sm">
+                          <RadioGroupItem value="unit" aria-label="Usar o endereço da unidade" />
+                          Usar o endereço da unidade
+                        </label>
+                        <label className="flex items-center gap-2 text-sm">
+                          <RadioGroupItem value="custom" aria-label="Local diferente" />
+                          Local diferente (praça, parque, quadra…)
+                        </label>
+                      </RadioGroup>
+                    </FormControl>
+                    <FormDescription>
+                      {field.value === "custom"
+                        ? "O treino aparece no mapa da comunidade na posição abaixo."
+                        : "O treino aparece no mapa na posição da unidade escolhida."}
+                    </FormDescription>
+                  </FormItem>
+                )}
+              />
+              {form.watch("locationMode") === "custom" && (
+                <>
+                  <FormField
+                    control={form.control}
+                    name="locationLabel"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Nome do local</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Ex.: Praça da Liberdade" {...field} value={field.value ?? ""} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="address"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Endereço do treino</FormLabel>
+                        <FormControl>
+                          <Input {...field} value={field.value ?? ""} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-3 gap-3">
+                    <FormField
+                      control={form.control}
+                      name="city"
+                      render={({ field }) => (
+                        <FormItem className="col-span-2">
+                          <FormLabel>Cidade do treino</FormLabel>
+                          <FormControl>
+                            <Input {...field} value={field.value ?? ""} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="state"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>UF do treino</FormLabel>
+                          <FormControl>
+                            <NativeSelect {...field} value={field.value ?? ""}>
+                              <option value="">—</option>
+                              {BR_UFS.map((uf) => (
+                                <option key={uf} value={uf}>
+                                  {uf}
+                                </option>
+                              ))}
+                            </NativeSelect>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <CoordinatesFields
+                    buildQuery={() => {
+                      const { locationLabel, address, city, state } = form.getValues();
+                      return [(address ?? "").trim() || (locationLabel ?? "").trim(), (city ?? "").trim(), state]
+                        .filter(Boolean)
+                        .join(", ");
+                    }}
+                  />
+                </>
+              )}
+            </fieldset>
             <FormField
               control={form.control}
               name="autoGenerateLessons"

@@ -111,6 +111,8 @@ describe('Autorização por unidade (E08, e2e)', () => {
     stuNone = (await post('students', { name: '[e2e-uscope] Aluno sem unidade' })).id;
     classA = (await post('classes', { name: '[e2e-uscope] Turma A', unitId: unitA, weekday: 1 })).id;
     classB = (await post('classes', { name: '[e2e-uscope] Turma B', unitId: unitB, weekday: 1 })).id;
+    // Chamada (attendance): o PROFESSOR so le/marca as aulas das turmas em que e o responsavel (ownLessonFilter), alem do escopo de unidade.
+    await prisma.class.update({ where: { id: classA }, data: { teacherUserId: userIds.profA } });
     lessonA = (await post('lessons', { classId: classA, unitId: unitA, date: todaySaoPaulo(1) })).id;
     lessonB = (await post('lessons', { classId: classB, unitId: unitB, date: todaySaoPaulo(1) })).id;
     lessonInheritB = (await post('lessons', { classId: classB, date: todaySaoPaulo(2) })).id;
@@ -447,7 +449,8 @@ describe('Autorização por unidade (E08, e2e)', () => {
       await http().patch(`/api/students/${stuB}`).set(auth(tokens.profFree)).send({ phone: '(62) 91111-1111' }).expect(200);
       await http().get(`/api/classes/${classB}`).set(auth(tokens.profFree)).expect(200);
       await http().get(`/api/lessons/${lessonInheritB}`).set(auth(tokens.profFree)).expect(200);
-      await http().get(`/api/attendance/lessons/${lessonB}`).set(auth(tokens.profFree)).expect(200);
+      // Chamada: sem restricao de UNIDADE, mas o PROFESSOR so le a chamada das turmas em que e o responsavel (classB nao e dele) => 404.
+      await http().get(`/api/attendance/lessons/${lessonB}`).set(auth(tokens.profFree)).expect(404);
       await http().get(`/api/events/${eventB}`).set(auth(tokens.profFree)).expect(200);
       await http().get(`/api/announcements/${announcementB}`).set(auth(tokens.profFree)).expect(200);
       const units = await http().get('/api/units?limit=200').set(auth(tokens.profFree)).expect(200);

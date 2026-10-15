@@ -42,6 +42,8 @@ export interface MapPlace {
   endTime: string | null;
   /** UNIT/CLASS: nome da unidade. */
   unitName: string | null;
+  /** CLASS: nome livre do local do treino (ex.: "Praca X"); null = sem rotulo. Com `address` proprio, `address/city/state` sao os do treino. */
+  locationLabel: string | null;
   /** null so' em roda sem grupo organizador. */
   organization: MapPlaceOrganization | null;
   /** Presente (km, 2 casas) somente quando a query traz lat/lng. */
@@ -88,8 +90,9 @@ const short = (text: string | null | undefined): string | null => {
  *
  * Visibilidade (as MESMAS regras do restante da comunidade, nada novo e nada privado):
  *  - UNIT: unidades ACTIVE de grupos ACTIVE + mapVisible;
- *  - CLASS: turmas ACTIVE numa unidade ACTIVE com coordenadas (so' nome da turma + dia/horario; sem professor nem
- *    alunos). Mesmo conceito da unidade: o grupo ja a expoe;
+ *  - CLASS: turmas ACTIVE (de unidade ACTIVE, ou sem unidade) com posicao: a PROPRIA do local do treino (Class.latitude/
+ *    longitude + address/city/state/locationLabel) quando existir; senao a da unidade (heranca — turmas antigas). So'
+ *    nome da turma + dia/horario + local (sem professor nem alunos). Mesmo conceito da unidade: o grupo ja a expoe;
  *  - EVENT: eventos PUBLICOS de qualquer grupo (isPublic, como GET /calendar) + os do PROPRIO grupo do usuario
  *    (como GET /events), respeitando o escopo de unidade do professor restrito;
  *  - RODA: rodas sao publicas (como GET /rodas e /calendar); roda sem grupo organizador sempre aparece.
@@ -224,20 +227,30 @@ export class MapService {
     const rows = await this.prisma.class.findMany({
       where: {
         status: RecordStatus.ACTIVE,
-        unit: { status: RecordStatus.ACTIVE, ...this.coords(box) },
         organization: ORG_VISIBLE,
-        ...(q
-          ? {
-              OR: [
-                { name: { contains: q, mode: 'insensitive' } },
-                { unit: { name: { contains: q, mode: 'insensitive' } } },
-                { unit: { city: { contains: q, mode: 'insensitive' } } },
-                { organization: { name: { contains: q, mode: 'insensitive' } } },
-              ],
-            }
-          : {}),
+        AND: [
+          // Turma de unidade inativa some; turma sem unidade so' aparece se tem local PROPRIO (abaixo).
+          { OR: [{ unitId: null }, { unit: { status: RecordStatus.ACTIVE } }] },
+          // Posicao: a PROPRIA da turma (local do treino); senao a da unidade (heranca, como sempre foi).
+          { OR: [this.coords(box), { unit: this.coords(box) }] },
+          ...(q
+            ? [
+                {
+                  OR: [
+                    { name: { contains: q, mode: 'insensitive' as const } },
+                    { locationLabel: { contains: q, mode: 'insensitive' as const } },
+                    { address: { contains: q, mode: 'insensitive' as const } },
+                    { city: { contains: q, mode: 'insensitive' as const } },
+                    { unit: { name: { contains: q, mode: 'insensitive' as const } } },
+                    { unit: { city: { contains: q, mode: 'insensitive' as const } } },
+                    { organization: { name: { contains: q, mode: 'insensitive' as const } } },
+                  ],
+                },
+              ]
+            : []),
+        ],
       },
-      // Nada de teacher/alunos: so' o necessario para "treino de <turma> as <dia/hora> em <unidade>".
+      // Nada de teacher/alunos: so' o necessario para "treino de <turma> as <dia/hora> em <local>".
       select: {
         id: true,
         name: true,
@@ -245,37 +258,48 @@ export class MapService {
         weekday: true,
         startTime: true,
         endTime: true,
+        locationLabel: true,
+        address: true,
+        city: true,
+        state: true,
+        latitude: true,
+        longitude: true,
         organization: { select: ORG_SELECT },
         unit: { select: { name: true, photo: true, address: true, city: true, state: true, latitude: true, longitude: true } },
       },
       orderBy: { id: 'asc' },
       take: SOURCE_FETCH_CAP,
     });
-    return rows.flatMap((c) =>
-      c.unit && c.unit.latitude !== null && c.unit.longitude !== null
-        ? [
-            this.place({
-              type: 'CLASS',
-              id: c.id,
-              title: c.name,
-              description: short(c.organization.description),
-              latitude: c.unit.latitude,
-              longitude: c.unit.longitude,
-              address: c.unit.address,
-              city: c.unit.city,
-              state: c.unit.state,
-              weekday: c.weekday,
-              startTime: c.startTime,
-              endTime: c.endTime,
-              unitName: c.unit.name,
-              // Foto da turma; sem ela, a da unidade (so' imagens, nunca dado de pessoa).
-              imageUrl: c.photo ?? c.unit.photo,
-              organization: c.organization,
-              ownOrgId,
-            }),
-          ]
-        : [],
-    );
+    return rows.flatMap((c) => {
+      // Local PROPRIO do treino (par completo) vence; senao herda a posicao/endereco da unidade.
+      const own = c.latitude !== null && c.longitude !== null;
+      const latitude = own ? c.latitude : (c.unit?.latitude ?? null);
+      const longitude = own ? c.longitude : (c.unit?.longitude ?? null);
+      if (latitude === null || longitude === null) return [];
+      return [
+        this.place({
+          type: 'CLASS',
+          id: c.id,
+          title: c.name,
+          description: short(c.organization.description),
+          latitude,
+          longitude,
+          // Com pino proprio, o endereco e' o do treino (nunca mistura com o da unidade); herdando, o da unidade.
+          address: own ? c.address : (c.unit?.address ?? null),
+          city: own ? c.city : (c.unit?.city ?? null),
+          state: own ? c.state : (c.unit?.state ?? null),
+          locationLabel: c.locationLabel,
+          weekday: c.weekday,
+          startTime: c.startTime,
+          endTime: c.endTime,
+          unitName: c.unit?.name ?? null,
+          // Foto da turma; sem ela, a da unidade (so' imagens, nunca dado de pessoa).
+          imageUrl: c.photo ?? c.unit?.photo ?? null,
+          organization: c.organization,
+          ownOrgId,
+        }),
+      ];
+    });
   }
 
   /** Janela de data de evento/roda: de `from` (padrao hoje; passado ate 30 dias) ate `to` (dia inclusivo). */
@@ -450,6 +474,7 @@ export class MapService {
     startTime?: string | null;
     endTime?: string | null;
     unitName?: string | null;
+    locationLabel?: string | null;
     organization: OrgRow | null;
     imageUrl?: string | null;
     capacity?: number | null;
@@ -473,6 +498,7 @@ export class MapService {
       startTime: input.startTime ?? null,
       endTime: input.endTime ?? null,
       unitName: input.unitName ?? null,
+      locationLabel: input.locationLabel ?? null,
       organization: org
         ? { id: org.id, name: org.name, slug: org.slug, logoUrl: org.logo, description: short(org.description) }
         : null,

@@ -66,14 +66,20 @@ export function lessonScopeFilter(scope: UnitScope): Prisma.LessonWhereInput {
 }
 
 /**
- * MONITOR so trabalha as aulas DELE (docs/FICHA_UNICA.md secao 12): aula atribuida a ele (Lesson.teacherUserId) ou de
- * turma em que ele e o professor responsavel (Class.teacherUserId). INSTRUTOR/PROFESSOR/Mestre/outros = sem esse filtro
- * (seguem so o escopo de unidade). Aula fora disso = o mesmo 404 do inexistente. Combine com AND.
+ * PROFESSOR, INSTRUTOR e MONITOR so trabalham as aulas DELES (docs/FICHA_UNICA.md secao 12; estendido de MONITOR para
+ * toda a equipe nao-Mestre apos o bug da chamada rapida mostrar turmas de outros professores): aula atribuida a ele
+ * (Lesson.teacherUserId) ou de turma em que ele e o responsavel (Class.teacherUserId). Mestre/PLATFORM/super admin/
+ * ALUNO/RESPONSAVEL/`user` omitido (chamada interna) = sem esse filtro (o Mestre ve o grupo; os demais papeis tem outro
+ * escopo, por vinculo). Soma-se ao escopo de unidade. Aula fora disso = o mesmo 404 do inexistente. Combine com AND.
+ * Turma sem responsavel so aparece para o Mestre.
  */
-export function monitorLessonFilter(user: AuthenticatedUser | undefined): Prisma.LessonWhereInput {
-  if (!user || user.userType !== UserType.MEMBER || user.isSuperAdmin || user.role !== OrgRole.MONITOR) return {};
+export function ownLessonFilter(user: AuthenticatedUser | undefined): Prisma.LessonWhereInput {
+  if (!user || user.userType !== UserType.MEMBER || user.isSuperAdmin || !SCOPED_STAFF_ROLES.includes(user.role as OrgRole)) return {};
   return { OR: [{ teacherUserId: user.id }, { class: { teacherUserId: user.id } }] };
 }
+
+/** @deprecated nome antigo (so MONITOR); use `ownLessonFilter` (PROFESSOR/INSTRUTOR/MONITOR). */
+export const monitorLessonFilter = ownLessonFilter;
 
 /** Eventos/comunicados: `unitId` nulo = grupo inteiro (legivel a todos) ou uma das unidades do escopo. */
 export function groupWideOrUnitFilter(scope: UnitScope): { OR?: Array<{ unitId: null } | { unitId: { in: number[] } }> } {

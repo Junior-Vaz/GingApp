@@ -84,6 +84,10 @@ export const AuditAction = {
   ANNOUNCEMENT_UPDATE: 'ANNOUNCEMENT_UPDATE',
   // Envio rapido de aviso (POST /notifications/send): so contagem/alcance, nunca o texto
   NOTIFICATION_SEND: 'NOTIFICATION_SEND',
+  // Modelos de aviso rapido (CRUD do MESTRE): so id/ordem, o texto vai em meta apenas no tamanho
+  QUICK_NOTICE_TEMPLATE_CREATE: 'QUICK_NOTICE_TEMPLATE_CREATE',
+  QUICK_NOTICE_TEMPLATE_UPDATE: 'QUICK_NOTICE_TEMPLATE_UPDATE',
+  QUICK_NOTICE_TEMPLATE_DELETE: 'QUICK_NOTICE_TEMPLATE_DELETE',
   UPLOAD_CREATE: 'UPLOAD_CREATE',
   // Conta de aluno ligada a um usuario ja existente
   STUDENT_ACCOUNT_LINK: 'STUDENT_ACCOUNT_LINK',
@@ -170,6 +174,7 @@ export const AuditEntity = {
   CERTIFICATE: 'certificate',
   ANNOUNCEMENT: 'announcement',
   NOTIFICATION: 'notification',
+  QUICK_NOTICE_TEMPLATE: 'quick_notice_template',
   UPLOAD: 'upload',
   AUDIT_LOG: 'audit_log',
   EVENT: 'event',

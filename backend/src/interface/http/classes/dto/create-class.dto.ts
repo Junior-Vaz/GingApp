@@ -1,5 +1,8 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { BR_UFS } from '../../../../shared/geo/br-states';
+import { IsOptionalLatitude, IsOptionalLongitude } from '../../../../shared/geo/coordinates';
+import { trimOrUndefined, UF_MESSAGE, ufOrUndefined } from '../../units/dto/create-unit.dto';
 import { blankImageToNull, IsImageRef } from '../../../../shared/uploads/image-ref';
 import { IsAfterTimeOf, IsTimeOfDay } from '../../../../shared/dates/time-of-day';
 
@@ -46,4 +49,38 @@ export class CreateClassDto {
   @IsOptional()
   @IsBoolean()
   autoGenerateLessons?: boolean;
+
+  /**
+   * LOCAL DO TREINO proprio (todos opcionais; mesmo desenho da Unidade). Sem nenhum deles a turma herda o endereco e a
+   * posicao no mapa da unidade. `locationLabel` = nome livre do lugar (ex.: "Praca da Liberdade").
+   */
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsString()
+  @MaxLength(120)
+  locationLabel?: string;
+
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsString()
+  @MaxLength(200)
+  address?: string;
+
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsString()
+  @MaxLength(100)
+  city?: string;
+
+  @IsOptional()
+  @Transform(ufOrUndefined)
+  @IsIn(BR_UFS, { message: UF_MESSAGE })
+  state?: string;
+
+  /** Posicao no mapa (as DUAS juntas). Sem elas, o servidor geocodifica address/city/state (so' com chave do Google). */
+  @IsOptionalLatitude()
+  latitude?: number;
+
+  @IsOptionalLongitude()
+  longitude?: number;
 }

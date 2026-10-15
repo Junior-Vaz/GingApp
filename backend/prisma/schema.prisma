@@ -415,6 +415,7 @@ model Organization {
   events                Event[]
   eventParticipants     EventParticipant[]
   announcements         Announcement[]
+  quickNoticeTemplates  QuickNoticeTemplate[]
   notifications         Notification[]
   pushSubscriptions     PushSubscription[]
   subscriptions         Subscription[]
@@ -960,6 +961,15 @@ model Class {
   /// aulas geradas ate LESSONS_HORIZON_DAYS a frente, a partir do weekday/horario da turma. Turmas ja existentes
   /// migram com true (passam a ter aulas geradas automaticamente); false = so geracao manual por periodo.
   autoGenerateLessons Boolean      @default(true)
+  /// Local do treino PROPRIO da turma (opcional): mesmo desenho da Unit (address/city/state + latitude/longitude,
+  /// geocodificados por shared/geo/geocoding.service.ts) + um rotulo livre (ex.: "Praca X"). Tudo null = a turma
+  /// herda o endereco/coordenadas da unidade (comportamento de sempre; turmas antigas continuam assim).
+  locationLabel       String?
+  address             String?
+  city                String?
+  state               String?
+  latitude            Float?
+  longitude           Float?
   status              RecordStatus @default(ACTIVE)
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
@@ -973,6 +983,7 @@ model Class {
 
   @@index([organizationId, status])
   @@index([teacherUserId])
+  @@index([latitude, longitude])
 }
 
 model ClassStudent {
@@ -1244,6 +1255,26 @@ model Announcement {
   createdByUser User         @relation("AnnouncementCreatedBy", fields: [createdByUserId], references: [id])
 
   @@index([organizationId, publishedAt])
+}
+
+/// Modelo de AVISO RAPIDO (FAB do painel): texto pronto que o MESTRE cadastra para a equipe usar com 1 toque.
+/// So' title/body/emoji + ordem (sem audiencia padrao: o alcance e' escolhido no envio). Os modelos PADRAO do sistema
+/// (builtin) NAO ficam no banco: sao devolvidos junto na listagem. `createdById` e' so' informativo (sem FK).
+/// Apagar e' DELETE de verdade (o modelo nao e' dado de negocio; as notificacoes ja enviadas nao referenciam o modelo).
+model QuickNoticeTemplate {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  title          String
+  body           String
+  emoji          String?
+  sortOrder      Int      @default(0)
+  createdById    Int?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, sortOrder])
 }
 
 model Notification {

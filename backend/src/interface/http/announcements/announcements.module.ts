@@ -4,12 +4,14 @@ import { StudentsModule } from '../students/students.module';
 import { AnnouncementsController } from './announcements.controller';
 import { QuickSendController } from './quick-send.controller';
 import { QuickSendService } from './quick-send.service';
+import { QuickTemplatesController } from './quick-templates.controller';
+import { QuickTemplatesService } from './quick-templates.service';
 import { AnnouncementsService } from './announcements.service';
 
 @Module({
   imports: [StudentsModule, NotificationsModule],
-  controllers: [AnnouncementsController, QuickSendController],
-  providers: [AnnouncementsService, QuickSendService],
+  controllers: [AnnouncementsController, QuickSendController, QuickTemplatesController],
+  providers: [AnnouncementsService, QuickSendService, QuickTemplatesService],
   exports: [AnnouncementsService],
 })
 export class AnnouncementsModule {}

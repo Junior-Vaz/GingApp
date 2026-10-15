@@ -11,7 +11,7 @@ import { createTestApp } from './utils/test-app';
 
 /**
  * MONITOR so marca/edita chamada das turmas em que e o professor responsavel (Class.teacherUserId) ou de aulas atribuidas
- * a ele (Lesson.teacherUserId); INSTRUTOR/PROFESSOR seguem so o escopo de unidade (docs/FICHA_UNICA.md secao 12.C).
+ * a ele (Lesson.teacherUserId); a mesma regra vale para PROFESSOR e INSTRUTOR (ownLessonFilter; antes so o MONITOR era filtrado - ver quick-sessions-scope.e2e-spec.ts).
  * Grupo PROPRIO; fixtures "@e2e-monitor.local", limpas no after().
  */
 const DOMAIN = '@e2e-monitor.local';
@@ -91,9 +91,10 @@ describe('MONITOR - chamada so das proprias turmas/aulas (e2e)', () => {
     assert.deepEqual((await http().get('/api/attendance/quick-sessions').set(auth(monitor2.token)).expect(200)).body, []);
   });
 
-  it('INSTRUTOR e PROFESSOR seguem o escopo atual (todas as aulas do grupo)', async () => {
-    await http().get(`/api/attendance/lessons/${lessonOther}`).set(auth(instrutor.token)).expect(200);
-    await http().post(`/api/attendance/lessons/${lessonOther}`).set(auth(org.professor.token)).send([{ studentId, present: false }]).expect(201);
+  it('INSTRUTOR e PROFESSOR agora seguem a mesma regra (so as proprias); MESTRE continua vendo todas as aulas do grupo', async () => {
+    await http().get(`/api/attendance/lessons/${lessonOther}`).set(auth(instrutor.token)).expect(404);
+    await http().post(`/api/attendance/lessons/${lessonOther}`).set(auth(org.professor.token)).send([{ studentId, present: false }]).expect(404);
     await http().get(`/api/attendance/lessons/${lessonOwn}`).set(auth(org.mestre.token)).expect(200);
+    await http().get(`/api/attendance/lessons/${lessonOther}`).set(auth(org.mestre.token)).expect(200);
   });
 });

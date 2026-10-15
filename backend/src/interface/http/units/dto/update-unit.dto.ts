@@ -7,12 +7,12 @@ import { blankImageToNull, IsImageRef } from '../../../../shared/uploads/image-r
 import { UF_MESSAGE } from './create-unit.dto';
 
 /** Aparar espaços; texto vazio vira `null` (LIMPA a coluna no PATCH); `undefined` = não mexe. */
-const trimOrNull = ({ value }: { value: unknown }) => {
+export const trimOrNull = ({ value }: { value: unknown }) => {
   if (typeof value !== 'string') return value;
   const trimmed = value.trim();
   return trimmed === '' ? null : trimmed;
 };
-const ufOrNull = ({ value }: { value: unknown }) => {
+export const ufOrNull =({ value }: { value: unknown }) => {
   const trimmed = trimOrNull({ value });
   return typeof trimmed === 'string' ? trimmed.toUpperCase() : trimmed;
 };

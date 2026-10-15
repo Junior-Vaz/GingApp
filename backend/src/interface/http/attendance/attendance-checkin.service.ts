@@ -7,7 +7,7 @@ import { isInsideWindow, lessonCheckinWindow } from '../../../shared/checkin/che
 import { formatInstantBR } from '../../../shared/dates/format-br';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { frontendBaseUrl } from '../../../shared/mail/mail.config';
-import { lessonScopeFilter, monitorLessonFilter, UnitScopeService } from '../../../shared/access/unit-scope';
+import { lessonScopeFilter, ownLessonFilter, UnitScopeService } from '../../../shared/access/unit-scope';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AttendanceNoticeService } from './attendance-notice.service';
 import { RankingService } from '../ranking/ranking.service';
@@ -34,7 +34,7 @@ export class AttendanceCheckinService {
   async issueToken(organizationId: number, lessonId: number, requester: AuthenticatedUser) {
     const scope = await this.unitScope.resolve(requester, organizationId);
     const lesson = await this.prisma.lesson.findFirst({
-      where: { id: lessonId, organizationId, AND: [lessonScopeFilter(scope), monitorLessonFilter(requester)] },
+      where: { id: lessonId, organizationId, AND: [lessonScopeFilter(scope), ownLessonFilter(requester)] },
       include: { class: { select: { name: true } } },
     });
     if (!lesson) throw new NotFoundException('Aula não encontrada.');

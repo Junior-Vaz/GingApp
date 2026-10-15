@@ -89,3 +89,83 @@ export function useSendNotice() {
     },
   });
 }
+
+// ---------------------------------------------------------------------------------------------
+// MODELOS de aviso rápido (GET/POST/PATCH/DELETE /notifications/quick-templates)
+// ---------------------------------------------------------------------------------------------
+
+/** Item da listagem: `id` numérico = modelo do grupo; "builtin:*" = padrão do sistema (somente leitura). */
+export interface QuickTemplate {
+  id: number | string;
+  title: string;
+  body: string;
+  emoji: string | null;
+  sortOrder: number;
+  builtin: boolean;
+}
+export interface QuickTemplateInput {
+  title: string;
+  body: string;
+  emoji?: string | null;
+  sortOrder?: number;
+}
+
+/** Teto de modelos próprios por grupo (espelha o backend). */
+export const TEMPLATE_LIMIT = 30;
+export const EMOJI_MAX = 8;
+
+export const TEMPLATES_KEY = ["notifications", "quick-templates"] as const;
+
+/** Modelos do grupo (primeiro) + padrão do sistema. Qualquer papel que envia aviso rápido pode listar. */
+export function useQuickTemplates(enabled = true) {
+  return useQuery({
+    queryKey: TEMPLATES_KEY,
+    queryFn: () => api.get<QuickTemplate[]>("/notifications/quick-templates"),
+    enabled,
+    staleTime: 60_000,
+  });
+}
+
+/** Cria/edita/apaga/reordena (só MESTRE no backend). Toda escrita invalida a lista de modelos. */
+export function useTemplateMutations() {
+  const queryClient = useQueryClient();
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: TEMPLATES_KEY });
+  const create = useMutation({
+    mutationFn: (input: QuickTemplateInput) => api.post<QuickTemplate>("/notifications/quick-templates", input),
+    onSuccess: invalidate,
+  });
+  const update = useMutation({
+    mutationFn: ({ id, ...input }: Partial<QuickTemplateInput> & { id: number | string }) =>
+      api.patch<QuickTemplate>(`/notifications/quick-templates/${id}`, input),
+    onSuccess: invalidate,
+  });
+  const remove = useMutation({
+    mutationFn: (id: number | string) => api.delete<{ id: number }>(`/notifications/quick-templates/${id}`),
+    onSuccess: invalidate,
+  });
+  /** Grava a nova ordem (sortOrder = posição) só nos itens que mudaram. */
+  const reorder = useMutation({
+    mutationFn: async (ordered: QuickTemplate[]) => {
+      const changed = ordered.map((t, index) => ({ t, index })).filter(({ t, index }) => t.sortOrder !== index);
+      await Promise.all(changed.map(({ t, index }) => api.patch(`/notifications/quick-templates/${t.id}`, { sortOrder: index })));
+    },
+    onSettled: invalidate,
+  });
+  return { create, update, remove, reorder };
+}
+
+const LEADING_EMOJI = /^(\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic}|\p{Emoji_Modifier})*)\s*/u;
+
+/** Separa um emoji no começo do título ("🥋 Treino" => { emoji: "🥋", title: "Treino" }) para guardar como ícone do modelo. */
+export function splitLeadingEmoji(text: string): { emoji: string | null; title: string } {
+  const trimmed = text.trim();
+  const match = LEADING_EMOJI.exec(trimmed);
+  if (!match || match[1]!.length > EMOJI_MAX) return { emoji: null, title: trimmed };
+  const rest = trimmed.slice(match[0].length).trim();
+  return rest.length >= TITLE_MIN ? { emoji: match[1]!, title: rest } : { emoji: null, title: trimmed };
+}
+
+/** Título que vai para o formulário ao tocar num modelo: "emoji + título", cortado no limite do envio. */
+export function templateTitle(t: Pick<QuickTemplate, "emoji" | "title">): string {
+  return `${t.emoji ? `${t.emoji} ` : ""}${t.title}`.slice(0, TITLE_MAX);
+}
