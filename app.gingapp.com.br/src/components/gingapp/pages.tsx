@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronRight, Clock, Download, Bell, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Check, ChevronRight, Clock, Download, Bell, ShieldCheck, AlertTriangle, QrCode } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -31,6 +31,8 @@ import {
 } from "@/lib/queries";
 import { ClassCover, MyClasses, TeacherLine, UnitLine } from "./class-parts";
 import { PushSettings } from "./push-settings";
+import { PixSheet } from "./pix-sheet";
+import { PIX_BADGE_LABEL, canPayWithPix, pixBadgeKind } from "@/lib/pix";
 import { plural } from "@/lib/plural";
 import { TransfersShortcut } from "./transfers";
 import { LoadMore, PageHeading, SectionHeading, StateMessage } from "./shared";
@@ -297,6 +299,7 @@ export function FinancialPage() {
   const summary = useFinanceSummary();
   const organization = useOwnOrganization();
   const [record, setRecord] = useState<FinancialRecord | null>(null);
+  const [pixRecord, setPixRecord] = useState<FinancialRecord | null>(null);
   const howToPay = organization.data?.paymentInstructions?.trim();
   // Próximos vencimentos: em aberto e AINDA não vencidos, do mais próximo para o mais distante.
   const upcoming = finance.items
@@ -376,6 +379,7 @@ export function FinancialPage() {
                 <tbody>
                   {finance.items.map((item) => {
                     const status = effectiveFinanceStatus(item);
+                    const pixBadge = pixBadgeKind(item);
                     return (
                       <tr key={item.id}>
                         <td>{item.description}</td>
@@ -383,8 +387,18 @@ export function FinancialPage() {
                         <td>{formatCurrency(item.amountCents)}</td>
                         <td>
                           <span className={`badge ${status === "PAID" ? "" : "badge-warm"}`}>{STATUS_LABEL[status]}</span>
+                          {pixBadge && (
+                            <span className="badge ml-1" data-testid={`pix-badge-${pixBadge}`}>
+                              {PIX_BADGE_LABEL[pixBadge]}
+                            </span>
+                          )}
                         </td>
-                        <td>
+                        <td className="whitespace-nowrap">
+                          {canPayWithPix(status) && (
+                            <Button variant="soft" size="sm" aria-label={`Pagar ${item.description} com Pix`} onClick={() => setPixRecord(item)}>
+                              <QrCode /> Pix
+                            </Button>
+                          )}
                           <Button variant="ghost" size="icon" title="Ver cobrança" aria-label={`Ver ${item.description}`} onClick={() => setRecord(item)}>
                             <Download />
                           </Button>
@@ -418,10 +432,23 @@ export function FinancialPage() {
               <p>Vencimento: {fmt(dayOnly(record.dueDate), "dd/MM/yyyy")}</p>
               <p>Situação: {STATUS_LABEL[effectiveFinanceStatus(record)]}</p>
               {record.paidAt && <p>Pago em: {fmt(dayOnly(record.paidAt), "dd/MM/yyyy")}</p>}
+              {pixBadgeKind(record) === "paid-auto" && <p>Pago via Pix</p>}
+              {canPayWithPix(effectiveFinanceStatus(record)) && (
+                <Button
+                  className="mt-3 w-full"
+                  onClick={() => {
+                    setPixRecord(record);
+                    setRecord(null);
+                  }}
+                >
+                  <QrCode /> Pagar com Pix
+                </Button>
+              )}
             </div>
           )}
         </DialogContent>
       </Dialog>
+      <PixSheet record={pixRecord} onClose={() => setPixRecord(null)} />
     </>
   );
 }

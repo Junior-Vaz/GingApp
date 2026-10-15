@@ -162,6 +162,22 @@ services:
       # por grupo (padrao 1024; 0 = sem limite). Limite por arquivo: 5 MB (fixo no codigo).
       UPLOADS_DIR: "/app/uploads"
       UPLOAD_ORG_QUOTA_MB: "${UPLOAD_ORG_QUOTA_MB:-1024}"
+      # Pix de mensalidade na conta Mercado Pago DE CADA GRUPO (OPCIONAL; PLANO_PROJETO.md 10.52, docs/EASYPANEL.md secao 25).
+      # Sem MERCADOPAGO_CLIENT_ID/SECRET/REDIRECT_URI o recurso fica INDISPONIVEL (status.available=false) e nada muda.
+      # PAYMENTS_PROVIDER=stub e PROIBIDO em producao (o boot falha). REDIRECT_URI = https://painel.gingapp.com.br/api/payments/mercadopago/callback
+      # (o webhook e derivado dela: .../api/webhooks/mercadopago). Sem MERCADOPAGO_WEBHOOK_SECRET o webhook e RECUSADO (503)
+      # e so a reconciliacao (a cada 15 min) da baixa. PAYMENTS_TOKEN_KEY: chave dos tokens cifrados, OBRIGATORIA com o MP
+      # configurado (boot falha sem ela; fixe; trocar = reconectar). PAYMENTS_ALLOW_TEST_ACCOUNTS=true so em homologacao.
+      PAYMENTS_PROVIDER: "${PAYMENTS_PROVIDER:-mercadopago}"
+      MERCADOPAGO_CLIENT_ID: "${MERCADOPAGO_CLIENT_ID:-}"
+      MERCADOPAGO_CLIENT_SECRET: "${MERCADOPAGO_CLIENT_SECRET:-}"
+      MERCADOPAGO_REDIRECT_URI: "${MERCADOPAGO_REDIRECT_URI:-}"
+      MERCADOPAGO_WEBHOOK_SECRET: "${MERCADOPAGO_WEBHOOK_SECRET:-}"
+      PAYMENTS_TOKEN_KEY: "${PAYMENTS_TOKEN_KEY:-}"
+      PAYMENTS_ALLOW_TEST_ACCOUNTS: "${PAYMENTS_ALLOW_TEST_ACCOUNTS:-false}"
+      PAYMENTS_APPLICATION_FEE_PERCENT: "${PAYMENTS_APPLICATION_FEE_PERCENT:-0}"
+      PAYMENTS_FALLBACK_PAYER_EMAIL: "${PAYMENTS_FALLBACK_PAYER_EMAIL:-}"
+      PAYMENTS_RECONCILE_CRON: "${PAYMENTS_RECONCILE_CRON:-true}"
     volumes:
       - gingapp_uploads:/app/uploads
     healthcheck:

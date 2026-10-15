@@ -17,7 +17,8 @@ export interface MarkOverdueResult {
   hasMore: boolean;
 }
 
-const brl = (cents: number): string => `R$ ${(cents / 100).toFixed(2).replace('.', ',')}`;
+/** Centavos -> "R$ 1.234,56"-ish curto ("R$ 150,00") dos textos de notificação (reusado pelo Pix - payments/pix.service). */
+export const brl = (cents: number): string => `R$ ${(cents / 100).toFixed(2).replace('.', ',')}`;
 
 /**
  * Transição PENDING -> OVERDUE gravada + notificação (E09). Até aqui o atraso era só CALCULADO na

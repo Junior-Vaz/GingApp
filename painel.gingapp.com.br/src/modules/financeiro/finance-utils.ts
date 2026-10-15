@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { dayOnly, fmt, startOfToday } from "@/lib/format";
+import type { PaidVia, PixSummary } from "./pix";
 
 export type FinanceStatus = "PENDING" | "PAID" | "OVERDUE" | "CANCELLED";
 export type PaymentMethod = "CASH" | "PIX" | "CARD" | "TRANSFER" | "OTHER";
@@ -31,6 +32,12 @@ export interface FinanceRecord {
   /** Baixa (POST /finance/:id/pay): forma de pagamento e valor efetivamente pago. */
   paymentMethod?: PaymentMethod | null;
   paidCents?: number | null;
+  /** Pix mais recente do lançamento (null = nunca gerou). Ausente em backend antigo. */
+  pix?: PixSummary | null;
+  /** Como a baixa foi feita: manual pelo painel ou automática pelo Pix (webhook do Mercado Pago). */
+  paidVia?: PaidVia | undefined;
+  /** Última alteração do lançamento (ISO); volta em `expectedUpdatedAt` no PATCH para detectar edição concorrente. */
+  updatedAt?: string;
 }
 
 export interface StudentRef {
@@ -167,23 +174,56 @@ export function toCreatePayload(values: FinanceFormValues) {
   };
 }
 
+/** Corpo do PATCH /finance/:id: só os campos alterados + `expectedUpdatedAt` (concorrência otimista). */
+export type FinanceUpdatePayload = {
+  description?: string;
+  amountCents?: number;
+  dueDate?: string;
+  studentId?: number | null;
+  type?: string | null;
+  status?: FinanceStatus;
+  paidAt?: string;
+  /** `updatedAt` do lançamento como o formulário o leu: se mudou desde então o servidor responde 409 RECORD_CHANGED. */
+  expectedUpdatedAt?: string;
+};
+
 /**
- * Corpo do PATCH /finance/:id (UpdateFinanceRecordDto). Campos LIMPAVEIS esvaziados vao como `null`
- * (backend grava NULL): type e studentId. `unitId` nao tem campo no formulario e nunca e enviado
- * (ausente = nao mexe). NAO limpaveis (nunca null): description, amountCents, dueDate, status.
+ * Corpo do PATCH /finance/:id (UpdateFinanceRecordDto). Envia SÓ os campos realmente alterados em relação a
+ * `original` (um formulário desatualizado não pode desfazer, por ex., uma baixa por Pix só reenviando `status`)
+ * e SEMPRE `expectedUpdatedAt: original.updatedAt` quando existir. Nada alterado = só o `expectedUpdatedAt`.
  *
- * paidAt: so vai quando status = PAID e a data foi informada. Em branco com PAID o backend usa
- * agora; ao SAIR de PAID para PENDING/OVERDUE o backend LIMPA paidAt sozinho - por isso paidAt
- * NAO e enviado nesse caso (nem null). Para CANCELLED o backend nao mexe em paidAt.
+ * Campos LIMPAVEIS esvaziados vao como `null` (backend grava NULL): type e studentId. `unitId` nao tem campo
+ * no formulario e nunca e enviado (ausente = nao mexe). NAO limpaveis (nunca null): description, amountCents,
+ * dueDate, status.
+ *
+ * paidAt: so vai quando o status final = PAID, a data foi informada E mudou (ou o status mudou para PAID).
+ * Em branco com PAID o backend usa agora; ao SAIR de PAID para PENDING/OVERDUE o backend LIMPA paidAt
+ * sozinho - por isso paidAt NAO e enviado nesse caso (nem null). Para CANCELLED o backend nao mexe em paidAt.
  */
-export function toUpdatePayload(values: FinanceFormValues) {
-  return {
-    description: values.description.trim(),
-    amountCents: parseReaisToCents(values.amountReais),
-    dueDate: values.dueDate,
-    studentId: values.studentId ? Number(values.studentId) : null,
-    type: values.type.trim() || null,
-    status: values.status,
-    ...(values.status === "PAID" && values.paidAt ? { paidAt: values.paidAt } : {}),
-  };
+export function toUpdatePayload(values: FinanceFormValues, original: FinanceRecord): FinanceUpdatePayload {
+  const before = recordToForm(original);
+  const payload: FinanceUpdatePayload = {};
+
+  const description = values.description.trim();
+  if (description !== before.description.trim()) payload.description = description;
+
+  const amountCents = parseReaisToCents(values.amountReais);
+  if (amountCents !== original.amountCents) payload.amountCents = amountCents;
+
+  if (values.dueDate !== before.dueDate) payload.dueDate = values.dueDate;
+
+  if (values.studentId !== before.studentId) payload.studentId = values.studentId ? Number(values.studentId) : null;
+
+  const type = values.type.trim();
+  if (type !== before.type.trim()) payload.type = type || null;
+
+  const statusChanged = values.status !== before.status;
+  if (statusChanged) payload.status = values.status;
+
+  if (values.status === "PAID" && values.paidAt && (values.paidAt !== before.paidAt || (statusChanged && before.status !== "PAID"))) {
+    payload.paidAt = values.paidAt;
+  }
+
+  if (original.updatedAt) payload.expectedUpdatedAt = original.updatedAt;
+  return payload;
 }

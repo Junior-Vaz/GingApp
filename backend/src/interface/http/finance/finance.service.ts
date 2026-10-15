@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { FinancialRecord, FinancialStatus, Prisma } from '@prisma/client';
+import { FinancialRecord, FinancialStatus, PaidVia, Prisma } from '@prisma/client';
 import { LimitOffsetQueryDto, Page, pageArgs } from '../../../shared/pagination/pagination';
+import { PixLifecycleHooks } from '../../../shared/payments/pix-lifecycle.hooks';
+import { PaymentErrorCode, paymentError } from '../payments/payment-errors';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
@@ -9,8 +11,12 @@ import { StudentsService } from '../students/students.service';
 import { CreateFinanceRecordDto } from './dto/create-finance-record.dto';
 import { UpdateFinanceRecordDto } from './dto/update-finance-record.dto';
 import { ListFinanceQueryDto } from './dto/list-finance-query.dto';
+import { FinanceRecordView, PIX_OPEN_GATEWAY_STATUSES, toFinanceRecordView } from './finance-record.view';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+const recordChanged = () =>
+  paymentError(409, PaymentErrorCode.RECORD_CHANGED, 'O lançamento foi alterado (talvez pago por Pix). Recarregue.');
 
 /** Resumo financeiro em centavos (ver FinanceService.summary). */
 export interface FinanceSummary {
@@ -78,6 +84,7 @@ export class FinanceService {
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
     private readonly audit: AuditService,
+    private readonly pixHooks: PixLifecycleHooks,
   ) {}
 
   /**
@@ -131,7 +138,8 @@ export class FinanceService {
       }),
       this.prisma.financialRecord.count({ where }),
     ]);
-    return { items, total };
+    const now = new Date();
+    return { items: items.map((r) => toFinanceRecordView(r, now)), total };
   }
 
   /**
@@ -204,7 +212,7 @@ export class FinanceService {
     organizationId: number,
     userId: number,
     query: LimitOffsetQueryDto & { studentId?: number } = {},
-  ): Promise<Page<FinancialRecord>> {
+  ): Promise<Page<FinanceRecordView<FinancialRecord>>> {
     const where = await this.mineWhere(organizationId, userId, query.studentId);
     if (!where) return { items: [], total: 0 };
 
@@ -217,7 +225,8 @@ export class FinanceService {
       }),
       this.prisma.financialRecord.count({ where }),
     ]);
-    return { items, total };
+    const now = new Date();
+    return { items: items.map((r) => toFinanceRecordView(r, now)), total };
   }
 
   /**
@@ -283,6 +292,11 @@ export class FinanceService {
   }
 
   async findOne(organizationId: number, id: number) {
+    return toFinanceRecordView(await this.findRaw(organizationId, id));
+  }
+
+  /** Linha crua (uso interno): 404 se não existir ou não for desta organização. */
+  private async findRaw(organizationId: number, id: number) {
     const record = await this.prisma.financialRecord.findFirst({ where: { id, organizationId } });
     if (!record) {
       throw new NotFoundException('Registro financeiro não encontrado.');
@@ -298,7 +312,7 @@ export class FinanceService {
       await this.assertUnitBelongsToOrganization(organizationId, dto.unitId);
     }
 
-    return this.prisma.financialRecord.create({
+    const created = await this.prisma.financialRecord.create({
       data: {
         organizationId,
         studentId: dto.studentId,
@@ -309,10 +323,31 @@ export class FinanceService {
         dueDate: new Date(dto.dueDate),
       },
     });
+    return toFinanceRecordView(created);
   }
 
   async update(organizationId: number, id: number, dto: UpdateFinanceRecordDto) {
-    const before = await this.findOne(organizationId, id); // 404 se não existir ou não for desta organização
+    const before = await this.findRaw(organizationId, id); // 404 se não existir ou não for desta organização
+    const { expectedUpdatedAt, ...changes } = dto;
+
+    // Formulário desatualizado (ex.: o lançamento foi pago por Pix depois de aberto): nada é gravado (achado A2).
+    if (expectedUpdatedAt !== undefined && new Date(expectedUpdatedAt).getTime() !== before.updatedAt.getTime()) {
+      throw recordChanged();
+    }
+    // Baixa do Pix automático só se desfaz pelo estorno (POST /finance/:id/refund): o PATCH não tira de PAID nem muda o
+    // valor - senão o pagamento já aplicado (PaymentWebhookEvent PAID) nunca mais baixaria e o aluno pagaria duas vezes.
+    if (
+      before.status === FinancialStatus.PAID &&
+      before.paidVia === PaidVia.PIX_AUTO &&
+      ((changes.status !== undefined && changes.status !== FinancialStatus.PAID) ||
+        (changes.amountCents !== undefined && changes.amountCents !== before.amountCents))
+    ) {
+      throw paymentError(
+        409,
+        PaymentErrorCode.RECORD_PAID_VIA_PIX,
+        'Este lançamento foi pago por Pix. Para desfazer a baixa, use Estornar.',
+      );
+    }
 
     if (dto.studentId) {
       await this.assertStudentBelongsToOrganization(organizationId, dto.studentId);
@@ -327,7 +362,8 @@ export class FinanceService {
     let paidAt: Date | null | undefined;
     if (dto.paidAt !== undefined) {
       paidAt = dto.paidAt === null ? null : new Date(dto.paidAt);
-    } else if (dto.status === 'PAID') {
+    } else if (dto.status === 'PAID' && before.status !== 'PAID') {
+      // Só ao ENTRAR em PAID (reenviar status PAID de um lançamento já pago não troca a data da baixa).
       paidAt = new Date();
     } else if (dto.status === 'PENDING' || dto.status === 'OVERDUE') {
       paidAt = null;
@@ -336,8 +372,10 @@ export class FinanceService {
     // Sair de PAID (PENDING/OVERDUE) também limpa a forma de pagamento e o valor pago da baixa (E07), como o paidAt.
     const leavingPaid = dto.status === 'PENDING' || dto.status === 'OVERDUE';
 
-    const updated = await this.prisma.financialRecord.update({
-      where: { id },
+    // Gravação CONDICIONADA ao que foi lido (updatedAt): uma baixa por Pix/estorno/edição concorrente entre a leitura e
+    // a escrita => 409 RECORD_CHANGED em vez de sobrescrever.
+    const result = await this.prisma.financialRecord.updateMany({
+      where: { id, organizationId, updatedAt: before.updatedAt },
       data: {
         studentId: dto.studentId,
         unitId: dto.unitId,
@@ -347,16 +385,19 @@ export class FinanceService {
         dueDate: dto.dueDate ? new Date(dto.dueDate) : undefined,
         status: dto.status,
         paidAt,
-        ...(leavingPaid ? { paymentMethod: null, paidCents: null } : {}),
+        ...(leavingPaid ? { paymentMethod: null, paidCents: null, paidVia: null } : {}),
+        ...(dto.status === 'PAID' && before.status !== 'PAID' ? { paidVia: 'MANUAL' as const } : {}),
       },
     });
+    if (result.count === 0) throw recordChanged();
+    const updated = await this.findRaw(organizationId, id);
     await this.audit.record({
       organizationId,
       action: AuditAction.FINANCE_UPDATE,
       entity: AuditEntity.FINANCE,
       entityId: id,
       meta: {
-        fields: Object.entries(dto)
+        fields: Object.entries(changes)
           .filter(([, value]) => value !== undefined)
           .map(([key]) => key),
         statusBefore: before.status,
@@ -365,7 +406,12 @@ export class FinanceService {
         amountAfter: updated.amountCents,
       },
     });
-    return updated;
+    // O Pix aberto deixou de valer (saiu de aberto ou mudou o valor): cancela no provedor (best-effort - achado M3).
+    const open = (s: FinancialStatus) => s === FinancialStatus.PENDING || s === FinancialStatus.OVERDUE;
+    if (open(before.status) && (!open(updated.status) || updated.amountCents !== before.amountCents)) {
+      await this.pixHooks.cancelOpenPix(before, updated.amountCents !== before.amountCents ? 'AMOUNT_CHANGED' : 'CANCEL');
+    }
+    return toFinanceRecordView(updated);
   }
 
   /**
@@ -375,7 +421,21 @@ export class FinanceService {
    * "registro financeiro inativo" com sentido de negócio aqui.
    */
   async remove(organizationId: number, id: number) {
-    const record = await this.findOne(organizationId, id);
+    const record = await this.findRaw(organizationId, id);
+    // Pix ainda pagável ou baixa por Pix: apagar deixaria um pagamento sem lançamento (achado M3). Cancele (o Pix aberto
+    // é cancelado no provedor) ou estorne antes. Pix já vencido não bloqueia (não pode mais ser pago).
+    const pixStillPayable =
+      !!record.gatewayPaymentId &&
+      PIX_OPEN_GATEWAY_STATUSES.includes(record.gatewayStatus ?? '') &&
+      !!record.pixExpiresAt &&
+      record.pixExpiresAt.getTime() > Date.now();
+    if (pixStillPayable || (record.status === FinancialStatus.PAID && record.paidVia === PaidVia.PIX_AUTO)) {
+      throw paymentError(
+        409,
+        PaymentErrorCode.RECORD_HAS_PIX,
+        'Este lançamento tem um Pix em aberto ou foi pago por Pix. Cancele o lançamento (o Pix aberto é cancelado no Mercado Pago) ou estorne antes de excluir.',
+      );
+    }
     const deleted = await this.prisma.financialRecord.delete({ where: { id } });
     await this.audit.record({
       organizationId,
@@ -384,7 +444,7 @@ export class FinanceService {
       entityId: id,
       meta: { amountCents: record.amountCents, status: record.status, studentId: record.studentId },
     });
-    return deleted;
+    return toFinanceRecordView(deleted);
   }
 
   /** Nunca confiar em studentId vindo do corpo da requisição sem confirmar que pertence à

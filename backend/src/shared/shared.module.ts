@@ -10,6 +10,11 @@ import { MAIL_TRANSPORT, MailService } from './mail/mail.service';
 import { PasswordResetService } from './security/password-reset.service';
 import { FCM_SENDER, PUSH_SENDER, PushService } from './push/push.service';
 import { GeocodingService } from './geo/geocoding.service';
+import { PAYMENT_PROVIDER } from './payments/payment-provider.interface';
+import { assertPaymentsBootConfig, paymentsProviderKind } from './payments/payments.config';
+import { MercadoPagoProvider } from './payments/mercadopago.provider';
+import { StubPaymentProvider } from './payments/stub-payment.provider';
+import { PixLifecycleHooks } from './payments/pix-lifecycle.hooks';
 
 /**
  * Módulo global (padrão GestorPrint): disponibiliza o PrismaService para todos os módulos
@@ -44,6 +49,17 @@ import { GeocodingService } from './geo/geocoding.service';
     PushService,
     // Geocodificacao opcional (GOOGLE_MAPS_SERVER_KEY) para o mapa da comunidade — ver shared/geo.
     GeocodingService,
+    // Provedor de pagamento das MENSALIDADES (conta Mercado Pago de cada grupo via OAuth - shared/payments; NAO e o
+    // BILLING_GATEWAY_SERVICE acima). PAYMENTS_PROVIDER=mercadopago|stub; stub em producao faz o boot falhar.
+    {
+      provide: PAYMENT_PROVIDER,
+      useFactory: () => {
+        assertPaymentsBootConfig();
+        return paymentsProviderKind() === 'mercadopago' ? new MercadoPagoProvider() : new StubPaymentProvider();
+      },
+    },
+    // Ponte financeiro -> Pix (cancelar o Pix aberto no provedor apos baixa manual/cancelamento/valor alterado).
+    PixLifecycleHooks,
   ],
   exports: [
     PrismaService,
@@ -56,6 +72,8 @@ import { GeocodingService } from './geo/geocoding.service';
     PasswordResetService,
     PushService,
     GeocodingService,
+    PAYMENT_PROVIDER,
+    PixLifecycleHooks,
   ],
 })
 export class SharedModule {}

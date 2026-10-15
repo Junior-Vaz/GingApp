@@ -16,6 +16,7 @@ import { FinanceService } from './finance.service';
   // (/finance/export.csv, /billing, /delinquents) têm de ser registradas antes de `GET /finance/:id`.
   controllers: [FinanceExportController, FinanceCollectionController, FinanceController, FinanceOverdueController],
   providers: [FinanceService, FinanceOverdueService, FinanceCollectionService, FinanceExportService],
-  exports: [FinanceService, FinanceOverdueService],
+  // FinanceCollectionService exportado para o PaymentsModule (Pix): a baixa automática reusa o pay() (SSOT).
+  exports: [FinanceService, FinanceOverdueService, FinanceCollectionService],
 })
 export class FinanceModule {}

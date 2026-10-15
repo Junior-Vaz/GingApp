@@ -90,6 +90,22 @@ enum PaymentMethod {
   OTHER
 }
 
+/// Origem da baixa de um lancamento: MANUAL (POST /finance/:id/pay, PATCH) ou PIX_AUTO (Pix confirmado pelo provedor de
+/// pagamento - webhook/sincronizacao, ver interface/http/payments). NULL em lancamentos pagos antes desta coluna (= manual).
+enum PaidVia {
+  MANUAL
+  PIX_AUTO
+}
+
+/// Situacao da conta do provedor de pagamento (OAuth do vendedor) de um grupo.
+/// CONNECTED = tokens validos; REVOKED = desconectada pelo Mestre (tokens apagados); ERROR = renovacao do token falhou
+/// (o Mestre precisa reconectar).
+enum PaymentAccountStatus {
+  CONNECTED
+  REVOKED
+  ERROR
+}
+
 enum SubscriptionStatus {
   TRIALING
   ACTIVE
@@ -431,6 +447,7 @@ model Organization {
   transfersIn           TransferRequest[]             @relation("TransferTo")
   personRoles           PersonRole[]
   groupRoles            GroupRole[]
+  paymentAccounts       PaymentProviderAccount[]
 
   @@index([status])
 }
@@ -1148,6 +1165,29 @@ model FinancialRecord {
   /// Baixa (E07): forma de pagamento e valor efetivamente pago (centavos; padrao = amountCents).
   paymentMethod  PaymentMethod?
   paidCents      Int?
+  /// Origem da baixa (MANUAL | PIX_AUTO). So tem sentido com status PAID; a API devolve `paidVia` derivado (ver
+  /// finance-record.view.ts): PAID sem valor aqui = MANUAL (lancamentos antigos).
+  paidVia        PaidVia?
+  /// Cobranca Pix no provedor de pagamento do GRUPO (Mercado Pago via OAuth; ver interface/http/payments). Nunca saem
+  /// crus pela API: GET /finance e /finance/me devolvem so `pix: { status, expiresAt, generatedAt }`; o QR so vem de
+  /// /finance/:id/pix. gatewayPaymentId = id do pagamento no provedor (unico por provider quando nao nulo).
+  gatewayProvider  String?
+  gatewayPaymentId String?
+  /// Status CRU do provedor (MP: pending, approved, rejected, cancelled, refunded, charged_back, ...; 'expired' local).
+  gatewayStatus    String?
+  /// Pix copia-e-cola, imagem do QR (base64), link do provedor, validade e quando foi gerado.
+  pixQrCode        String?
+  pixQrCodeBase64  String?
+  pixTicketUrl     String?
+  pixExpiresAt     DateTime?
+  pixGeneratedAt   DateTime?
+  /// Valor (centavos) do Pix gerado: se o lancamento mudar de valor, o Pix antigo nao e reaproveitado.
+  pixAmountCents   Int?
+  /// Contador de Pix gerados para o lancamento (entra na chave de idempotencia enviada ao provedor).
+  pixSeq           Int             @default(0)
+  /// Ultima conferencia do Pix pela reconciliacao (fila justa: menos recente primeiro; tambem o "claim" atomico que
+  /// impede duas replicas de conferirem o mesmo Pix na mesma rodada).
+  pixLastCheckedAt DateTime?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
 
@@ -1156,8 +1196,82 @@ model FinancialRecord {
   unit         Unit?        @relation(fields: [unitId], references: [id])
 
   @@unique([studentId, competence, type])
+  @@unique([gatewayProvider, gatewayPaymentId])
   @@index([organizationId, status])
   @@index([studentId, dueDate])
+  @@index([gatewayStatus, pixGeneratedAt])
+  @@index([gatewayStatus, pixLastCheckedAt])
+}
+
+/// Conta do provedor de pagamento CONECTADA por um grupo (OAuth do vendedor - modelo marketplace): o dinheiro das
+/// mensalidades cai na conta do PROPRIO grupo; o GingApp nunca toca no dinheiro. Tokens CIFRADOS (AES-256-GCM,
+/// shared/payments/payment-crypto.ts) e NUNCA devolvidos em resposta, log ou auditoria. Uma conta por grupo e provider.
+model PaymentProviderAccount {
+  id              Int                  @id @default(autoincrement())
+  organizationId  Int
+  /// 'mercadopago' | 'stub' (PaymentProvider.id do servidor que conectou).
+  provider        String
+  /// user_id do vendedor no provedor (MP: collector_id dos pagamentos).
+  providerUserId  String?
+  accessTokenEnc  String?
+  refreshTokenEnc String?
+  tokenExpiresAt  DateTime?
+  publicKey       String?
+  liveMode        Boolean              @default(false)
+  status          PaymentAccountStatus @default(CONNECTED)
+  connectedAt     DateTime?
+  connectedById   Int?
+  /// Ultimo erro (texto curto, sem token/segredo) da renovacao/uso da conta.
+  lastError       String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@unique([organizationId, provider])
+  @@index([provider, providerUserId])
+}
+
+/// `state` do OAuth de USO UNICO (PLANO_PROJETO.md 10.53): o nonce assinado no state e gravado aqui no POST /connect e
+/// CONSUMIDO atomicamente no callback (usedAt) - reuso/replay do mesmo state e recusado. Linhas vencidas sao apagadas
+/// no proprio /connect.
+model PaymentOauthState {
+  id             Int       @id @default(autoincrement())
+  nonce          String    @unique
+  organizationId Int
+  userId         Int
+  provider       String
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
+/// Eventos de pagamento recebidos/aplicados (webhook do provedor, sincronizacao sob demanda e reconciliacao): dao a
+/// IDEMPOTENCIA (reentrega do mesmo evento nao reprocessa; um pagamento ja aplicado - outcome PAID - nunca baixa de novo,
+/// nem depois de um estorno manual) e a trilha de auditoria do que o provedor disse. rawSafe = so campos nao sensiveis.
+/// INVARIANTE: eventos com outcome PAID NUNCA podem ser apagados (nenhum job de retencao deve tocar nesta tabela sem
+/// excluir PAID): sao eles que impedem um pagamento ja aplicado de baixar de novo depois de um estorno.
+model PaymentWebhookEvent {
+  id                Int       @id @default(autoincrement())
+  provider          String
+  /// Id do evento: id da notificacao (webhook) ou `sync:<paymentId>:<status>` (sincronizacao/reconciliacao).
+  eventId           String
+  paymentId         String?
+  organizationId    Int?
+  financialRecordId Int?
+  /// WEBHOOK | SYNC | RECONCILE
+  source            String
+  receivedAt        DateTime  @default(now())
+  processedAt       DateTime?
+  /// PAID, DUPLICATE, ALREADY_APPLIED, PENDING, CANCELLED, AMOUNT_MISMATCH, PAID_CONFLICT, REFUND_ALERT, IGNORED, ...
+  outcome           String?
+  rawSafe           Json?
+
+  @@unique([provider, eventId])
+  @@index([provider, paymentId])
+  @@index([organizationId, receivedAt])
 }
 
 /// type: categoria livre (BATIZADO/WORKSHOP/CAMPEONATO/FESTIVAL/ENCONTRO/FORMATURA/VIAGEM/

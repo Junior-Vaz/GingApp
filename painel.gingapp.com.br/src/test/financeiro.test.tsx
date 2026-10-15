@@ -6,6 +6,7 @@ import { FinanceiroPage } from "@/modules/financeiro/financeiro-page";
 import {
   effectiveStatus,
   parseReaisToCents,
+  recordToForm,
   toCreatePayload,
   toUpdatePayload,
   type FinanceRecord,
@@ -30,7 +31,7 @@ const rec = (o: Partial<FinanceRecord> & { id: number }): FinanceRecord => ({
 
 const records: FinanceRecord[] = [
   rec({ id: 1, student: { id: 1, name: "Ana" }, description: "Mensalidade Ana", amountCents: 15000, status: "PAID", paidAt: "2024-01-05T10:00:00.000Z", dueDate: "2024-01-10T00:00:00.000Z" }),
-  rec({ id: 2, student: { id: 2, name: "Bia" }, description: "Mensalidade Bia", amountCents: 20050, status: "PENDING", dueDate: "2099-02-10T00:00:00.000Z", studentId: 2 }),
+  rec({ id: 2, student: { id: 2, name: "Bia" }, description: "Mensalidade Bia", amountCents: 20050, status: "PENDING", dueDate: "2099-02-10T00:00:00.000Z", studentId: 2, updatedAt: "2026-10-01T10:00:00.000Z" }),
   rec({ id: 3, description: "Camiseta", type: null, studentId: null, student: null, amountCents: 5000, status: "PENDING", dueDate: "2020-01-10T00:00:00.000Z" }),
 ];
 
@@ -147,7 +148,9 @@ describe("financeiro utils", () => {
 
   it("create omite vazios; update manda null em type/studentId esvaziados e nunca null nos obrigatorios", () => {
     expect(toCreatePayload(formValues)).toEqual({ description: "X", amountCents: 1000, dueDate: "2025-03-01", studentId: 2 });
-    expect(toUpdatePayload(formValues)).toEqual({
+    // original sem nada em comum com o formulario: tudo que difere vai (type vazio -> null)
+    const original = rec({ id: 5, description: "Antigo", studentId: 1, amountCents: 999, type: "Mensalidade", status: "CANCELLED", dueDate: "2025-01-01T00:00:00.000Z", updatedAt: "2026-10-01T10:00:00.000Z" });
+    expect(toUpdatePayload(formValues, original)).toEqual({
       description: "X",
       amountCents: 1000,
       dueDate: "2025-03-01",
@@ -155,12 +158,36 @@ describe("financeiro utils", () => {
       type: null,
       status: "PAID",
       paidAt: "2025-03-02",
+      expectedUpdatedAt: "2026-10-01T10:00:00.000Z",
     });
-    const cleared = toUpdatePayload({ ...formValues, studentId: "", type: "  ", status: "PENDING" });
+    const cleared = toUpdatePayload({ ...formValues, studentId: "", type: "  ", status: "PENDING" }, original);
     expect(cleared).toMatchObject({ studentId: null, type: null, status: "PENDING" });
     expect(cleared).not.toHaveProperty("paidAt");
     expect(cleared).not.toHaveProperty("unitId");
-    expect(toUpdatePayload({ ...formValues, paidAt: "" })).not.toHaveProperty("paidAt");
+    expect(toUpdatePayload({ ...formValues, paidAt: "" }, original)).not.toHaveProperty("paidAt");
+  });
+
+  it("update manda SO o que mudou + expectedUpdatedAt (formulario velho nao reenvia status/valor)", () => {
+    const original = rec({ id: 6, description: "Mensalidade Bia", studentId: 2, amountCents: 20050, type: "Mensalidade", updatedAt: "2026-10-01T10:00:00.000Z" });
+    const same = recordToForm(original);
+    expect(toUpdatePayload(same, original)).toEqual({ expectedUpdatedAt: "2026-10-01T10:00:00.000Z" });
+    // so a descricao mudou (com espacos): status e valor NAO vao
+    expect(toUpdatePayload({ ...same, description: "  Nova " }, original)).toEqual({
+      description: "Nova",
+      expectedUpdatedAt: "2026-10-01T10:00:00.000Z",
+    });
+    // sem updatedAt (backend antigo) nao inventa o campo
+    const legacy = rec({ id: 7 });
+    expect(toUpdatePayload({ ...recordToForm(legacy), dueDate: "2099-03-03" }, legacy)).toEqual({ dueDate: "2099-03-03" });
+    // paidAt: status ja PAID e data inalterada = nao vai; data alterada ou virou PAID = vai
+    const paid = rec({ id: 8, status: "PAID", paidAt: "2024-01-05T10:00:00.000Z" });
+    expect(toUpdatePayload(recordToForm(paid), paid)).toEqual({});
+    expect(toUpdatePayload({ ...recordToForm(paid), paidAt: "2024-02-01" }, paid)).toEqual({ paidAt: "2024-02-01" });
+    expect(toUpdatePayload({ ...recordToForm(original), status: "PAID", paidAt: "2026-10-02" }, original)).toEqual({
+      status: "PAID",
+      paidAt: "2026-10-02",
+      expectedUpdatedAt: "2026-10-01T10:00:00.000Z",
+    });
   });
 });
 
@@ -380,7 +407,10 @@ describe("FinanceiroPage", () => {
 
     fireEvent.click(within(dialog).getByText("Salvar"));
     await waitFor(() => expect(mutations(calls, "PATCH")).toHaveLength(1));
-    expect(mutations(calls, "PATCH")[0]!.body).toMatchObject({ studentId: 2 });
+    // aluno inalterado: NAO vai no PATCH (so o que mudou), mas o expectedUpdatedAt sim
+    const body = mutations(calls, "PATCH")[0]!.body as Record<string, unknown>;
+    expect(body).not.toHaveProperty("studentId");
+    expect(body).toEqual({ expectedUpdatedAt: "2026-10-01T10:00:00.000Z" });
   });
 
   it("valida o formulário e cria (POST /finance com centavos, vazios omitidos)", async () => {
@@ -433,8 +463,9 @@ describe("FinanceiroPage", () => {
     await waitFor(() => expect(mutations(calls, "PATCH")).toHaveLength(1));
     expect(mutations(calls, "PATCH")[0]).toMatchObject({
       path: "/finance/2",
-      body: { amountCents: 20050, status: "PAID", paidAt: "2099-02-11" },
+      body: { status: "PAID", paidAt: "2099-02-11", expectedUpdatedAt: "2026-10-01T10:00:00.000Z" },
     });
+    expect(mutations(calls, "PATCH")[0]!.body).not.toHaveProperty("amountCents"); // valor nao mudou
   });
 
   it("edicao: limpar Aluno e Tipo envia null (e nunca null em descricao/valor/vencimento/status)", async () => {
@@ -448,14 +479,7 @@ describe("FinanceiroPage", () => {
     fireEvent.click(within(dialog).getByText("Salvar"));
     await waitFor(() => expect(mutations(calls, "PATCH")).toHaveLength(1));
     const body = mutations(calls, "PATCH")[0]!.body as Record<string, unknown>;
-    expect(body).toEqual({
-      description: "Mensalidade Bia",
-      amountCents: 20050,
-      dueDate: "2099-02-10",
-      studentId: null,
-      type: null,
-      status: "PENDING",
-    });
+    expect(body).toEqual({ studentId: null, type: null, expectedUpdatedAt: "2026-10-01T10:00:00.000Z" });
   });
 
   it("sair de PAID para PENDING NAO envia paidAt (o backend limpa sozinho)", async () => {
@@ -486,6 +510,39 @@ describe("FinanceiroPage", () => {
     await waitFor(() => expect(mutations(calls, "PATCH")).toHaveLength(1));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("amountCents must not be less than 1"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("PATCH 409 RECORD_CHANGED / RECORD_PAID_VIA_PIX: mensagem amigavel, recarrega a lista e o dialogo permanece", async () => {
+    let code = "RECORD_CHANGED";
+    const calls = mockApi({
+      ...base(),
+      "PATCH /finance/2": () => json(409, { message: "conflict", code }),
+    });
+    renderPage();
+    await screen.findByText("Mensalidade Bia");
+    fireEvent.click(within(screen.getByText("Mensalidade Bia").closest("tr")!).getByText("Editar"));
+    const dialog = await screen.findByRole("dialog");
+    const listCalls = () => calls.filter((c) => c.method === "GET" && c.path === "/finance").length;
+    const before = listCalls();
+    fireEvent.click(within(dialog).getByText("Salvar"));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("O lançamento foi alterado (talvez pago por Pix). Recarregue."));
+    await waitFor(() => expect(listCalls()).toBeGreaterThan(before));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    code = "RECORD_PAID_VIA_PIX";
+    fireEvent.click(within(dialog).getByText("Salvar"));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Este lançamento foi pago por Pix. Para desfazer, use Estornar."));
+  });
+
+  it("DELETE 409 RECORD_HAS_PIX: mensagem amigavel de cancelar/estornar antes de excluir", async () => {
+    mockApi({ ...base(), "DELETE /finance/3": () => json(409, { message: "x", code: "RECORD_HAS_PIX" }) });
+    renderPage();
+    await screen.findByText("Camiseta");
+    fireEvent.click(within(screen.getByText("Camiseta").closest("tr")!).getByText("Excluir"));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByText("Excluir"));
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Cancele o lançamento (o Pix aberto é cancelado no Mercado Pago) ou estorne antes de excluir.")),
+    );
   });
 
   it("exclui só depois de confirmar (DELETE /finance/:id)", async () => {

@@ -3796,3 +3796,241 @@ Estado: concluído (backend, painel e app), sem commit. Pedido do dono: "nas tur
 4. `Unit` e `Class` guardam endereço como uma string só (sem número/bairro/CEP); se o dono quiser CEP/ViaCEP e seletor de pino no mapa, é uma evolução comum a unidade, evento, roda e turma.
 5. O admin Vue não edita turmas (não tocado).
 6. Aviso de geocoding falho é indireto (campo `latitude` nulo com endereço preenchido). Se quiser um alerta no momento de salvar, a API pode devolver `locationGeocoded: boolean`.
+
+### 10.52 UI Pix (painel e app) - cobrança de mensalidade por Pix via Mercado Pago - 2026-10-15
+
+Estado: front-end concluído e testado com a API mockada; **não validado contra o backend real** (o backend de Pix foi construído em paralelo por outro agente, ver a subseção dele) **nem em navegador** (ver pendência 1). O contrato seguido foi o combinado no briefing; qualquer divergência do backend real deve ser acertada nos pontos listados em "Suposições".
+
+#### Decisões
+1. **Painel, conexão (só MESTRE):** nova aba "Receber por Pix" em `/financeiro` (`pix-connection-card.tsx`). Aparece só com `role === "MESTRE"` (`useSessionUser`); PROFESSOR não vê a aba nem o cartão (o backend também restringe). Estados: carregando, erro com "Tentar de novo", `available=false` (aviso neutro "Pix automático ainda não está habilitado neste ambiente"), desconectado (3 linhas + "Conectar Mercado Pago"), conectado (selo "Conectado", Produção/Teste, "desde dd/MM/aaaa", "Desconectar" com `ConfirmDialog`), `status` REVOKED/ERROR (aviso + "Reconectar Mercado Pago"). O texto sobre custo é neutro ("eventuais tarifas seguem as condições da sua conta no Mercado Pago"): nada afirma ausência de taxa.
+2. **Conectar:** `POST /payments/mercadopago/connect` -> `redirectTo(url)`. `redirectTo` é um módulo mínimo (`src/lib/redirect.ts`, `window.location.assign`) só para os testes poderem trocá-lo (jsdom não permite redefinir `window.location`).
+3. **Retorno do OAuth:** `FinanceiroPage` lê `window.location.search` (a página é renderizada sem router nos testes, então não usa `useSearch`), trata `?mp=ok|erro` com toast, abre a aba "Receber por Pix", refaz o estado (`invalidateQueries`) e limpa só o parâmetro `mp` com `history.replaceState` (preserva os demais).
+4. **"Gerar Pix" no painel:** botão com ícone QR em cada lançamento PENDING/OVERDUE da aba Lançamentos (`pix-dialog.tsx`). O diálogo faz `POST /finance/:id/pix` ao abrir (idempotente, então o duplo efeito do StrictMode é inofensivo), mostra QR (PNG base64 do Mercado Pago, ou gerado do copia e cola com a lib `qrcode` que o projeto já usa nos certificados), valor, validade, campo copia e cola, "Copiar código Pix", "Abrir no Mercado Pago" (se `ticketUrl`) e "Enviar ao aluno" (`navigator.share` quando existe; senão `wa.me` com texto pronto: descrição, valor, validade e o copia e cola, sem nome do aluno nem outros dados).
+5. **Polling:** `GET /finance/:id/pix` a cada 5 s por até 3 min, via `refetchInterval` do TanStack Query (pausa com a aba oculta porque `refetchIntervalInBackground` é falso; `refetchOnWindowFocus: "always"` confere ao voltar do banco; `gcTime: 0` e `staleTime: Infinity` para não reusar cache de outra abertura). Para ao ficar não-PENDING, ao passar de 3 min (aparece "Acompanhamento automático pausado" + "Verificar agora"/"Já paguei, verificar") e ao fechar (a consulta é desligada). Ao virar PAID: tela "Pagamento confirmado", toast e invalidação de `finance.rootKey` e `BILLING_KEY` (lista, resumo, inadimplentes). Pix EXPIRED (ou PENDING já vencido no relógio) mostra "Gerar novo Pix".
+6. **Erros por `code`** (`pix.ts` nos dois projetos): MP_NOT_CONNECTED, RECORD_NOT_PAYABLE, ALREADY_PAID, PAYER_EMAIL_REQUIRED, AMOUNT_TOO_LOW viram mensagens em português; outros usam a mensagem do servidor ou o fallback. No painel MP_NOT_CONNECTED mostra "Conectar Mercado Pago" (atalho para a aba de conexão); no app a mensagem é "Seu grupo ainda não habilitou o pagamento por Pix. Combine com o professor.".
+7. **Selos** na coluna Status do painel: "Pix aguardando" (PENDING válido), "Pago via Pix (automático)" (`paidVia = PIX_AUTO`), "Pix expirado" (EXPIRED ou PENDING vencido). No app: "Pix aguardando" e "Pago via Pix" (sem selo de expirado: o aluno simplesmente gera outro).
+8. **App do aluno/responsável:** botão "Pix" (ícone QR, `aria-label` "Pagar <descrição> com Pix") em cada linha em aberto/atrasada do histórico e botão "Pagar com Pix" nos detalhes da cobrança; folha `pix-sheet.tsx` (bottom sheet no celular, feita com o `Dialog` do app + classes `max-sm:*`, sem `useIsMobile`), com QR, valor, validade, 3 passos ("abra o app do banco... Pix Copia e Cola"), "Copiar código Pix", polling igual ao do painel e "Pagamento confirmado". O dependente usa o mesmo mecanismo: o contrato é `/finance/me/:id/pix` pelo id do registro, sem `studentId`.
+9. **Inadimplentes:** a aba lista **um aluno por linha** (agregado), não um lançamento; por isso não recebeu o botão. O fluxo é "Ver lançamentos" (já existente), que leva à lista filtrada de atrasados, onde cada linha tem "Gerar Pix".
+10. Sem dependência nova nos dois projetos (`qrcode` já existia em ambos).
+
+#### Suposições sobre o contrato (conferir com o backend real)
+1. `qrCodeBase64` é PNG em base64 puro (aceita também já com prefixo `data:`). Se vier ausente, o QR é gerado do `qrCode`.
+2. `POST /finance/:id/pix` com Pix anterior EXPIRED gera um novo (o front só chama o mesmo POST em "Gerar novo Pix").
+3. Os erros chegam com `code` no corpo (o `ApiError` dos dois projetos já lê `code`), em qualquer status 4xx.
+4. `GET /finance` e `GET /finance/me` trazem `pix` e `paidVia` por registro; sem eles (backend antigo) nenhum selo aparece e nada quebra (campos opcionais).
+5. `status.status` REVOKED/ERROR indica problema mesmo que `connected` venha true; `connected=true` com `status` CONNECTED ou null é tratado como conectado.
+
+#### O que deu certo
+1. Painel: `financeiro-pix.test.tsx` 15/15 (cartão nos 4 estados + indisponível, conectar -> POST + `redirectTo` com a url, desconectar com confirmação, aba só do MESTRE e ausente para PROFESSOR, `?mp=ok|erro` com toast e URL limpa preservando `x=1`, diálogo com QR/valor/validade/copia e cola/copiar/link, compartilhar via wa.me, polling virando PAID e parando de consultar, MP_NOT_CONNECTED amigável com atalho, Pix expirado, botão só em aberto, badges, mensagens por código). Regressão: `financeiro.test.tsx` + `exportar-csv.test.tsx` + `fase6-painel.test.tsx` = 50/50 (junto com os 3 arquivos). `tsc --noEmit` e eslint limpos nos arquivos tocados.
+2. App: `pix-mensalidade.test.tsx` 9/9 (botão só em aberto/atrasado, selos, folha com QR/instruções/copiar, atalho pelos detalhes, sem botão no pago, polling -> "Pagamento confirmado" com invalidação de `["finance"]`, polling para ao fechar, MP_NOT_CONNECTED, expirado, utilitários). Regressão: com `pagination.test.tsx` e `dependents.test.tsx` = 38/38. `tsc --noEmit` e eslint limpos.
+
+#### O que NÃO deu certo e a solução
+1. App: `@testing-library/dom` (peer do `@testing-library/react`) não está instalado no app, então `render`/`screen` falharam ("Cannot find module"). Solução: o teste segue o padrão do app (`act` + `createRoot` + `vi.waitFor` + consulta ao DOM), sem adicionar dependência.
+2. App: a primeira rodada do teste 404ava rotas desconhecidas e a tela do aluno não saía do "carregando" (o escopo busca `/students/me`). Solução: rotas não mapeadas respondem `200 []`, como no `pagination.test.tsx`.
+3. Erro de processo meu: para uma checagem de mutação reescrevi `pix-sheet.tsx` com `Get-Content`/`Set-Content` do PowerShell 5.1, que lê UTF-8 sem BOM como ANSI e **corrompeu os acentos** (o teste de "Copiar código Pix" acusou). Detectei pelo teste que falhou, reescrevi o arquivo inteiro com a ferramenta de escrita e confirmei por varredura de bytes (sem BOM, sem mojibake nem NBSP). Lição: não regravar fonte com `Get-Content/Set-Content` no PS 5.1.
+4. A ferramenta de escrita converteu ` ` do meu regex em NBSP literal no teste do app (eslint `no-irregular-whitespace`); trocado por `\s`.
+
+#### Pendências
+1. **Validação visual a 375 px não feita**: sem backend não há sessão/dados reais e não montei um harness de navegador com a API simulada; layouts (aba extra em `TabsList`, botão "Gerar Pix" na coluna de ações do painel, folha do app, QR 224 px) foram escritos mobile-first mas só validados por testes de DOM. Fazer a passada em navegador quando o backend estiver de pé.
+2. Teste ponta a ponta com o backend real e uma conta Mercado Pago de teste (OAuth, geração de Pix, webhook dando baixa e o polling refletindo `PAID`).
+3. O painel mostra "Gerar Pix" a todo lançamento em aberto mesmo sem conexão (o erro MP_NOT_CONNECTED explica e oferece o atalho). Se preferir, consultar `/payments/mercadopago/status` na lista e trocar o botão por "Conectar" antes do clique.
+4. Aba Inadimplentes sem ação direta de Pix (é por aluno). Avaliar "Cobrar por Pix" que abra os lançamentos atrasados do aluno.
+5. O polling para após 3 min; a baixa que chegar depois só aparece ao recarregar a lista ou em "Verificar agora".
+6. Textos de tarifa/prazo de repasse do Mercado Pago foram mantidos neutros de propósito; revisar com o jurídico/comercial antes de prometer algo na tela.
+
+### 10.53 Backend Pix de mensalidade na conta Mercado Pago DE CADA GRUPO (OAuth, webhook, reconciliação) - 2026-10-15
+Estado: backend concluído e testado com o provedor SIMULADO (sem rede), sem commit. **Não validado contra o Mercado Pago real** (sandbox): ver "Itens a conferir no sandbox". A UI (painel/app) é a §10.52, feita em paralelo por outro agente sobre o contrato abaixo.
+
+#### Decisões (do dono e minhas)
+1. **Recebedor = o GRUPO** (dono): cada Organization conecta a PRÓPRIA conta Mercado Pago por OAuth do vendedor (modelo marketplace/"Connect"); o Pix é criado com o access token do grupo, então o dinheiro cai direto na conta dele. O GingApp nunca toca no dinheiro. Taxa da plataforma opcional via `application_fee` (`PAYMENTS_APPLICATION_FEE_PERCENT`, padrão 0, arredondada para baixo).
+2. **Pix primeiro** (dono): só Pix por mensalidade + baixa automática. Cartão recorrente, checkout pro, boleto e assinatura dos grupos ao GingApp ficaram de fora; a interface `PaymentProvider` comporta novos métodos.
+3. **Separado do billing SaaS**: `shared/billing` (BillingGatewayService, assinatura do grupo ao GingApp) não foi tocado; o novo é `shared/payments` (mesmo estilo interface + provider + stub, token de injeção `PAYMENT_PROVIDER`).
+4. **Sem SDK**: `fetch` nativo, URLs fixas (sem SSRF), timeout 10 s, erros sem token/segredo (só rota, status HTTP e o código `error` do MP). Todos os nomes de campo do MP isolados em `shared/payments/mercadopago.mapping.ts`.
+5. **Provedor por env**: `PAYMENTS_PROVIDER=mercadopago|stub`; padrão `stub` fora de produção e `mercadopago` em produção; **`stub` em produção derruba o boot** (configuração insegura, mesmo padrão de runtime-config).
+6. **Baixa = SSOT `FinanceCollectionService.pay()`** estendido com `origin` (Pix automático): grava `paidVia=PIX_AUTO`, método PIX, `paidAt` = data civil (São Paulo) da aprovação no MP (relógio do MP adiantado perto da meia-noite vira "hoje"), `paidCents` = valor do MP e a referência do pagamento; o VALOR entra no WHERE do update (lançamento não pode ter mudado de valor entre a conferência e a baixa); idempotente (o mesmo pagamento já baixado devolve o lançamento). Recibo = o mesmo `GET /finance/:id/receipt` (derivado do PAID). Pontos: o pay() não dá pontos (nada a reusar).
+7. **Baixa manual** passa a gravar `paidVia=MANUAL` (pay e PATCH para PAID); sair de PAID (PATCH/estorno) limpa `paidVia`. A API devolve `paidVia` derivado: PAID sem a coluna (antigos) = MANUAL.
+8. **Estorno contábil** (`POST /finance/:id/refund`) também limpa os campos do Pix (permite gerar outro). O pagamento Pix já aplicado nunca volta a baixar sozinho (marcador: `PaymentWebhookEvent.outcome = PAID` por paymentId).
+9. **Nada automático e destrutivo**: Pix aprovado com valor divergente, em lançamento já pago/cancelado, ou `refunded/charged_back` no MP => **não** mexe no lançamento; grava `PAYMENT_PIX_ALERT` e avisa o(s) Mestre(s) (sino/push, categoria Financeiro), uma vez por pagamento e motivo. No refunded/charged_back o lançamento continua PAID com `gatewayStatus` = status do MP; o Mestre decide o estorno contábil.
+10. **payer.email** (o MP exige): e-mail do próprio usuário quando o aluno/responsável gera; senão o do aluno, o do login do aluno, o dos responsáveis; por fim `PAYMENTS_FALLBACK_PAYER_EMAIL`; nada disso => `422 PAYER_EMAIL_REQUIRED`. Nunca o e-mail do Mestre (o MP recusa pagador = recebedor). Não envio nome/CPF do pagador (PII mínima).
+11. **Validade do Pix 24 h** (constante `PIX_EXPIRATION_MINUTES`); o pendente com o mesmo valor e > 10 min de validade é REAPROVEITADO. Se o valor do lançamento mudou (ou falta < 10 min), o Pix antigo é **cancelado no MP** antes de gerar outro (o pagador nunca fica com dois Pix pagáveis); se o MP recusar o cancelamento, sincroniza (aprovado => baixa; ainda pendente => `409 PIX_PENDING_AMOUNT_CHANGED`/`503`).
+12. **Idempotência na criação**: exclusão mútua por lançamento no processo (`KeyedMutex`) + `X-Idempotency-Key = gingapp-pix-<org>-<lançamento>-<valor>-<seq>` (`pixSeq` incrementa a cada Pix novo). Entre réplicas, a chave segura a duplicata no MP.
+13. **Chave dos tokens**: `PAYMENTS_TOKEN_KEY` (nova env opcional, mesmo padrão de `TWO_FACTOR_KEY`/`PERSON_DOC_KEY`); vazia = deriva do JWT_SECRET. Subchaves HKDF próprias para token e para o `state`.
+14. **URL do webhook** enviada em `notification_url`: derivada de `MERCADOPAGO_REDIRECT_URI` (troca `/payments/mercadopago/callback` por `/webhooks/mercadopago`, + `?source_news=webhooks`), só com https. Não criei env própria para isso.
+15. **Contas por provider**: `PaymentProviderAccount.provider` = id do provedor do servidor (`mercadopago`/`stub`); trocar de provider não mistura contas.
+
+#### Arquitetura (arquivos)
+1. `backend/src/shared/payments/`: `payment-provider.interface.ts` (interface, tipos, `PaymentProviderError` com `kind`/`transient`), `mercadopago.mapping.ts` (ÚNICO lugar com campos do MP + external_reference), `mercadopago.provider.ts`, `stub-payment.provider.ts` (determinístico; apoio a teste `setStatus/seedPayment/failNextRefresh`), `payments.config.ts` (envs lidas a cada chamada; constantes), `payment-crypto.ts` (AES-GCM via SSOT `shared/security/aes-gcm.ts`, `state` HMAC, verificação do `x-signature` em tempo constante), `keyed-mutex.ts`. Registro do `PAYMENT_PROVIDER` no `SharedModule` (global).
+2. `backend/src/interface/http/payments/`: `payment-account.service.ts` (status/connect/callback/disconnect, `getConnected` com renovação do token e `markError`, `notifyMestres`, `refreshExpiring`), `pix.service.ts` (gerar/consultar/aplicar/reconciliar), `payments-webhook.service.ts`, `payment-errors.ts` (códigos estáveis), `payments.controller.ts` (3 controllers), `payments.module.ts` (importa Finance/Notifications/Students).
+3. `backend/src/interface/http/finance/finance-record.view.ts`: SSOT da forma pública do lançamento (`toFinanceRecordView`: tira os campos internos de Pix/gateway, acrescenta `pix` e `paidVia`) e de `pixStatusOf`. Aplicado em `GET /finance`, `/finance/me`, `/finance/:id`, criar, editar, apagar, pagar, estornar e cancelar (antes devolviam a linha crua; nenhum campo antigo saiu).
+4. `backend/src/jobs/pix-reconcile-cron.service.ts`: a cada 15 min (São Paulo), `PAYMENTS_RECONCILE_CRON=false` desliga; registrado no `JobsModule` e na condição do `AppModule`.
+5. Schema/migration `20261020000000_payments_pix_mercadopago` (gerada por `prisma migrate diff` contra o banco de dev em dia, sem drift; .sql sem BOM): enums `PaidVia`, `PaymentAccountStatus`; `FinancialRecord` + `paidVia, gatewayProvider, gatewayPaymentId, gatewayStatus, pixQrCode, pixQrCodeBase64, pixTicketUrl, pixExpiresAt, pixGeneratedAt, pixAmountCents, pixSeq` + unique `(gatewayProvider, gatewayPaymentId)` (NULLs distintos = único só quando preenchido) + índice `(gatewayStatus, pixGeneratedAt)`; tabelas `PaymentProviderAccount` (unique `(organizationId, provider)`) e `PaymentWebhookEvent` (unique `(provider, eventId)`).
+6. Auditoria nova: `PAYMENT_ACCOUNT_CONNECT/DISCONNECT/ERROR`, `PAYMENT_PIX_GENERATE/CONFIRMED/ALERT` (entidade `payment_account` / `finance`). Notificações novas (tipos `FINANCE_*` => categoria de push "finance" já existente): `FINANCE_PAYMENT_CONFIRMED` (aluno + responsáveis), `FINANCE_PIX_RECEIVED`, `FINANCE_PIX_ALERT`, `FINANCE_PAYMENTS_ACCOUNT_ERROR` (Mestres ativos).
+
+#### Contrato final (para a UI)
+1. `GET /payments/mercadopago/status` (MESTRE) => `{ provider: 'mercadopago'|'stub', available, connected, liveMode, providerUserId: string|null, connectedAt: string|null, status: 'CONNECTED'|'REVOKED'|'ERROR'|'NOT_CONNECTED' }`. **Acréscimo ao briefing:** `NOT_CONNECTED` quando o grupo nunca conectou. `connected` só é true com `status = CONNECTED` (em ERROR/REVOKED vem false).
+2. `POST /payments/mercadopago/connect` (MESTRE) => `{ url }` (503 `PAYMENTS_UNAVAILABLE` sem credenciais no servidor). `GET /payments/mercadopago/callback?code&state` (pública) => 302 `${PAINEL_URL}/financeiro?mp=ok|erro`. `DELETE /payments/mercadopago/disconnect` (MESTRE) => o mesmo objeto do status (`status: 'REVOKED'`).
+3. `POST /finance/:id/pix` (recurso finance/edit = MESTRE) e `POST /finance/me/:id/pix` (aluno/responsável dono, inclusive dependente) => 200 `{ financeRecordId, amountCents, status: 'PENDING'|'PAID'|'EXPIRED'|'CANCELLED', qrCode, qrCodeBase64, ticketUrl, expiresAt, generatedAt }`. `qrCode/qrCodeBase64/ticketUrl` vêm **null quando o status não é PENDING** (nada para pagar). `qrCodeBase64` do MP = PNG base64 sem prefixo (no stub é um texto base64 qualquer). `GET` nas mesmas rotas consulta (e, se PENDING, sincroniza com o MP); sem Pix gerado => 404 `PIX_NOT_FOUND`.
+4. Erros (corpo padrão `{ statusCode, error, code, message }`): `MP_NOT_CONNECTED` 409, `MP_ACCOUNT_ERROR` 409 (reconectar), `RECORD_NOT_PAYABLE` 409 (cancelado/valor <= 0), `ALREADY_PAID` 409, `AMOUNT_TOO_LOW` 422 (alinhado ao nome que a UI já usa; mínimo R$ 1,00), `PAYER_EMAIL_REQUIRED` 422, `PIX_NOT_FOUND` 404, `PIX_PENDING_AMOUNT_CHANGED` 409, `RECORD_CHANGED` 409, `PAYMENTS_UNAVAILABLE` 503, `PROVIDER_UNAVAILABLE` 503, `PROVIDER_ERROR` 502. Lançamento de outro grupo/aluno sem vínculo = 404 sem `code` (igual ao resto do módulo). Webhook: 401 `INVALID_SIGNATURE`, 503 `WEBHOOK_NOT_CONFIGURED`/`PROVIDER_UNAVAILABLE`.
+5. Lançamentos (`GET /finance`, `/finance/me`, `/finance/:id` e respostas de criar/editar/pagar/estornar/cancelar): + `pix: null | { status, expiresAt, generatedAt }` (sem QR) e `paidVia: 'MANUAL'|'PIX_AUTO'|null` (null fora de PAID). Os campos internos (`pixQrCode`, `gatewayPaymentId`, ...) NÃO saem.
+6. `POST /webhooks/mercadopago` (pública, assinatura `x-signature`) => 200 `{ received: true, outcome }`.
+
+#### Fluxos
+1. **OAuth**: connect assina `state` = base64url({org, user, provider, nonce, exp 10 min}).HMAC; o callback confere assinatura/validade/provider, confere que o usuário AINDA é Mestre ativo do grupo, troca o `code`, cifra access/refresh token (AES-256-GCM `v1:`), upsert da conta CONNECTED, audita (sem token). Qualquer falha => `mp=erro` sem detalhe.
+2. **Token**: `getConnected` renova quando faltam < 7 dias (ou quando o MP responde 401: renova uma vez e repete). Exclusão mútua por grupo. Refresh recusado (`invalid_grant`/401) => conta ERROR + `PAYMENT_ACCOUNT_ERROR` + aviso aos Mestres (só na transição) + `409 MP_ACCOUNT_ERROR`. Falha transitória com token ainda válido => segue com o atual. A reconciliação também renova as contas que vencem em breve (até 20 por execução).
+3. **Webhook**: valida `x-signature` ANTES de tocar no banco (manifesto `id:<data.id>;request-id:<x-request-id>;ts:<ts>;`, HMAC-SHA256, `timingSafeEqual`, `ts` em s ou ms, janela de 10 min); produção sem segredo => 503. Só `type=payment` com id numérico; dedupe por `PaymentWebhookEvent(provider, eventId = notification:<id do corpo> | request:<x-request-id>)`. O corpo só dá PISTAS da organização (lançamento com esse `gatewayPaymentId` e contas do `user_id`); o pagamento é buscado no MP com o token de cada candidata (máx. 5) e só é aplicado se a `external_reference` apontar para um lançamento DAQUELA organização e o `collector_id` for a conta dela. Falha transitória do MP => 503 (o MP reenvia; o evento fica sem `processedAt` e é reprocessado).
+4. **Aplicação** (`PixService.applyProviderPayment`, a MESMA para webhook, consulta e reconciliação): approved => baixa (valor igual) / DUPLICATE / ALREADY_APPLIED / PAID_CONFLICT / AMOUNT_MISMATCH; pending/in_process => atualiza `gatewayStatus`; rejected/cancelled => libera novo Pix (`'expired'` quando o MP informa `status_detail=expired`); refunded/charged_back => alerta. Eventos de consulta/reconciliação também viram linhas em `PaymentWebhookEvent` (`<origem>:<paymentId>:<status>:<resultado>`), com `rawSafe` sem pagador/QR.
+5. **Reconciliação**: Pix pendentes gerados há > 5 min, lote de 50 (mais antigos primeiro), por grupo; consulta o MP e aplica; se continuar pendente 30 min depois da validade (ou a conta estiver desconectada), marca `gatewayStatus='expired'` (sai da fila; um approved posterior ainda baixa pela external_reference).
+
+#### Checklist de segurança (com evidência nos testes)
+1. Tokens cifrados em repouso e ausentes de respostas/logs/auditoria: e2e confere `accessTokenEnc/refreshTokenEnc` começando com `v1:` e sem o token em claro, o JSON do status e o AuditLog sem o token; unit confere ida/volta, IV novo e adulteração detectada. Logs/erros do provedor só têm rota/status/código; o `AuditService` ainda remove chaves `token|secret`.
+2. `state` OAuth assinado e com expiração: unit (payload forjado, MAC alterado, formato inválido, expirado => null); e2e (4 states inválidos/adulterados e `code` recusado => `mp=erro` e nenhuma conta criada).
+3. Webhook com HMAC em tempo constante: unit (segredo errado, id/request-id trocados, ausente, malformado, ts velho); e2e (sem assinatura, segredo errado, ts de 1 h atrás e cabeçalho lixo => 401 e o lançamento continua PENDING).
+4. Isolamento entre grupos: e2e (Mestre de outro grupo => 404 em POST/GET do Pix; pagamento do vendedor do OUTRO grupo com referência forjada para este => não baixa; `user_id` "mentindo" => o token do grupo não enxerga o pagamento => não baixa).
+5. Valor e idempotência no servidor: valor sempre do lançamento; e2e (reaproveita o pendente: 1 só chamada ao provedor; reentrega e 2ª notificação => 1 baixa e 1 `FINANCE_PAY`; valor divergente => sem baixa + 1 alerta; estorno + nova notificação => ALREADY_APPLIED; valor alterado => Pix antigo cancelado no provedor e o antigo, se aprovado, dá AMOUNT_MISMATCH).
+6. SSRF: não aplicável (URLs fixas `api.mercadopago.com`/`auth.mercadopago.com.br`; `redirect: 'error'` no fetch).
+7. Rate limit: POST Pix 10/min por usuário (UserThrottlerGuard) e por IP; GET Pix 60/min; callback 30/min por IP; webhook 1200/min por IP (rota própria, acima do global de 600). Envs só para e2e: `PIX_THROTTLE_LIMIT`, `PIX_READ_THROTTLE_LIMIT`, `PAYMENTS_CALLBACK_THROTTLE_LIMIT`, `WEBHOOK_THROTTLE_LIMIT`.
+8. PII mínima: ao MP vão só e-mail do pagador, descrição do lançamento e valor; `rawSafe` e auditoria sem pagador/QR/token.
+9. Permissões: e2e (sem token 401; PROFESSOR, MONITOR e ALUNO 403 em status/connect/disconnect; PROFESSOR/MONITOR/ALUNO 403 em `POST /finance/:id/pix`; aluno 404 em lançamento de outro aluno, do dependente alheio e de outro grupo; responsável gera o do dependente).
+
+#### Execução real / resultados
+1. `npm run test:quick payments-pix` => **21 testes, 21 passaram, 0 falharam** (rodado 3 vezes após mudanças; a 2ª corrida seguida também passou = limpeza do `after()` correta; conferido por Prisma: 0 contas, 0 eventos, 0 lançamentos com Pix, 0 orgs de teste restantes).
+2. `node --test test/payments.spec.ts test/audit.spec.ts` => 13/13 (payments.spec: 9; adicionado ao fim de `test:unit`). `payments-pix.e2e-spec.ts` adicionado ao fim de `test:e2e`.
+3. Regressão: `npm run test:quick finance audit-coverage` => 5 specs (finance, finance-billing, finance-received, finance-export, audit-coverage), **93/93**; antes, com `guardian-dependents`, 6 specs 105/105; `member-privacy` (varredura de todas as rotas GET) 9/9; `audit.spec` + `runtime-config.spec` 17/17.
+4. `npm run build` **limpo** (apaguei `dist/` e `tsconfig.build.tsbuildinfo` antes), exit 0.
+5. Migration aplicada no banco de dev com `prisma migrate deploy`; `prisma generate` ok (nenhum `node dist/main.js` rodando).
+
+#### O que deu certo / o que não deu (e solução)
+1. Certo: o pay() existente só ganhou um parâmetro opcional; as baixas manuais seguem iguais (93/93 nos specs de finance).
+2. Certo: o `migrate diff` contra o banco de dev em dia gerou exatamente o SQL do schema (sem drift).
+3. Erro de processo meu: um `[IO.File]::ReadAllText` com caminho relativo (o PowerShell não muda o diretório do .NET) falhou e o `WriteAllText` seguinte criou um arquivo VAZIO `D:\Projetos\GitHub\GingApp\finance.service.ts` (não versionado). Detectei na hora, apaguei (era o arquivo de 0 bytes que eu criei; o original em `backend/src/...` não foi tocado) e passei a usar só a ferramenta de edição/caminhos absolutos.
+4. Ajuste de contrato: o agente da UI (§10.52) usou `AMOUNT_TOO_LOW`; renomeei o meu (`AMOUNT_BELOW_MINIMUM`) para casar, sem mexer na UI.
+5. Não deu (limitação): sem credenciais/sandbox do MP nada foi chamado na API real; todo o caminho real (`MercadoPagoProvider`) só está coberto por compilação e pelos testes do mapeamento.
+
+#### Itens a conferir no sandbox real do Mercado Pago (dúvidas isoladas em `mercadopago.mapping.ts` / `payment-crypto.ts`)
+1. OAuth: URL `https://auth.mercadopago.com.br/authorization?client_id&response_type=code&platform_id=mp&state&redirect_uri` e `POST /oauth/token` com corpo JSON (`authorization_code` e `refresh_token`); resposta com `access_token, refresh_token, expires_in, user_id, public_key, live_mode`. Conferir se o refresh token é de USO ÚNICO (gravamos o novo quando vem) e se a aplicação exige PKCE (não implementado).
+2. `POST /v1/payments` Pix com o token do VENDEDOR: `transaction_amount` em reais, `payment_method_id: 'pix'`, `payer.email` apenas (sem nome/CPF: o MP aceita?), `date_of_expiration` em UTC `+00:00`, `notification_url` com `?source_news=webhooks`, `X-Idempotency-Key` (mesma chave com corpo diferente devolve o pagamento original ou erro?).
+3. `application_fee` no Pix: exige a aplicação habilitada como marketplace? Funciona com Pix? (padrão 0 até validar.)
+4. Valor mínimo do Pix no MP (usei R$ 1,00 conservador: `MP_PIX_MIN_AMOUNT_CENTS`).
+5. Webhook: notificações vindas de `notification_url` também trazem `x-signature` assinada com o segredo da aplicação? `ts` vem em ms ou s (aceito os dois)? Reenvios do MP reutilizam o `ts` antigo (minha janela é 10 min; se reutilizarem, os reenvios tardios dão 401 e a reconciliação cobre)? O `data.id` vem na query (`?data.id=&type=`) — uso query e caio no corpo. O corpo traz `user_id` = vendedor (uso como pista)?
+6. Webhook configurado no painel da APLICAÇÃO recebe eventos de pagamentos criados com tokens OAuth dos vendedores? (Por isso também mando `notification_url` em cada Pix.)
+7. Cancelamento de Pix pendente: `PUT /v1/payments/:id {status:'cancelled'}` com o token do vendedor.
+8. Pix vencido: o MP muda para `cancelled` com `status_detail = 'expired'`? (tratado; senão a reconciliação marca `expired` 30 min após a validade.)
+9. Pagador = recebedor é recusado (por isso nunca usamos o e-mail do Mestre); e-mail de teste do comprador no sandbox.
+10. `collector_id` presente na resposta do GET do pagamento (uso para conferir a conta; se ausente, a conferência cai só na external_reference + token).
+
+#### Pendências (numeradas)
+1. **Validar no sandbox** os itens acima com contas de teste (vendedor + comprador) e só então ligar em produção (`MERCADOPAGO_*` + `MERCADOPAGO_WEBHOOK_SECRET` + `PAYMENTS_TOKEN_KEY` fixa).
+2. Cartão recorrente (assinatura do aluno no cartão), Checkout Pro e boleto: novos métodos em `PaymentProvider` + rotas; não feitos.
+3. Assinatura dos GRUPOS ao GingApp (SaaS) com cobrança real: continua no `BillingGatewayService` stub (§10.13); não misturado.
+4. Estorno real no MP (`refundPayment`) não implementado de propósito: estorno/contestação só alerta; o Mestre devolve pelo MP e faz o estorno contábil no GingApp.
+5. Conciliação financeira (relatório "recebido no MP x baixado no GingApp", taxas do MP, valor líquido, data de liberação do dinheiro): não feito. `paidCents` = valor bruto do Pix.
+6. Taxas: `application_fee` aplicada só se a env > 0; não há tela/relatório da taxa da plataforma.
+7. Split entre vários recebedores (ex.: unidade x grupo) não existe: um grupo = uma conta.
+8. Cancelar o Pix pendente no MP quando o Mestre baixa à mão/cancela/apaga o lançamento: hoje não cancela (se o aluno pagar depois, vira alerta `PAID_CONFLICT` ao Mestre). Avaliar chamar o cancelamento nesses fluxos.
+9. Retenção da tabela `PaymentWebhookEvent` (cresce com cada evento): incluir no job semanal de retenção.
+10. Várias réplicas do backend: a exclusão mútua é por processo; a chave de idempotência do MP cobre a criação, mas a renovação de token simultânea em réplicas diferentes pode invalidar um refresh token se o MP o tratar como uso único. Com 1 réplica (Easypanel hoje) não ocorre.
+11. Conta conectada `liveMode=false` (teste) em produção não é bloqueada: decidir se o painel deve avisar/impedir.
+12. Painel/app: a UI (§10.52) precisa ser validada contra este backend (pendências 1-2 dela).
+
+#### 10.53.1 Correções da auditoria adversarial (2026-10-15) — estado: concluído com o provedor SIMULADO, sem commit
+A auditoria independente (só leitura) não achou caminho de baixa INDEVIDA; achou caminhos de baixa PERDIDA e de cobrança em dobro. Cada achado foi conferido lendo o código antes de mexer. Nenhum foi contestado por inteiro; o B9 foi confirmado com impacto baixo (ver abaixo). As pendências 8, 10 e 11 da lista acima ficaram resolvidas por este bloco; a 9 foi substituída pela invariante B14.
+
+**Verificação e correção, achado por achado** (arquivos em `backend/src` salvo indicação):
+1. **A1-a [ALTO] confirmado.** Quando nenhuma conta candidata podia ser usada, o webhook gravava UNRESOLVED com `processedAt` e respondia 200, e o MP não reenviava. Agora `payments-webhook.service.ts` guarda as candidatas cuja conta não pode ser usada. Se nada foi resolvido e houve candidata assim, grava o evento `ACCOUNT_UNAVAILABLE` com `processedAt = null` e responde **503 `PAYMENTS_ACCOUNT_UNAVAILABLE`** para o MP reenviar (as retentativas dele são finitas). A busca pelo `user_id` passou a incluir contas em ERROR. O aviso ao Mestre é o da própria conta em ERROR, uma vez, na transição. A rede de segurança é a reconciliação (itens 2 e 6). Teste: e2e "conta em ERROR + Pix aprovado".
+2. **A1-b [ALTO] confirmado e pior que o relatado.** O Pix vencia localmente também quando o provedor dava ERRO com a conta conectada, não só quando a conta faltava. Agora `pix.service.ts reconcilePending` só marca `expired` quando o PROVEDOR respondeu "pendente" 30 min depois da validade. Conta indisponível ou erro deixa o Pix na fila, com backoff por `pixLastCheckedAt` (contador `unavailable`). Teste: o mesmo e2e (Pix vencido há 3 h, conta em ERROR: continua `pending`; reconectada a mesma conta, a reconciliação dá a baixa).
+3. **A1-c confirmado.** O `GET /pix` agora também consulta o provedor quando o Pix está EXPIRED há menos de 7 dias (`SYNC_EXPIRED_WINDOW_MS`). Teste: e2e "GET /pix confere ... EXPIRADO recente".
+4. **A1-d confirmado.** Decisão: cancelar no provedor (best-effort) e manter o `gatewayPaymentId`.
+   - No `DELETE /payments/mercadopago/disconnect`, o controller chama `PixService.cancelOpenPixOfOrganization` (até 500 Pix pagáveis) ANTES de apagar os tokens. O resultado `{cancelled, failed}` vai para a auditoria `PAYMENT_ACCOUNT_DISCONNECT`.
+   - Os lançamentos mantêm o `gatewayPaymentId`, então reconectar a MESMA conta volta a conferi-los.
+   - Reconectar com OUTRO `providerUserId` é **bloqueado** enquanto houver Pix pagável (pendente e dentro da validade): o callback redireciona para `?mp=pix-aberto` sem gravar nada.
+   - Testes: e2e de desconexão (Pix ficam CANCELLED no stub e o id é mantido) e de troca de conta.
+5. **A1-e confirmado.** Uma falha de decifragem agora chama `markError` (status ERROR, auditoria e aviso aos Mestres, uma vez) e devolve 409 `MP_ACCOUNT_ERROR` (`payment-account.service.ts decryptOrMarkError`; também dentro da renovação). Teste: e2e "token ilegível".
+6. **A2 [ALTO] confirmado.** Um formulário desatualizado (que reenviava `status: PENDING`) desfazia a baixa PIX_AUTO. Correções em `finance/finance.service.ts update`:
+   - O PATCH não tira de PAID nem muda o valor de um lançamento PIX_AUTO: **409 `RECORD_PAID_VIA_PIX`** (o caminho é o `/refund`).
+   - O DTO ganhou o campo opcional **`expectedUpdatedAt`**; se divergir, **409 `RECORD_CHANGED`**.
+   - O update passou a ser condicionado ao `updatedAt` lido (`updateMany` com count 0 dá 409 `RECORD_CHANGED`).
+   - Reenviar `status: PAID` num lançamento já pago não troca mais o `paidAt`.
+   - Painel (`finance-utils.ts toUpdatePayload(values, original)`): envia só os campos alterados mais o `expectedUpdatedAt`. Os 409 `RECORD_CHANGED`/`RECORD_PAID_VIA_PIX`/`RECORD_HAS_PIX` mostram mensagem amigável e recarregam a lista (`CrudMessages.friendlyError`, opt-in em `lib/crud.ts`).
+   - Testes: e2e "PATCH não desfaz baixa do Pix"; painel `financeiro.test.tsx`.
+7. **M3 confirmado.**
+   - A baixa manual (pay e PATCH para PAID), o cancelamento (`/cancel` e PATCH) e a mudança de valor cancelam o Pix aberto no provedor, best-effort, fora de transação. O erro só vai para o log.
+   - Para evitar ciclo entre módulos, a ponte é `shared/payments/pix-lifecycle.hooks.ts`: o PixService registra o "cancelar" e o financeiro chama. Se o cancelamento falha, o serviço consulta e APLICA o que o provedor disser (aprovado num lançamento já pago vira alerta PAID_CONFLICT).
+   - `DELETE /finance/:id` com Pix pagável ou pago via Pix responde **409 `RECORD_HAS_PIX`**; Pix já vencido não bloqueia.
+   - Pagamento aprovado de lançamento apagado vira o outcome **`ORPHAN_PAID`**, com `PAYMENT_PIX_ALERT` e aviso aos Mestres uma vez por pagamento (antes era silencioso).
+   - Testes: e2e "cancelar lançamento e baixa manual cancelam o Pix NO PROVEDOR" e "ORPHAN_PAID".
+8. **M4 confirmado.**
+   - Nova coluna `FinancialRecord.pixLastCheckedAt` (migration `20261021000000_payments_audit_fixes`, sem BOM; `prisma migrate diff` banco × schema = "No difference detected"), com índice `(gatewayStatus, pixLastCheckedAt)`.
+   - Fila: `pixLastCheckedAt` asc com nulls primeiro, depois `pixGeneratedAt`; reconferência no mínimo a cada 5 min; lote de 50.
+   - Valor divergente de Pix aprovado e atual grava `gatewayStatus='approved_mismatch'` (terminal: sai da fila). O campo `pixLastCheckedAt` também ficou fora da view pública.
+9. **M5 confirmado.**
+   - Renovação do token: `pg_advisory_xact_lock(7310, grupo)` numa transação, além do KeyedMutex; relê a conta dentro do lock; auditoria e aviso só depois da transação.
+   - `markError` é condicionado aos `accessTokenEnc`/`refreshTokenEnc` lidos, para não derrubar uma conta recém-renovada ou reconectada.
+   - Cron: em vez de um lock global com transação longa, cada lançamento é **reivindicado por compare-and-set** (`pixLastCheckedAt` + `updatedAt` lidos; o `updatedAt` é preservado para não "desatualizar" formulários abertos). Duas réplicas nunca conferem o mesmo Pix na mesma rodada.
+   - Concorrência só provada indiretamente (testes num processo).
+10. **M6 confirmado.**
+    - Nova tabela `PaymentOauthState` (nonce único, expiração, `usedAt`). O `/connect` grava o nonce e o callback o **consome atomicamente**: reuso responde `mp=erro`.
+    - A troca de `providerUserId` gera auditoria (`accountChanged`, `previousProviderUserId`), notificação `FINANCE_PAYMENTS_ACCOUNT_CHANGED` a todos os Mestres e o bloqueio com Pix aberto do item 4.
+    - **Decisão: sem cookie.** O `/connect` é um fetch com Bearer, o projeto não usa cookies e em desenvolvimento painel e API têm origens diferentes. Em produção (mesmo domínio, `/api`) o cookie é viável: pendência 1.
+    - Testes: e2e (replay de state recusado; troca de conta).
+11. **B7 confirmado** (havia uma janela entre `hasOutcome` e `pay`). Novo `FinanceCollectionService.payWithResult` devolve `applied`; num no-op idempotente o `applyToRecord` devolve DUPLICATE sem auditar nem avisar. `recordEvent` passou a tolerar upsert concorrente (P2002). Teste: e2e com 3 aplicações simultâneas do mesmo pagamento (1 PAID, 1 `PAYMENT_PIX_CONFIRMED`, 1 `FINANCE_PAY`, 1 aviso).
+12. **B8 confirmado** (era a pendência 11). `payments.config.ts testModeAllowed`:
+    - Em produção, conta `live_mode=false` no callback responde `mp=erro`.
+    - Pagamento `liveMode=false` dá o outcome `TEST_MODE`, nunca baixa.
+    - Exceção: `PAYMENTS_ALLOW_TEST_ACCOUNTS=true`, documentada em `.env.example`, `.env.easypanel.example`, `docker-compose.easypanel.yml` e `docs/EASYPANEL.md`.
+    - Testes: unit e e2e com `NODE_ENV=production` temporário.
+13. **B9 confirmado, impacto baixo.** O `body.id` não é assinado, mas o processamento já era idempotente. O `eventId` agora vem só de partes assinadas: `payment:<data.id>:request:<x-request-id>`, ou o `ts` da assinatura.
+14. **B10 feito.**
+    - `assertPaymentsBootConfig` (chamado na fábrica do `PAYMENT_PROVIDER`) faz o **boot falhar sem `PAYMENTS_TOKEN_KEY`** em produção com o MP configurado; sem o MP configurado nada é exigido.
+    - AES-GCM: o SSOT `shared/security/aes-gcm.ts` ganhou AAD opcional (prefixo **`v2:`**) e `authTagLength: 16` fixo, que recusa tag truncada em todos os usos (2FA e documento incluídos; specs deles verdes).
+    - Tokens de pagamento: `v2` com AAD `<grupo>:<provedor>`. O `v1` legado continua legível e é regravado em v2 na próxima renovação ou reconexão.
+    - Testes: unit (v2, AAD de outro grupo falha, v1 legado, tag truncada, boot).
+15. **B11 confirmado.** Antes de gerar um novo Pix, um Pix anterior pendente ou `expired` local é CONSULTADO e aplicado (`syncPrevious`). Se ainda está pendente no provedor, é cancelado antes. Provedor fora do ar dá 503 (não gera às cegas). Sem teste e2e dedicado (pendência 4).
+16. **B12 confirmado.** Os caminhos de falha (inconsistente / `RECORD_CHANGED` / status não pendente) avançam o `pixSeq` (`bumpSeq`). Status devolvido na criação diferente de PENDING: aprovado é aplicado; cancelado ou recusado responde 502 e nunca é gravado como válido. Sem teste e2e dedicado (pendência 4).
+17. **B13 confirmado.** `auth/account-export.service.ts`: os lançamentos do export LGPD passam por `toFinanceRecordView`. Teste: e2e do export, sem `pixQrCode`/`gatewayPaymentId`/`gatewayStatus`/QR.
+18. **B14.** Invariante comentada no `schema.prisma` (`PaymentWebhookEvent`): eventos `PAID` nunca podem ser apagados. Nenhum job de retenção toca na tabela; a pendência 9 acima fica condicionada a excluir os `PAID`.
+19. **B15 feito** (painel e app, por subagente Sonnet; conferido por mim re-rodando os testes).
+    - Tipo `MercadoPagoStatus` igual ao contrato (`provider: string`, `status` com `NOT_CONNECTED`, `providerUserId`/`connectedAt` null).
+    - Mensagens para MP_ACCOUNT_ERROR, PIX_PENDING_AMOUNT_CHANGED, RECORD_CHANGED, RECORD_PAID_VIA_PIX, PROVIDER_UNAVAILABLE, PROVIDER_ERROR, PAYMENTS_UNAVAILABLE e PIX_NOT_FOUND; no app, textos para o aluno.
+    - `pix-dialog.tsx` oferece "Reconectar" também em `MP_ACCOUNT_ERROR`; `?mp=pix-aberto` é tratado no painel.
+20. **B16 feito.** Cache por `paymentId` de 12 s (`PIX_SYNC_CACHE_MS`, por processo) na consulta do `GET /pix`. Sem teste dedicado.
+
+**Contrato novo (resumo para a UI):**
+- `PATCH /finance/:id` aceita `expectedUpdatedAt` e pode responder 409 `RECORD_CHANGED` ou `RECORD_PAID_VIA_PIX`.
+- `DELETE /finance/:id` pode responder 409 `RECORD_HAS_PIX`.
+- O callback do OAuth também redireciona com `?mp=pix-aberto`.
+- O webhook pode responder 503 `PAYMENTS_ACCOUNT_UNAVAILABLE`.
+- Novos outcomes `ORPHAN_PAID` e `TEST_MODE`.
+- Novo status local `approved_mismatch`.
+- Nova notificação `FINANCE_PAYMENTS_ACCOUNT_CHANGED`.
+
+**Execução real (saídas lidas):**
+1. `npm run build` limpo (apaguei `dist/` e `tsconfig.build.tsbuildinfo`): exit 0, rodado duas vezes, a última depois de todas as mudanças de `src`.
+2. `npm run test:quick payments-pix`: **32/32** (eram 21; a primeira corrida depois das correções já deu 31/31, depois entraram mais 2 testes; a limpeza do `after()` foi conferida por Prisma, com 0 contas, 0 eventos e 0 lançamentos com Pix restantes).
+3. `npm run test:quick payments-pix finance audit-coverage member-privacy`: 7 specs (payments-pix, finance, finance-billing, finance-received, finance-export, audit-coverage, member-privacy), **133/133**. Esta corrida foi antes dos 2 últimos testes do payments-pix; esses foram cobertos pela corrida 32/32 acima.
+4. `npm run test:quick graduations-rope two-factor person-ficha anonymization` (export LGPD + AES-GCM): 6 specs, **53/53**.
+5. `npm run test:unit`: a primeira corrida deu **185/186**. A falha era **pré-existente** do módulo Pix original: `overdue-cron.spec.ts` não desligava `PAYMENTS_RECONCILE_CRON` na checagem da fiação do AppModule. Corrigi o teste (só a lista de envs) e ficou **186/186**.
+6. Painel: `npx vitest run financeiro-pix.test.tsx financeiro.test.tsx crud.test.tsx` deu **49/49**; `tsc --noEmit` exit 0; eslint dos 8 arquivos tocados exit 0. App: `pix-mensalidade.test.tsx` **10/10**, `tsc` exit 0, eslint exit 0.
+7. `tsc --noEmit -p tsconfig.json` no backend (inclui os testes): erros **só** em 4 specs alheios e pré-existentes (`certificate-pdf`, `map-places`, `quick-templates`, `reports`); nenhum nos arquivos tocados. O backend não tem `eslint.config.*` (o ESLint 10 recusa rodar), então lint só nos fronts.
+8. Migration aplicada no dev com `prisma migrate deploy`; `prisma generate` ok.
+
+**O que deu certo / o que não deu:**
+1. Certo: toda a fila de correções coube sem mudar o fluxo de baixa (o `pay()` continua o SSOT e só ganhou `payWithResult`).
+2. Não deu de primeira: o build falhou uma vez por tipo (`Promise<boolean>` no registro do canceller). Corrigi com um wrapper `async`.
+3. Processo: as primeiras corridas do e2e deixaram 32 linhas órfãs de `PaymentOauthState` antes de eu incluir a limpeza no `after()`. Apaguei-as (orgs de teste já removidas) e acrescentei a limpeza.
+4. Limitação: concorrência entre réplicas (advisory lock e compare-and-set) só foi exercida num processo. A corrida B7 foi provada com `Promise.all` no mesmo processo.
+
+**Pendências (numeradas):**
+1. Cookie httpOnly SameSite=Lax amarrando o `state` ao navegador (M6). É viável em produção (painel e API no mesmo domínio, `/api`), mas quebra o dev cross-origin. Decidir com o dono; hoje: uso único + notificação + bloqueio de troca.
+2. Lançamento com `approved_mismatch` ainda permite gerar um novo Pix (o Mestre é alertado para baixar à mão). Avaliar bloquear até a decisão do Mestre.
+3. Conta REVOKED de propósito com Pix antigo: o webhook responde 503 até o MP desistir. A reconciliação cobre se a MESMA conta for reconectada; com OUTRA conta (só depois de vencidos), um aprovado no último minuto da conta antiga não é visto. O Mestre é avisado da troca e deve conferir a conta antiga.
+4. Sem e2e dedicado para B11 (consulta do Pix anterior antes de gerar), B12 (bumpSeq / status não pendente na criação) e B16 (cache): cobertos só por leitura e pelo build.
+5. Cancelamento no provedor é best-effort. Se o MP estiver fora do ar no momento da baixa manual ou do cancelamento, o Pix segue pagável até vencer (24 h); se for pago, vira o alerta PAID_CONFLICT.
+6. Itens do sandbox real (lista acima) continuam todos abertos, inclusive: o MP reenvia o webhook depois de um 503 e com que cadência? O `x-request-id` muda entre reenvios?
+
+**Veredito honesto de prontidão:** os caminhos de baixa perdida e de cobrança em dobro apontados pela auditoria estão fechados **no código e no provedor simulado**. Ainda **bloqueia dinheiro real**:
+- validação no sandbox do Mercado Pago (OAuth, Pix, webhook assinado, reenvio depois de 503, cancelamento, expiração);
+- `PAYMENTS_TOKEN_KEY` e `MERCADOPAGO_WEBHOOK_SECRET` configurados;
+- decisão sobre a pendência 1 (cookie);
+- passada visual da UI.
+
+Sem isso: pronto para homologação, não para produção.

@@ -65,3 +65,15 @@ process.env.TRANSFER_CRON = 'false';
 // por conta propria.
 process.env.TRANSFER_APPROVAL_READ_THROTTLE_LIMIT = '1000';
 process.env.TRANSFER_APPROVAL_WRITE_THROTTLE_LIMIT = '1000';
+// Pagamentos (Pix na conta Mercado Pago do grupo): SEMPRE o provedor simulado (sem rede), sem a reconciliacao agendada
+// (PixService.reconcilePending e chamado direto) e com um segredo de webhook de teste (nunca credenciais reais).
+process.env.PAYMENTS_PROVIDER = 'stub';
+process.env.PAYMENTS_RECONCILE_CRON = 'false';
+process.env.MERCADOPAGO_CLIENT_ID = '';
+process.env.MERCADOPAGO_CLIENT_SECRET = '';
+process.env.MERCADOPAGO_REDIRECT_URI = '';
+process.env.MERCADOPAGO_WEBHOOK_SECRET = 'e2e-webhook-secret';
+process.env.PAYMENTS_APPLICATION_FEE_PERCENT = '';
+process.env.PAYMENTS_FALLBACK_PAYER_EMAIL = '';
+process.env.PIX_THROTTLE_LIMIT = '1000';
+process.env.PIX_READ_THROTTLE_LIMIT = '1000';

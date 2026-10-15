@@ -5,6 +5,7 @@ import { ApiError, api, errorMessage } from "@/lib/api";
 import { pickEventInfo, type EncounterInfo, type EventInfoFields } from "@/lib/event-info";
 import { isLessonVisible } from "@/lib/derive";
 import { fmt, startOfToday } from "@/lib/format";
+import type { PaidVia, PixSummary } from "@/lib/pix";
 import { isStaffRole, normalizeBadges, toBadge, type Badge } from "@/lib/roles";
 import { getUser, setStoredStudentId, useSessionUser, useStoredStudentId, type StaffRole } from "@/lib/session";
 import rodaImage from "@/assets/capoeira-roda.jpg";
@@ -197,6 +198,10 @@ export interface FinancialRecord {
   dueDate: string;
   paidAt: string | null;
   status: FinanceStatus;
+  /** Pix mais recente do lançamento (null = nunca gerou). Ausente em backend antigo. */
+  pix?: PixSummary | null;
+  /** Baixa automática pelo Pix (webhook do Mercado Pago) ou manual. */
+  paidVia?: PaidVia | undefined;
 }
 
 export interface EventDto extends EventInfoFields {

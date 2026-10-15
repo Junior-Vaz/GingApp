@@ -43,4 +43,12 @@ export class UpdateFinanceRecordDto {
   @IsOptional()
   @IsDateString()
   paidAt?: string | null;
+
+  /**
+   * Controle de concorrencia otimista (opcional): o `updatedAt` do lancamento como o formulario o leu. Se o lancamento
+   * mudou desde entao (ex.: foi pago por Pix enquanto o formulario estava aberto) => 409 RECORD_CHANGED, nada gravado.
+   */
+  @IsOptional()
+  @IsDateString()
+  expectedUpdatedAt?: string;
 }

@@ -4,6 +4,7 @@ import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interf
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { LEVEL_SELECT } from '../graduations/rope';
 import { maskPersonDocument } from '../../../shared/security/person-document';
+import { toFinanceRecordView } from '../finance/finance-record.view';
 
 export const EXPORT_FORMAT_VERSION = 1;
 
@@ -205,7 +206,9 @@ export class AccountExportService {
     const myGuardianIds = new Set(guardianLinks.map((g) => g.id));
     const own: unknown[] = [];
     const dependents: unknown[] = [];
-    for (const row of rows) {
+    for (const raw of rows) {
+      // Lançamentos pela forma PÚBLICA (sem QR/copia-e-cola/ids do provedor de pagamento - mesma view da API).
+      const row = { ...raw, financialRecords: raw.financialRecords.map((r) => toFinanceRecordView(r)) };
       if (ownIds.includes(row.id)) {
         own.push(row);
         continue;

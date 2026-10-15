@@ -1,14 +1,28 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { FinancialStatus, Prisma, StudentStatus } from '@prisma/client';
+import { FinancialRecord, FinancialStatus, PaidVia, Prisma, StudentStatus } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
+import { PixLifecycleHooks } from '../../../shared/payments/pix-lifecycle.hooks';
 import { GenerateMonthlyDto } from './dto/generate-monthly.dto';
 import { ListDelinquentsQueryDto } from './dto/list-delinquents-query.dto';
 import { PayFinanceRecordDto } from './dto/pay-finance-record.dto';
 import { UpsertStudentBillingDto } from './dto/student-billing.dto';
 import { civilTodayStart, dayStart, effectiveOverdueClause } from './finance.service';
+import { FinanceRecordView, toFinanceRecordView } from './finance-record.view';
+
+/**
+ * Origem AUTOMÁTICA de uma baixa (Pix confirmado pelo provedor de pagamento do grupo - PLANO_PROJETO.md 10.52).
+ * `amountCents` = valor confirmado pelo provedor (só baixa se for o valor atual do lançamento).
+ */
+export interface AutoPaymentOrigin {
+  via: 'PIX_AUTO';
+  provider: string;
+  paymentId: string;
+  gatewayStatus: string;
+  amountCents: number;
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 /** Tipo dos lançamentos gerados em lote (e que o gerador reconhece como "mensalidade" mesmo se criados à mão). */
@@ -92,6 +106,7 @@ export class FinanceCollectionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly pixHooks: PixLifecycleHooks,
   ) {}
 
   // ---------------------------------------------------------------------------------------------
@@ -247,25 +262,66 @@ export class FinanceCollectionService {
   // Baixa, estorno e cancelamento
   // ---------------------------------------------------------------------------------------------
 
-  /** Baixa: PENDING/OVERDUE -> PAID com data civil, forma de pagamento e valor pago. Já pago/cancelado => 409. */
-  async pay(organizationId: number, id: number, dto: PayFinanceRecordDto, now: Date = new Date()) {
+  /**
+   * Baixa: PENDING/OVERDUE -> PAID com data civil, forma de pagamento e valor pago. Já pago/cancelado => 409.
+   * SSOT da baixa também para o Pix automático (PLANO_PROJETO.md 10.52): com `origin` (webhook/sincronização do
+   * provedor) grava paidVia PIX_AUTO + a referência do pagamento, só baixa se o valor do lançamento AINDA for o valor
+   * confirmado pelo provedor (filtro no WHERE) e é IDEMPOTENTE (o mesmo pagamento já baixado devolve o lançamento).
+   */
+  async pay(organizationId: number, id: number, dto: PayFinanceRecordDto, now: Date = new Date(), origin?: AutoPaymentOrigin) {
+    return (await this.payWithResult(organizationId, id, dto, now, origin)).record;
+  }
+
+  /**
+   * Igual a `pay`, informando se ESTA chamada aplicou a baixa (`applied`) ou se foi o no-op idempotente (o mesmo
+   * pagamento do provedor ja tinha baixado - corrida webhook x consulta). O Pix usa `applied` para auditar/avisar UMA vez.
+   * Baixa MANUAL de lancamento com Pix aberto: cancela o Pix no provedor (best-effort, depois da baixa - achado M3).
+   */
+  async payWithResult(
+    organizationId: number,
+    id: number,
+    dto: PayFinanceRecordDto,
+    now: Date = new Date(),
+    origin?: AutoPaymentOrigin,
+  ): Promise<{ record: FinanceRecordView<FinancialRecord>; applied: boolean }> {
     const record = await this.findRecord(organizationId, id);
+    if (
+      origin &&
+      record.status === FinancialStatus.PAID &&
+      record.paidVia === PaidVia.PIX_AUTO &&
+      record.gatewayProvider === origin.provider &&
+      record.gatewayPaymentId === origin.paymentId
+    ) {
+      return { record: toFinanceRecordView(record), applied: false };
+    }
     if (record.status === FinancialStatus.PAID) throw new ConflictException('Este lançamento já está pago.');
     if (record.status === FinancialStatus.CANCELLED) throw new ConflictException('Lançamento cancelado não pode ser baixado.');
 
     const today = civilTodayStart(now);
-    const paidAt = dto.paidAt ? dayStart(dto.paidAt) : today;
+    let paidAt = dto.paidAt ? dayStart(dto.paidAt) : today;
     if (Number.isNaN(paidAt.getTime())) throw new BadRequestException('paidAt inválido.');
+    // Data vinda do provedor: relógio dele adiantado perto da meia-noite não pode impedir a baixa (vira "hoje").
+    if (origin && paidAt.getTime() > today.getTime()) paidAt = today;
     if (paidAt.getTime() > today.getTime()) throw new BadRequestException('A data do pagamento não pode ser futura.');
 
     const result = await this.prisma.financialRecord.updateMany({
-      // O filtro de status no WHERE fecha a corrida (duas baixas simultâneas: só uma passa).
-      where: { id, organizationId, status: { in: [FinancialStatus.PENDING, FinancialStatus.OVERDUE] } },
+      // O filtro de status no WHERE fecha a corrida (duas baixas simultâneas: só uma passa). Pix automático: o valor
+      // também entra no WHERE (o lançamento não pode ter mudado de valor entre a conferência e a baixa).
+      where: {
+        id,
+        organizationId,
+        status: { in: [FinancialStatus.PENDING, FinancialStatus.OVERDUE] },
+        ...(origin ? { amountCents: origin.amountCents } : {}),
+      },
       data: {
         status: FinancialStatus.PAID,
         paidAt,
         paymentMethod: dto.paymentMethod,
         paidCents: dto.paidCents ?? record.amountCents,
+        paidVia: origin ? PaidVia.PIX_AUTO : PaidVia.MANUAL,
+        ...(origin
+          ? { gatewayProvider: origin.provider, gatewayPaymentId: origin.paymentId, gatewayStatus: origin.gatewayStatus }
+          : {}),
       },
     });
     if (result.count === 0) throw new ConflictException('O lançamento mudou de situação; recarregue a lista.');
@@ -279,18 +335,41 @@ export class FinanceCollectionService {
         paidCents: dto.paidCents ?? record.amountCents,
         paymentMethod: dto.paymentMethod ?? null,
         studentId: record.studentId,
+        paidVia: origin ? PaidVia.PIX_AUTO : PaidVia.MANUAL,
+        ...(origin ? { provider: origin.provider, gatewayPaymentId: origin.paymentId } : {}),
       },
     });
-    return this.findRecord(organizationId, id);
+    // Baixa manual: o Pix que ainda estava aberto deixa de valer (senao o aluno ainda poderia paga-lo).
+    if (!origin) await this.pixHooks.cancelOpenPix(record, 'MANUAL_PAY');
+    return { record: toFinanceRecordView(await this.findRecord(organizationId, id)), applied: true };
   }
 
-  /** Estorno: PAID -> PENDING, limpando data, forma e valor pago. Só lançamento pago pode ser estornado. */
+  /**
+   * Estorno: PAID -> PENDING, limpando data, forma e valor pago. Só lançamento pago pode ser estornado.
+   * É um estorno CONTÁBIL (não devolve dinheiro no provedor): também limpa o Pix para permitir gerar outro; o pagamento
+   * Pix já aplicado nunca volta a baixar sozinho (PaymentWebhookEvent outcome PAID - ver PixService).
+   */
   async refund(organizationId: number, id: number) {
     const record = await this.findRecord(organizationId, id);
     if (record.status !== FinancialStatus.PAID) throw new ConflictException('Só lançamentos pagos podem ser estornados.');
     const result = await this.prisma.financialRecord.updateMany({
       where: { id, organizationId, status: FinancialStatus.PAID },
-      data: { status: FinancialStatus.PENDING, paidAt: null, paymentMethod: null, paidCents: null },
+      data: {
+        status: FinancialStatus.PENDING,
+        paidAt: null,
+        paymentMethod: null,
+        paidCents: null,
+        paidVia: null,
+        gatewayProvider: null,
+        gatewayPaymentId: null,
+        gatewayStatus: null,
+        pixQrCode: null,
+        pixQrCodeBase64: null,
+        pixTicketUrl: null,
+        pixExpiresAt: null,
+        pixGeneratedAt: null,
+        pixAmountCents: null,
+      },
     });
     if (result.count === 0) throw new ConflictException('O lançamento mudou de situação; recarregue a lista.');
     await this.audit.record({
@@ -298,9 +377,14 @@ export class FinanceCollectionService {
       action: AuditAction.FINANCE_REFUND,
       entity: AuditEntity.FINANCE,
       entityId: id,
-      meta: { paidCents: record.paidCents ?? record.amountCents, studentId: record.studentId },
+      meta: {
+        paidCents: record.paidCents ?? record.amountCents,
+        studentId: record.studentId,
+        paidVia: record.paidVia ?? PaidVia.MANUAL,
+        ...(record.gatewayPaymentId ? { gatewayPaymentId: record.gatewayPaymentId } : {}),
+      },
     });
-    return this.findRecord(organizationId, id);
+    return toFinanceRecordView(await this.findRecord(organizationId, id));
   }
 
   /** Cancelamento: PENDING/OVERDUE -> CANCELLED. Pago exige estorno antes; já cancelado => 409. */
@@ -320,7 +404,9 @@ export class FinanceCollectionService {
       entityId: id,
       meta: { amountCents: record.amountCents, studentId: record.studentId, previousStatus: record.status },
     });
-    return this.findRecord(organizationId, id);
+    // Cancelado nao recebe: o Pix aberto e cancelado no provedor (best-effort - achado M3).
+    await this.pixHooks.cancelOpenPix(record, 'CANCEL');
+    return toFinanceRecordView(await this.findRecord(organizationId, id));
   }
 
   // ---------------------------------------------------------------------------------------------

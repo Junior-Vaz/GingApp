@@ -18,6 +18,11 @@ export interface CrudMessages {
   created?: string;
   updated?: string;
   removed?: string;
+  /**
+   * Mensagem amigável por código de erro de negócio (ex.: 409). Quando devolve texto, ele substitui a mensagem
+   * do servidor no toast e a lista do recurso é recarregada (o registro pode ter mudado no servidor).
+   */
+  friendlyError?: (error: unknown) => string | undefined;
 }
 
 /**
@@ -98,7 +103,13 @@ export function createCrud<TItem, TInput = Partial<TItem>, TId extends string | 
         return options?.onSuccess?.(...args);
       },
       onError: (...args) => {
-        notifyError(args[0]);
+        const friendly = messages.friendlyError?.(args[0]);
+        if (friendly) {
+          toast.error(friendly);
+          void queryClient.invalidateQueries({ queryKey: rootKey });
+        } else {
+          notifyError(args[0]);
+        }
         return options?.onError?.(...args);
       },
     });

@@ -61,6 +61,14 @@ export const AuditAction = {
   FINANCE_DELETE: 'FINANCE_DELETE',
   FINANCE_GENERATE_MONTHLY: 'FINANCE_GENERATE_MONTHLY',
   FINANCE_EXPORT: 'FINANCE_EXPORT',
+  // Pagamentos (PLANO_PROJETO.md 10.52): conta do provedor do grupo (OAuth) e Pix de mensalidade. Nunca token/QR no meta.
+  PAYMENT_ACCOUNT_CONNECT: 'PAYMENT_ACCOUNT_CONNECT',
+  PAYMENT_ACCOUNT_DISCONNECT: 'PAYMENT_ACCOUNT_DISCONNECT',
+  PAYMENT_ACCOUNT_ERROR: 'PAYMENT_ACCOUNT_ERROR',
+  PAYMENT_PIX_GENERATE: 'PAYMENT_PIX_GENERATE',
+  PAYMENT_PIX_CONFIRMED: 'PAYMENT_PIX_CONFIRMED',
+  // Pix recebido que NAO deu baixa (valor divergente, lancamento ja pago/cancelado) ou estornado/contestado no provedor
+  PAYMENT_PIX_ALERT: 'PAYMENT_PIX_ALERT',
   // Turmas
   CLASS_CREATE: 'CLASS_CREATE',
   CLASS_UPDATE: 'CLASS_UPDATE',
@@ -166,6 +174,7 @@ export const AuditEntity = {
   FEATURE_OVERRIDE: 'feature_override',
   PLATFORM_SETTING: 'platform_setting',
   FINANCE: 'finance',
+  PAYMENT_ACCOUNT: 'payment_account',
   REPORT: 'report',
   CLASS: 'class',
   GRADUATION_SYSTEM: 'graduation_system',

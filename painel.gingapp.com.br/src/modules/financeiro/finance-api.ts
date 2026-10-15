@@ -14,6 +14,7 @@ import {
   toPayPayload,
 } from "./collection";
 import type { FinanceRecord } from "./finance-utils";
+import { financePixConflictMessage } from "./pix";
 
 type FinanceInput = Record<string, unknown>;
 
@@ -22,6 +23,8 @@ export const finance = createCrud<FinanceRecord, FinanceInput>("/finance", {
   created: "Lançamento criado.",
   updated: "Lançamento atualizado.",
   removed: "Lançamento excluído.",
+  // 409 do PATCH (RECORD_CHANGED / RECORD_PAID_VIA_PIX) e do DELETE (RECORD_HAS_PIX): mensagem amigável + recarrega a lista.
+  friendlyError: financePixConflictMessage,
 });
 
 /** Totais de inadimplência (aluno/valor/quantidade) sob os mesmos filtros da lista. */

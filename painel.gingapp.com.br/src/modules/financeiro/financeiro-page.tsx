@@ -1,7 +1,8 @@
 import { plural } from "@/lib/plural";
-import { useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { CheckCircle2, Clock, AlertTriangle, CalendarPlus } from "lucide-react";
+import { useEffect, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CheckCircle2, Clock, AlertTriangle, CalendarPlus, QrCode } from "lucide-react";
+import { toast } from "sonner";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { ExportCsvButton } from "@/components/painel/export-csv-button";
 import { FormDialog } from "@/components/painel/form-dialog";
@@ -19,10 +20,15 @@ import { api, buildQuery, type QueryParams } from "@/lib/api";
 import { useListParams } from "@/lib/list-params";
 import { formatCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useSessionUser } from "@/lib/session";
 import { currentMonth, formatMonth } from "./collection";
 import { finance, useDelinquentsSummary, useFinanceActions } from "./finance-api";
 import { InadimplentesPanel } from "./inadimplentes-panel";
 import { PayDialog } from "./pay-dialog";
+import { MP_SWITCH_BLOCKED_MESSAGE, PIX_BADGE_CLASS, PIX_BADGE_LABEL, canGeneratePix, pixBadgeKind } from "./pix";
+import { MP_STATUS_KEY } from "./pix-api";
+import { PixConnectionCard } from "./pix-connection-card";
+import { PixDialog } from "./pix-dialog";
 import { ReceiptDialog } from "./receipt-dialog";
 import {
   PAYMENT_METHOD_LABEL,
@@ -50,6 +56,17 @@ function StatusBadge({ status }: { status: FinanceStatus }) {
   return (
     <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", STATUS_BADGE_CLASS[status])}>
       {STATUS_LABEL[status]}
+    </span>
+  );
+}
+
+/** Selo do Pix da linha: aguardando / pago via Pix (automático) / expirado. Sem Pix = nada. */
+function PixBadge({ record }: { record: FinanceRecord }) {
+  const kind = pixBadgeKind(record);
+  if (!kind) return null;
+  return (
+    <span data-testid={`pix-badge-${kind}`} className={cn("rounded-full px-2 py-0.5 text-xs font-medium", PIX_BADGE_CLASS[kind])}>
+      {PIX_BADGE_LABEL[kind]}
     </span>
   );
 }
@@ -85,14 +102,44 @@ export function FinanceiroPage() {
   const remove = finance.useRemove();
   const { refund, cancel, generate } = useFinanceActions();
 
-  const [tab, setTab] = useState<"lancamentos" | "inadimplentes">("lancamentos");
+  // A conexão com o Mercado Pago é só do MESTRE (o backend também restringe).
+  const isMestre = useSessionUser()?.role === "MESTRE";
+  const queryClient = useQueryClient();
+  const [tab, setTab] = useState<"lancamentos" | "inadimplentes" | "pix">("lancamentos");
   const [editing, setEditing] = useState<FinanceRecord | "new" | null>(null);
   const [deleting, setDeleting] = useState<FinanceRecord | null>(null);
   const [paying, setPaying] = useState<FinanceRecord | null>(null);
+  const [pixing, setPixing] = useState<FinanceRecord | null>(null);
   const [refunding, setRefunding] = useState<FinanceRecord | null>(null);
   const [cancelling, setCancelling] = useState<FinanceRecord | null>(null);
   const [receiptId, setReceiptId] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
+
+  // Volta do OAuth do Mercado Pago: o backend redireciona para /financeiro?mp=ok|erro|pix-aberto (pix-aberto = troca
+  // de conta recusada por haver Pix em aberto da conta anterior). Avisa por toast, abre a aba "Receber por Pix"
+  // e limpa o parâmetro da URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const mp = params.get("mp");
+    if (mp !== "ok" && mp !== "erro" && mp !== "pix-aberto") return;
+    params.delete("mp");
+    const search = params.toString();
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`,
+    );
+    if (isMestre) setTab("pix");
+    if (mp === "ok") {
+      toast.success("Mercado Pago conectado. Já dá para gerar Pix das mensalidades.");
+      void queryClient.invalidateQueries({ queryKey: MP_STATUS_KEY });
+    } else if (mp === "pix-aberto") {
+      toast.error(MP_SWITCH_BLOCKED_MESSAGE);
+      void queryClient.invalidateQueries({ queryKey: MP_STATUS_KEY });
+    } else {
+      toast.error("Não foi possível conectar o Mercado Pago. Tente novamente.");
+    }
+  }, [isMestre, queryClient]);
 
   // Nome do aluno vem no próprio item (GET /finance devolve `student: { id, name } | null`):
   // nenhuma chamada extra por linha.
@@ -142,7 +189,12 @@ export function FinanceiroPage() {
       id: "status",
       header: "Status",
       sortValue: (r) => STATUS_LABEL[effectiveStatus(r)],
-      cell: (r) => <StatusBadge status={effectiveStatus(r)} />,
+      cell: (r) => (
+        <span className="flex flex-wrap items-center gap-1">
+          <StatusBadge status={effectiveStatus(r)} />
+          <PixBadge record={r} />
+        </span>
+      ),
     },
     {
       id: "paidAt",
@@ -211,6 +263,7 @@ export function FinanceiroPage() {
           <TabsTrigger value="inadimplentes">
             Inadimplentes{late && late.students > 0 ? ` (${late.students})` : ""}
           </TabsTrigger>
+          {isMestre && <TabsTrigger value="pix">Receber por Pix</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="lancamentos" className="mt-4">
@@ -308,6 +361,11 @@ export function FinanceiroPage() {
             }
             rowActions={(r) => (
               <>
+                {canGeneratePix(r) && (
+                  <Button variant="ghost" size="sm" onClick={() => setPixing(r)} aria-label={`Gerar Pix de ${r.description}`}>
+                    <QrCode /> Gerar Pix
+                  </Button>
+                )}
                 {(r.status === "PENDING" || r.status === "OVERDUE") && (
                   <Button
                     variant="ghost"
@@ -347,6 +405,12 @@ export function FinanceiroPage() {
         <TabsContent value="inadimplentes" className="mt-4">
           <InadimplentesPanel onViewRecords={viewRecordsOf} />
         </TabsContent>
+
+        {isMestre && (
+          <TabsContent value="pix" className="mt-4">
+            <PixConnectionCard />
+          </TabsContent>
+        )}
       </Tabs>
 
       <FormDialog<FinanceFormValues>
@@ -357,7 +421,7 @@ export function FinanceiroPage() {
         defaultValues={editing && editing !== "new" ? recordToForm(editing) : emptyFinanceForm()}
         onSubmit={(values) =>
           editing && editing !== "new"
-            ? update.mutateAsync({ id: editing.id, data: toUpdatePayload(values) })
+            ? update.mutateAsync({ id: editing.id, data: toUpdatePayload(values, editing) })
             : create.mutateAsync(toCreatePayload(values))
         }
       >
@@ -513,6 +577,18 @@ export function FinanceiroPage() {
       </FormDialog>
 
       <PayDialog record={paying} onClose={() => setPaying(null)} />
+      <PixDialog
+        record={pixing}
+        onClose={() => setPixing(null)}
+        {...(isMestre
+          ? {
+              onGoConnect: () => {
+                setPixing(null);
+                setTab("pix");
+              },
+            }
+          : {})}
+      />
       <ReceiptDialog recordId={receiptId} onClose={() => setReceiptId(null)} />
 
       <ConfirmDialog
