@@ -346,6 +346,14 @@ export class PersonFichaService {
         where: { personId: person.id },
         data: { name: data.name, photo: data.photo, phone: data.phone, email: data.email },
       });
+      // O login (User) mostra o mesmo nome/telefone no cabecalho e em GET /auth/me: sem isto o perfil editado
+      // continuaria com o nome antigo na sessao. So atualiza o que veio no DTO (email e foto seguem o proprio fluxo).
+      if (data.name !== undefined || data.phone !== undefined) {
+        await tx.user.update({
+          where: { id: userId },
+          data: { ...(data.name !== undefined ? { name: data.name } : {}), ...(data.phone !== undefined ? { phone: data.phone } : {}) },
+        });
+      }
       return p;
     });
     await this.audit.record({

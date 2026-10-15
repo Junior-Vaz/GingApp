@@ -37,6 +37,25 @@ describe('Auth (e2e)', () => {
     assert.equal(typeof res.body.user.organizationId, 'number');
   });
 
+  it('login e GET /auth/me trazem `photo` (null ou string) e o nome do grupo, sem vazar segredos', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email: MESTRE_EMAIL, password: DEV_PASSWORD })
+      .expect(200);
+    assert.ok('photo' in login.body.user, 'login deve devolver photo');
+    assert.ok(login.body.user.photo === null || typeof login.body.user.photo === 'string');
+    assert.equal(typeof login.body.user.organizationName, 'string');
+    assert.equal('passwordHash' in login.body.user, false);
+
+    const me = await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${login.body.accessToken}`)
+      .expect(200);
+    assert.ok('photo' in me.body);
+    assert.equal(me.body.organizationName, login.body.user.organizationName);
+    assert.equal('passwordHash' in me.body, false);
+  });
+
   it('POST /auth/login com senha errada retorna 401 com mensagem genérica', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/auth/login')

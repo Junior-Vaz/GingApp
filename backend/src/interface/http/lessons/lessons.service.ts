@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
@@ -14,6 +14,8 @@ import {
   UnitScopeService,
   unitScopeFilter,
 } from '../../../shared/access/unit-scope';
+import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
+import { AuditService } from '../../../shared/audit/audit.service';
 import { NotificationsService, type NotificationPayload } from '../notifications/notifications.service';
 import { civilTodayStart } from '../finance/finance.service';
 
@@ -26,6 +28,15 @@ import { StudentsService } from '../students/students.service';
 import { requireLinkedStudent } from '../../../shared/access/linked-student';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
+import { ReactivateLessonsDto } from './dto/reactivate-lessons.dto';
+import { BulkDeleteLessonsDto } from './dto/bulk-delete-lessons.dto';
+import { RankingService } from '../ranking/ranking.service';
+
+/** Teto de aulas reativadas por chamada de POST /lessons/reactivate (acima disso: 400, reduza o periodo). */
+export const MAX_REACTIVATE_LESSONS = 500;
+
+/** Teto de aulas apagadas por chamada de POST /lessons/bulk-delete. */
+export const MAX_BULK_DELETE_LESSONS = 500;
 
 const REF_SELECT = { id: true, name: true, photo: true } as const;
 
@@ -69,6 +80,8 @@ export class LessonsService {
     private readonly studentsService: StudentsService,
     private readonly notifications: NotificationsService,
     private readonly unitScope: UnitScopeService,
+    private readonly audit: AuditService,
+    private readonly ranking: RankingService,
   ) {}
 
   /**
@@ -250,21 +263,182 @@ export class LessonsService {
     return view;
   }
 
+  /** Impacto de apagar a aula (para o diálogo de confirmação do painel): quantas presenças seriam apagadas junto. */
+  async deleteImpact(organizationId: number, id: number, user?: AuthenticatedUser): Promise<{ attendances: number }> {
+    await this.findOne(organizationId, id, user); // 404 se não existir / outro grupo / unidade fora do escopo
+    return { attendances: await this.prisma.attendance.count({ where: { organizationId, lessonId: id } }) };
+  }
+
   /**
-   * "Remover" uma aula nunca apaga o registro — o histórico não deve ser apagado quando a
-   * aula fica cancelada (mesmo padrão de Students/Teachers: PLANO_PROJETO.md §10.5). Marca
-   * status = INACTIVE (= "cancelada" para Lesson).
+   * APAGA DE VERDADE a aula (hard delete). Cancelar continua sendo PATCH { status: 'INACTIVE' } (o histórico fica).
+   * Se a aula tem presenças (Attendance), exige `confirm`: sem ele => 409 `{ attendances: N }` e nada é apagado.
+   * Tudo numa transação: presenças e a aula (AttendanceNotice cai em cascata). Os pontos do Ginga Rank (PointEvent) são
+   * DERIVADOS das presenças (RankingService.doSync remove os "órfãos"), então depois do commit agendamos o recálculo dos
+   * alunos afetados (fire-and-forget) — nada é decrementado à mão. Audita LESSON_DELETE (turma, data, contagens).
    */
-  async remove(organizationId: number, id: number, user?: AuthenticatedUser) {
-    const current = await this.findOne(organizationId, id, user);
-    const updated = await this.prisma.lesson.update({
-      where: { id },
-      data: { status: 'INACTIVE', cancelledAt: current.status === 'INACTIVE' ? undefined : new Date() },
-      include: LESSON_INCLUDE,
+  async destroy(organizationId: number, id: number, confirm: boolean, user?: AuthenticatedUser): Promise<{ deleted: true; attendances: number }> {
+    const lesson = await this.findOne(organizationId, id, user);
+    const attendances = await this.prisma.attendance.findMany({
+      where: { organizationId, lessonId: id },
+      select: { studentId: true },
     });
-    const view = toLessonView(updated);
-    await this.notifyLessonChange(organizationId, current, view);
-    return view;
+    if (attendances.length > 0 && !confirm) throw this.confirmRequired({ attendances: attendances.length });
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.attendance.deleteMany({ where: { organizationId, lessonId: id } });
+      await tx.lesson.delete({ where: { id } });
+    });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.LESSON_DELETE,
+      entity: AuditEntity.LESSON,
+      entityId: id,
+      meta: { classId: lesson.classId, date: lesson.date, status: lesson.status, attendances: attendances.length },
+    });
+    this.ranking.queueSync(attendances.map((a) => a.studentId));
+    return { deleted: true, attendances: attendances.length };
+  }
+
+  /**
+   * Apaga EM LOTE aulas CANCELADAS (INACTIVE): `onlyCancelled: true` (+ `classId`) ou `ids`. Só do grupo e do escopo de
+   * unidade do usuário (aula fora do escopo nem entra na conta). Aula NÃO cancelada nunca é apagada por aqui (em `ids`,
+   * vira `skipped`). Máx. MAX_BULK_DELETE_LESSONS por chamada (acima: 400, nada é apagado). `dryRun` só conta.
+   * Com presenças em alguma aula exige `confirm` (409 com `{ lessons, attendances }`). Transação única; audita
+   * LESSON_DELETE_BULK; recalcula o Ginga Rank dos alunos afetados (ver `destroy`).
+   */
+  async bulkDelete(
+    organizationId: number,
+    dto: BulkDeleteLessonsDto,
+    user?: AuthenticatedUser,
+  ): Promise<{ lessons: number; attendances: number; skipped: number; deleted: boolean }> {
+    const hasIds = dto.ids !== undefined;
+    if (!hasIds && dto.onlyCancelled !== true) {
+      throw new BadRequestException('Informe onlyCancelled: true (apagar as canceladas) ou a lista de ids.');
+    }
+    if (hasIds && dto.onlyCancelled === true) {
+      throw new BadRequestException('Informe onlyCancelled OU ids, não os dois.');
+    }
+    const scope = await this.unitScope.resolve(user, organizationId);
+    if (dto.classId !== undefined) await this.assertClassBelongsToOrganization(organizationId, dto.classId, scope);
+
+    const base: Prisma.LessonWhereInput = {
+      organizationId,
+      ...(dto.classId !== undefined ? { classId: dto.classId } : {}),
+      ...(hasIds ? { id: { in: dto.ids } } : {}),
+      AND: [lessonScopeFilter(scope)],
+    };
+    const targets = await this.prisma.lesson.findMany({
+      where: { ...base, status: 'INACTIVE' },
+      select: { id: true, classId: true },
+      take: MAX_BULK_DELETE_LESSONS + 1,
+    });
+    if (targets.length > MAX_BULK_DELETE_LESSONS) {
+      throw new BadRequestException(
+        `Mais de ${MAX_BULK_DELETE_LESSONS} aulas canceladas: apague por turma ou em partes menores.`,
+      );
+    }
+    const skipped = hasIds ? (dto.ids as number[]).length - targets.length : 0;
+    const lessonIds = targets.map((t) => t.id);
+    const attendances = lessonIds.length
+      ? await this.prisma.attendance.findMany({ where: { organizationId, lessonId: { in: lessonIds } }, select: { studentId: true } })
+      : [];
+    const summary = { lessons: targets.length, attendances: attendances.length, skipped };
+    if (dto.dryRun === true) return { ...summary, deleted: false };
+    if (targets.length === 0) return { ...summary, deleted: false };
+    if (attendances.length > 0 && dto.confirm !== true) throw this.confirmRequired({ lessons: targets.length, attendances: attendances.length });
+
+    // `status: 'INACTIVE'` de novo no DELETE: aula reativada por outra pessoa entre a leitura e a escrita não é apagada.
+    const result = await this.prisma.$transaction(async (tx) => {
+      const still = await tx.lesson.findMany({
+        where: { organizationId, status: 'INACTIVE', id: { in: lessonIds } },
+        select: { id: true },
+      });
+      const ids = still.map((l) => l.id);
+      await tx.attendance.deleteMany({ where: { organizationId, lessonId: { in: ids } } });
+      const del = await tx.lesson.deleteMany({ where: { organizationId, id: { in: ids } } });
+      return del.count;
+    });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.LESSON_DELETE_BULK,
+      entity: AuditEntity.LESSON,
+      meta: { count: result, attendances: attendances.length, classId: dto.classId ?? null, mode: hasIds ? 'ids' : 'onlyCancelled' },
+    });
+    this.ranking.queueSync(attendances.map((a) => a.studentId));
+    return { ...summary, lessons: result, deleted: true };
+  }
+
+  /** 409 de "confirme": a contagem do que seria apagado vai no corpo, para o painel montar o aviso forte. */
+  private confirmRequired(counts: Record<string, number>): ConflictException {
+    return new ConflictException({
+      statusCode: 409,
+      error: 'Conflict',
+      code: 'CONFIRM_REQUIRED',
+      message: 'Esta ação apaga presenças registradas. Confirme para continuar (confirm=true).',
+      ...counts,
+    });
+  }
+
+  /**
+   * Reativa EM MASSA as aulas canceladas (INACTIVE) do intervalo [from, to] (datas civis inclusivas, mesma regra de
+   * GET /lessons), opcionalmente de uma turma. Respeita o grupo e o escopo de unidade do usuario (aula fora do escopo
+   * nem entra na conta). No maximo MAX_REACTIVATE_LESSONS por chamada: acima disso 400 (nada e alterado) pedindo um
+   * periodo menor. Limpa cancelledAt, audita LESSON_REACTIVATE_BULK (contagem/periodo/turma) e, so com `notify: true`,
+   * avisa cada turma com o gatilho "Aula reativada" (padrao: silencioso, para nao gerar spam).
+   */
+  async reactivate(
+    organizationId: number,
+    dto: ReactivateLessonsDto,
+    user?: AuthenticatedUser,
+  ): Promise<{ reactivated: number }> {
+    const date = civilDateRange(dto.from, dto.to);
+    if (date?.gte && date.lte && date.gte.getTime() > date.lte.getTime()) {
+      throw new BadRequestException('to deve ser igual ou posterior a from.');
+    }
+    const scope = await this.unitScope.resolve(user, organizationId);
+    if (dto.classId !== undefined) await this.assertClassBelongsToOrganization(organizationId, dto.classId, scope);
+
+    const where: Prisma.LessonWhereInput = {
+      organizationId,
+      status: 'INACTIVE',
+      ...(date ? { date } : {}),
+      ...(dto.classId !== undefined ? { classId: dto.classId } : {}),
+      AND: [lessonScopeFilter(scope)],
+    };
+    const cancelled = await this.prisma.lesson.findMany({
+      where,
+      select: { id: true, classId: true, date: true, startTime: true, endTime: true },
+      orderBy: [{ date: 'asc' }, { id: 'asc' }],
+      take: MAX_REACTIVATE_LESSONS + 1,
+    });
+    if (cancelled.length > MAX_REACTIVATE_LESSONS) {
+      throw new BadRequestException(
+        `Mais de ${MAX_REACTIVATE_LESSONS} aulas canceladas nesse período: escolha um período ou uma turma menor.`,
+      );
+    }
+    if (cancelled.length === 0) return { reactivated: 0 };
+
+    // `status: 'INACTIVE'` de novo no UPDATE: uma aula reativada por outra pessoa entre a leitura e a escrita nao conta.
+    const result = await this.prisma.lesson.updateMany({
+      where: { organizationId, status: 'INACTIVE', id: { in: cancelled.map((l) => l.id) } },
+      data: { status: 'ACTIVE', cancelledAt: null },
+    });
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.LESSON_REACTIVATE_BULK,
+      entity: AuditEntity.LESSON,
+      meta: { count: result.count, classId: dto.classId ?? null, from: dto.from, to: dto.to, notify: dto.notify === true },
+    });
+    if (dto.notify === true) {
+      for (const lesson of cancelled) {
+        await this.notifyLessonChange(
+          organizationId,
+          { ...lesson, status: 'INACTIVE' },
+          { ...lesson, status: 'ACTIVE' },
+        );
+      }
+    }
+    return { reactivated: result.count };
   }
 
   /**

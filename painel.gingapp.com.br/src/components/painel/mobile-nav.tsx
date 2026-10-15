@@ -1,13 +1,20 @@
 import { useState } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Ellipsis, LogOut } from "lucide-react";
+import { ChevronRight, Ellipsis, LogOut } from "lucide-react";
 import { ChangePasswordButton } from "@/components/painel/change-password-dialog";
 import { MyDataButton } from "@/components/painel/legal";
 import { InstallAppButton } from "@/components/painel/pwa-prompts";
 import { TwoFactorButton } from "@/components/painel/two-factor-dialog";
+import { UserAvatar } from "@/components/painel/user-avatar";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { mobileMoreFor, mobileTabsFor, type NavItem } from "@/lib/nav";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { PROFILE_ITEM, mobileMoreFor, mobileTabsFor, type NavItem } from "@/lib/nav";
 import { ROLE_LABEL, useSessionUser } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -27,7 +34,8 @@ export function MobileNav({ onLogout }: { onLogout: () => void }) {
   const [open, setOpen] = useState(false);
   const tabs = mobileTabsFor(user?.role);
   const more = mobileMoreFor(user?.role);
-  const moreActive = more.some((item) => isActive(pathname, item.to));
+  const moreActive =
+    more.some((item) => isActive(pathname, item.to)) || isActive(pathname, PROFILE_ITEM.to);
 
   return (
     <>
@@ -49,7 +57,12 @@ export function MobileNav({ onLogout }: { onLogout: () => void }) {
                     active ? "text-primary" : "text-muted-foreground",
                   )}
                 >
-                  <span className={cn("grid h-7 w-12 place-items-center rounded-full", active && "bg-secondary")}>
+                  <span
+                    className={cn(
+                      "grid h-7 w-12 place-items-center rounded-full",
+                      active && "bg-secondary",
+                    )}
+                  >
                     <item.icon className="size-5" />
                   </span>
                   {tabLabel(item)}
@@ -68,7 +81,12 @@ export function MobileNav({ onLogout }: { onLogout: () => void }) {
                 moreActive ? "text-primary" : "text-muted-foreground",
               )}
             >
-              <span className={cn("grid h-7 w-12 place-items-center rounded-full", moreActive && "bg-secondary")}>
+              <span
+                className={cn(
+                  "grid h-7 w-12 place-items-center rounded-full",
+                  moreActive && "bg-secondary",
+                )}
+              >
                 <Ellipsis className="size-5" />
               </span>
               Mais
@@ -85,9 +103,40 @@ export function MobileNav({ onLogout }: { onLogout: () => void }) {
         >
           <SheetHeader>
             <SheetTitle>Mais</SheetTitle>
-            <SheetDescription className="sr-only">Demais áreas do painel e opções da conta.</SheetDescription>
+            <SheetDescription className="sr-only">
+              Demais áreas do painel e opções da conta.
+            </SheetDescription>
           </SheetHeader>
-          <ul aria-label="Mais áreas" className="mt-3 grid grid-cols-2 gap-2" data-testid="mobile-more-list">
+          {user && (
+            <Link
+              to={PROFILE_ITEM.to}
+              onClick={() => setOpen(false)}
+              aria-current={isActive(pathname, PROFILE_ITEM.to) ? "page" : undefined}
+              data-testid="mobile-profile-link"
+              className={cn(
+                "mt-3 flex min-h-14 items-center gap-3 rounded-lg border px-3 py-2",
+                isActive(pathname, PROFILE_ITEM.to) ? "border-primary bg-secondary" : "bg-card",
+              )}
+            >
+              <UserAvatar className="size-11 text-sm" />
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block truncate text-sm font-semibold">{PROFILE_ITEM.label}</span>
+                <span
+                  className="block truncate text-xs text-muted-foreground"
+                  data-testid="drawer-user"
+                >
+                  {user.name} · {ROLE_LABEL[user.role]} ·{" "}
+                  {user.organizationName?.trim() || user.organizationSlug}
+                </span>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            </Link>
+          )}
+          <ul
+            aria-label="Mais áreas"
+            className="mt-3 grid grid-cols-2 gap-2"
+            data-testid="mobile-more-list"
+          >
             {more.map((item) => {
               const active = isActive(pathname, item.to);
               return (
@@ -110,11 +159,6 @@ export function MobileNav({ onLogout }: { onLogout: () => void }) {
           </ul>
 
           <div className="mt-4 space-y-2 border-t pt-4">
-            {user && (
-              <p className="truncate text-xs text-muted-foreground" data-testid="drawer-user">
-                {user.name} · {ROLE_LABEL[user.role]} · {user.organizationSlug}
-              </p>
-            )}
             {/* Os botões da conta têm rótulo só em telas largas; aqui viram itens de lista com texto. */}
             <div className="grid gap-1 [&_button]:w-full [&_button]:justify-start [&_span]:inline!">
               <MyDataButton />

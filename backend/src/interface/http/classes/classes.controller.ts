@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { ListClassesQueryDto } from './dto/list-classes-query.dto';
@@ -11,6 +11,7 @@ import { CreateClassDto } from './dto/create-class.dto';
 import { UpdateClassDto } from './dto/update-class.dto';
 import { EnrollStudentDto } from './dto/enroll-student.dto';
 import { GenerateLessonsDto } from './dto/generate-lessons.dto';
+import { MestreOnlyGuard } from '../../../shared/guards/mestre-only.guard';
 
 @Controller('classes')
 export class ClassesController {
@@ -108,13 +109,31 @@ export class ClassesController {
     return this.classesService.unenrollStudent(organizationId, id, studentId, user);
   }
 
-  @Delete(':id')
+  /** Quantas aulas/presenças/matrículas seriam apagadas junto com a turma (diálogo de confirmação do painel). */
+  @Get(':id/delete-impact')
   @CanAccess('classes', 'delete')
-  remove(
+  @UseGuards(MestreOnlyGuard)
+  deleteImpact(
     @CurrentOrganization() organizationId: number,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.classesService.remove(organizationId, id, user);
+    return this.classesService.deleteImpact(organizationId, id, user);
+  }
+
+  /**
+   * APAGA de verdade a turma (hard delete), so o Mestre. Inativar = PATCH /classes/:id { status: 'INACTIVE' }.
+   * Com aulas ou presencas exige `?confirm=true` (sem ele: 409 com `{ lessons, attendances, students }`).
+   */
+  @Delete(':id')
+  @CanAccess('classes', 'delete')
+  @UseGuards(MestreOnlyGuard)
+  remove(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('confirm') confirm?: string,
+  ) {
+    return this.classesService.destroy(organizationId, id, confirm === 'true', user);
   }
 }

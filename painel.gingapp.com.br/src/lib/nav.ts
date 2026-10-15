@@ -17,6 +17,7 @@ import {
   History,
   Trophy,
   ArrowRightLeft,
+  UserRound,
   type LucideIcon,
 } from "lucide-react";
 import { PANEL_ROLES, type OrgRole } from "@/lib/session";
@@ -66,6 +67,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // Atividade do grupo (GET /audit-logs/me-group): trilha de auditoria do próprio grupo, só o MESTRE.
   { to: "/atividade", label: "Atividade do grupo", icon: History, roles: ["MESTRE"] },
 ];
+
+/**
+ * "Meu perfil": rota de TODOS os papéis do painel (sem `roles`), aberta pelo avatar do cabeçalho, pelo menu "Mais" e
+ * pelo rodapé da sidebar. Fica FORA de NAV_ITEMS de propósito: não é uma área do menu lateral nem entra nas abas do celular.
+ */
+export const PROFILE_ITEM: NavItem = { to: "/perfil", label: "Meu perfil", icon: UserRound };
 
 /** Mensagem mostrada quando um papel do painel abre uma rota que não é dele (ex.: PROFESSOR em /financeiro). */
 export const ROUTE_FORBIDDEN_MESSAGE = "Você não tem permissão para acessar esta área.";

@@ -65,6 +65,8 @@ export const AuditAction = {
   CLASS_CREATE: 'CLASS_CREATE',
   CLASS_UPDATE: 'CLASS_UPDATE',
   CLASS_INACTIVATE: 'CLASS_INACTIVATE',
+  // Exclusao DEFINITIVA da turma (DELETE /classes/:id): contagens de aulas/presencas/matriculas apagadas
+  CLASS_DELETE: 'CLASS_DELETE',
   // Graduacoes
   GRADUATION_SYSTEM_CREATE: 'GRADUATION_SYSTEM_CREATE',
   GRADUATION_SYSTEM_UPDATE: 'GRADUATION_SYSTEM_UPDATE',
@@ -89,6 +91,11 @@ export const AuditAction = {
   EVENT_CANCEL: 'EVENT_CANCEL',
   EVENT_CHECKIN_SELF: 'EVENT_CHECKIN_SELF',
   LESSON_CHECKIN_SELF: 'LESSON_CHECKIN_SELF',
+  // Aulas: reativacao em massa das canceladas (POST /lessons/reactivate): so contagem/periodo/turma, nunca os ids
+  LESSON_REACTIVATE_BULK: 'LESSON_REACTIVATE_BULK',
+  // Aulas: exclusao DEFINITIVA (DELETE /lessons/:id) e em lote das canceladas (POST /lessons/bulk-delete): so contagens/ids de turma
+  LESSON_DELETE: 'LESSON_DELETE',
+  LESSON_DELETE_BULK: 'LESSON_DELETE_BULK',
   RODA_GENERATE_OCCURRENCES: 'RODA_GENERATE_OCCURRENCES',
   // Verificacao em duas etapas (2FA TOTP)
   TWO_FACTOR_ENABLE: 'TWO_FACTOR_ENABLE',

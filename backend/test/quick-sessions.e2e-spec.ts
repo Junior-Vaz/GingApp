@@ -108,7 +108,7 @@ describe('Chamada rapida: GET /attendance/quick-sessions (e2e)', () => {
     await app.close();
   });
 
-  it('so hoje (SP), aulas ativas de turmas ativas; status por horario; ordem EM ANDAMENTO, PROXIMA, ENCERRADA; contagens', async () => {
+  it('so hoje (SP), de turmas ativas; ativas primeiro (status por horario; ordem EM ANDAMENTO, PROXIMA, ENCERRADA) e a CANCELADA de hoje por ultimo com cancelled:true; contagens', async () => {
     const out = await service.quickSessions(orgB.organizationId, undefined, noon);
     assert.deepEqual(
       out.map((s) => [s.lessonId, s.status]),
@@ -118,8 +118,14 @@ describe('Chamada rapida: GET /attendance/quick-sessions (e2e)', () => {
         [lessons.upcoming, 'UPCOMING'],
         [lessons.ended7, 'ENDED'],
         [lessons.ended8, 'ENDED'],
+        [lessons.cancelled, 'ENDED'], // cancelada de hoje: aparece por ULTIMO (nao e mais escondida)
       ],
     );
+    const cancelledSession = out[5];
+    assert.equal(cancelledSession.cancelled, true);
+    assert.equal(cancelledSession.className, 'Turma A');
+    assert.ok(out.slice(0, 5).every((s) => !('cancelled' in s)), 'aula ativa NAO traz o campo (contrato antigo intacto)');
+    assert.ok(!out.some((s) => s.lessonId === lessons.inactiveClass), 'aula de turma INATIVA nao entra, nem cancelada');
     const ongoing = out[0];
     assert.deepEqual(ongoing, {
       lessonId: lessons.ongoing,
@@ -142,10 +148,10 @@ describe('Chamada rapida: GET /attendance/quick-sessions (e2e)', () => {
 
   it('o status acompanha o relogio: 06:00 tudo PROXIMA (menos sem horario); 23:00 tudo ENCERRADA (menos sem horario)', async () => {
     const early = await service.quickSessions(orgB.organizationId, undefined, new Date(`${today}T09:00:00.000Z`)); // 06:00 SP
-    assert.deepEqual(early.map((s) => s.status), ['ONGOING', 'UPCOMING', 'UPCOMING', 'UPCOMING', 'UPCOMING']);
+    assert.deepEqual(early.map((s) => s.status), ['ONGOING', 'UPCOMING', 'UPCOMING', 'UPCOMING', 'UPCOMING', 'UPCOMING']);
     assert.equal(early[0].lessonId, lessons.allDay);
     const late = await service.quickSessions(orgB.organizationId, undefined, new Date(`${tomorrow}T02:00:00.000Z`)); // 23:00 SP de hoje
-    assert.deepEqual(late.map((s) => s.status), ['ONGOING', 'ENDED', 'ENDED', 'ENDED', 'ENDED']);
+    assert.deepEqual(late.map((s) => s.status), ['ONGOING', 'ENDED', 'ENDED', 'ENDED', 'ENDED', 'ENDED']);
   });
 
   it('markedCount sobe quando a chamada e lancada (roster e marcacao existentes: GET/POST /attendance/lessons/:id)', async () => {
@@ -171,21 +177,21 @@ describe('Chamada rapida: GET /attendance/quick-sessions (e2e)', () => {
   it('HTTP: MESTRE recebe a lista (formato do contrato); sem token 401; ALUNO 403', async () => {
     const res = await request(server()).get('/api/attendance/quick-sessions').set(auth(orgB.token)).expect(200);
     assert.ok(Array.isArray(res.body));
-    assert.equal(res.body.length, 5, 'as 5 aulas de hoje aparecem em qualquer horario (so o status muda com o relogio)');
+    assert.equal(res.body.length, 6, 'as 5 ativas + a cancelada de hoje aparecem em qualquer horario (so o status muda com o relogio)');
+    const base = ['className', 'classId', 'classPhoto', 'endTime', 'lessonId', 'markedCount', 'startTime', 'status', 'studentsCount', 'unitName'];
     for (const item of res.body) {
-      assert.deepEqual(
-        Object.keys(item).sort(),
-        ['className', 'classId', 'classPhoto', 'endTime', 'lessonId', 'markedCount', 'startTime', 'status', 'studentsCount', 'unitName'].sort(),
-      );
+      assert.deepEqual(Object.keys(item).sort(), (item.cancelled ? [...base, 'cancelled'] : base).sort());
       assert.ok(['UPCOMING', 'ONGOING', 'ENDED'].includes(item.status));
     }
+    assert.equal(res.body[5].cancelled, true);
+    assert.equal(res.body[5].lessonId, lessons.cancelled);
     await request(server()).get('/api/attendance/quick-sessions').expect(401);
     await request(server()).get('/api/attendance/quick-sessions').set(auth(alunoToken)).expect(403);
   });
 
   it('escopo de unidade: PROFESSOR restrito a unidade 1 so ve as aulas da unidade 1; sem restricao ve todas', async () => {
     const free = await service.quickSessions(orgB.organizationId, { id: profUserId, userType: 'MEMBER', role: OrgRole.PROFESSOR, organizationId: orgB.organizationId, isSuperAdmin: false } as never, noon);
-    assert.equal(free.length, 5, 'professor sem unidades atribuidas ve tudo');
+    assert.equal(free.length, 6, 'professor sem unidades atribuidas ve tudo (inclui a cancelada de hoje)');
 
     await prisma.userUnitAccess.create({ data: { organizationId: orgB.organizationId, userId: profUserId, unitId: unit1 } });
     const restricted = await service.quickSessions(
@@ -193,7 +199,7 @@ describe('Chamada rapida: GET /attendance/quick-sessions (e2e)', () => {
       { id: profUserId, userType: 'MEMBER', role: OrgRole.PROFESSOR, organizationId: orgB.organizationId, isSuperAdmin: false } as never,
       noon,
     );
-    assert.deepEqual(restricted.map((s) => s.lessonId).sort(), [lessons.ongoing, lessons.upcoming, lessons.ended8].sort());
+    assert.deepEqual(restricted.map((s) => s.lessonId).sort(), [lessons.ongoing, lessons.upcoming, lessons.ended8, lessons.cancelled].sort());
     assert.ok(restricted.every((s) => s.unitName === 'Unidade Um'));
 
     // Mesmo resultado pelo HTTP (PROFESSOR tem attendance:view) — filtra pelas aulas desta suite.

@@ -7,10 +7,8 @@ import {
   MapPin,
   ChartNoAxesColumnIncreasing,
   CircleDot,
-  Sprout,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import rodaImage from "@/assets/capoeira-roda.jpg";
 import communityImage from "@/assets/capoeira-community.jpg";
 import { PageHeading, SectionHeading, EventCard, StateMessage } from "./shared";
 import { capitalize, dayOnly, fmt, relativeTime, startOfToday } from "@/lib/format";
@@ -30,6 +28,7 @@ import {
   useMyUnit,
   usePassport,
 } from "@/lib/queries";
+import { HeroCarousel } from "./hero-carousel";
 import { Avatar } from "./avatar";
 import { GraduationCard } from "./graduation-parts";
 import { ClassCover, TeacherLine, UnitLine } from "./class-parts";
@@ -74,26 +73,7 @@ export function HomePage() {
       />
       {studentError && <StateMessage tone="error">{errorMessage(studentError, "Não foi possível carregar seus dados.")}</StateMessage>}
       {!loadingStudent && !studentError && !student && <StateMessage>Nenhum aluno vinculado a esta conta.</StateMessage>}
-      <section className="welcome-banner">
-        <img src={rodaImage} alt="Capoeiristas jogando em uma roda no Pelourinho" width={1536} height={768} />
-        <div className="welcome-content">
-          <div className="eyebrow">
-            <Sprout size={13} /> Sua capoeira vai além do treino
-          </div>
-          <h2>
-            O mundo é uma roda.
-            <br />
-            Encontre a sua.
-          </h2>
-          <p>Conecte-se com a comunidade, viva novos encontros e leve sua ginga mais longe.</p>
-          <Button variant="hero" size="sm" asChild>
-            <Link to="/comunidade">
-              Explorar a comunidade
-              <ArrowUpRight size={14} />
-            </Link>
-          </Button>
-        </div>
-      </section>
+      <HeroCarousel />
       <Link to="/jornada" className="grad-link" aria-label={`${cardLabel}: ver jornada`}>
         <GraduationCard
           label={cardLabel}
@@ -146,7 +126,7 @@ export function HomePage() {
           {lessons.isLoading ? (
             <StateMessage>Carregando…</StateMessage>
           ) : upcoming && upcomingDate ? (
-            <article className="class-card next-class">
+            <article className="class-card next-class is-compact" data-testid="next-class">
               <ClassCover name={info.name} src={info.photo} variant="wide" />
               <div className="class-top">
                 <span className="badge">
@@ -159,19 +139,21 @@ export function HomePage() {
                   </span>
                 )}
               </div>
-              <h3>{info.name}</h3>
-              <UnitLine unit={info.unit} />
-              {upcomingClass?.weekday != null && (
-                <div className="detail-line">
-                  <CalendarDays />
-                  {weekdayLabel(upcomingClass.weekday)}
-                </div>
-              )}
+              <h3 className="truncate">{info.name}</h3>
+              <div className="lesson-people">
+                <UnitLine compact unit={info.unit} />
+                {upcomingClass?.weekday != null && (
+                  <div className="detail-line is-compact">
+                    <CalendarDays />
+                    {weekdayLabel(upcomingClass.weekday)}
+                  </div>
+                )}
+              </div>
               <div className="class-bottom">
                 <div className="teacher">
-                  {info.teacher ? <TeacherLine teacher={info.teacher} /> : <span>{upcoming.notes ?? upcomingClass?.description ?? "Bom treino!"}</span>}
+                  {info.teacher ? <TeacherLine compact teacher={info.teacher} /> : <span className="truncate">{upcoming.notes ?? upcomingClass?.description ?? "Bom treino!"}</span>}
                 </div>
-                <Button variant="soft" size="sm" asChild className="text-[10px]">
+                <Button variant="soft" size="sm" asChild className="text-[10px] next-class-cta">
                   <Link to="/aulas">
                     Ver minha aula
                     <ArrowRight size={13} />

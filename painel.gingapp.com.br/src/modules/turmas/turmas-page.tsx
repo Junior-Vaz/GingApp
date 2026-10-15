@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Building2, Ban, CalendarPlus, Layers, Pencil, Plus, Repeat, UserRound, Users } from "lucide-react";
+import { Building2, Ban, CalendarPlus, Eye, Layers, Pencil, Plus, Repeat, Trash2, UserRound, Users } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
+import { StrongConfirmDialog } from "@/components/painel/strong-confirm-dialog";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { FormDialog } from "@/components/painel/form-dialog";
@@ -14,18 +16,22 @@ import { FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessa
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { createCrud } from "@/lib/crud";
+import { errorMessage } from "@/lib/api";
+import { dayOnly, fmt } from "@/lib/format";
+import { plural } from "@/lib/plural";
 import { useListParams } from "@/lib/list-params";
-import { useCan } from "@/lib/session";
+import { useCan, useSessionUser } from "@/lib/session";
 import { useUnitNames } from "@/lib/unit-lookup";
 import { NativeSelect } from "@/modules/alunos/native-select";
 import { OPTIONS_LIMIT, useTeacherOptions } from "@/modules/aulas/aulas-api";
 import { GenerateLessonsDialog } from "./generate-lessons-dialog";
+import { classes, useClassDeleteImpact, useDeleteClass, useInactivateClass } from "./turmas-api";
 import { ClassStudentsDialog } from "./students-dialog";
 import {
   CLASS_STATUS_LABEL,
   CONTINUOUS_AHEAD_DAYS,
   WEEKDAY_LABEL,
+  classLessonDiagnostic,
   classSchema,
   classToForm,
   classToCreatePayload,
@@ -33,15 +39,8 @@ import {
   emptyClassForm,
   scheduleLabel,
   type ClassFormValues,
-  type ClassInput,
   type ClassItem,
 } from "./schema";
-
-const classes = createCrud<ClassItem, ClassInput>("/classes", {
-  created: "Turma criada.",
-  updated: "Turma atualizada.",
-  removed: "Turma inativada.",
-});
 
 export function TurmasPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
@@ -49,7 +48,10 @@ export function TurmasPage() {
   const list = classes.usePage(lp.params);
   const create = classes.useCreate();
   const update = classes.useUpdate();
-  const remove = classes.useRemove();
+  const inactivate = useInactivateClass(); // Inativar = PATCH status INACTIVE (a turma e o histórico continuam)
+  const deleteClass = useDeleteClass(); // Apagar = DELETE de verdade (só Mestre)
+  const navigate = useNavigate();
+  const isMestre = useSessionUser()?.role === "MESTRE";
   const canCreate = useCan("classes", "create"); // MONITOR: só leitura
   const canEdit = useCan("classes", "edit");
   const canDelete = useCan("classes", "delete"); // PROFESSOR: sem classes:delete (backend responde 403)
@@ -62,6 +64,8 @@ export function TurmasPage() {
     id === null || id === undefined ? "—" : (teacherItems.find((t) => t.user.id === id)?.user.name ?? "—");
   const [editing, setEditing] = useState<ClassItem | "new" | null>(null);
   const [deleting, setDeleting] = useState<ClassItem | null>(null);
+  const [erasing, setErasing] = useState<ClassItem | null>(null);
+  const eraseImpact = useClassDeleteImpact(erasing?.id);
   const [studentsOf, setStudentsOf] = useState<ClassItem | null>(null);
   const [generatingOf, setGeneratingOf] = useState<ClassItem | null>(null);
 
@@ -112,6 +116,46 @@ export function TurmasPage() {
     },
     { id: "schedule", header: "Horário", sortValue: (c) => c.startTime, cell: (c) => scheduleLabel(c) },
     {
+      id: "nextLesson",
+      header: "Próxima aula",
+      className: "min-w-40",
+      sortValue: (c) => c.nextLesson?.date ?? "",
+      cell: (c) => {
+        const { next, warning } = classLessonDiagnostic(c);
+        return (
+          <div className="space-y-0.5">
+            {next ? (
+              <span data-testid="class-next-lesson">
+                {fmt(dayOnly(next.day), "dd/MM")} ({next.status === "ACTIVE" ? "ativa" : "cancelada"})
+              </span>
+            ) : (
+              "—"
+            )}
+            {warning === "no-weekday" && (
+              <p data-testid="class-lessons-warning" className="text-xs text-amber-700 dark:text-amber-400">
+                Sem dia da semana — defina para gerar aulas.
+              </p>
+            )}
+            {warning === "no-active" &&
+              (canGenerate ? (
+                <button
+                  type="button"
+                  data-testid="class-lessons-warning"
+                  className="block text-left text-xs text-amber-700 underline-offset-2 hover:underline dark:text-amber-400"
+                  onClick={() => setGeneratingOf(c)}
+                >
+                  Nenhuma aula ativa à frente — gerar aulas
+                </button>
+              ) : (
+                <p data-testid="class-lessons-warning" className="text-xs text-amber-700 dark:text-amber-400">
+                  Nenhuma aula ativa à frente.
+                </p>
+              ))}
+          </div>
+        );
+      },
+    },
+    {
       id: "teacher",
       header: "Professor",
       sortValue: (c) => c.teacher?.name ?? teacherName(c.teacherUserId),
@@ -142,6 +186,14 @@ export function TurmasPage() {
   /** Alunos e Editar ficam à vista; "Gerar aulas" e "Inativar" vão para o menu "⋯" (mesmas permissões de antes). */
   const classActions = (c: ClassItem): MaybeRowAction[] => [
     canView && { key: "students", label: "Alunos", ariaLabel: `Alunos de ${c.name}`, icon: Users, primary: true, onSelect: () => setStudentsOf(c) },
+    canView && {
+      key: "details",
+      label: "Detalhes",
+      ariaLabel: `Detalhes de ${c.name}`,
+      icon: Eye,
+      primary: true,
+      onSelect: () => void navigate({ to: "/turmas/$classId", params: { classId: String(c.id) } }),
+    },
     canEdit && { key: "edit", label: "Editar", icon: Pencil, primary: true, onSelect: () => setEditing(c) },
     canGenerate &&
       c.status === "ACTIVE" &&
@@ -155,6 +207,7 @@ export function TurmasPage() {
       },
     canDelete &&
       c.status === "ACTIVE" && { key: "deactivate", label: "Inativar", icon: Ban, destructive: true, onSelect: () => setDeleting(c) },
+    isMestre && { key: "erase", label: "Apagar", ariaLabel: `Apagar ${c.name}`, icon: Trash2, destructive: true, onSelect: () => setErasing(c) },
   ];
 
   return (
@@ -387,7 +440,28 @@ export function TurmasPage() {
         title="Inativar turma?"
         description={deleting ? `"${deleting.name}" será marcada como inativa. O histórico é preservado.` : undefined}
         confirmLabel="Inativar"
-        onConfirm={() => remove.mutateAsync(deleting!.id)}
+        onConfirm={() => inactivate.mutateAsync(deleting!.id)}
+      />
+
+      <StrongConfirmDialog
+        open={erasing !== null}
+        onOpenChange={(o) => !o && setErasing(null)}
+        title="Apagar turma definitivamente?"
+        description={erasing ? `A turma "${erasing.name}" será apagada do sistema, com as aulas e presenças dela. Os alunos continuam cadastrados. Para só desativar a turma, use "Inativar".` : undefined}
+        impactLoading={erasing !== null && eraseImpact.isLoading}
+        impactError={eraseImpact.error ? errorMessage(eraseImpact.error, "Não foi possível calcular o impacto.") : null}
+        impact={
+          eraseImpact.data
+            ? `Isto apagará ${plural(eraseImpact.data.lessons, "aula")} e ${plural(eraseImpact.data.attendances, "presença")} (${plural(eraseImpact.data.students, "vínculo de aluno", "vínculos de alunos")} com a turma serão removidos). Não pode ser desfeito.`
+            : undefined
+        }
+        phrase={erasing?.name ?? ""}
+        onConfirm={() =>
+          deleteClass.mutateAsync({
+            id: erasing!.id,
+            confirm: (eraseImpact.data?.lessons ?? 0) > 0 || (eraseImpact.data?.attendances ?? 0) > 0,
+          })
+        }
       />
     </>
   );

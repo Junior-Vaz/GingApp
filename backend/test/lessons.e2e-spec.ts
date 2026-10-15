@@ -134,7 +134,7 @@ describe('Lessons CRUD (e2e)', () => {
     assert.equal(persisted.teacherUserId, professorUserId);
   });
 
-  it('DELETE /lessons/:id é soft delete — status vira INACTIVE, registro nunca some', async () => {
+  it('PATCH status INACTIVE cancela a aula — o registro continua existindo (apagar de verdade é DELETE, ver lessons-delete.e2e-spec.ts)', async () => {
     const created = await request(app.getHttpServer())
       .post('/api/lessons')
       .set('Authorization', `Bearer ${mestreToken}`)
@@ -143,8 +143,9 @@ describe('Lessons CRUD (e2e)', () => {
     createdLessonIds.push(created.body.id);
 
     await request(app.getHttpServer())
-      .delete(`/api/lessons/${created.body.id}`)
+      .patch(`/api/lessons/${created.body.id}`)
       .set('Authorization', `Bearer ${mestreToken}`)
+      .send({ status: 'INACTIVE' })
       .expect(200);
 
     const persisted = await prisma.lesson.findUniqueOrThrow({ where: { id: created.body.id } });

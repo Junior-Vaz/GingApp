@@ -41,7 +41,9 @@ function setup(
     const [url = "", search = ""] = input.replace(/^.*\/api/, "").split("?");
     const body = init.body ? JSON.parse(init.body as string) : undefined;
     calls.push({ url, method, body });
-    if (method === "GET") (queries[url] ??= []).push(new URLSearchParams(search));
+    // As consultas de total por status (limit=1, cabeçalho "N ativas · M canceladas") ficam à parte da lista.
+    const isCount = url === "/lessons" && new URLSearchParams(search).get("limit") === "1";
+    if (method === "GET") (queries[isCount ? "/lessons:count" : url] ??= []).push(new URLSearchParams(search));
     if (method === "GET" && url === "/lessons") {
       const o = overrides.lessons;
       return Promise.resolve(typeof o === "function" ? o(new URLSearchParams(search)) : (o ?? page(baseLessons)));
@@ -63,6 +65,7 @@ function setup(
 const mutations = (calls: Call[]) => calls.filter((c) => c.method !== "GET");
 
 beforeEach(() => {
+  localStorage.clear(); // a escolha de status da tela é lembrada em localStorage
   loginAs("MESTRE"); // a UI esconde ações conforme o papel (useCan); os testes de PROFESSOR trocam o papel
   // Só o Date é congelado: "hoje" = 10/03/2026, então o período atual é 03/03/2026 a 09/04/2026.
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -116,7 +119,13 @@ describe("AulasPage", () => {
     const first = queries["/lessons"]![0]!;
     expect(first.get("limit")).toBe("10");
     expect(first.get("offset")).toBe("0");
-    for (const k of ["classId", "status", "q"]) expect(first.has(k)).toBe(false);
+    for (const k of ["classId", "q"]) expect(first.has(k)).toBe(false);
+    // padrão: só aulas ATIVAS (as canceladas não escondem as aulas reais); "Todas" e "Canceladas" continuam nas opções
+    expect(first.get("status")).toBe("ACTIVE");
+    expect(screen.getByLabelText("Filtrar por status")).toHaveValue("ACTIVE");
+    fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "" } });
+    await screen.findByRole("cell", { name: "Adulto" });
+    expect(lastQuery().has("status")).toBe(false);
     // padrão = período atual (hoje-7 a hoje+30), mais próximas de hoje primeiro
     expect(first.get("from")).toBe("2026-03-03");
     expect(first.get("to")).toBe("2026-04-09");
@@ -136,6 +145,7 @@ describe("AulasPage", () => {
     expect(lastQuery().get("status")).toBe("ACTIVE");
     expect(lastQuery().has("classId")).toBe(false);
     fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "" } });
+    await screen.findByRole("cell", { name: "Adulto" });
     fireEvent.change(screen.getByLabelText("Data inicial"), { target: { value: "2026-03-06" } });
     await waitFor(() => expect(screen.queryByRole("cell", { name: "Infantil" })).toBeNull());
     expect(lastQuery().get("from")).toBe("2026-03-06");
@@ -317,7 +327,7 @@ describe("AulasPage", () => {
     expect(mutations(calls)).toHaveLength(1);
   });
 
-  it("cancelar aula pede confirmação e só então faz DELETE /lessons/:id", async () => {
+  it("cancelar aula pede confirmação e só então faz PATCH /lessons/:id { status: INACTIVE }", async () => {
     const { calls } = setup();
     await screen.findByRole("cell", { name: "Infantil" });
     fireEvent.click(screen.getByRole("button", { name: "Cancelar aula de Infantil" }));
@@ -326,7 +336,7 @@ describe("AulasPage", () => {
     expect(mutations(calls)).toHaveLength(0);
     fireEvent.click(within(alert).getByRole("button", { name: "Cancelar aula" }));
     await waitFor(() => expect(mutations(calls)).toHaveLength(1));
-    expect(mutations(calls)[0]).toMatchObject({ url: "/lessons/1", method: "DELETE" });
+    expect(mutations(calls)[0]).toMatchObject({ url: "/lessons/1", method: "PATCH", body: { status: "INACTIVE" } });
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Aula cancelada."));
   });
 
@@ -351,6 +361,101 @@ describe("AulasPage", () => {
     fireEvent.click(within(alert).getByRole("button", { name: "Voltar" }));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
     expect(mutations(calls)).toHaveLength(0);
+  });
+
+  it("padrão = Ativas (opções Ativas/Canceladas/Todas) e a escolha é lembrada ao reabrir a tela", async () => {
+    const { queries } = setup();
+    await screen.findByRole("cell", { name: "Infantil" });
+    const select = screen.getByLabelText("Filtrar por status");
+    expect(select).toHaveValue("ACTIVE");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Ativas", "Canceladas", "Todas"]);
+    expect(queries["/lessons"]![0]!.get("status")).toBe("ACTIVE");
+    fireEvent.change(select, { target: { value: "INACTIVE" } });
+    await waitFor(() => expect(queries["/lessons"]!.at(-1)!.get("status")).toBe("INACTIVE"));
+    cleanup();
+
+    const again = setup();
+    await screen.findByRole("cell", { name: "Infantil" });
+    expect(screen.getByLabelText("Filtrar por status")).toHaveValue("INACTIVE");
+    expect(again.queries["/lessons"]![0]!.get("status")).toBe("INACTIVE");
+    fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "" } }); // Todas também é lembrado
+    await waitFor(() => expect(again.queries["/lessons"]!.at(-1)!.has("status")).toBe(false));
+    cleanup();
+    setup();
+    await screen.findByRole("cell", { name: "Infantil" });
+    expect(screen.getByLabelText("Filtrar por status")).toHaveValue("");
+  });
+
+  it("cabeçalho mostra 'N ativas · M canceladas' (total por status, limit=1, mesmos filtros) e o texto de ajuda das aulas contínuas", async () => {
+    const { queries } = setup({
+      lessons: (q) => (q.get("limit") === "1" ? page([], q.get("status") === "ACTIVE" ? 12 : 18) : page(baseLessons)),
+    });
+    expect(await screen.findByTestId("aulas-counts")).toHaveTextContent("12 ativas · 18 canceladas");
+    const counts = queries["/lessons:count"]!;
+    expect(counts.map((q) => q.get("status")).sort()).toEqual(["ACTIVE", "INACTIVE"]);
+    expect(counts[0]!.get("from")).toBe("2026-03-03");
+    expect(counts[0]!.get("to")).toBe("2026-04-09");
+    expect(counts[0]!.has("order")).toBe(false);
+    expect(screen.getByText(/Aulas agendadas do grupo\./)).toHaveTextContent("Aulas contínuas");
+    expect(screen.getByText(/Aulas agendadas do grupo\./)).toHaveTextContent("~60 dias");
+    fireEvent.change(screen.getByLabelText("Filtrar por turma"), { target: { value: "2" } });
+    await waitFor(() => expect(queries["/lessons:count"]!.some((q) => q.get("classId") === "2")).toBe(true));
+  });
+
+  it("'Reativar todas (N)' no filtro Canceladas: confirma mostrando turma e período, e faz POST /lessons/reactivate sem notify", async () => {
+    const { calls } = setup({
+      lessons: (q) => (q.get("limit") === "1" ? page([], 3) : page(baseLessons.filter((l) => !q.get("status") || l.status === q.get("status")), q.get("status") === "INACTIVE" ? 7 : 2)),
+      onMutation: () => json(200, { reactivated: 7 }),
+    });
+    await screen.findByRole("cell", { name: "Infantil" });
+    expect(screen.queryByRole("button", { name: /Reativar todas/ })).toBeNull(); // só no filtro Canceladas
+    fireEvent.change(screen.getByLabelText("Filtrar por turma"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Filtrar por status"), { target: { value: "INACTIVE" } });
+    const button = await screen.findByRole("button", { name: "Reativar todas (7)" });
+    fireEvent.click(button);
+    const alert = await screen.findByRole("alertdialog");
+    expect(alert).toHaveTextContent("Reativar aulas canceladas?");
+    expect(within(alert).getByTestId("reactivate-scope")).toHaveTextContent("Turma: Adulto");
+    expect(within(alert).getByTestId("reactivate-scope")).toHaveTextContent("Período: 03/03/2026 a 09/04/2026");
+    expect(alert).toHaveTextContent("não serão avisados");
+    expect(mutations(calls)).toHaveLength(0);
+    fireEvent.click(within(alert).getByRole("button", { name: "Reativar 7 aulas" }));
+    await waitFor(() => expect(mutations(calls)).toHaveLength(1));
+    expect(mutations(calls)[0]).toEqual({
+      url: "/lessons/reactivate",
+      method: "POST",
+      body: { classId: 2, from: "2026-03-03", to: "2026-04-09" },
+    });
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("7 aulas reativadas."));
+  });
+
+  it("'Reativar todas': 'Voltar' não chama a API; período 'Todas' sem datas avisa 'todas as datas'; MONITOR (sem lessons:edit) não vê o botão", async () => {
+    localStorage.setItem("painel:aulas:status", "INACTIVE");
+    const { calls } = setup({ lessons: (q) => page(baseLessons.filter((l) => l.status === (q.get("status") ?? "INACTIVE")), q.get("limit") === "1" ? 4 : 2) });
+    fireEvent.change(await screen.findByLabelText("Período"), { target: { value: "all" } });
+    const button = await screen.findByRole("button", { name: /Reativar todas/ });
+    fireEvent.click(button);
+    const alert = await screen.findByRole("alertdialog");
+    expect(within(alert).getByTestId("reactivate-scope")).toHaveTextContent("Turma: todas as turmas · Período: todas as datas");
+    fireEvent.click(within(alert).getByRole("button", { name: "Voltar" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(mutations(calls)).toHaveLength(0);
+    cleanup();
+
+    loginAs("MONITOR");
+    setup();
+    await screen.findByRole("cell", { name: "Adulto" });
+    expect(screen.queryByRole("button", { name: /Reativar/ })).toBeNull();
+  });
+
+  it("aula cancelada tem 'Reativar' na linha (PATCH status ACTIVE); aula ativa não", async () => {
+    const { calls } = setup({ lessons: page(baseLessons) });
+    await screen.findByRole("cell", { name: "Adulto" });
+    const active = screen.getByRole("cell", { name: "Infantil" }).closest("tr")!;
+    expect(within(active).queryByRole("button", { name: /Reativar aula/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reativar aula de Adulto" }));
+    await waitFor(() => expect(mutations(calls)).toHaveLength(1));
+    expect(mutations(calls)[0]).toEqual({ url: "/lessons/2", method: "PATCH", body: { status: "ACTIVE" } });
   });
 });
 

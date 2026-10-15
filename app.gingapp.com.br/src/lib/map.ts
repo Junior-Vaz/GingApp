@@ -228,6 +228,36 @@ export function directionsUrl(place: Pick<MapPlace, "latitude" | "longitude">): 
   return `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}`;
 }
 
+const normalizeName = (text: string) =>
+  text
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .toLowerCase();
+
+/**
+ * Local de abertura do mapa: o treino da turma atual do aluno (`CLASS:<id>`; sem id batendo, o treino de mesmo nome
+ * do meu grupo) ou, na falta, a unidade do próprio grupo (`isMine`). Sem nenhum: null (enquadra todos).
+ */
+export function findHomePlace(
+  items: MapPlace[],
+  classRef: { id: number; name?: string | null } | null,
+): MapPlace | null {
+  if (classRef) {
+    const byId = items.find((p) => p.type === "CLASS" && p.id === `CLASS:${classRef.id}`);
+    if (byId) return byId;
+    if (classRef.name) {
+      const wanted = normalizeName(classRef.name);
+      // Só do meu grupo: o nome de uma turma ("Infantil") se repete entre grupos.
+      const found = items.find(
+        (p) => p.type === "CLASS" && p.isMine && normalizeName(p.title) === wanted,
+      );
+      if (found) return found;
+    }
+  }
+  return items.find((p) => p.type === "UNIT" && p.isMine) ?? null;
+}
+
 /** Id numérico da entidade ("EVENT:7" -> 7). */
 export function placeEntityId(place: Pick<MapPlace, "id">): number {
   return Number(place.id.split(":")[1]);

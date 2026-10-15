@@ -58,6 +58,25 @@ export function weekdayLabel(weekday: number): string {
   return WEEKDAYS[weekday] ?? "";
 }
 
+/** Quantos dias uma aula cancelada continua visível ao aluno (mesma regra do backend). */
+export const CANCELLED_LESSON_VISIBLE_DAYS = 2;
+
+/**
+ * A aula deve aparecer para o aluno? Ativa: sempre. Cancelada (INACTIVE): só por 2 dias — depois do cancelamento
+ * (`cancelledAt`, quando o backend informa) E depois da data da aula (dia civil; a data vem como meia-noite UTC).
+ * Defesa no cliente para backend antigo que ainda devolve canceladas velhas (ex.: de professor inativo).
+ */
+export function isLessonVisible(lesson: Pick<Lesson, "status" | "date" | "cancelledAt">, now: Date = new Date()): boolean {
+  if (lesson.status !== "INACTIVE") return true;
+  const limitDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() - CANCELLED_LESSON_VISIBLE_DAYS);
+  if (dayOnly(lesson.date).getTime() < limitDay.getTime()) return false;
+  if (lesson.cancelledAt) {
+    const cancelled = new Date(lesson.cancelledAt).getTime();
+    if (!Number.isNaN(cancelled) && cancelled < now.getTime() - CANCELLED_LESSON_VISIBLE_DAYS * 86_400_000) return false;
+  }
+  return true;
+}
+
 /** Próxima aula ativa a partir de hoje (lessons/me já vem em ordem crescente de data). */
 export function nextLesson(lessons: Lesson[]): Lesson | null {
   const today = startOfToday().getTime();
@@ -88,8 +107,11 @@ export function resolveClassInfo(
   fallbackUnit?: { name: string; photo?: string | null } | null,
 ): ClassInfo {
   const cls = lesson ? classes?.find((c) => c.id === lesson.classId) : undefined;
-  const unit = lesson?.unit ?? cls?.unit ?? fallbackUnit ?? null;
-  const teacher = lesson?.teacher ?? cls?.teacher ?? null;
+  const rawUnit = lesson?.unit ?? cls?.unit ?? fallbackUnit ?? null;
+  const unit = rawUnit?.name?.trim() ? rawUnit : null;
+  const rawTeacher = lesson?.teacher ?? cls?.teacher ?? null;
+  // Professor inativo/removido pode vir sem nome: nunca mostrar linha vazia.
+  const teacher = rawTeacher?.name?.trim() ? rawTeacher : null;
   const time = [lesson?.startTime ?? cls?.startTime, lesson?.endTime ?? cls?.endTime].filter(Boolean).join(" – ");
   return {
     name: lesson?.class?.name || cls?.name || "Aula",

@@ -11,6 +11,24 @@ export interface ClassStudent {
   studentStatus: "ACTIVE" | "INACTIVE";
   photo?: string | null;
   enrolledAt: string;
+  /** Apelido da ficha (Person.nickname). */
+  nickname?: string | null;
+  /** Corda da graduação mais recente (null = sem graduação). */
+  currentCord?: ClassStudentCord | null;
+  /** Presenças na turma nos últimos 90 dias / aulas ativas já realizadas nesse período / % (null sem aulas) / presenças desde sempre. */
+  presences?: number;
+  lessonsInPeriod?: number;
+  attendanceRate?: number | null;
+  presencesTotal?: number;
+}
+
+/** Corda do aluno (mesmo formato de currentCord da lista de alunos). */
+export interface ClassStudentCord {
+  name: string;
+  style: "SOLID" | "SPLIT" | "BRAIDED";
+  colors: string[];
+  tipStart?: string | null;
+  tipEnd?: string | null;
 }
 
 const classStudentsKey = (classId: number | undefined) => ["classes", "students", classId];

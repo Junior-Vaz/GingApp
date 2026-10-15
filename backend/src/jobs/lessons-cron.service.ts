@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import {
   ClassLessonsRollingService,
@@ -9,6 +9,8 @@ import {
 export const LESSONS_CRON_EXPRESSION = '30 1 * * *';
 export const LESSONS_CRON_TIMEZONE = 'America/Sao_Paulo';
 export const LESSONS_CRON_NAME = 'lessons-rolling-daily';
+/** Espera apos o boot antes da geracao de "recuperacao" (nao disputa CPU/banco com a subida da API). */
+export const LESSONS_BOOT_DELAY_MS = 20_000;
 
 /** LESSONS_CRON=false desliga o job (os testes e2e rodam assim: test/env-setup.ts). Lido a cada chamada. */
 export function isLessonsCronEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -22,11 +24,21 @@ export function isLessonsCronEnabled(env: NodeJS.ProcessEnv = process.env): bool
  * sem esperar o relogio. Falha e logada e nao derruba o processo; a proxima execucao tenta de novo.
  */
 @Injectable()
-export class LessonsCronService {
+export class LessonsCronService implements OnApplicationBootstrap {
   private readonly logger = new Logger(LessonsCronService.name);
   private running = false;
 
   constructor(private readonly rolling: ClassLessonsRollingService) {}
+
+  /**
+   * Geracao de RECUPERACAO no boot: o relogio das 01:30 pode ter passado com a API fora do ar (deploy/reinicio) ou antes
+   * de uma turma existir/migrar para aulas continuas — ate la a turma ficaria sem aulas a frente. Como o `run` e
+   * idempotente (nunca duplica, nunca recria aula cancelada), rodar de novo a cada subida e seguro.
+   */
+  onApplicationBootstrap(): void {
+    if (!isLessonsCronEnabled()) return;
+    setTimeout(() => void this.run(), LESSONS_BOOT_DELAY_MS).unref();
+  }
 
   @Cron(LESSONS_CRON_EXPRESSION, { name: LESSONS_CRON_NAME, timeZone: LESSONS_CRON_TIMEZONE })
   async handleCron(): Promise<void> {

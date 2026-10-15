@@ -1,6 +1,6 @@
 import { plural } from "@/lib/plural";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, CheckCheck, ClipboardCheck, Layers, Loader2, X } from "lucide-react";
+import { Ban, Check, CheckCheck, ClipboardCheck, Layers, Loader2, RotateCcw, X } from "lucide-react";
 import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { StudentAvatar } from "@/components/painel/student-avatar";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { errorMessage } from "@/lib/api";
 import { useCan } from "@/lib/session";
 import { cn } from "@/lib/utils";
-import { useQuickSessions, useRoster, useSaveAttendance, type QuickSession } from "./frequencia-api";
+import { useQuickSessions, useReactivateLesson, useRoster, useSaveAttendance, type QuickSession } from "./frequencia-api";
 import { markAll, setPresence, summarize, toRows, type RosterRow } from "./roster";
 
 const STATUS_LABEL: Record<QuickSession["status"], string> = {
@@ -40,7 +40,10 @@ export function QuickAttendance() {
 function QuickAttendanceFab() {
   const [open, setOpen] = useState(false);
   const sessionsQuery = useQuickSessions(true);
-  const sessions = useMemo(() => sessionsQuery.data ?? [], [sessionsQuery.data]);
+  const allSessions = useMemo(() => sessionsQuery.data ?? [], [sessionsQuery.data]);
+  // Aulas ATIVAS marcam presença; as CANCELADAS de hoje só aparecem numa seção própria (o servidor as manda por último).
+  const sessions = useMemo(() => allSessions.filter((s) => !s.cancelled), [allSessions]);
+  const cancelledToday = useMemo(() => allSessions.filter((s) => s.cancelled), [allSessions]);
   const hasOngoing = sessions.some((s) => s.status === "ONGOING");
   const count = sessions.length;
   // Celular: o painel abre como folha de baixo (quase tela cheia) em vez de popover ancorado ao botão.
@@ -48,6 +51,7 @@ function QuickAttendanceFab() {
   const panel = (
     <QuickAttendancePanel
       sessions={sessions}
+      cancelledToday={cancelledToday}
       isLoading={sessionsQuery.isLoading}
       error={sessionsQuery.error}
       onRetry={() => void sessionsQuery.refetch()}
@@ -122,17 +126,21 @@ function QuickAttendanceFab() {
 
 function QuickAttendancePanel({
   sessions,
+  cancelledToday,
   isLoading,
   error,
   onRetry,
   onClose,
 }: {
   sessions: QuickSession[];
+  cancelledToday: QuickSession[];
   isLoading: boolean;
   error: unknown;
   onRetry: () => void;
   onClose: () => void;
 }) {
+  const canEditLessons = useCan("lessons", "edit");
+  const reactivate = useReactivateLesson();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [rows, setRows] = useState<RosterRow[]>([]);
   const [dirty, setDirty] = useState(false);
@@ -244,6 +252,39 @@ function QuickAttendancePanel({
     );
   }
 
+  const cancelledSection =
+    cancelledToday.length > 0 ? (
+      <section aria-label="Canceladas hoje" data-testid="quick-cancelled-section" className="max-h-48 shrink-0 overflow-y-auto border-t p-3 first:border-t-0">
+        <h3 className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-muted-foreground">
+          <Ban className="size-3.5" aria-hidden /> Canceladas hoje
+        </h3>
+        <ul className="space-y-2">
+          {cancelledToday.map((s) => (
+            <li key={s.lessonId} data-testid="quick-cancelled-row" className="flex items-center gap-2 rounded-lg border bg-muted/40 p-2">
+              <EntityAvatar name={s.className} photo={s.classPhoto} icon={Layers} className="size-9 opacity-60" />
+              <span className="min-w-0 flex-1 text-xs leading-tight">
+                <span className="block truncate text-sm font-bold">{s.className}</span>
+                <span className="block text-muted-foreground">
+                  {timeLabel(s)} · <span className="font-semibold text-destructive">Cancelada</span>
+                </span>
+              </span>
+              {canEditLessons && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={reactivate.isPending}
+                  aria-label={`Reativar aula: ${s.className}`}
+                  onClick={() => reactivate.mutate(s.lessonId)}
+                >
+                  {reactivate.isPending ? <Loader2 className="animate-spin" /> : <RotateCcw />} Reativar aula
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </section>
+    ) : null;
+
   let body;
   if (isLoading) {
     body = (
@@ -261,11 +302,21 @@ function QuickAttendancePanel({
         </Button>
       </div>
     );
-  } else if (sessions.length === 0) {
+  } else if (sessions.length === 0 && cancelledToday.length === 0) {
     body = (
       <p className="p-8 text-center text-sm text-muted-foreground" data-testid="quick-sessions-empty">
         Nenhuma aula hoje.
       </p>
+    );
+  } else if (sessions.length === 0) {
+    // Só há aula(s) cancelada(s) hoje: diz isso (em vez de "Nenhuma aula hoje") e oferece reativar.
+    body = (
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <p className="px-4 pt-4 text-center text-sm text-muted-foreground" data-testid="quick-sessions-all-cancelled">
+          {cancelledToday.length === 1 ? "A aula de hoje está cancelada." : "As aulas de hoje estão canceladas."}
+        </p>
+        {cancelledSection}
+      </div>
     );
   } else {
     body = (
@@ -336,6 +387,7 @@ function QuickAttendancePanel({
             {save.isPending ? "Salvando…" : "Salvar chamada"}
           </Button>
         </div>
+        {cancelledSection}
       </>
     );
   }

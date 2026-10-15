@@ -207,12 +207,12 @@ describe('Gatilhos de notificação (e2e)', () => {
       assert.equal((await last(fixture.self.userId, 'LESSON_CHANGED')).title, 'Aula reativada');
     });
 
-    it('DELETE /lessons/:id (cancelar) avisa uma vez', async () => {
+    it('PATCH status INACTIVE (cancelar) avisa uma vez', async () => {
       const l = await newLesson(fixture.classMineId, futureDay(20));
       const before = await count(fixture.self.userId, 'LESSON_CANCELLED');
-      await request(app.getHttpServer()).delete(`/api/lessons/${l.id}`).set(auth(mestre.token)).expect(200);
+      await request(app.getHttpServer()).patch(`/api/lessons/${l.id}`).set(auth(mestre.token)).send({ status: 'INACTIVE' }).expect(200);
       assert.equal(await count(fixture.self.userId, 'LESSON_CANCELLED'), before + 1);
-      await request(app.getHttpServer()).delete(`/api/lessons/${l.id}`).set(auth(mestre.token)).expect(200);
+      await request(app.getHttpServer()).patch(`/api/lessons/${l.id}`).set(auth(mestre.token)).send({ status: 'INACTIVE' }).expect(200);
       assert.equal(await count(fixture.self.userId, 'LESSON_CANCELLED'), before + 1);
     });
 

@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
-import { Ban, Layers, Pencil, UserRound } from "lucide-react";
+import { Ban, Layers, Pencil, RotateCcw, Trash2, UserRound } from "lucide-react";
 import { DataTable, type Column } from "@/components/painel/data-table";
 import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { FormDialog } from "@/components/painel/form-dialog";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
+import { StrongConfirmDialog } from "@/components/painel/strong-confirm-dialog";
 import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,26 +12,38 @@ import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/comp
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { dayOnly, fmt } from "@/lib/format";
+import { plural } from "@/lib/plural";
 import { currentLessonWindow } from "@/lib/lesson-window";
 import { useListParams } from "@/lib/list-params";
-import { useCan } from "@/lib/session";
+import { errorMessage } from "@/lib/api";
+import { useCan, useSessionUser } from "@/lib/session";
 import { NativeSelect } from "./native-select";
 import {
   OPTIONS_LIMIT,
   STATUS_LABEL,
   isoDay,
   lessons,
+  readLessonStatusFilter,
+  saveLessonStatusFilter,
   timeRange,
+  useBulkDeleteCancelled,
+  useCancelLesson,
+  useCancelledDeleteImpact,
   useClassOptions,
+  useDeleteLesson,
+  useLessonCounts,
+  useLessonDeleteImpact,
+  useReactivateLessons,
   useTeacherOptions,
   type Lesson,
+  type LessonStatusFilter,
 } from "./aulas-api";
 import { emptyValues, lessonSchema, toFormValues, toPayload, type LessonFormValues } from "./aulas-form";
 
 export function AulasPage() {
   // Padrão de lista no servidor: params (busca/filtros/página) -> usePage -> DataTable server.
   // `from`/`to` são datas (YYYY-MM-DD); o backend inclui o dia inteiro de `to`.
-  const lp = useListParams({ pageSize: 10, filters: { classId: "", status: "", from: "", to: "" } });
+  const lp = useListParams({ pageSize: 10, filters: { classId: "", status: readLessonStatusFilter() as string, from: "", to: "" } });
   // Período: "Atual" = de hoje-7 a hoje+30 dias; "Todas" = sem from/to. Sempre order=nearest (hoje e futuras primeiro,
   // depois as passadas da mais recente à mais antiga). Datas escolhidas à mão (De/Até) têm prioridade sobre o período.
   const [period, setPeriod] = useState<"current" | "all">("current");
@@ -48,9 +61,16 @@ export function AulasPage() {
     [baseParams, period, customDates, windowFrom],
   );
   const list = lessons.usePage(params);
+  // Totais por status com os mesmos filtros da lista (sem o status): "N ativas · M canceladas".
+  const counts = useLessonCounts({ classId: lp.filters.classId, from: params.from, to: params.to, q: baseParams["q"] });
+  const reactivateAll = useReactivateLessons();
+  const [reactivating, setReactivating] = useState(false);
   const create = lessons.useCreate();
   const update = lessons.useUpdate();
-  const remove = lessons.useRemove();
+  const cancelLesson = useCancelLesson();
+  const deleteLesson = useDeleteLesson();
+  const bulkDelete = useBulkDeleteCancelled();
+  const isMestre = useSessionUser()?.role === "MESTRE"; // apagar de verdade: só o Mestre (backend: MestreOnlyGuard, 403)
   const canCreate = useCan("lessons", "create"); // MONITOR: só leitura (sem "Nova aula")
   const canEdit = useCan("lessons", "edit");
   const canDelete = useCan("lessons", "delete"); // cancelar aula = DELETE; PROFESSOR sem lessons:delete (403)
@@ -59,6 +79,11 @@ export function AulasPage() {
 
   const [editing, setEditing] = useState<Lesson | "new" | null>(null);
   const [cancelling, setCancelling] = useState<Lesson | null>(null);
+  const [deleting, setDeleting] = useState<Lesson | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const deleteImpact = useLessonDeleteImpact(deleting?.id);
+  const bulkClassId = lp.filters.classId ? Number(lp.filters.classId) : undefined;
+  const bulkImpact = useCancelledDeleteImpact(bulkClassId, bulkOpen);
   const classItems = classes.data?.items ?? [];
   const teacherItems = teachers.data?.items ?? [];
   const classesTruncated = (classes.data?.total ?? 0) > OPTIONS_LIMIT;
@@ -76,7 +101,23 @@ export function AulasPage() {
     const fromClass = classItems.find((c) => c.id === l.classId)?.teacherUserId;
     return fromClass ? `${nameOfTeacher(fromClass)} (turma)` : "—";
   };
-  const hasFilters = Object.values(lp.filters).some(Boolean);
+  // Ativas é o padrão: só conta como filtro "ligado" o que foge dele.
+  const hasFilters = Object.entries(lp.filters).some(([key, value]) => (key === "status" ? value !== "ACTIVE" : Boolean(value)));
+  const statusFilter = lp.filters.status as LessonStatusFilter;
+  function changeStatus(value: string) {
+    const next: LessonStatusFilter = value === "INACTIVE" ? "INACTIVE" : value === "ACTIVE" ? "ACTIVE" : "";
+    saveLessonStatusFilter(next);
+    lp.setFilter("status", next);
+  }
+  /** Período efetivo da lista (o que a reativação em massa vai cobrir). Ponta aberta = sem limite. */
+  const rangeFrom = params.from ?? "";
+  const rangeTo = params.to ?? "";
+  const rangeLabel =
+    rangeFrom || rangeTo
+      ? `${rangeFrom ? fmt(dayOnly(rangeFrom), "dd/MM/yyyy") : "sem início"} a ${rangeTo ? fmt(dayOnly(rangeTo), "dd/MM/yyyy") : "sem fim"}`
+      : "todas as datas";
+  const classFilterLabel = lp.filters.classId ? className(Number(lp.filters.classId)) : "todas as turmas";
+  const cancelledTotal = list.total;
 
   const columns: Column<Lesson>[] = [
     {
@@ -122,9 +163,15 @@ export function AulasPage() {
     <>
       <PageHeader
         title="Aulas"
-        description="Aulas agendadas do grupo."
+        description="Aulas agendadas do grupo. As aulas contínuas aparecem aqui assim que são geradas; turmas com “Aulas contínuas” ligado geram sozinhas ~60 dias à frente."
         actions={canCreate ? <Button onClick={() => setEditing("new")}>Nova aula</Button> : undefined}
       />
+      {counts.data && (
+        <p data-testid="aulas-counts" className="mb-2 text-sm text-muted-foreground">
+          <span className="font-semibold text-foreground">{plural(counts.data.active, "ativa")}</span> ·{" "}
+          {plural(counts.data.cancelled, "cancelada")}
+        </p>
+      )}
       <DataTable
         columns={columns}
         data={list.items}
@@ -153,12 +200,22 @@ export function AulasPage() {
               aria-label="Filtrar por status"
               className="w-36"
               value={lp.filters.status}
-              onChange={(e) => lp.setFilter("status", e.target.value)}
+              onChange={(e) => changeStatus(e.target.value)}
             >
-              <option value="">Todos os status</option>
               <option value="ACTIVE">Ativas</option>
               <option value="INACTIVE">Canceladas</option>
+              <option value="">Todas</option>
             </NativeSelect>
+            {canEdit && statusFilter === "INACTIVE" && cancelledTotal > 0 && (
+              <Button variant="outline" size="sm" onClick={() => setReactivating(true)}>
+                <RotateCcw /> Reativar todas ({cancelledTotal})
+              </Button>
+            )}
+            {isMestre && ((counts.data?.cancelled ?? 0) > 0 || statusFilter === "INACTIVE") && (
+              <Button variant="outline" size="sm" className="text-destructive" onClick={() => setBulkOpen(true)}>
+                <Trash2 /> Apagar canceladas
+              </Button>
+            )}
             <NativeSelect
               aria-label="Período"
               className="w-44"
@@ -187,9 +244,25 @@ export function AulasPage() {
                 <Pencil /> Editar
               </Button>
             )}
+            {canEdit && l.status === "INACTIVE" && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={update.isPending}
+                onClick={() => update.mutate({ id: l.id, data: { status: "ACTIVE" } })}
+                aria-label={`Reativar aula de ${className(l.classId)}`}
+              >
+                <RotateCcw /> Reativar
+              </Button>
+            )}
             {canDelete && l.status === "ACTIVE" && (
               <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setCancelling(l)} aria-label={`Cancelar aula de ${className(l.classId)}`}>
                 <Ban /> Cancelar
+              </Button>
+            )}
+            {isMestre && (
+              <Button variant="ghost" size="sm" className="text-destructive" onClick={() => setDeleting(l)} aria-label={`Apagar aula de ${className(l.classId)}`}>
+                <Trash2 /> Apagar
               </Button>
             )}
           </>
@@ -277,6 +350,31 @@ export function AulasPage() {
       </FormDialog>
 
       <ConfirmDialog
+        open={reactivating}
+        onOpenChange={setReactivating}
+        title="Reativar aulas canceladas?"
+        variant="default"
+        description={
+          <>
+            Vão voltar a ficar ativas {plural(cancelledTotal, "aula cancelada", "aulas canceladas")}.{" "}
+            <span data-testid="reactivate-scope">
+              Turma: {classFilterLabel} · Período: {rangeLabel}.
+            </span>{" "}
+            Os alunos não serão avisados (o aviso só sai ao reativar uma aula por vez).
+          </>
+        }
+        confirmLabel={`Reativar ${plural(cancelledTotal, "aula")}`}
+        cancelLabel="Voltar"
+        onConfirm={() =>
+          reactivateAll.mutateAsync({
+            ...(lp.filters.classId ? { classId: Number(lp.filters.classId) } : {}),
+            from: rangeFrom || "1970-01-01",
+            to: rangeTo || "2100-12-31",
+          })
+        }
+      />
+
+      <ConfirmDialog
         open={cancelling !== null}
         onOpenChange={(open) => !open && setCancelling(null)}
         title="Cancelar aula?"
@@ -287,7 +385,49 @@ export function AulasPage() {
         }
         confirmLabel="Cancelar aula"
         cancelLabel="Voltar"
-        onConfirm={() => remove.mutateAsync(cancelling!.id)}
+        onConfirm={() => cancelLesson.mutateAsync(cancelling!.id)}
+      />
+
+      <StrongConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title="Apagar aula definitivamente?"
+        description={
+          deleting
+            ? `A aula de "${lessonClassName(deleting)}" em ${fmt(dayOnly(deleting.date), "dd/MM/yyyy")} será apagada do sistema. Para só tirar a aula da agenda, use "Cancelar".`
+            : undefined
+        }
+        impactLoading={deleting !== null && deleteImpact.isLoading}
+        impactError={deleteImpact.error ? errorMessage(deleteImpact.error, "Não foi possível calcular o impacto.") : null}
+        impact={
+          deleteImpact.data
+            ? `Isto apagará 1 aula e ${plural(deleteImpact.data.attendances, "presença")}. Não pode ser desfeito.`
+            : undefined
+        }
+        phrase="APAGAR"
+        onConfirm={() => deleteLesson.mutateAsync({ id: deleting!.id, confirm: (deleteImpact.data?.attendances ?? 0) > 0 })}
+      />
+
+      <StrongConfirmDialog
+        open={bulkOpen}
+        onOpenChange={setBulkOpen}
+        title="Apagar aulas canceladas?"
+        description={`Escopo: ${classFilterLabel}, de qualquer data (o período da lista não limita). Só aulas CANCELADAS são apagadas; as ativas ficam.`}
+        impactLoading={bulkOpen && bulkImpact.isLoading}
+        impactError={bulkImpact.error ? errorMessage(bulkImpact.error, "Não foi possível calcular o impacto.") : null}
+        impact={
+          bulkImpact.data
+            ? `Isto apagará ${plural(bulkImpact.data.lessons, "aula cancelada", "aulas canceladas")} e ${plural(bulkImpact.data.attendances, "presença")}. Não pode ser desfeito.`
+            : undefined
+        }
+        phrase="APAGAR"
+        confirmLabel="Apagar canceladas"
+        onConfirm={() =>
+          bulkDelete.mutateAsync({
+            ...(bulkClassId !== undefined ? { classId: bulkClassId } : {}),
+            confirm: (bulkImpact.data?.attendances ?? 0) > 0,
+          })
+        }
       />
     </>
   );

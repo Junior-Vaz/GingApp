@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { api, type Page } from "@/lib/api";
 import { notifyError } from "@/lib/crud";
 import { currentLessonWindow } from "@/lib/lesson-window";
-import type { ClassOption, Lesson } from "@/modules/aulas/aulas-api";
+import { lessons as lessonsCrud, type ClassOption, type Lesson } from "@/modules/aulas/aulas-api";
 import { ORG_KEY, fetchOwnOrganization } from "@/modules/configuracoes/org-api";
 import { buildPayload, type AttendancePayloadEntry, type RosterEntry, type RosterRow } from "./roster";
 
@@ -117,6 +117,8 @@ export interface QuickSession {
   status: "UPCOMING" | "ONGOING" | "ENDED";
   studentsCount: number;
   markedCount: number;
+  /** true = a aula de hoje está CANCELADA (vem depois das ativas; não marca presença). Ausente = aula ativa. */
+  cancelled?: boolean;
 }
 
 export const QUICK_SESSIONS_KEY = ["frequencia", "quick-sessions"];
@@ -129,5 +131,22 @@ export function useQuickSessions(enabled: boolean) {
     enabled,
     refetchInterval: 60_000,
     staleTime: 15_000,
+  });
+}
+
+/**
+ * Reativa uma aula cancelada (PATCH /lessons/:id { status: "ACTIVE" }, `lessons:edit`). O backend limpa o cancelamento e
+ * avisa os alunos da turma ("Aula reativada") como em qualquer reativação. Atualiza as aulas de hoje e a tela Aulas.
+ */
+export function useReactivateLesson() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (lessonId: number) => api.patch<Lesson>(`/lessons/${lessonId}`, { status: "ACTIVE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: QUICK_SESSIONS_KEY });
+      void queryClient.invalidateQueries({ queryKey: lessonsCrud.rootKey });
+      toast.success("Aula reativada.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível reativar a aula."),
   });
 }

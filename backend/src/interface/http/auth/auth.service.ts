@@ -104,7 +104,7 @@ export class AuthService {
   /** Sessao completa (auditoria + accessToken) de um login de grupo ja autenticado (senha e, se houver, 2FA). */
   private async memberSession(
     user: User,
-    membership: { organizationId: number; role: OrgRole; organization: { slug: string; logo?: string | null } },
+    membership: { organizationId: number; role: OrgRole; organization: { slug: string; name?: string; logo?: string | null } },
   ): Promise<AuthResponse> {
     await this.audit.record({
       organizationId: membership.organizationId,
@@ -134,8 +134,10 @@ export class AuthService {
         isSuperAdmin: user.isSuperAdmin,
         organizationId: membership.organizationId,
         organizationSlug: membership.organization.slug,
+        organizationName: membership.organization.name ?? null,
         organizationLogoUrl: membership.organization.logo ?? null,
         role: membership.role,
+        photo: user.photo ?? null,
         mustChangePassword: user.mustChangePassword,
         twoFactorEnabled: user.twoFactorEnabled,
         ...buildTermsStatus(user),
@@ -185,6 +187,7 @@ export class AuthService {
         email: user.email,
         userType: user.userType,
         isSuperAdmin: user.isSuperAdmin,
+        photo: user.photo ?? null,
         mustChangePassword: user.mustChangePassword,
         twoFactorEnabled: user.twoFactorEnabled,
         ...buildTermsStatus(user),

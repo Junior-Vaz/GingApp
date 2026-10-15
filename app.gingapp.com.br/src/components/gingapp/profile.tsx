@@ -1,24 +1,57 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Award, Check, Facebook, Instagram, LogOut, MessageCircle, QrCode, Sprout, Users, X, Youtube, Music2 } from "lucide-react";
+import {
+  Award,
+  Bell,
+  Check,
+  Facebook,
+  FileText,
+  Instagram,
+  LayoutDashboard,
+  Loader2,
+  LogOut,
+  MessageCircle,
+  Music2,
+  QrCode,
+  Route as RouteIcon,
+  ShieldCheck,
+  ShieldAlert,
+  Sprout,
+  Trophy,
+  CalendarCheck,
+  Wallet,
+  Users,
+  UserRound,
+  Pencil,
+  X,
+  Youtube,
+  ArrowRightLeft,
+  Lock,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { api, errorMessage } from "@/lib/api";
 import { logout } from "@/lib/auth";
 import { buildProfilePayload, passportActions } from "@/lib/derive";
 import { dayOnly, fmt, passportUrl } from "@/lib/format";
 import { useSessionUser } from "@/lib/session";
 import { plural } from "@/lib/plural";
-import { imageSrc } from "@/lib/uploads";
+import { isPushSupported, needsIosInstall, usePushConfig } from "@/lib/push";
 import {
-  useGraduations,
+  useFicha,
   useMyIdentity,
   useMyRoles,
   useMyStudent,
   useMyUnit,
+  useOccurrences,
   usePassport,
   useStudents,
+  useTransfers,
   type SocialLinks,
   type Student,
 } from "@/lib/queries";
@@ -29,13 +62,14 @@ import { FichaEditSection } from "./ficha-edit";
 import { ImageUploadControl } from "./image-upload";
 import { MyDataSection } from "./legal";
 import { QrDialog } from "./journey";
-import { PanelShortcut, RoleBadges } from "./roles";
+import { PanelShortcut } from "./roles";
 import { TwoFactorSection } from "./two-factor";
-import { PageHeading, StateMessage } from "./shared";
-import { Avatar } from "./avatar";
+import { StateMessage } from "./shared";
 import { Rope } from "./rope";
 import { OccurrencesShortcut } from "./occurrences";
 import { TransfersShortcut } from "./transfers";
+import { PushSettings } from "./push-settings";
+import { DependentChips, InstallRow, LinkRow, ProfileCard, ProfileHero, ProfileHighlights, ProfileSkeleton } from "./profile-parts";
 
 const ROLE_LABEL: Record<string, string> = {
   ALUNO: "Aluno",
@@ -69,10 +103,12 @@ function UrlField({ id, label, value, onChange, placeholder }: { id: string; lab
   );
 }
 
-export function ProfileForm({ student }: { student: Student }) {
-  const queryClient = useQueryClient();
+type ProfileFormState = { photo: string; coverPhoto: string; instagram: string; youtube: string; tiktok: string; facebook: string; whatsapp: string };
+
+/** Estado inicial do formulário a partir do aluno (campos ausentes viram texto vazio). */
+function formFromStudent(student: Student): ProfileFormState {
   const links = student.socialLinks ?? {};
-  const [form, setForm] = useState({
+  return {
     photo: student.photo ?? "",
     coverPhoto: student.coverPhoto ?? "",
     instagram: links.instagram ?? "",
@@ -80,22 +116,32 @@ export function ProfileForm({ student }: { student: Student }) {
     tiktok: links.tiktok ?? "",
     facebook: links.facebook ?? "",
     whatsapp: links.whatsapp ?? "",
-  });
-  const set = (key: keyof typeof form) => (value: string) => setForm((prev) => ({ ...prev, [key]: value }));
+  };
+}
 
-  const save = useMutation({
+/** Salva foto, capa e redes (PATCH /students/me/profile): ÚNICO caminho de gravação, usado pelo formulário e pela troca rápida de foto. */
+function useSaveProfile(onSaved?: () => void) {
+  const queryClient = useQueryClient();
+  return useMutation({
     // Campo vazio => null (limpa no servidor); ver buildProfilePayload.
-    mutationFn: () => api.patch("/students/me/profile", buildProfilePayload(form)),
+    mutationFn: (form: ProfileFormState) => api.patch("/students/me/profile", buildProfilePayload(form)),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["students"] });
       toast.success("Perfil atualizado.");
+      onSaved?.();
     },
     onError: (error) => toast.error(errorMessage(error, "Não foi possível salvar o perfil.")),
   });
+}
+
+export function ProfileForm({ student }: { student: Student }) {
+  const [form, setForm] = useState<ProfileFormState>(() => formFromStudent(student));
+  const set = (key: keyof ProfileFormState) => (value: string) => setForm((prev) => ({ ...prev, [key]: value }));
+  const save = useSaveProfile();
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    save.mutate();
+    save.mutate(form);
   }
 
   return (
@@ -127,19 +173,80 @@ export function ProfileForm({ student }: { student: Student }) {
   );
 }
 
+/** Troca rápida da foto (botão de câmera do avatar): envia a imagem e salva só a foto, mantendo capa e redes. */
+function PhotoDialog({ open, onOpenChange, student }: { open: boolean; onOpenChange: (open: boolean) => void; student: Student }) {
+  const [photo, setPhoto] = useState(student.photo ?? "");
+  const save = useSaveProfile(() => onOpenChange(false));
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogTitle>Trocar foto do perfil</DialogTitle>
+        <DialogDescription>Envie uma imagem JPEG, PNG ou WebP de até 5 MB.</DialogDescription>
+        <ImageUploadControl label="foto" value={photo} onChange={setPhoto} />
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancelar
+          </Button>
+          <Button type="button" disabled={save.isPending} onClick={() => save.mutate({ ...formFromStudent(student), photo })}>
+            {save.isPending ? <Loader2 className="animate-spin" /> : <Check />}
+            {save.isPending ? "Salvando…" : "Salvar foto"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Folha de edição (lateral no desktop, de baixo no celular): foto, capa, redes e dados da ficha (apelido/telefone). */
+function ProfileEditSheet({ open, onOpenChange, own, canEditFicha }: { open: boolean; onOpenChange: (open: boolean) => void; own: Student | null; canEditFicha: boolean }) {
+  const mobile = useIsMobile();
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side={mobile ? "bottom" : "right"} className="pf-sheet" data-testid="profile-edit-sheet">
+        <SheetHeader>
+          <SheetTitle>Editar perfil</SheetTitle>
+          <SheetDescription>Foto, capa, redes sociais e dados da sua ficha.</SheetDescription>
+        </SheetHeader>
+        {own ? (
+          <ProfileForm key={own.id + (own.photo ?? "") + (own.coverPhoto ?? "") + JSON.stringify(own.socialLinks ?? null)} student={own} />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Esta conta não tem um perfil de aluno próprio, então foto, capa e redes sociais não podem ser editadas.
+          </p>
+        )}
+        {canEditFicha && <FichaEditSection />}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function DataRow({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="pf-data-row">
+      <dt>{label}</dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
 export function ProfilePage() {
   const user = useSessionUser();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const students = useStudents();
-  const { student } = useMyStudent();
+  const { student, students: myStudents, selectStudent } = useMyStudent();
   const own = students.data?.find((s) => s.userId === user?.id) ?? null;
   const passport = usePassport();
   const myUnit = useMyUnit();
   const identity = useMyIdentity();
   const roles = useMyRoles();
-  const graduations = useGraduations(student?.id); // passaporte e graduação: do aluno ATIVO (seletor)
+  const ficha = useFicha();
+  const transfers = useTransfers();
+  const occurrences = useOccurrences();
+  const pushConfig = usePushConfig();
   const [qrOpen, setQrOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [photoOpen, setPhotoOpen] = useState(false);
 
   const passportAction = useMutation({
     mutationFn: async (action: "publish" | "unpublish" | "consent") => {
@@ -156,14 +263,19 @@ export function ProfilePage() {
     onError: (error) => toast.error(errorMessage(error, "Não foi possível atualizar o passaporte.")),
   });
 
-  // A cordinha ao lado do nome da conta só vale quando o aluno ativo é o PRÓPRIO usuário; a de um
-  // dependente aparece no cartão do passaporte (abaixo), não ao lado do nome do responsável.
-  const first = own && student?.id === own.id ? graduations.data?.[0] : undefined;
+  // Apelido/edição da ficha só valem quando o aluno ativo é o PRÓPRIO usuário (o de um dependente é de outra pessoa).
+  const ownIsActive = own !== null && student?.id === own.id;
   const links = own?.socialLinks ?? {};
   const socials = SOCIAL_FIELDS.filter((field) => links[field.key]);
   const p = passport.data;
   const code = p?.publicProfile?.publicCode;
   const actions = passportActions(p?.viewer, user?.role);
+  const must = user?.mustChangePassword === true;
+  const nickname = ownIsActive ? (ficha.data?.person.nickname ?? null) : null;
+  const groupName = identity.groupName ?? p?.organization.name ?? null;
+  const unitName = myUnit?.name ?? p?.unit?.name ?? null;
+  const showPush = pushConfig.data?.enabled === true && (needsIosInstall() || isPushSupported());
+  const hasTransferOrOccurrence = (transfers.data?.length ?? 0) > 0 || (occurrences.data?.length ?? 0) > 0;
 
   function handleLogout() {
     logout(queryClient);
@@ -171,69 +283,69 @@ export function ProfilePage() {
   }
 
   return (
-    <>
-      <PageHeading title="Meu perfil" subtitle="Sua identidade, suas raízes e sua capoeira." />
+    <div className="pf" data-testid="profile-page">
+      <h1 className="sr-only">Meu perfil</h1>
       {students.error && <StateMessage tone="error">{errorMessage(students.error, "Não foi possível carregar o perfil.")}</StateMessage>}
-      <div className="profile-layout">
-        <div>
-          {own?.coverPhoto && (
-            <img src={imageSrc(own.coverPhoto)} alt="" className="mb-5 h-36 w-full rounded-lg object-cover" />
-          )}
-          <div className="profile-identity">
-            <Avatar name={user?.name} src={own?.photo} size={72} groupName={identity.groupName ?? p?.organization.name} groupLogoUrl={identity.groupLogoUrl} />
-            <div>
-              <h2>{user?.name}</h2>
-              <RoleBadges roles={roles} className="mb-1" />
-              <p>
-                {roles.length > 0 ? "Aluno" : (ROLE_LABEL[user?.role ?? ""] ?? user?.role)}
-                {first ? ` · ${first.graduationLevel.name}` : ""}
-              </p>
-              {p && <span className="badge mt-2">{p.organization.name}</span>}
-            </div>
-          </div>
-          {socials.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-5">
-              {socials.map((field) => (
-                <Button key={field.key} variant="outline" size="icon" asChild aria-label={field.label} title={field.label}>
-                  <a href={links[field.key]} target="_blank" rel="noopener noreferrer">
-                    <field.icon />
-                  </a>
-                </Button>
-              ))}
-            </div>
-          )}
-          {own ? (
-            <ProfileForm key={own.id + (own.photo ?? "") + (own.coverPhoto ?? "") + JSON.stringify(own.socialLinks ?? null)} student={own} />
-          ) : (
-            !students.isLoading && (
-              <p className="text-xs text-muted-foreground">
-                Esta conta não tem um perfil de aluno próprio, então foto, capa e redes sociais não podem ser editadas.
-              </p>
-            )
-          )}
-          {user?.mustChangePassword && (
-            <p role="alert" className="mt-4 rounded-md border border-primary/40 bg-primary/10 p-3 text-sm" data-testid="must-change-password">
-              Sua senha foi definida pelo seu mestre ou professor. Crie uma senha nova abaixo para continuar usando o aplicativo.
-            </p>
-          )}
-          {!user?.mustChangePassword && <PanelShortcut roles={roles} />}
-          {!user?.mustChangePassword && <PersonCodeCard />}
-          {!user?.mustChangePassword && <TransfersShortcut />}
-          {!user?.mustChangePassword && <OccurrencesShortcut />}
-          {!user?.mustChangePassword && own && student?.id === own.id && <FichaEditSection />}
-          <ChangePasswordSection />
-          {!user?.mustChangePassword && <TwoFactorSection />}
-          {!user?.mustChangePassword && <MyDataSection />}
-          <Button variant="outline" className="mt-6" onClick={handleLogout}>
-            <LogOut />
-            Sair da conta
-          </Button>
+
+      {students.isLoading ? (
+        <ProfileSkeleton />
+      ) : (
+        <div className="pf-hero-wrap">
+          <ProfileHero
+            name={user?.name ?? ""}
+            nickname={nickname}
+            photo={own?.photo ?? identity.photo}
+            coverPhoto={own?.coverPhoto ?? null}
+            groupName={groupName}
+            groupLogoUrl={identity.groupLogoUrl}
+            unitName={unitName}
+            baseRole={roles.length > 0 ? "Aluno" : (ROLE_LABEL[user?.role ?? ""] ?? user?.role ?? "")}
+            roles={roles}
+            canEdit={own !== null}
+            onEdit={() => setEditOpen(true)}
+            onChangePhoto={() => setPhotoOpen(true)}
+            extra={
+              socials.length > 0 ? (
+                <div className="pf-socials">
+                  {socials.map((field) => (
+                    <a key={field.key} href={links[field.key]} target="_blank" rel="noopener noreferrer" aria-label={field.label} title={field.label}>
+                      <field.icon aria-hidden="true" />
+                    </a>
+                  ))}
+                </div>
+              ) : null
+            }
+            footer={<DependentChips students={myStudents} activeId={student?.id} onSelect={selectStudent} />}
+          />
         </div>
-        <div>
+      )}
+
+      {must && (
+        <p role="alert" className="pf-alert" data-testid="must-change-password">
+          <ShieldAlert aria-hidden="true" />
+          <span>Sua senha foi definida pelo seu mestre ou professor. Crie uma senha nova abaixo para continuar usando o aplicativo.</span>
+        </p>
+      )}
+
+      {!must && <ProfileHighlights />}
+
+      <div className="pf-grid">
+        <div className="pf-col">
+          {!must && (
+            <ProfileCard icon={RouteIcon} title="Minha jornada" id="pf-journey-title" testId="profile-journey">
+              <div className="pf-rows">
+                <LinkRow to="/jornada" icon={RouteIcon} label="Jornada" hint="Graduações e evolução" />
+                <LinkRow to="/ranking" icon={Trophy} label="Ranking" hint="Sua liga e seus pontos" />
+                <LinkRow to="/frequencia" icon={CalendarCheck} label="Frequência" hint="Presenças e faltas" />
+                <LinkRow to="/financeiro" icon={Wallet} label="Financeiro" hint="Mensalidades e pagamentos" />
+              </div>
+            </ProfileCard>
+          )}
+
           {passport.isLoading ? (
-            <StateMessage>Carregando passaporte…</StateMessage>
+            <Skeleton className="pf-passport-sk" aria-label="Carregando passaporte" />
           ) : p ? (
-            <div className="passport">
+            <div className="passport" data-testid="profile-passport">
               <span className="eyebrow">
                 <Sprout size={13} />
                 Passaporte do capoeirista
@@ -246,7 +358,7 @@ export function ProfilePage() {
                 {p.currentGraduation && <Rope {...p.currentGraduation} orientation="horizontal" length={44} thickness={11} />}
               </div>
               {p.unit && <p className="mt-3">{p.unit.name}</p>}
-              <div className="flex gap-4 mt-4 text-xs">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 mt-4 text-xs">
                 <span>{plural(p.stats.aulas, "aula")}</span>
                 <span>{plural(p.stats.rodas, "roda")}</span>
                 <span>{plural(p.stats.eventos, "evento")}</span>
@@ -260,14 +372,14 @@ export function ProfilePage() {
                   </strong>
                 </div>
                 {p.publicProfile?.isPublished && (
-                  <Button variant="hero" size="icon" aria-label="Ver QR Code do passaporte" title="Ver QR Code do passaporte" onClick={() => setQrOpen(true)}>
+                  <Button variant="hero" size="icon" className="pf-touch" aria-label="Ver QR Code do passaporte" title="Ver QR Code do passaporte" onClick={() => setQrOpen(true)}>
                     <QrCode />
                   </Button>
                 )}
               </div>
               <div className="flex flex-wrap gap-2 mt-4">
                 {p.publicProfile?.isPublished ? (
-                  <Button variant="hero" size="sm" disabled={passportAction.isPending} onClick={() => passportAction.mutate("unpublish")}>
+                  <Button variant="hero" size="sm" className="pf-touch-btn" disabled={passportAction.isPending} onClick={() => passportAction.mutate("unpublish")}>
                     Despublicar passaporte
                   </Button>
                 ) : (
@@ -275,12 +387,12 @@ export function ProfilePage() {
                     {/* Espelha as regras do backend (LGPD): menor não publica sozinho. Sem `viewer`
                         (backend antigo) mantém o comportamento anterior e o backend decide. */}
                     {actions.canPublish && (
-                      <Button variant="hero" size="sm" disabled={passportAction.isPending} onClick={() => passportAction.mutate("publish")}>
+                      <Button variant="hero" size="sm" className="pf-touch-btn" disabled={passportAction.isPending} onClick={() => passportAction.mutate("publish")}>
                         Compartilhar passaporte
                       </Button>
                     )}
                     {actions.canConsent && (
-                      <Button variant="hero" size="sm" disabled={passportAction.isPending} onClick={() => passportAction.mutate("consent")}>
+                      <Button variant="hero" size="sm" className="pf-touch-btn" disabled={passportAction.isPending} onClick={() => passportAction.mutate("consent")}>
                         Autorizar e publicar (responsável)
                       </Button>
                     )}
@@ -294,26 +406,122 @@ export function ProfilePage() {
               </div>
             </div>
           ) : (
-            <StateMessage>Passaporte indisponível para esta conta.</StateMessage>
+            <div className="pf-empty" data-testid="passport-unavailable">
+              <Sprout aria-hidden="true" />
+              <p>Passaporte indisponível para esta conta.</p>
+              <span>Quando houver um perfil de aluno ligado, o passaporte aparece aqui.</span>
+            </div>
           )}
-          <section className="content-band">
-            <h2>Minhas raízes</h2>
-            {p && (
-              <div className="detail-line">
-                <Sprout />
-                {p.organization.name}
-              </div>
+
+          {!must && <PersonCodeCard />}
+
+          <ProfileCard icon={Sprout} title="Minhas raízes" id="pf-roots-title" testId="profile-roots">
+            {p || (students.data ?? []).length > 1 ? (
+              <>
+                {p && (
+                  <div className="detail-line">
+                    <Sprout />
+                    {p.organization.name}
+                  </div>
+                )}
+                {p?.unit && <UnitLine unit={myUnit ?? { name: p.unit.name, photo: p.unit.photo ?? null }} />}
+                {(students.data ?? []).length > 1 && (
+                  <div className="detail-line">
+                    <Users />
+                    Alunos vinculados: {(students.data ?? []).map((s) => s.name).join(", ")}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="pf-hint">Seu grupo e sua unidade aparecem aqui assim que você estiver vinculado a um aluno.</p>
             )}
-            {p?.unit && <UnitLine unit={myUnit ?? { name: p.unit.name, photo: p.unit.photo ?? null }} />}
-            {(students.data ?? []).length > 1 && (
-              <div className="detail-line">
-                <Users />
-                Alunos vinculados: {(students.data ?? []).map((s) => s.name).join(", ")}
-              </div>
+          </ProfileCard>
+        </div>
+
+        <div className="pf-col">
+          <ProfileCard
+            icon={UserRound}
+            title="Dados pessoais"
+            id="pf-data-title"
+            testId="profile-personal"
+            aside={
+              own ? (
+                <Button variant="soft" size="sm" className="pf-touch-btn" onClick={() => setEditOpen(true)}>
+                  <Pencil />
+                  Editar
+                </Button>
+              ) : null
+            }
+          >
+            <dl className="pf-data">
+              <DataRow label="Nome">{user?.name || "—"}</DataRow>
+              <DataRow label="Apelido">{nickname ?? "—"}</DataRow>
+              <DataRow label="E-mail">{user?.email || "—"}</DataRow>
+              <DataRow label="Telefone">
+                <span className="pf-muted-inline">
+                  <Lock aria-hidden="true" /> Protegido. Para trocar, use Editar.
+                </span>
+              </DataRow>
+            </dl>
+            {!own && !students.isLoading && (
+              <p className="pf-hint">Esta conta não tem um perfil de aluno próprio, então foto, capa e redes sociais não podem ser editadas.</p>
             )}
-          </section>
+          </ProfileCard>
+
+          <ProfileCard icon={ShieldCheck} title="Segurança" id="pf-security-title" testId="profile-security">
+            <div className="pf-stack">
+              <ChangePasswordSection />
+              {!must && <TwoFactorSection />}
+            </div>
+          </ProfileCard>
+
+          {showPush && (
+            <ProfileCard icon={Bell} title="Avisos no celular" id="pf-push-title" testId="profile-push">
+              <PushSettings />
+            </ProfileCard>
+          )}
+
+          {!must && hasTransferOrOccurrence && (
+            <ProfileCard icon={ArrowRightLeft} title="Transferências e ocorrências" id="pf-tx-title" testId="profile-transfers-occurrences">
+              <div className="pf-rows">
+                <TransfersShortcut className="pf-row" />
+                <OccurrencesShortcut className="pf-row" />
+              </div>
+            </ProfileCard>
+          )}
+
+          {!must && (
+            <ProfileCard icon={ShieldCheck} title="Privacidade e dados (LGPD)" id="pf-lgpd-title" flat testId="profile-lgpd">
+              <MyDataSection />
+            </ProfileCard>
+          )}
+
+          <ProfileCard icon={FileText} title="Termos e política" id="pf-legal-title" testId="profile-legal">
+            <div className="pf-rows">
+              <LinkRow to="/termos" icon={FileText} label="Termos de Uso" />
+              <LinkRow to="/privacidade" icon={ShieldCheck} label="Política de Privacidade" />
+            </div>
+          </ProfileCard>
+
+          {!must && roles.length > 0 && (
+            <ProfileCard icon={LayoutDashboard} title="Painel do grupo" id="pf-panel-title" flat testId="profile-panel">
+              <PanelShortcut roles={roles} />
+            </ProfileCard>
+          )}
+
+          <InstallRow />
         </div>
       </div>
+
+      <div className="pf-logout">
+        <Button variant="ghost" className="pf-logout-btn" onClick={handleLogout}>
+          <LogOut />
+          Sair da conta
+        </Button>
+      </div>
+
+      <ProfileEditSheet open={editOpen} onOpenChange={setEditOpen} own={own} canEditFicha={!must && ownIsActive} />
+      {own && photoOpen && <PhotoDialog key={own.photo ?? ""} open={photoOpen} onOpenChange={setPhotoOpen} student={own} />}
       <QrDialog
         open={qrOpen}
         onOpenChange={setQrOpen}
@@ -321,6 +529,6 @@ export function ProfilePage() {
         description="Escaneie para ver o Passaporte público."
         url={code ? passportUrl(code) : null}
       />
-    </>
+    </div>
   );
 }

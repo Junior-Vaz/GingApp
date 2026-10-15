@@ -97,7 +97,7 @@ describe('Auditoria: cobertura das escritas (e2e)', () => {
     const created = await http().post('/api/classes').set(auth(token)).send({ name: 'Turma Auditada' }).expect(201);
     const id = created.body.id;
     await http().patch(`/api/classes/${id}`).set(auth(token)).send({ name: 'Turma Auditada 2' }).expect(200);
-    await http().delete(`/api/classes/${id}`).set(auth(token)).expect(200);
+    await http().patch(`/api/classes/${id}`).set(auth(token)).send({ status: 'INACTIVE' }).expect(200);
     const [create] = await rows('CLASS_CREATE', id);
     assert.equal(create.userId, mestreId);
     assert.equal(create.resource, 'class');

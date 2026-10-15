@@ -27,6 +27,7 @@ import { Route as AppEventosRouteImport } from './routes/_app.eventos'
 import { Route as AppFinanceiroRouteImport } from './routes/_app.financeiro'
 import { Route as AppFrequenciaRouteImport } from './routes/_app.frequencia'
 import { Route as AppGraduacoesRouteImport } from './routes/_app.graduacoes'
+import { Route as AppPerfilRouteImport } from './routes/_app.perfil'
 import { Route as AppProfessoresRouteImport } from './routes/_app.professores'
 import { Route as AppRankingRouteImport } from './routes/_app.ranking'
 import { Route as AppRelatoriosRouteImport } from './routes/_app.relatorios'
@@ -34,6 +35,7 @@ import { Route as AppRodasRouteImport } from './routes/_app.rodas'
 import { Route as AppTransferenciasRouteImport } from './routes/_app.transferencias'
 import { Route as AppTurmasRouteImport } from './routes/_app.turmas'
 import { Route as AppUnidadesRouteImport } from './routes/_app.unidades'
+import { Route as AppTurmasClassIdRouteImport } from './routes/_app.turmas_.$classId'
 import { Route as AppCheckinKindIdRouteImport } from './routes/_app.checkin.$kind.$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -125,6 +127,11 @@ const AppGraduacoesRoute = AppGraduacoesRouteImport.update({
   path: '/graduacoes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPerfilRoute = AppPerfilRouteImport.update({
+  id: '/perfil',
+  path: '/perfil',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppProfessoresRoute = AppProfessoresRouteImport.update({
   id: '/professores',
   path: '/professores',
@@ -160,6 +167,11 @@ const AppUnidadesRoute = AppUnidadesRouteImport.update({
   path: '/unidades',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTurmasClassIdRoute = AppTurmasClassIdRouteImport.update({
+  id: '/turmas_/$classId',
+  path: '/turmas/$classId',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppCheckinKindIdRoute = AppCheckinKindIdRouteImport.update({
   id: '/checkin/$kind/$id',
   path: '/checkin/$kind/$id',
@@ -184,6 +196,7 @@ export interface FileRoutesByFullPath {
   '/financeiro': typeof AppFinanceiroRoute
   '/frequencia': typeof AppFrequenciaRoute
   '/graduacoes': typeof AppGraduacoesRoute
+  '/perfil': typeof AppPerfilRoute
   '/professores': typeof AppProfessoresRoute
   '/ranking': typeof AppRankingRoute
   '/relatorios': typeof AppRelatoriosRoute
@@ -191,6 +204,7 @@ export interface FileRoutesByFullPath {
   '/transferencias': typeof AppTransferenciasRoute
   '/turmas': typeof AppTurmasRoute
   '/unidades': typeof AppUnidadesRoute
+  '/turmas/$classId': typeof AppTurmasClassIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
 export interface FileRoutesByTo {
@@ -211,6 +225,7 @@ export interface FileRoutesByTo {
   '/financeiro': typeof AppFinanceiroRoute
   '/frequencia': typeof AppFrequenciaRoute
   '/graduacoes': typeof AppGraduacoesRoute
+  '/perfil': typeof AppPerfilRoute
   '/professores': typeof AppProfessoresRoute
   '/ranking': typeof AppRankingRoute
   '/relatorios': typeof AppRelatoriosRoute
@@ -218,6 +233,7 @@ export interface FileRoutesByTo {
   '/transferencias': typeof AppTransferenciasRoute
   '/turmas': typeof AppTurmasRoute
   '/unidades': typeof AppUnidadesRoute
+  '/turmas/$classId': typeof AppTurmasClassIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
 export interface FileRoutesById {
@@ -240,6 +256,7 @@ export interface FileRoutesById {
   '/_app/financeiro': typeof AppFinanceiroRoute
   '/_app/frequencia': typeof AppFrequenciaRoute
   '/_app/graduacoes': typeof AppGraduacoesRoute
+  '/_app/perfil': typeof AppPerfilRoute
   '/_app/professores': typeof AppProfessoresRoute
   '/_app/ranking': typeof AppRankingRoute
   '/_app/relatorios': typeof AppRelatoriosRoute
@@ -247,6 +264,7 @@ export interface FileRoutesById {
   '/_app/transferencias': typeof AppTransferenciasRoute
   '/_app/turmas': typeof AppTurmasRoute
   '/_app/unidades': typeof AppUnidadesRoute
+  '/_app/turmas_/$classId': typeof AppTurmasClassIdRoute
   '/_app/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
 export interface FileRouteTypes {
@@ -269,6 +287,7 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/frequencia'
     | '/graduacoes'
+    | '/perfil'
     | '/professores'
     | '/ranking'
     | '/relatorios'
@@ -276,6 +295,7 @@ export interface FileRouteTypes {
     | '/transferencias'
     | '/turmas'
     | '/unidades'
+    | '/turmas/$classId'
     | '/checkin/$kind/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -296,6 +316,7 @@ export interface FileRouteTypes {
     | '/financeiro'
     | '/frequencia'
     | '/graduacoes'
+    | '/perfil'
     | '/professores'
     | '/ranking'
     | '/relatorios'
@@ -303,6 +324,7 @@ export interface FileRouteTypes {
     | '/transferencias'
     | '/turmas'
     | '/unidades'
+    | '/turmas/$classId'
     | '/checkin/$kind/$id'
   id:
     | '__root__'
@@ -324,6 +346,7 @@ export interface FileRouteTypes {
     | '/_app/financeiro'
     | '/_app/frequencia'
     | '/_app/graduacoes'
+    | '/_app/perfil'
     | '/_app/professores'
     | '/_app/ranking'
     | '/_app/relatorios'
@@ -331,6 +354,7 @@ export interface FileRouteTypes {
     | '/_app/transferencias'
     | '/_app/turmas'
     | '/_app/unidades'
+    | '/_app/turmas_/$classId'
     | '/_app/checkin/$kind/$id'
   fileRoutesById: FileRoutesById
 }
@@ -472,6 +496,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppGraduacoesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/perfil': {
+      id: '/_app/perfil'
+      path: '/perfil'
+      fullPath: '/perfil'
+      preLoaderRoute: typeof AppPerfilRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/professores': {
       id: '/_app/professores'
       path: '/professores'
@@ -521,6 +552,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUnidadesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/turmas_/$classId': {
+      id: '/_app/turmas_/$classId'
+      path: '/turmas/$classId'
+      fullPath: '/turmas/$classId'
+      preLoaderRoute: typeof AppTurmasClassIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/checkin/$kind/$id': {
       id: '/_app/checkin/$kind/$id'
       path: '/checkin/$kind/$id'
@@ -543,6 +581,7 @@ interface AppRouteChildren {
   AppFinanceiroRoute: typeof AppFinanceiroRoute
   AppFrequenciaRoute: typeof AppFrequenciaRoute
   AppGraduacoesRoute: typeof AppGraduacoesRoute
+  AppPerfilRoute: typeof AppPerfilRoute
   AppProfessoresRoute: typeof AppProfessoresRoute
   AppRankingRoute: typeof AppRankingRoute
   AppRelatoriosRoute: typeof AppRelatoriosRoute
@@ -550,6 +589,7 @@ interface AppRouteChildren {
   AppTransferenciasRoute: typeof AppTransferenciasRoute
   AppTurmasRoute: typeof AppTurmasRoute
   AppUnidadesRoute: typeof AppUnidadesRoute
+  AppTurmasClassIdRoute: typeof AppTurmasClassIdRoute
   AppCheckinKindIdRoute: typeof AppCheckinKindIdRoute
 }
 
@@ -565,6 +605,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppFinanceiroRoute: AppFinanceiroRoute,
   AppFrequenciaRoute: AppFrequenciaRoute,
   AppGraduacoesRoute: AppGraduacoesRoute,
+  AppPerfilRoute: AppPerfilRoute,
   AppProfessoresRoute: AppProfessoresRoute,
   AppRankingRoute: AppRankingRoute,
   AppRelatoriosRoute: AppRelatoriosRoute,
@@ -572,6 +613,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppTransferenciasRoute: AppTransferenciasRoute,
   AppTurmasRoute: AppTurmasRoute,
   AppUnidadesRoute: AppUnidadesRoute,
+  AppTurmasClassIdRoute: AppTurmasClassIdRoute,
   AppCheckinKindIdRoute: AppCheckinKindIdRoute,
 }
 

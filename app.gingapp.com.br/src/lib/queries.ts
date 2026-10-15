@@ -1,8 +1,9 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, api, errorMessage } from "@/lib/api";
 import { pickEventInfo, type EncounterInfo, type EventInfoFields } from "@/lib/event-info";
+import { isLessonVisible } from "@/lib/derive";
 import { fmt, startOfToday } from "@/lib/format";
 import { isStaffRole, normalizeBadges, toBadge, type Badge } from "@/lib/roles";
 import { getUser, setStoredStudentId, useSessionUser, useStoredStudentId, type StaffRole } from "@/lib/session";
@@ -95,6 +96,8 @@ export interface Lesson {
   endTime: string | null;
   notes: string | null;
   status: "ACTIVE" | "INACTIVE";
+  /** Quando a aula foi cancelada (backend novo); ausente em backend antigo ou aula ativa. */
+  cancelledAt?: string | null;
   /** Turma, unidade e professor com foto (GET /lessons/me em backend novo). */
   class?: PhotoRef | null;
   unit?: PhotoRef | null;
@@ -772,14 +775,19 @@ export function withQuery(path: string, params: QueryParams = {}): string {
 /** Data local de hoje em yyyy-MM-dd (o servidor compara o dia civil da aula). */
 export const todayParam = (): string => fmt(startOfToday(), "yyyy-MM-dd");
 
-/** Lista paginada que acumula as páginas ("Carregar mais"); `total` é o do servidor (ou null). */
+/**
+ * Lista paginada que acumula as páginas ("Carregar mais"); `total` é o do servidor (ou null).
+ * `visible` (opcional) esconde itens no cliente: `items`/`total` passam a descontar os escondidos já carregados e,
+ * se uma página inteira ficar vazia por causa do filtro, a próxima é buscada sozinha.
+ */
 export function usePagedList<T>(
   key: readonly unknown[],
   path: string,
   params: QueryParams = {},
-  options: { pageSize?: number; enabled?: boolean } = {},
+  options: { pageSize?: number; enabled?: boolean; visible?: (item: T) => boolean } = {},
 ) {
   const pageSize = options.pageSize ?? PAGE_SIZE;
+  const visible = options.visible;
   const query = useInfiniteQuery({
     queryKey: [...key, params, pageSize],
     enabled: options.enabled ?? true,
@@ -792,19 +800,32 @@ export function usePagedList<T>(
       return hasMore ? loaded : undefined;
     },
   });
-  const items = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data]);
-  const total = query.data?.pages[query.data.pages.length - 1]?.total ?? null;
+  const loadedItems = useMemo(() => query.data?.pages.flatMap((page) => page.items) ?? [], [query.data]);
+  const items = useMemo(() => (visible ? loadedItems.filter(visible) : loadedItems), [loadedItems, visible]);
+  const hidden = loadedItems.length - items.length;
+  const serverTotal = query.data?.pages[query.data.pages.length - 1]?.total ?? null;
+  const total = serverTotal === null ? null : Math.max(serverTotal - hidden, items.length);
+  // Página inteira escondida pelo filtro: continua carregando para o usuário não ficar sem o "Carregar mais".
+  const lastPage = query.data?.pages[query.data.pages.length - 1];
+  const lastPageEmpty = visible !== undefined && lastPage !== undefined && lastPage.items.length > 0 && !lastPage.items.some(visible);
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = query;
+  useEffect(() => {
+    if (lastPageEmpty && hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [lastPageEmpty, hasNextPage, isFetchingNextPage, fetchNextPage]);
   return {
     items,
     total,
     isLoading: query.isLoading,
     error: query.error,
     isError: query.isError,
-    hasNextPage: query.hasNextPage,
-    isFetchingNextPage: query.isFetchingNextPage,
-    fetchNextPage: query.fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
   };
 }
+
+/** Defesa no cliente (mesma regra do backend): cancelada some 2 dias depois do cancelamento/da data da aula. */
+const lessonVisibleNow = (lesson: Lesson): boolean => isLessonVisible(lesson);
 
 /** Aulas de hoje em diante do aluno ativo (a mais próxima primeiro). */
 export function useUpcomingLessons() {
@@ -813,7 +834,7 @@ export function useUpcomingLessons() {
     ["lessons", "me", "upcoming"],
     "/lessons/me",
     { from: todayParam(), order: "asc", studentId: scope.studentId },
-    { enabled: scope.ready },
+    { enabled: scope.ready, visible: lessonVisibleNow },
   );
   return scoped(list, scope);
 }
@@ -826,7 +847,7 @@ export function usePastLessons() {
     ["lessons", "me", "past"],
     "/lessons/me",
     { to: yesterday, order: "desc", studentId: scope.studentId },
-    { pageSize: 10, enabled: scope.ready },
+    { pageSize: 10, enabled: scope.ready, visible: lessonVisibleNow },
   );
   return scoped(list, scope);
 }
@@ -842,6 +863,7 @@ export function useNextLessons() {
         withQuery("/lessons/me", { from, status: "ACTIVE", order: "asc", limit: 1, studentId: scope.studentId }),
       ),
     enabled: scope.ready,
+    select: (list) => list.filter(lessonVisibleNow),
   });
   return scoped(query, scope);
 }

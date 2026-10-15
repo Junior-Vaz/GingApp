@@ -21,6 +21,10 @@ export interface ClassItem {
   teacher?: { id: number; name: string; photo?: string | null } | null;
   /** Geração contínua de aulas: o sistema mantém ~60 dias de aulas à frente automaticamente. */
   autoGenerateLessons?: boolean;
+  /** Só na lista (GET /classes): a aula mais próxima (hoje em diante) de qualquer status, ou null. */
+  nextLesson?: { date: string; status: "ACTIVE" | "INACTIVE" } | null;
+  /** Só na lista: a aula ATIVA mais próxima (hoje em diante), ou null. */
+  nextActiveLesson?: { date: string } | null;
 }
 
 /**
@@ -147,4 +151,23 @@ export function classToCreatePayload(values: ClassFormValues): ClassInput {
 export function scheduleLabel(c: Pick<ClassItem, "startTime" | "endTime">): string {
   if (!c.startTime && !c.endTime) return "—";
   return `${c.startTime ?? "—"} - ${c.endTime ?? "—"}`;
+}
+
+/**
+ * Diagnóstico das aulas à frente de uma turma (lista de Turmas). `next` = texto "dd/MM (ativa|cancelada)" ou null;
+ * `warning` = aviso discreto quando as aulas contínuas estão ligadas mas não há o que ver à frente:
+ *  - sem dia da semana definido: o sistema não gera nada;
+ *  - sem nenhuma aula ATIVA à frente: "gerar aulas" (a ação da tela) resolve.
+ * Respostas antigas da API (sem os campos) não geram aviso. Turma inativa nunca avisa.
+ */
+export function classLessonDiagnostic(
+  c: Pick<ClassItem, "status" | "weekday" | "autoGenerateLessons" | "nextLesson" | "nextActiveLesson">,
+): { next: { day: string; status: "ACTIVE" | "INACTIVE" } | null; warning: "no-weekday" | "no-active" | null } {
+  const next = c.nextLesson ? { day: c.nextLesson.date.slice(0, 10), status: c.nextLesson.status } : null;
+  let warning: "no-weekday" | "no-active" | null = null;
+  if (c.status === "ACTIVE" && c.autoGenerateLessons) {
+    if (c.weekday === null || c.weekday === undefined) warning = "no-weekday";
+    else if (c.nextActiveLesson === null) warning = "no-active";
+  }
+  return { next, warning };
 }

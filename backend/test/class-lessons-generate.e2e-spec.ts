@@ -274,7 +274,7 @@ describe('Turma: professor responsável + geração de aulas (e2e)', () => {
       await generate(noWeekday, '2026-11-01', '2026-11-30').expect(400);
 
       const inactive = (await createClass({ weekday: 2 })).id;
-      await request(app.getHttpServer()).delete(`/api/classes/${inactive}`).set(auth(mestre.token)).expect(200);
+      await request(app.getHttpServer()).patch(`/api/classes/${inactive}`).set(auth(mestre.token)).send({ status: 'INACTIVE' }).expect(200);
       const res = await generate(inactive, '2026-11-01', '2026-11-30').expect(400);
       assert.match(JSON.stringify(res.body), /inativa/);
 

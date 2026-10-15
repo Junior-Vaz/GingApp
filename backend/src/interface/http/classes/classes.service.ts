@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, RecordStatus } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { ListClassesQueryDto } from './dto/list-classes-query.dto';
@@ -27,6 +27,8 @@ import {
   MAX_GENERATE_LESSONS_SPAN_DAYS,
 } from './class-lessons-generator';
 import { ClassLessonsRollingService, lessonsHorizonDays, lessonsHorizonEnd } from './class-lessons-rolling.service';
+import { RankingService } from '../ranking/ranking.service';
+import { LEVEL_SELECT, withRope } from '../graduations/rope';
 
 // Reexporta: specs e outros módulos importam estes nomes daqui desde antes do gerador virar um arquivo próprio.
 export { GENERATE_LESSONS_LOCK_NS, MAX_GENERATE_LESSONS_SPAN_DAYS };
@@ -40,6 +42,17 @@ const CLASS_INCLUDE = {
 
 /** Turma como a API devolve: colunas + `photo` + `unit:{id,name,photo}|null` + `teacher:{id,name,photo}|null`. */
 export type ClassView = Prisma.ClassGetPayload<{ include: typeof CLASS_INCLUDE }>;
+
+/**
+ * Turma na LISTA (GET /classes): o ClassView + diagnóstico das aulas à frente (hoje em diante, dia civil de São Paulo):
+ *  - `nextLesson`: a aula mais próxima de QUALQUER status ({ date, status }) ou null;
+ *  - `nextActiveLesson`: a mais próxima ATIVA ({ date }) ou null — turma com aulas contínuas ligadas e null aqui precisa de atenção.
+ * Calculado em lote (um groupBy para a página inteira, sem N+1). Só a lista traz estes campos.
+ */
+export type ClassListItem = ClassView & {
+  nextLesson: { date: Date; status: RecordStatus } | null;
+  nextActiveLesson: { date: Date } | null;
+};
 
 /** Resposta de POST /classes/:id/generate-lessons. */
 export interface GenerateLessonsResponse extends GenerateLessonsResult {
@@ -59,6 +72,9 @@ function parseCivilDate(value: string, field: string): Date {
   return date;
 }
 
+/** Janela (dias) da frequência na lista de alunos da turma (presences/ttendanceRate). */
+export const ATTENDANCE_PERIOD_DAYS = 90;
+
 /** Turmas do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
 export class ClassesService {
@@ -68,6 +84,7 @@ export class ClassesService {
     private readonly unitScope: UnitScopeService,
     private readonly audit: AuditService,
     private readonly rolling: ClassLessonsRollingService,
+    private readonly ranking: RankingService,
   ) {}
 
   /**
@@ -75,7 +92,7 @@ export class ClassesService {
    * turmas das suas unidades (lista e contagem usam o mesmo where); `user` omitido = sem restrição. As rotas
    * /me (findMine) NÃO passam por aqui: o escopo delas é o vínculo do aluno.
    */
-  async findAll(organizationId: number, query: ListClassesQueryDto = {}, user?: AuthenticatedUser): Promise<Page<ClassView>> {
+  async findAll(organizationId: number, query: ListClassesQueryDto = {}, user?: AuthenticatedUser): Promise<Page<ClassListItem>> {
     const where: Prisma.ClassWhereInput = { organizationId }; // organizationId SEMPRE no where (findMany e count)
     where.AND = [unitScopeFilter(await this.unitScope.resolve(user, organizationId))];
     if (query.status) where.status = query.status;
@@ -87,7 +104,34 @@ export class ClassesService {
       this.prisma.class.findMany({ where, include: CLASS_INCLUDE, orderBy: { id: 'desc' }, ...pageArgs(query) }),
       this.prisma.class.count({ where }),
     ]);
-    return { items, total };
+    return { items: await this.withNextLessons(organizationId, items), total };
+  }
+
+  /** Acrescenta nextLesson/nextActiveLesson a cada turma da página com UMA agregação (min(date) por turma+status). */
+  private async withNextLessons(organizationId: number, items: ClassView[]): Promise<ClassListItem[]> {
+    if (items.length === 0) return [];
+    const upcoming = await this.prisma.lesson.groupBy({
+      by: ['classId', 'status'],
+      where: { organizationId, classId: { in: items.map((c) => c.id) }, date: { gte: civilTodayStart() } },
+      _min: { date: true },
+    });
+    const nearest = new Map<number, { date: Date; status: RecordStatus }>();
+    const nearestActive = new Map<number, Date>();
+    for (const row of upcoming) {
+      const date = row._min.date;
+      if (!date) continue;
+      const current = nearest.get(row.classId);
+      // Empate de data entre ativa e cancelada: a ativa vence.
+      if (!current || date < current.date || (date.getTime() === current.date.getTime() && row.status === 'ACTIVE')) {
+        nearest.set(row.classId, { date, status: row.status });
+      }
+      if (row.status === 'ACTIVE') nearestActive.set(row.classId, date);
+    }
+    return items.map((c) => ({
+      ...c,
+      nextLesson: nearest.get(c.id) ?? null,
+      nextActiveLesson: nearestActive.has(c.id) ? { date: nearestActive.get(c.id) as Date } : null,
+    }));
   }
 
   /** "Minhas turmas" — as turmas em que os alunos ligados ao usuário autenticado estão
@@ -201,6 +245,9 @@ export class ClassesService {
         status: updated.status,
       },
     });
+    // Aulas ja geradas copiam professor/horario/unidade da turma: ao mudar a turma, as aulas FUTURAS ATIVAS que ainda
+    // carregam o valor antigo acompanham (aula editada a mao com outro valor fica como esta; nada e apagado).
+    await this.syncFutureLessons(organizationId, current, updated);
     // Aulas continuas: mexeu em dia/horario/status/autoGenerateLessons => garante o horizonte (nao apaga nada; turma
     // inativa ou com autoGenerateLessons=false simplesmente nao gera).
     const touchesHorizon = [dto.weekday, dto.startTime, dto.endTime, dto.status, dto.autoGenerateLessons].some(
@@ -213,21 +260,94 @@ export class ClassesService {
   }
 
   /**
-   * "Remover" uma turma nunca apaga o registro — o histórico não deve ser apagado quando a
-   * turma fica inativa (mesmo padrão do StudentsService). Marca status = INACTIVE.
+   * Repassa a mudanca de professor responsavel, horario (inicio/fim) e unidade da turma para as aulas FUTURAS (hoje em
+   * diante, dia civil de Sao Paulo) ATIVAS que ainda tem o valor ANTIGO copiado da turma. Valor antigo nulo = a aula ja
+   * herda da turma (nada a fazer). Nao mexe em aula cancelada, passada, nem em aula cujo valor foi editado a mao.
+   * (Mudar o DIA DA SEMANA nao move/apaga aulas ja geradas: ver PLANO_PROJETO.md.)
    */
-  async remove(organizationId: number, id: number, user?: AuthenticatedUser) {
-    await this.findOne(organizationId, id, user);
-    const updated = await this.prisma.class.update({ where: { id }, data: { status: 'INACTIVE' } });
-    await this.audit.record({
-      organizationId,
-      action: AuditAction.CLASS_INACTIVATE,
-      entity: AuditEntity.CLASS,
-      entityId: id,
-    });
-    return updated;
+  private async syncFutureLessons(
+    organizationId: number,
+    before: Pick<ClassView, 'id' | 'teacherUserId' | 'startTime' | 'endTime' | 'unitId'>,
+    after: Pick<ClassView, 'teacherUserId' | 'startTime' | 'endTime' | 'unitId'>,
+  ): Promise<void> {
+    const fields = ['teacherUserId', 'startTime', 'endTime', 'unitId'] as const;
+    for (const field of fields) {
+      const oldValue = before[field];
+      if (oldValue === null || oldValue === after[field]) continue;
+      await this.prisma.lesson.updateMany({
+        where: {
+          organizationId,
+          classId: before.id,
+          status: 'ACTIVE',
+          date: { gte: civilTodayStart() },
+          [field]: oldValue,
+        },
+        data: { [field]: after[field] },
+      });
+    }
   }
 
+  /** Impacto de apagar a turma (para o diálogo de confirmação do painel): aulas, presenças e matrículas que seriam apagadas. */
+  async deleteImpact(
+    organizationId: number,
+    id: number,
+    user?: AuthenticatedUser,
+  ): Promise<{ class: { id: number; name: string }; lessons: number; attendances: number; students: number }> {
+    const klass = await this.findOne(organizationId, id, user); // 404 se não existir / outro grupo / unidade fora do escopo
+    const [lessons, attendances, students] = await Promise.all([
+      this.prisma.lesson.count({ where: { organizationId, classId: id } }),
+      this.prisma.attendance.count({ where: { organizationId, lesson: { classId: id } } }),
+      this.prisma.classStudent.count({ where: { organizationId, classId: id } }),
+    ]);
+    return { class: { id: klass.id, name: klass.name }, lessons, attendances, students };
+  }
+
+  /**
+   * APAGA DE VERDADE a turma (hard delete). Inativar continua sendo PATCH { status: 'INACTIVE' } (o histórico fica).
+   * Com aulas ou presenças exige `confirm` (sem ele: 409 com `{ lessons, attendances, students }`; nada é apagado).
+   * Numa transação: presenças e aulas da turma (AttendanceNotice cai em cascata), vínculos aluno-turma (ClassStudent)
+   * e a turma; comunicados que apontavam para a turma ficam sem turma (alcance volta a ser o do grupo). A Pessoa, o
+   * Aluno e a matrícula dele no grupo NÃO são tocados. Os pontos do Ginga Rank são derivados das presenças: depois do
+   * commit o recálculo dos alunos afetados é agendado (fire-and-forget), que remove os pontos órfãos. Audita CLASS_DELETE.
+   */
+  async destroy(organizationId: number, id: number, confirm: boolean, user?: AuthenticatedUser) {
+    const impact = await this.deleteImpact(organizationId, id, user);
+    if ((impact.lessons > 0 || impact.attendances > 0) && !confirm) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        code: 'CONFIRM_REQUIRED',
+        message: 'Apagar a turma apaga também as aulas e presenças dela. Confirme para continuar (confirm=true).',
+        lessons: impact.lessons,
+        attendances: impact.attendances,
+        students: impact.students,
+      });
+    }
+    const affected = await this.prisma.attendance.findMany({
+      where: { organizationId, lesson: { classId: id } },
+      distinct: ['studentId'],
+      select: { studentId: true },
+    });
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.attendance.deleteMany({ where: { organizationId, lesson: { classId: id } } });
+        await tx.lesson.deleteMany({ where: { organizationId, classId: id } });
+        await tx.classStudent.deleteMany({ where: { organizationId, classId: id } });
+        await tx.announcement.updateMany({ where: { organizationId, classId: id }, data: { classId: null } });
+        await tx.class.delete({ where: { id } });
+      },
+      { timeout: 30_000 },
+    );
+    await this.audit.record({
+      organizationId,
+      action: AuditAction.CLASS_DELETE,
+      entity: AuditEntity.CLASS,
+      entityId: id,
+      meta: { name: impact.class.name, lessons: impact.lessons, attendances: impact.attendances, students: impact.students },
+    });
+    this.ranking.queueSync(affected.map((a) => a.studentId));
+    return { deleted: true, lessons: impact.lessons, attendances: impact.attendances, students: impact.students };
+  }
   /**
    * Gera as aulas da turma (gerador único: class-lessons-generator.ts). Só turma ATIVA e com dia da semana definido.
    *  - PERÍODO: `from` e `to` explícitos (to - from <= 90 dias, from <= to). Não mexe em autoGenerateLessons.
@@ -300,24 +420,69 @@ export class ClassesService {
     return { ...generated, continuous: true, autoGenerateLessons: true, horizonDays };
   }
 
-  /** Alunos matriculados (ativos) na turma, com os dados básicos do aluno. */
+  /**
+   * Alunos matriculados (ativos) na turma, com os dados básicos do aluno + `nickname` (apelido da ficha), `currentCord`
+   * (corda da graduação mais recente, ou null) e a frequência NA TURMA nos últimos ATTENDANCE_PERIOD_DAYS dias:
+   * `presences` (presenças), `lessonsInPeriod` (aulas ativas já realizadas no período) e `attendanceRate` (% inteiro,
+   * null sem aulas no período), mais `presencesTotal` (desde sempre). Tudo em lote (3 consultas, sem N+1).
+   */
   async listStudents(organizationId: number, classId: number, user?: AuthenticatedUser) {
     await this.findOne(organizationId, classId, user);
     const enrollments = await this.prisma.classStudent.findMany({
       where: { organizationId, classId, status: 'ACTIVE' },
-      include: { student: { select: { id: true, name: true, status: true, photo: true } } },
+      include: { student: { select: { id: true, name: true, status: true, photo: true, person: { select: { nickname: true } } } } },
       orderBy: { student: { name: 'asc' } },
     });
-    return enrollments.map((e) => ({
-      id: e.id,
-      studentId: e.studentId,
-      name: e.student.name,
-      studentStatus: e.student.status,
-      photo: e.student.photo,
-      enrolledAt: e.enrolledAt,
-    }));
+    if (enrollments.length === 0) return [];
+    const studentIds = enrollments.map((e) => e.studentId);
+    const today = civilTodayStart();
+    const from = new Date(today.getTime() - ATTENDANCE_PERIOD_DAYS * DAY_MS);
+    const lessonWhere = { organizationId, classId, status: 'ACTIVE' as const };
+    const [gradRows, periodRows, totalRows, lessonsInPeriod] = await Promise.all([
+      this.prisma.studentGraduation.findMany({
+        where: { studentId: { in: studentIds } },
+        distinct: ['studentId'],
+        orderBy: [{ graduatedAt: 'desc' }, { id: 'desc' }],
+        select: { studentId: true, graduationLevel: { select: LEVEL_SELECT } },
+      }),
+      this.prisma.attendance.groupBy({
+        by: ['studentId'],
+        where: { organizationId, studentId: { in: studentIds }, present: true, lesson: { ...lessonWhere, date: { gte: from, lte: today } } },
+        _count: { _all: true },
+      }),
+      this.prisma.attendance.groupBy({
+        by: ['studentId'],
+        where: { organizationId, studentId: { in: studentIds }, present: true, lesson: lessonWhere },
+        _count: { _all: true },
+      }),
+      this.prisma.lesson.count({ where: { ...lessonWhere, date: { gte: from, lte: today } } }),
+    ]);
+    const cords = new Map(
+      gradRows.map((g) => {
+        const rope = withRope(g.graduationLevel);
+        return [g.studentId, { name: g.graduationLevel.name, style: rope.style, colors: rope.colors, tipStart: rope.tipStart, tipEnd: rope.tipEnd }] as const;
+      }),
+    );
+    const period = new Map(periodRows.map((r) => [r.studentId, r._count._all]));
+    const total = new Map(totalRows.map((r) => [r.studentId, r._count._all]));
+    return enrollments.map((e) => {
+      const presences = period.get(e.studentId) ?? 0;
+      return {
+        id: e.id,
+        studentId: e.studentId,
+        name: e.student.name,
+        nickname: e.student.person?.nickname ?? null,
+        studentStatus: e.student.status,
+        photo: e.student.photo,
+        enrolledAt: e.enrolledAt,
+        currentCord: cords.get(e.studentId) ?? null,
+        presences,
+        presencesTotal: total.get(e.studentId) ?? 0,
+        lessonsInPeriod,
+        attendanceRate: lessonsInPeriod > 0 ? Math.min(100, Math.round((presences / lessonsInPeriod) * 100)) : null,
+      };
+    });
   }
-
   /** Matricula um aluno na turma (idempotente: reativa uma matrícula inativa, repetir não duplica). */
   async enrollStudent(organizationId: number, classId: number, studentId: number, user?: AuthenticatedUser) {
     await this.findOne(organizationId, classId, user);

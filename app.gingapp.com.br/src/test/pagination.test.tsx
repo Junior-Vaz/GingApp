@@ -288,7 +288,7 @@ describe("Aulas: próximas e anteriores vêm de consultas por período", () => {
     expect(Number(new Date(`${past.searchParams.get("to")}T00:00:00`)) < Number(startOfToday())).toBe(true); // até ONTEM
 
     expect(container!.querySelectorAll(".class-card")).toHaveLength(51); // 50 próximas + 1 anterior
-    expect(text()).toContain("Próxima aula");
+    expect(text()).toContain("Próxima •"); // selo curto do cartão compacto
 
     await clickButton(/Carregar mais/);
     await waitFor(() => expect(container!.querySelectorAll(".class-card")).toHaveLength(71));

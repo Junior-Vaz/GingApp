@@ -12,6 +12,7 @@ import {
   type MapConfig,
   type MapPlace,
 } from "@/lib/map";
+import { resetMarkerCaches } from "@/lib/map-markers";
 import { saveSession } from "@/lib/session";
 
 /**
@@ -26,16 +27,25 @@ const fake = vi.hoisted(() => {
   const state = {
     failMarkers: false,
     markers: [] as FakeMarker[],
-    maps: [] as { opts: Record<string, unknown>; listeners: Record<string, () => void> }[],
+    maps: [] as FakeMapLike[],
     clusters: [] as { markers: FakeMarker[] }[],
   };
   interface FakeMarker {
     opts: Record<string, unknown>;
     listeners: Record<string, () => void>;
+    icons: { url: string }[];
+  }
+  interface FakeMapLike {
+    opts: Record<string, unknown>;
+    listeners: Record<string, () => void>;
+    centers: { lat: number; lng: number }[];
+    zoomCalls: number[];
+    fits: number;
   }
   const marker = () =>
     class implements FakeMarker {
       listeners: Record<string, () => void> = {};
+      icons: { url: string }[] = [];
       constructor(public opts: Record<string, unknown>) {
         if (state.failMarkers) throw new TypeError("SDK em estado inválido");
         state.markers.push(this);
@@ -48,11 +58,16 @@ const fake = vi.hoisted(() => {
         this.listeners[name] = handler;
       }
       setMap() {}
-      setIcon() {}
+      setIcon(icon: { url: string }) {
+        this.icons.push(icon);
+      }
       setZIndex() {}
     };
   class FakeMap {
     zoom = 4;
+    centers: { lat: number; lng: number }[] = [];
+    zoomCalls: number[] = [];
+    fits = 0;
     constructor(
       public el: HTMLElement,
       public opts: Record<string, unknown>,
@@ -63,16 +78,24 @@ const fake = vi.hoisted(() => {
     addListener(name: string, handler: () => void) {
       this.listeners[name] = handler;
     }
-    setCenter() {}
+    setCenter(center: { lat: number; lng: number }) {
+      this.centers.push(center);
+    }
     setZoom(zoom: number) {
       this.zoom = zoom;
+      this.zoomCalls.push(zoom);
+    }
+    getBounds() {
+      return undefined;
     }
     getZoom() {
       return this.zoom;
     }
     panTo() {}
     panBy() {}
-    fitBounds() {}
+    fitBounds() {
+      this.fits += 1;
+    }
   }
   class FakeBounds {
     extend() {
@@ -138,11 +161,14 @@ const place = (
   ...extra,
 });
 const PLACES: MapPlace[] = [
-  place("UNIT:1", "UNIT", "Sede Cordão de Ouro", { isMine: true }),
+  place("UNIT:1", "UNIT", "Sede Cordão de Ouro"),
   place("CLASS:9", "CLASS", "Treino de quinta", {
     weekday: 4,
     startTime: "19:00",
     endTime: "20:00",
+    isMine: true,
+    latitude: -23.6,
+    longitude: -46.7,
   }),
   place("RODA:3", "RODA", "Roda da Praça", { startsAt: "2026-11-14T15:00:00.000Z" }),
   place("EVENT:7", "EVENT", "Batizado 2026", { startsAt: "2026-11-21T13:00:00.000Z" }),
@@ -157,7 +183,16 @@ let root: Root | null = null;
 let container: HTMLDivElement | null = null;
 let calls: { url: URL; method: string; body: unknown }[] = [];
 
-function mockApi(options: { config?: Route; places?: (url: URL) => MapPlace[] } = {}) {
+function mockApi(
+  options: {
+    config?: Route;
+    places?: (url: URL) => MapPlace[];
+    lessons?: unknown[];
+    classes?: unknown[];
+    /** Caminho (pathname) que responde com uma imagem PNG de verdade; o resto do mundo devolve JSON. */
+    imageAt?: string;
+  } = {},
+) {
   calls = [];
   const config: Route = options.config ?? {
     body: { enabled: true, apiKey: "TESTE", mapId: "MAP1" } satisfies MapConfig,
@@ -166,7 +201,12 @@ function mockApi(options: { config?: Route; places?: (url: URL) => MapPlace[] } 
     const url = new URL(String(input).replace(/^.*\/api/, "http://x"));
     calls.push({ url, method: init?.method ?? "GET", body: init?.body ? JSON.parse(String(init.body)) : undefined });
     let route: Route = { body: [] };
-    if (url.pathname === "/map/config") route = config;
+    if (options.imageAt && url.pathname === options.imageAt) {
+      return new Response(new Uint8Array([137, 80, 78, 71]), { status: 200, headers: { "content-type": "image/png" } });
+    }
+    if (url.pathname === "/lessons/me") route = { body: options.lessons ?? [] };
+    else if (url.pathname === "/classes/me") route = { body: options.classes ?? [] };
+    else if (url.pathname === "/map/config") route = config;
     else if (url.pathname === "/map/places") {
       const items = (options.places ?? (() => PLACES))(url);
       route = { body: { items, total: items.length } };
@@ -189,8 +229,20 @@ function render(ui: ReactNode) {
 }
 
 const text = () => (container?.textContent ?? "").replace(/\u00a0/g, " ");
-const waitFor = (assertion: () => void) =>
-  act(async () => void (await vi.waitFor(assertion, { timeout: 2500 })));
+// Espera por polling: cada tentativa cede ao React DENTRO de um act curto (flush das atualizações). Um único act longo
+// com vi.waitFor segura as atualizações de estado agendadas por efeitos até o fim — e a condição nunca seria vista.
+const waitFor = async (assertion: () => void) => {
+  const end = Date.now() + 4000;
+  for (;;) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      if (Date.now() > end) throw error;
+      await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 25))));
+    }
+  }
+};
 const byRole = (role: string, name: RegExp) =>
   [...container!.querySelectorAll<HTMLElement>(`[role="${role}"]`)].find((el) =>
     name.test(el.textContent ?? ""),
@@ -248,7 +300,22 @@ beforeEach(() => {
   fake.state.markers.length = 0;
   fake.state.maps.length = 0;
   fake.state.clusters.length = 0;
-  vi.stubGlobal("google", { maps: { Size: class {}, Point: class {} } });
+  resetMarkerCaches();
+  // jsdom não tem canvas: sem isto cada medição de texto logaria "Not implemented".
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  vi.stubGlobal("google", {
+    maps: {
+      Size: class {},
+      Point: class {
+        constructor(
+          public x: number,
+          public y: number,
+        ) {}
+      },
+      ControlPosition: { RIGHT_CENTER: "RC", TOP_RIGHT: "TR", RIGHT_BOTTOM: "RB", RIGHT_TOP: "RT" },
+      MapTypeControlStyle: { DROPDOWN_MENU: "DD" },
+    },
+  });
   saveSession("t", {
     id: 1,
     name: "Ana",
@@ -266,6 +333,7 @@ afterEach(() => {
   root = null;
   container = null;
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   Reflect.deleteProperty(navigator, "geolocation");
 });
 
@@ -433,7 +501,7 @@ describe("filtros do mapa", () => {
     await waitFor(() => expect(lastPlaces().searchParams.get("q")).toBe("batizado"));
 
     await click(button(/Meu grupo/));
-    await waitFor(() => expect(pinTitles()).toEqual(["Sede Cordão de Ouro"]));
+    await waitFor(() => expect(pinTitles()).toEqual(["Treino de quinta"]));
   });
 
   it("'Perto de mim' pede a localização, envia lat/lng/radiusKm e ordena por distância", async () => {
@@ -521,7 +589,7 @@ describe("cartão do local (horizontal, flutuante)", () => {
     expect(el.textContent).toContain("Grupo Cordão de Ouro");
     const directions = el.querySelector<HTMLAnchorElement>("a")!;
     expect(directions.textContent).toContain("Como chegar");
-    expect(directions.href).toBe("https://www.google.com/maps/dir/?api=1&destination=-23.55,-46.63");
+    expect(directions.href).toBe("https://www.google.com/maps/dir/?api=1&destination=-23.6,-46.7");
     expect(directions.target).toBe("_blank");
     expect(el.textContent).not.toContain("Ver detalhes");
     expect(el.textContent).not.toContain("Quero participar"); // treino/grupo não têm inscrição no app
@@ -645,6 +713,230 @@ describe("cartão do evento: vagas, lista de espera e capa", () => {
     expect(el.querySelector('[data-testid="map-card-cover"]')).toBeNull();
     await waitFor(() => expect(button(/Quero participar/)).toBeTruthy());
     expect(button(/lista de espera/)).toBeUndefined();
+  });
+});
+
+/** Decodifica o SVG de um ícone `data:image/svg+xml;charset=UTF-8,<svg…>`. */
+const svgOf = (icon: unknown) =>
+  decodeURIComponent(String((icon as { url: string }).url).replace(/^data:image\/svg\+xml;charset=UTF-8,/, ""));
+const iconOf = (m: { opts: Record<string, unknown> } | undefined) => m!.opts["icon"];
+const mapNoId = { body: { enabled: true, apiKey: "K", mapId: null } satisfies MapConfig };
+const lastMap = () => fake.state.maps.at(-1)!;
+const lesson = (classId: number) => ({
+  id: 100 + classId,
+  classId,
+  unitId: null,
+  teacherUserId: null,
+  date: "2026-12-01",
+  startTime: "19:00",
+  endTime: "20:00",
+  notes: null,
+  status: "ACTIVE",
+});
+
+describe("balões dos marcadores (sem Map ID)", () => {
+  it("o ícone é um SVG em data URL com o NOME, a cor/selo do tipo e anchor na ponta da cauda", async () => {
+    mockApi({ config: mapNoId });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(fake.state.markers.length).toBeGreaterThan(0));
+
+    const cls = markerFor("Treino de quinta")!;
+    const icon = iconOf(cls) as { url: string };
+    expect(icon.url.startsWith("data:image/svg+xml")).toBe(true);
+    const svg = svgOf(icon);
+    expect(svg).toContain("Treino de quinta");
+    expect(svg).toContain("#2a6f97"); // cor do tipo Treino
+    expect(svg).toContain("<circle"); // selo do tipo (relógio) sobre o avatar
+    expect(svg).toContain("#e8b923"); // 'meu grupo' (esta turma é do meu grupo): anel dourado
+    // O grupo mostra o NOME DO GRUPO (não o da unidade); o evento, o título do evento.
+    expect(svgOf(iconOf(markerFor("Sede Cordão")))).toContain("Grupo Cordão de Ouro");
+    const event = svgOf(iconOf(markerFor("Batizado 2026")));
+    expect(event).toContain("Batizado 2026");
+    expect(event).toContain("#a65e0a"); // cor do tipo Evento
+    expect(event).not.toContain("#e8b923"); // não é do meu grupo
+    // Anchor na ponta da cauda: centro horizontal, base do ícone (altura 50, cauda termina a 46 px).
+    const anchor = (icon as unknown as { anchor: { x: number; y: number }; scaledSize: { width?: number } }).anchor;
+    expect(anchor.y).toBe(46);
+    expect(anchor.x).toBeGreaterThan(40);
+  });
+
+  it("locais no mesmo ponto empilham os balões para cima (grupo na ponta; depois treino, roda, evento)", async () => {
+    mockApi({ config: mapNoId });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    const anchorY = (title: string) => (iconOf(markerFor(title)) as { anchor: { y: number } }).anchor.y;
+    // UNIT:1, RODA:3, EVENT:7 e EVENT:8 dividem as coordenadas; o treino (CLASS:9) tem as suas.
+    expect(anchorY("Sede Cordão")).toBe(46);
+    expect(anchorY("Roda da Praça")).toBe(46 + 44);
+    expect(anchorY("Batizado 2026")).toBe(46 + 88);
+    expect(anchorY("Treino de quinta")).toBe(46);
+  });
+
+  it("nome longo é truncado com reticências e a largura cresce com o texto; altura fixa", async () => {
+    const long = "Encontro Internacional de Capoeira Angola do Recôncavo";
+    mockApi({
+      config: mapNoId,
+      places: () => [
+        place("EVENT:1", "EVENT", long, { startsAt: "2026-11-21T13:00:00.000Z" }),
+        place("EVENT:2", "EVENT", "Roda", { startsAt: "2026-11-21T13:00:00.000Z" }),
+      ],
+    });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    const svgLong = svgOf(iconOf(markerFor("Encontro Internacional")));
+    expect(svgLong).toContain("Encontro Internacio…");
+    expect(svgLong).not.toContain("Angola");
+    const widthOf = (svg: string) => Number(/<svg [^>]*width="(\d+)"/.exec(svg)![1]);
+    expect(widthOf(svgLong)).toBeGreaterThan(widthOf(svgOf(iconOf(markerFor("Roda")))));
+    expect(/<svg [^>]*height="(\d+)"/.exec(svgLong)![1]).toBe("50");
+  });
+
+  it("sem logo (ou se o download falhar) usa as iniciais coloridas — nunca imagem quebrada", async () => {
+    mockApi({
+      config: mapNoId,
+      places: () => [
+        place("UNIT:1", "UNIT", "Sede", {
+          organization: { ...org, logoUrl: "https://cdn.test/logo.png" },
+        }),
+      ],
+    });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(calls.some((c) => c.url.pathname === "/logo.png")).toBe(true));
+    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 30))));
+    const pin = markerFor("Sede")!;
+    const svg = svgOf(iconOf(pin));
+    expect(svg).toContain(">GO<"); // iniciais
+    expect(svg).not.toContain("<image");
+    expect(pin.icons).toHaveLength(0); // sem logo baixado, o ícone não é trocado
+  });
+
+  it("logo baixado (fetch -> blob -> base64) é embutido no balão e o ícone é trocado, baixando a URL uma vez só", async () => {
+    mockApi({
+      config: mapNoId,
+      imageAt: "/logo.png",
+      places: () => [
+        place("UNIT:1", "UNIT", "Sede", {
+          organization: { ...org, logoUrl: "https://cdn.test/logo.png" },
+        }),
+        place("CLASS:2", "CLASS", "Treino", {
+          organization: { ...org, logoUrl: "https://cdn.test/logo.png" },
+        }),
+      ],
+    });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(markerFor("Sede")!.icons.length).toBe(1));
+    expect(svgOf(markerFor("Sede")!.icons[0])).toContain('<image href="data:image/png;base64,');
+    await waitFor(() => expect(markerFor("Treino")!.icons.length).toBe(1));
+    expect(calls.filter((c) => c.url.pathname === "/logo.png")).toHaveLength(1);
+  });
+});
+
+describe("mapa com ícones e controles do Google", () => {
+  it("o estilo da marca NÃO esconde POIs/transporte/ícones e os controles do Google estão ligados", async () => {
+    mockApi({ config: mapNoId });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(fake.state.maps).toHaveLength(1));
+    const opts = lastMap().opts;
+    const styles = opts["styles"] as { featureType?: string; elementType?: string; stylers: unknown[] }[];
+    expect(styles.length).toBeGreaterThan(0);
+    expect(JSON.stringify(styles)).not.toContain('"off"');
+    expect(styles.some((r) => r.featureType === "poi" || r.featureType === "transit")).toBe(false);
+    expect(styles.some((r) => r.elementType === "labels.icon")).toBe(false);
+    expect(opts).toMatchObject({
+      zoomControl: true,
+      mapTypeControl: true,
+      streetViewControl: true,
+      fullscreenControl: true,
+      scaleControl: true,
+    });
+    expect(opts["mapTypeControlOptions"]).toMatchObject({ position: "TR", mapTypeIds: ["roadmap", "satellite"] });
+    expect(opts["zoomControlOptions"]).toMatchObject({ position: "RC" });
+  });
+});
+
+describe("abre centralizado na turma atual do aluno", () => {
+  it("usa a turma da PRÓXIMA AULA: setCenter/zoom no local certo e abre o cartão", async () => {
+    mockApi({
+      places: () => [...PLACES, place("CLASS:12", "CLASS", "Turma infantil", { latitude: -22.9, longitude: -43.2 })],
+      lessons: [lesson(12)],
+      classes: [{ id: 9, name: "Treino de quinta" }],
+    });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(lastMap().centers.at(-1)).toEqual({ lat: -22.9, lng: -43.2 }));
+    expect(lastMap().zoomCalls.at(-1)).toBe(16);
+    expect(lastMap().fits).toBe(0); // não enquadrou todos
+    await waitFor(() => expect(card()?.querySelector("h3")?.textContent).toBe("Turma infantil"));
+  });
+
+  it("sem próxima aula usa a primeira turma de /classes/me", async () => {
+    mockApi({ lessons: [], classes: [{ id: 9, name: "Treino de quinta" }] });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(lastMap().centers.at(-1)).toEqual({ lat: -23.6, lng: -46.7 }));
+    expect(lastMap().fits).toBe(0);
+    await waitFor(() => expect(card()?.querySelector("h3")?.textContent).toBe("Treino de quinta"));
+  });
+
+  it("sem place com o id da turma, acha o treino de mesmo NOME do meu grupo", async () => {
+    mockApi({ classes: [{ id: 777, name: "treino de QUINTA" }] });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(lastMap().centers.at(-1)).toEqual({ lat: -23.6, lng: -46.7 }));
+  });
+
+  it("sem turma, cai na unidade do próprio grupo (isMine)", async () => {
+    mockApi({
+      places: () => [
+        place("UNIT:1", "UNIT", "Sede", { isMine: true, latitude: -10, longitude: -40 }),
+        place("EVENT:7", "EVENT", "Batizado", { startsAt: "2026-11-21T13:00:00.000Z" }),
+      ],
+    });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(lastMap().centers.at(-1)).toEqual({ lat: -10, lng: -40 }));
+    await waitFor(() => expect(card()?.querySelector("h3")?.textContent).toBe("Sede"));
+  });
+
+  it("sem turma nem unidade do grupo: enquadra todos (comportamento anterior) e não abre cartão", async () => {
+    mockApi({ places: () => PLACES.map((p) => ({ ...p, isMine: false })) });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(lastMap().fits).toBeGreaterThan(0));
+    expect(lastMap().centers).toHaveLength(0);
+    expect(card()).toBeNull();
+    expect(button(/Minha turma/)).toBeUndefined();
+  });
+
+  it("'Ver tudo' enquadra todos e 'Minha turma' volta para a turma", async () => {
+    mockApi({ classes: [{ id: 9, name: "Treino de quinta" }] });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(lastMap().centers).toHaveLength(1));
+    expect(lastMap().fits).toBe(0);
+
+    await click(button(/Ver tudo/));
+    await waitFor(() => expect(lastMap().fits).toBe(1));
+    await click(button(/Minha turma/));
+    await waitFor(() => expect(lastMap().centers).toHaveLength(2));
+    expect(lastMap().centers.at(-1)).toEqual({ lat: -23.6, lng: -46.7 });
+    expect(card()?.querySelector("h3")?.textContent).toBe("Treino de quinta");
+  });
+
+  it("depois que o usuário mexe no mapa, trocar filtros NÃO reenquadra", async () => {
+    mockApi({ places: () => PLACES.map((p) => ({ ...p, isMine: false })) });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await waitFor(() => expect(lastMap().fits).toBe(1));
+    await act(async () => void container!.querySelector(".map-canvas-host")!.dispatchEvent(new Event("pointerdown")));
+    await click(button(/Eventos/));
+    await waitFor(() => expect(pinTitles()).toHaveLength(3));
+    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 50))));
+    expect(lastMap().fits).toBe(1);
   });
 });
 

@@ -49,6 +49,11 @@ export interface QuickSession {
   studentsCount: number;
   /** Registros de presença/falta já lançados nesta aula. */
   markedCount: number;
+  /**
+   * Presente (true) SÓ quando a aula de hoje está CANCELADA (INACTIVE): vem depois das ativas e não marca presença
+   * (o painel mostra "Cancelada" e, a quem pode editar aulas, o botão "Reativar aula"). Ausente = aula ativa (contrato antigo).
+   */
+  cancelled?: true;
 }
 
 /** "HH:MM" atual em America/Sao_Paulo (mesmo fuso do "hoje" civil usado nas aulas). */
@@ -200,7 +205,9 @@ export class AttendanceService {
 
   /**
    * Chamada rápida (botão flutuante do painel): as aulas de HOJE (data civil de America/Sao_Paulo) da organização
-   * visíveis ao usuário (escopo de unidade, igual a /attendance/lessons/:id), só aulas ATIVAS de turmas ATIVAS.
+   * visíveis ao usuário (escopo de unidade, igual a /attendance/lessons/:id), de turmas ATIVAS. As ATIVAS vêm primeiro;
+   * as CANCELADAS de hoje vêm por último com `cancelled: true` (para a chamada rápida dizer "Cancelada" em vez de "Nenhuma
+   * aula hoje" e oferecer "Reativar aula"; não marcam presença e o status por horário delas é sempre o do relógio).
    * `status` pelo horário atual de São Paulo: ENDED (já passou do fim), UPCOMING (ainda não começou) ou ONGOING
    * (entre início e fim; aula sem horário conta como ONGOING o dia todo). Ordem: ONGOING, UPCOMING, ENDED —
    * dentro de cada grupo por horário de início (sem horário por último). O horário da aula cai no da turma se nulo.
@@ -212,7 +219,6 @@ export class AttendanceService {
     const lessons = await this.prisma.lesson.findMany({
       where: {
         organizationId,
-        status: 'ACTIVE',
         date: { gte: today, lt: new Date(today.getTime() + DAY_MS) },
         class: { status: 'ACTIVE' },
         AND: [lessonScopeFilter(scope), monitorLessonFilter(user)],
@@ -249,6 +255,7 @@ export class AttendanceService {
       if (isTimeOfDay(endTime) && nowMinutes >= timeToMinutes(endTime)) status = 'ENDED';
       else if (isTimeOfDay(startTime) && nowMinutes < timeToMinutes(startTime)) status = 'UPCOMING';
       return {
+        ...(lesson.status === 'INACTIVE' ? { cancelled: true as const } : {}),
         lessonId: lesson.id,
         classId: lesson.classId,
         className: lesson.class.name,
@@ -263,6 +270,7 @@ export class AttendanceService {
     });
     return sessions.sort(
       (a, b) =>
+        Number(a.cancelled === true) - Number(b.cancelled === true) ||
         rank[a.status] - rank[b.status] ||
         (a.startTime ?? '99:99').localeCompare(b.startTime ?? '99:99') ||
         a.lessonId - b.lessonId,

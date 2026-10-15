@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, ParseIntPipe, Patch, Post, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { ListLessonsQueryDto } from './dto/list-lessons-query.dto';
@@ -10,6 +10,9 @@ import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interf
 import { LessonsService } from './lessons.service';
 import { CreateLessonDto } from './dto/create-lesson.dto';
 import { UpdateLessonDto } from './dto/update-lesson.dto';
+import { ReactivateLessonsDto } from './dto/reactivate-lessons.dto';
+import { BulkDeleteLessonsDto } from './dto/bulk-delete-lessons.dto';
+import { MestreOnlyGuard } from '../../../shared/guards/mestre-only.guard';
 
 @Controller('lessons')
 export class LessonsController {
@@ -58,6 +61,18 @@ export class LessonsController {
     return this.lessonsService.create(organizationId, dto, user);
   }
 
+  /** Reativa em massa as aulas canceladas do periodo/turma (padrao: sem avisar os alunos). Reativar = editar => `lessons:edit`. */
+  @Post('reactivate')
+  @HttpCode(200)
+  @CanAccess('lessons', 'edit')
+  reactivate(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ReactivateLessonsDto,
+  ) {
+    return this.lessonsService.reactivate(organizationId, dto, user);
+  }
+
   @Patch(':id')
   @CanAccess('lessons', 'edit')
   update(
@@ -69,13 +84,44 @@ export class LessonsController {
     return this.lessonsService.update(organizationId, id, dto, user);
   }
 
-  @Delete(':id')
+  /** Apaga em lote aulas CANCELADAS (hard delete), so o Mestre. dryRun so conta; presencas exigem confirm: true (409 com a contagem). */
+  @Post('bulk-delete')
+  @HttpCode(200)
   @CanAccess('lessons', 'delete')
-  remove(
+  @UseGuards(MestreOnlyGuard)
+  bulkDelete(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: BulkDeleteLessonsDto,
+  ) {
+    return this.lessonsService.bulkDelete(organizationId, dto, user);
+  }
+
+  /** Quantas presencas seriam apagadas junto com a aula (diálogo de confirmação do painel). */
+  @Get(':id/delete-impact')
+  @CanAccess('lessons', 'delete')
+  @UseGuards(MestreOnlyGuard)
+  deleteImpact(
     @CurrentOrganization() organizationId: number,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
   ) {
-    return this.lessonsService.remove(organizationId, id, user);
+    return this.lessonsService.deleteImpact(organizationId, id, user);
+  }
+
+  /**
+   * APAGA de verdade a aula (hard delete), so o Mestre. Cancelar = PATCH /lessons/:id { status: 'INACTIVE' }.
+   * Com presencas registradas exige ?confirm=true (sem ele: 409 com { attendances: N }).
+   */
+  @Delete(':id')
+  @CanAccess('lessons', 'delete')
+  @UseGuards(MestreOnlyGuard)
+  remove(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseIntPipe) id: number,
+    @Query('confirm') confirm?: string,
+  ) {
+    return this.lessonsService.destroy(organizationId, id, confirm === 'true', user);
   }
 }

@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { createCrud } from "@/lib/crud";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { api, type QueryParams } from "@/lib/api";
+import { createCrud, notifyError } from "@/lib/crud";
 import type { StaffRole } from "@/lib/staff-roles";
 
 /** Aula. `date` chega como meia-noite UTC (use dayOnly de @/lib/format para exibir). */
@@ -55,11 +56,14 @@ export const STATUS_LABEL: Record<Lesson["status"], string> = {
   INACTIVE: "Cancelada",
 };
 
-/** DELETE /lessons/:id NÃO apaga: o backend marca status = INACTIVE (aula cancelada). */
+/**
+ * CRUD de aulas. ATENÇÃO: useRemove (DELETE /lessons/:id) agora APAGA DE VERDADE (só Mestre) e exige ?confirm=true com presenças:
+ * use useDeleteLesson. Cancelar a aula = PATCH status INACTIVE (useCancelLesson).
+ */
 export const lessons = createCrud<Lesson, LessonInput>("/lessons", {
   created: "Aula criada.",
   updated: "Aula atualizada.",
-  removed: "Aula cancelada.",
+  removed: "Aula apagada.",
 });
 
 /** Selects auxiliares vêm de listas paginadas: pedimos o máximo do servidor (200) e avisamos se passar. */
@@ -88,4 +92,146 @@ export const isoDay = (iso: string): string => iso.slice(0, 10);
 export function timeRange(lesson: Pick<Lesson, "startTime" | "endTime">): string {
   if (!lesson.startTime && !lesson.endTime) return "—";
   return `${lesson.startTime || "—"} – ${lesson.endTime || "—"}`;
+}
+
+/** Filtro de status da tela Aulas: "ACTIVE" (padrão), "INACTIVE" (canceladas) ou "" (todas). */
+export type LessonStatusFilter = "ACTIVE" | "INACTIVE" | "";
+
+/** Chave do localStorage com a última escolha de status da tela Aulas. */
+export const LESSON_STATUS_KEY = "painel:aulas:status";
+
+/** Lê a escolha salva (padrão: Ativas, para as canceladas não esconderem as aulas reais). Nunca lança. */
+export function readLessonStatusFilter(): LessonStatusFilter {
+  try {
+    const saved = localStorage.getItem(LESSON_STATUS_KEY);
+    return saved === "INACTIVE" || saved === "" ? saved : "ACTIVE";
+  } catch {
+    return "ACTIVE";
+  }
+}
+
+export function saveLessonStatusFilter(value: LessonStatusFilter): void {
+  try {
+    localStorage.setItem(LESSON_STATUS_KEY, value);
+  } catch {
+    // armazenamento indisponível: a escolha vale só nesta sessão da página
+  }
+}
+
+export const LESSON_COUNTS_KEY = ["aulas", "counts"];
+
+/**
+ * Totais por status para o cabeçalho da lista ("N ativas · M canceladas"), com os MESMOS filtros da lista
+ * (turma, período e busca; sem status): GET /lessons?status=…&limit=1 lê o total de X-Total-Count.
+ */
+export function useLessonCounts(filters: QueryParams) {
+  const totalOf = (status: "ACTIVE" | "INACTIVE") =>
+    api.getPage<Lesson>("/lessons", { ...filters, status, limit: 1 }).then((p) => p.total);
+  return useQuery({
+    queryKey: [...LESSON_COUNTS_KEY, filters],
+    queryFn: async () => {
+      const [active, cancelled] = await Promise.all([totalOf("ACTIVE"), totalOf("INACTIVE")]);
+      return { active, cancelled };
+    },
+  });
+}
+
+/** Reativação em massa (POST /lessons/reactivate, `lessons:edit`): sem avisar os alunos (padrão do servidor). */
+export function useReactivateLessons() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: { classId?: number; from: string; to: string }) =>
+      api.post<{ reactivated: number }>("/lessons/reactivate", body),
+    onSuccess: ({ reactivated }) => {
+      void queryClient.invalidateQueries({ queryKey: lessons.rootKey });
+      void queryClient.invalidateQueries({ queryKey: LESSON_COUNTS_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["frequencia"] });
+      toast.success(reactivated === 1 ? "1 aula reativada." : `${reactivated} aulas reativadas.`);
+    },
+    onError: (error) => notifyError(error, "Não foi possível reativar as aulas."),
+  });
+}
+
+/** Cancelar aula = PATCH /lessons/:id { status: "INACTIVE" } (a aula e o histórico continuam; avisa os alunos). */
+export function useCancelLesson() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => api.patch<Lesson>(`/lessons/${String(id)}`, { status: "INACTIVE" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: lessons.rootKey });
+      void queryClient.invalidateQueries({ queryKey: LESSON_COUNTS_KEY });
+      void queryClient.invalidateQueries({ queryKey: ["frequencia"] });
+      toast.success("Aula cancelada.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível cancelar a aula."),
+  });
+}
+
+/** Tudo o que muda quando aulas/presenças são apagadas: lista de aulas, totais, frequência e as turmas (próxima aula). */
+function useInvalidateAfterLessonDelete() {
+  const queryClient = useQueryClient();
+  return () => {
+    void queryClient.invalidateQueries({ queryKey: lessons.rootKey });
+    void queryClient.invalidateQueries({ queryKey: LESSON_COUNTS_KEY });
+    void queryClient.invalidateQueries({ queryKey: ["frequencia"] });
+    void queryClient.invalidateQueries({ queryKey: ["classes"] });
+    void queryClient.invalidateQueries({ queryKey: ["crud", "/classes"] });
+  };
+}
+
+/** Quantas presenças seriam apagadas junto com a aula (GET /lessons/:id/delete-impact, só Mestre). */
+export function useLessonDeleteImpact(lessonId: number | undefined) {
+  return useQuery({
+    queryKey: ["aulas", "delete-impact", lessonId],
+    queryFn: () => api.get<{ attendances: number }>(`/lessons/${String(lessonId)}/delete-impact`),
+    enabled: lessonId !== undefined,
+    gcTime: 0,
+  });
+}
+
+/** Apaga a aula de verdade (DELETE /lessons/:id; `confirm` = ?confirm=true, obrigatório se há presenças). */
+export function useDeleteLesson() {
+  const invalidate = useInvalidateAfterLessonDelete();
+  return useMutation({
+    mutationFn: ({ id, confirm }: { id: number; confirm: boolean }) =>
+      api.delete<unknown>(`/lessons/${String(id)}${confirm ? "?confirm=true" : ""}`),
+    onSuccess: () => {
+      invalidate();
+      toast.success("Aula apagada.");
+    },
+    onError: (error) => notifyError(error, "Não foi possível apagar a aula."),
+  });
+}
+
+/** Resultado de POST /lessons/bulk-delete. */
+export interface BulkDeleteResult {
+  lessons: number;
+  attendances: number;
+  skipped: number;
+  deleted: boolean;
+}
+
+/** Quantas aulas canceladas (e presenças) seriam apagadas (dryRun), da turma ou de todas (`classId` indefinido). `enabled` = diálogo aberto. */
+export function useCancelledDeleteImpact(classId: number | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: ["aulas", "bulk-delete-impact", classId ?? "all"],
+    queryFn: () =>
+      api.post<BulkDeleteResult>("/lessons/bulk-delete", { onlyCancelled: true, dryRun: true, ...(classId !== undefined ? { classId } : {}) }),
+    enabled,
+    gcTime: 0,
+  });
+}
+
+/** Apaga de verdade TODAS as aulas canceladas (da turma ou do grupo). `confirm: true` quando há presenças. */
+export function useBulkDeleteCancelled() {
+  const invalidate = useInvalidateAfterLessonDelete();
+  return useMutation({
+    mutationFn: (body: { classId?: number; confirm: boolean }) =>
+      api.post<BulkDeleteResult>("/lessons/bulk-delete", { onlyCancelled: true, ...body }),
+    onSuccess: ({ lessons: n }) => {
+      invalidate();
+      toast.success(n === 1 ? "1 aula cancelada apagada." : `${n} aulas canceladas apagadas.`);
+    },
+    onError: (error) => notifyError(error, "Não foi possível apagar as aulas canceladas."),
+  });
 }

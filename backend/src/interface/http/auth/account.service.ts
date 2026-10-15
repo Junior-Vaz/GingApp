@@ -68,7 +68,7 @@ export class AccountService {
     });
     const organization =
       actor.organizationId != null
-        ? await this.prisma.organization.findUnique({ where: { id: actor.organizationId }, select: { slug: true, logo: true } })
+        ? await this.prisma.organization.findUnique({ where: { id: actor.organizationId }, select: { slug: true, name: true, logo: true } })
         : null;
     const pending = user.dataDeletionRequests[0];
     return {
@@ -80,7 +80,7 @@ export class AccountService {
       userType: user.userType,
       isSuperAdmin: user.isSuperAdmin,
       ...(actor.organizationId != null ? { organizationId: actor.organizationId } : {}),
-      ...(organization ? { organizationSlug: organization.slug, organizationLogoUrl: organization.logo ?? null } : {}),
+      ...(organization ? { organizationSlug: organization.slug, organizationName: organization.name, organizationLogoUrl: organization.logo ?? null } : {}),
       ...(actor.role ? { role: actor.role } : {}),
       // Fase 3 + secao 13: cargos DO GRUPO ativos no grupo do token (maior rank primeiro) e os slugs; o role acima e o
       // papel de ACESSO (= o maior perfil de acesso entre os cargos).

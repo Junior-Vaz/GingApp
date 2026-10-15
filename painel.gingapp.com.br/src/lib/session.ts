@@ -34,6 +34,10 @@ export interface AuthUser {
   organizationSlug: string;
   /** Logo do grupo (caminho de /uploads ou URL), quando o login/GET /auth/me enviar; sem ele o cabeçalho mobile usa o logo do GingApp. */
   organizationLogoUrl?: string | null;
+  /** Nome do grupo (login e GET /auth/me enviam); sem ele o cabeçalho usa o slug. */
+  organizationName?: string | null;
+  /** Foto de perfil da conta (User.photo: caminho de /uploads ou URL), ou null. Atualizada pelo perfil e por GET /auth/me. */
+  photo?: string | null;
   /** Papel de acesso = o MAIOR cargo da pessoa no grupo (pode ser INSTRUTOR/MONITOR). */
   role: OrgRole;
   /** Selos dos cargos ativos no grupo, do maior rank para o menor (GET /auth/me traz; o login pode não trazer). */

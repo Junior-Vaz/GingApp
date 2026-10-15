@@ -5,7 +5,10 @@ import {
   ChevronRight,
   CircleDot,
   Clock,
+  GraduationCap,
+  Locate,
   LocateFixed,
+  Maximize2,
   MapPin,
   Navigation,
   Search,
@@ -31,6 +34,7 @@ import {
   countByType,
   directionsUrl,
   distanceOf,
+  findHomePlace,
   formatDistance,
   placeEntityId,
   sortByDistance,
@@ -42,9 +46,9 @@ import {
   type Period,
   type PlaceType,
 } from "@/lib/map";
-import { useEncounterParticipation } from "@/lib/queries";
+import { useClasses, useEncounterParticipation, useNextLessons } from "@/lib/queries";
 import { imageSrc } from "@/lib/uploads";
-import MapCanvas from "./map-canvas";
+import MapCanvas, { type ViewRequest } from "./map-canvas";
 
 const TYPE_ICON: Record<PlaceType, LucideIcon> = {
   UNIT: Users,
@@ -52,6 +56,9 @@ const TYPE_ICON: Record<PlaceType, LucideIcon> = {
   RODA: CircleDot,
   EVENT: CalendarDays,
 };
+
+/** Zoom ao abrir na turma do aluno (e em "Minha turma"): a partir do 16 os clusters viram balões. */
+const HOME_ZOOM = 16;
 
 const pinStyle = (type: PlaceType) => ({ "--pin": PLACE_META[type].color }) as CSSProperties;
 
@@ -353,6 +360,17 @@ export default function MapExplorer({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [focusRequest, setFocusRequest] = useState<{ id: string; n: number } | null>(null);
   const focusCount = useRef(0);
+  // Abertura na turma do aluno: o mapa só enquadra "tudo" sozinho quando não há turma/local e o usuário não mexeu.
+  const [interacted, setInteracted] = useState(false);
+  const [giveUp, setGiveUp] = useState(false);
+  const [viewRequest, setViewRequest] = useState<ViewRequest | null>(null);
+  const [locateRequest, setLocateRequest] = useState<{ lat: number; lng: number; n: number } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locateError, setLocateError] = useState<string | null>(null);
+  const viewCount = useRef(0);
+  const homeApplied = useRef(false);
+  const nextLessons = useNextLessons();
+  const myClasses = useClasses();
 
   const near = useMemo<NearMe | null>(
     () => (coords ? { ...coords, radiusKm: radius } : null),
@@ -384,6 +402,72 @@ export default function MapExplorer({
       `${visible.map((p) => p.id).join("|")}#${near ? `${near.lat},${near.lng},${near.radiusKm}` : ""}`,
     [visible, near],
   );
+
+  // Turma atual: a da próxima aula; sem aula, a primeira de /classes/me. Espera as duas respostas (ou desiste em 4 s).
+  useEffect(() => {
+    const timer = window.setTimeout(() => setGiveUp(true), 4000);
+    return () => window.clearTimeout(timer);
+  }, []);
+  const homeSettled = giveUp || (!nextLessons.isLoading && !myClasses.isLoading);
+  const home = useMemo(() => {
+    const lesson = nextLessons.data?.[0];
+    const fallback = myClasses.data?.[0];
+    const classId = lesson?.classId ?? fallback?.id;
+    const className =
+      lesson?.class?.name ?? myClasses.data?.find((c) => c.id === classId)?.name ?? fallback?.name;
+    return findHomePlace(items, classId !== undefined ? { id: classId, name: className ?? null } : null);
+  }, [items, nextLessons.data, myClasses.data]);
+  const placesLoaded = places.data !== undefined;
+  const showAll = () => {
+    viewCount.current += 1;
+    setViewRequest({ kind: "all", n: viewCount.current });
+  };
+  const showHome = useCallback(
+    (target: MapPlace) => {
+      viewCount.current += 1;
+      setViewRequest({
+        kind: "point",
+        lat: target.latitude,
+        lng: target.longitude,
+        zoom: HOME_ZOOM,
+        n: viewCount.current,
+      });
+      setSelectedId(target.id);
+    },
+    [],
+  );
+  // Ao abrir (uma vez): centraliza na turma atual e abre o cartão. Se o usuário já mexeu no mapa, respeita.
+  useEffect(() => {
+    if (!active || homeApplied.current || !homeSettled || !placesLoaded) return;
+    homeApplied.current = true;
+    if (home && !interacted) showHome(home);
+  }, [active, homeSettled, placesLoaded, home, interacted, showHome]);
+  const autoFit = near !== null || (homeSettled && placesLoaded && !home && !interacted);
+
+  function locateMe() {
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      setLocateError(GEO_MESSAGE.unavailable);
+      return;
+    }
+    setLocating(true);
+    setLocateError(null);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocating(false);
+        viewCount.current += 1;
+        setLocateRequest({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          n: viewCount.current,
+        });
+      },
+      (failure) => {
+        setLocating(false);
+        setLocateError(failure.code === 1 ? GEO_MESSAGE.denied : GEO_MESSAGE.error);
+      },
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 5 * 60 * 1000 },
+    );
+  }
 
   const toggleType = (type: PlaceType) =>
     setTypes((current) =>
@@ -420,7 +504,11 @@ export default function MapExplorer({
     );
   }
 
-  const select = useCallback((id: string) => setSelectedId(id), []);
+  const select = useCallback((id: string) => {
+    setInteracted(true);
+    setSelectedId(id);
+  }, []);
+  const userMoved = useCallback(() => setInteracted(true), []);
 
   /** Anterior/Próximo: percorre os locais filtrados em círculo (o mapa centraliza e dá zoom no escolhido). */
   function step(delta: number) {
@@ -466,6 +554,10 @@ export default function MapExplorer({
         focusRequest={focusRequest}
         near={near}
         fitToken={fitToken}
+        autoFit={autoFit}
+        viewRequest={viewRequest}
+        onUserMove={userMoved}
+        locateRequest={locateRequest}
         active={active}
       />
       {places.isFetching && <span className="map-progress" aria-hidden="true" />}
@@ -579,6 +671,40 @@ export default function MapExplorer({
           )}
         </div>
 
+        <div className="map-actions">
+          {home && (
+            <button type="button" className="map-float map-action" onClick={() => showHome(home)}>
+              <GraduationCap aria-hidden="true" />
+              Minha turma
+            </button>
+          )}
+          {visible.length > 1 && (
+            <button
+              type="button"
+              className="map-float map-action"
+              onClick={showAll}
+            >
+              <Maximize2 aria-hidden="true" />
+              Ver tudo
+            </button>
+          )}
+          <button
+            type="button"
+            className="map-float map-action is-icon"
+            aria-label="Minha localização"
+            title="Minha localização"
+            onClick={locateMe}
+            disabled={locating}
+          >
+            <Locate aria-hidden="true" />
+          </button>
+          {locateError && (
+            <p className="map-note map-float-note" role="status">
+              {locateError}
+            </p>
+          )}
+        </div>
+
         <div className="map-float map-count" role="status" aria-live="polite">
           {places.isLoading ? (
             "Procurando a roda…"
@@ -636,3 +762,7 @@ export default function MapExplorer({
     </section>
   );
 }
+
+
+
+

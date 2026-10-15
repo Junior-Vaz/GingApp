@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, Clock, Download, Bell, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Check, ChevronRight, Clock, Download, Bell, ShieldCheck, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -56,34 +56,35 @@ export function ClassesPage() {
 
   const card = (item: Lesson, isNext: boolean) => {
     const info = infoOf(item);
+    const cancelled = item.status === "INACTIVE";
+    const dateLabel = capitalize(fmt(dayOnly(item.date), "EEE, dd/MM"));
     return (
-      <article className="class-card lesson-card" key={item.id}>
-        <ClassCover name={info.name} src={info.photo} />
+      <article className={`class-card lesson-card is-compact ${cancelled ? "is-cancelled" : ""}`.trim()} key={item.id} data-testid="lesson-card">
+        <ClassCover name={info.name} src={info.photo} variant="list" />
         <div className="lesson-main">
-          <div className="class-top">
+          <h3 className="truncate">{info.name}</h3>
+          <div className="lesson-when">
             <span className="badge">
-              {isNext ? "Próxima aula • " : ""}
-              {capitalize(fmt(dayOnly(item.date), "EEE, dd/MM"))}
+              {isNext ? "Próxima • " : ""}
+              {dateLabel}
             </span>
             {info.time && (
               <span className="class-time">
-                <Clock size={13} />
+                <Clock size={12} />
                 {info.time}
               </span>
             )}
+            {cancelled && <span className="badge badge-cancelled">Cancelada</span>}
           </div>
-          <h3>{info.name}</h3>
-          <UnitLine unit={info.unit} />
-          <TeacherLine teacher={info.teacher} />
-          {item.status === "INACTIVE" && <span className="badge badge-warm">Cancelada</span>}
-          {item.notes && <p className="text-xs text-muted-foreground my-4">{item.notes}</p>}
-          <div className="class-bottom">
-            <span />
-            <Button variant="soft" size="sm" onClick={() => setDetail(item)}>
-              Ver aula
-            </Button>
+          <div className="lesson-people">
+            <UnitLine compact unit={info.unit} />
+            <TeacherLine compact teacher={info.teacher} />
+            {!info.unit && !info.teacher && item.notes && <span className="lesson-note truncate">{item.notes}</span>}
           </div>
         </div>
+        <button type="button" className="lesson-open" aria-label={`Ver aula de ${info.name}, ${dateLabel}`} onClick={() => setDetail(item)}>
+          <ChevronRight size={18} aria-hidden="true" />
+        </button>
       </article>
     );
   };

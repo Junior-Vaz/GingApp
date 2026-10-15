@@ -18,6 +18,10 @@ export interface AuthResponse {
     organizationSlug?: string;
     /** Logo do grupo (Organization.logo) ou null. */
     organizationLogoUrl?: string | null;
+    /** Nome do grupo (Organization.name) para o cabecalho do painel/app. */
+    organizationName?: string | null;
+    /** Foto de perfil da conta (User.photo: caminho de /uploads ou URL) ou null. */
+    photo?: string | null;
     role?: OrgRole;
     /** Senha definida por outra pessoa (conta criada/redefinida pelo Mestre): o frontend deve exigir a troca. */
     mustChangePassword?: boolean;

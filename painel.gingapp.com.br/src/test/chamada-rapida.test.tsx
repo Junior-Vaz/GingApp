@@ -33,6 +33,7 @@ function setup(opts: { sessions?: unknown[]; saveStatus?: number } = {}) {
       const path = input.replace(/^.*\/api/, "").split("?")[0]!;
       calls.push({ method, path, body: init.body ? JSON.parse(init.body as string) : undefined });
       if (method === "GET" && path === "/attendance/quick-sessions") return Promise.resolve(json(200, opts.sessions ?? sessions));
+      if (method === "PATCH" && /^\/lessons\/\d+$/.test(path)) return Promise.resolve(json(200, { id: Number(path.split("/")[2]), status: "ACTIVE" }));
       const m = /^\/attendance\/lessons\/(\d+)$/.exec(path);
       if (m && method === "GET") return Promise.resolve(json(200, rosters[m[1]!] ?? []));
       if (m && method === "POST") return Promise.resolve(json(opts.saveStatus ?? 201, opts.saveStatus && opts.saveStatus >= 400 ? { message: "Falhou ao salvar." } : { count: 2 }));
@@ -195,5 +196,54 @@ describe("Chamada rápida (botão flutuante)", () => {
     dialog = await screen.findByRole("dialog");
     fireEvent.keyDown(dialog, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  const cancelled = {
+    lessonId: 9, classId: 9, className: "Cora Carolina", classPhoto: null, startTime: "20:30", endTime: "21:30",
+    unitName: "Sede", status: "UPCOMING", studentsCount: 5, markedCount: 0, cancelled: true,
+  };
+
+  it("aula de hoje CANCELADA: seção 'Canceladas hoje' com 'Cancelada' e 'Reativar aula' (PATCH status ACTIVE); só as ativas contam no selo e viram abas", async () => {
+    const calls = setup({ sessions: [...sessions, cancelled] });
+    await waitFor(() => expect(screen.getByTestId("quick-attendance-badge")).toHaveTextContent("3")); // as 3 ativas
+    fireEvent.click(await fab());
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findAllByRole("tab")).toHaveLength(3); // a cancelada não é aba (não marca presença)
+    const section = within(dialog).getByTestId("quick-cancelled-section");
+    expect(section).toHaveTextContent("Canceladas hoje");
+    const row = within(section).getByTestId("quick-cancelled-row");
+    expect(row).toHaveTextContent("Cora Carolina");
+    expect(row).toHaveTextContent("20:30–21:30");
+    expect(row).toHaveTextContent("Cancelada");
+    expect(calls.some((c) => c.path === "/attendance/lessons/9")).toBe(false); // sem roster da cancelada
+    fireEvent.click(within(row).getByRole("button", { name: "Reativar aula: Cora Carolina" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
+    const patch = calls.find((c) => c.method === "PATCH")!;
+    expect(patch.path).toBe("/lessons/9");
+    expect(patch.body).toEqual({ status: "ACTIVE" });
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Aula reativada."));
+    await waitFor(() => expect(calls.filter((c) => c.path === "/attendance/quick-sessions").length).toBeGreaterThan(1)); // recarrega as aulas de hoje
+  });
+
+  it("só aula cancelada hoje: NÃO diz 'Nenhuma aula hoje'; mostra 'A aula de hoje está cancelada.', sem selo e sem 'Salvar chamada'", async () => {
+    setup({ sessions: [cancelled] });
+    const button = await fab();
+    expect(screen.queryByTestId("quick-attendance-badge")).not.toBeInTheDocument();
+    fireEvent.click(button);
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByTestId("quick-sessions-all-cancelled")).toHaveTextContent("A aula de hoje está cancelada.");
+    expect(within(dialog).queryByText("Nenhuma aula hoje.")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "Salvar chamada" })).not.toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Reativar aula: Cora Carolina" })).toBeInTheDocument();
+  });
+
+  it("MONITOR (sem lessons:edit) vê a aula cancelada mas não o botão 'Reativar aula'", async () => {
+    cleanup();
+    loginAs("MONITOR");
+    setup({ sessions: [cancelled] });
+    fireEvent.click(await fab());
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByTestId("quick-cancelled-row")).toHaveTextContent("Cancelada");
+    expect(within(dialog).queryByRole("button", { name: /Reativar aula/ })).not.toBeInTheDocument();
   });
 });

@@ -1,0 +1,61 @@
+/* Carrossel do banner da Home: reaproveita .welcome-banner (altura, raio, margens) e .welcome-content. */
+.welcome-banner.hero-carousel { touch-action: pan-y; -webkit-user-select: none; user-select: none; }
+.welcome-banner.hero-carousel:after { display: none; }
+.hero-track { position: absolute; inset: 0; }
+.hero-slide { position: absolute; inset: 0; opacity: 0; visibility: hidden; transition: opacity .55s ease, visibility 0s linear .55s; background: oklch(.22 .045 158); }
+.hero-slide[data-active] { opacity: 1; visibility: visible; transition: opacity .55s ease, visibility 0s; }
+.hero-slide > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 58%; }
+.hero-slide:after { content: ''; position: absolute; inset: 0; background: var(--hero-shade); pointer-events: none; }
+.hero-slide .welcome-content { opacity: 0; transform: translateY(8px); transition: opacity .5s ease .1s, transform .5s ease .1s; }
+.hero-slide[data-active] .welcome-content { opacity: 1; transform: none; }
+
+/* Ranking: foto da comunidade com overlay verde-escuro -> âmbar. */
+.hero-ranking > img { object-position: center 40%; }
+.hero-ranking:after { background: linear-gradient(90deg, oklch(.2 .06 155 / .93), oklch(.28 .07 120 / .72) 55%, oklch(.42 .1 75 / .45)); }
+.hero-seal { display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; width: 104px; height: 104px; border-radius: 50%; border: 3px solid rgb(255 255 255 / .85); box-shadow: 0 8px 24px rgb(0 0 0 / .35); text-align: center; }
+.hero-seal svg { width: 26px; height: 26px; }
+.hero-seal strong { font-size: 13px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; line-height: 1.1; }
+
+/* Jornada: gradiente da marca + trama sutil de cordas. */
+.hero-journey { background: linear-gradient(120deg, oklch(.22 .05 158), oklch(.36 .07 158) 70%, oklch(.42 .08 140)); }
+.hero-journey:after { background: repeating-linear-gradient(60deg, rgb(255 255 255 / .05) 0 2px, transparent 2px 14px), repeating-linear-gradient(-60deg, rgb(0 0 0 / .08) 0 2px, transparent 2px 14px); }
+.hero-checkin { background: linear-gradient(120deg, oklch(.2 .045 165), oklch(.3 .06 150) 65%, oklch(.38 .08 120)); }
+.hero-checkin:after { background: radial-gradient(circle at 85% 50%, rgb(255 255 255 / .1), transparent 55%); }
+
+.hero-art { position: absolute; z-index: 1; right: 56px; top: 50%; transform: translateY(-50%); display: grid; place-items: center; pointer-events: none; }
+.hero-journey .hero-art { transform: translateY(-50%) rotate(14deg); filter: drop-shadow(0 8px 14px rgb(0 0 0 / .35)); }
+.hero-qr { width: 96px; height: 96px; color: rgb(255 255 255 / .9); stroke-width: 1.2; }
+
+.hero-progress { position: relative; max-width: 245px; height: 6px; border-radius: 999px; background: rgb(255 255 255 / .22); margin: -4px 0 19px; }
+.hero-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--highlight); }
+.hero-progress > small { position: absolute; left: 0; top: 10px; font-size: 10px; opacity: .9; white-space: nowrap; }
+
+.hero-arrow { position: absolute; z-index: 3; top: 50%; width: 34px; height: 34px; margin-top: -17px; display: none; place-items: center; border: 0; border-radius: 50%; background: rgb(0 0 0 / .35); color: #fff; cursor: pointer; opacity: .55; transition: opacity .2s, background .2s; }
+.hero-arrow svg { width: 18px; height: 18px; }
+.hero-arrow-prev { left: 10px; }
+.hero-arrow-next { right: 10px; }
+.hero-carousel:hover .hero-arrow, .hero-arrow:focus-visible { opacity: 1; }
+.hero-arrow:hover { background: rgb(0 0 0 / .55); }
+@media (min-width: 768px) and (hover: hover) { .hero-arrow { display: grid; } }
+
+.hero-dots { position: absolute; z-index: 3; left: 0; right: 0; bottom: 4px; display: flex; justify-content: center; }
+.hero-dot { width: 28px; height: 28px; display: grid; place-items: center; border: 0; background: transparent; padding: 0; cursor: pointer; }
+.hero-dot > span { display: block; width: 8px; height: 8px; border-radius: 999px; background: rgb(255 255 255 / .55); transition: width .3s ease, background .3s ease; }
+.hero-dot[data-active] > span { width: 24px; background: var(--highlight); }
+.hero-dot:hover > span { background: rgb(255 255 255 / .9); }
+.hero-dot[data-active]:hover > span { background: var(--highlight); }
+.hero-carousel button:focus-visible, .hero-carousel a:focus-visible { outline: 2px solid var(--highlight); outline-offset: 2px; }
+
+@media (max-width: 767px) {
+  .hero-slide .welcome-content { padding-top: 24px; padding-bottom: 30px; }
+  .hero-slide:not(.hero-community) .welcome-content h2 { font-size: 24px; line-height: 1.2; margin: 10px 0 8px; }
+  .hero-slide .welcome-content p { margin-bottom: 14px; }
+  .hero-art { right: 14px; }
+  .hero-seal { width: 84px; height: 84px; }
+  .hero-qr { width: 72px; height: 72px; }
+  .hero-journey .hero-art { right: 22px; }
+  .hero-progress { margin-bottom: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-slide, .hero-slide .welcome-content, .hero-dot > span, .hero-arrow { transition: none !important; transform: none; }
+}

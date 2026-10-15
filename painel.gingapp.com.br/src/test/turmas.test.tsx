@@ -31,7 +31,7 @@ function renderPage(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }import { TurmasPage } from "@/modules/turmas/turmas-page";
-import { classSchema, classToPayload, classToUpdatePayload, classToCreatePayload, scheduleLabel } from "@/modules/turmas/schema";
+import { classLessonDiagnostic, classSchema, classToPayload, classToUpdatePayload, classToCreatePayload, scheduleLabel } from "@/modules/turmas/schema";
 import { clickMenuAction, expectMenuAction, queryMenuAction } from "./row-menu";
 
 const classes = [
@@ -322,16 +322,16 @@ describe("TurmasPage", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
-  it("inativa com confirmação (DELETE) só para turmas ativas", async () => {
-    const calls = mockApi({ ...base(), "DELETE /classes/1": () => json(200, {}) });
+  it("inativa com confirmação (PATCH status INACTIVE) só para turmas ativas", async () => {
+    const calls = mockApi({ ...base(), "PATCH /classes/1": () => json(200, {}) });
     renderPage(<TurmasPage />);
     await screen.findByText("Infantil");
     await expectMenuAction("Inativar");
     await clickMenuAction("Inativar");
     const alert = await screen.findByRole("alertdialog");
-    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    expect(calls.some((c) => c.method === "PATCH")).toBe(false);
     fireEvent.click(within(alert).getByRole("button", { name: "Inativar" }));
-    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/classes/1")).toBe(true));
+    await waitFor(() => expect(calls.some((c) => c.method === "PATCH" && c.path === "/classes/1")).toBe(true));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Turma inativada."));
   });
 
@@ -349,8 +349,8 @@ describe("TurmasPage", () => {
     expect(screen.getAllByRole("button", { name: "Editar" }).length).toBeGreaterThan(0);
   });
 
-  it("erro do backend no DELETE vira toast e mantém o diálogo", async () => {
-    mockApi({ ...base(), "DELETE /classes/1": () => json(403, { message: "Sem permissão." }) });
+  it("erro do backend ao inativar (PATCH) vira toast e mantém o diálogo", async () => {
+    mockApi({ ...base(), "PATCH /classes/1": () => json(403, { message: "Sem permissão." }) });
     renderPage(<TurmasPage />);
     await screen.findByText("Infantil");
     await clickMenuAction("Inativar");
@@ -360,3 +360,55 @@ describe("TurmasPage", () => {
     expect(screen.getByRole("alertdialog")).toBeInTheDocument();
   });
 });
+
+describe("Turmas: diagnóstico das aulas à frente", () => {
+  const diag = [
+    { id: 1, unitId: null, name: "Com aula", description: null, weekday: 3, startTime: "20:30", endTime: "21:30", status: "ACTIVE", autoGenerateLessons: true,
+      nextLesson: { date: "2026-10-14T00:00:00.000Z", status: "ACTIVE" }, nextActiveLesson: { date: "2026-10-14T00:00:00.000Z" } },
+    { id: 2, unitId: null, name: "So cancelada", description: null, weekday: 4, startTime: "20:00", endTime: "21:00", status: "ACTIVE", autoGenerateLessons: true,
+      nextLesson: { date: "2026-10-15T00:00:00.000Z", status: "INACTIVE" }, nextActiveLesson: null },
+    { id: 3, unitId: null, name: "Sem aulas", description: null, weekday: 5, startTime: null, endTime: null, status: "ACTIVE", autoGenerateLessons: true,
+      nextLesson: null, nextActiveLesson: null },
+    { id: 4, unitId: null, name: "Sem dia", description: null, weekday: null, startTime: null, endTime: null, status: "ACTIVE", autoGenerateLessons: true,
+      nextLesson: null, nextActiveLesson: null },
+    { id: 5, unitId: null, name: "Manual", description: null, weekday: 1, startTime: null, endTime: null, status: "ACTIVE", autoGenerateLessons: false,
+      nextLesson: null, nextActiveLesson: null },
+  ];
+
+  it("mostra 'Próxima aula: dd/MM (ativa|cancelada)' e avisa só quando as aulas contínuas estão ligadas e não há aula ativa à frente", async () => {
+    mockApi({ "GET /classes": () => json(200, diag, { "X-Total-Count": String(diag.length) }), "GET /units": unitSearch() });
+    renderPage(<TurmasPage />);
+    await screen.findByText("Com aula");
+    const row = (name: string) => screen.getByText(name).closest("tr")!;
+    expect(screen.getByRole("columnheader", { name: /Próxima aula/ })).toBeInTheDocument();
+    expect(within(row("Com aula")).getByTestId("class-next-lesson")).toHaveTextContent("14/10 (ativa)");
+    expect(within(row("Com aula")).queryByTestId("class-lessons-warning")).toBeNull();
+    expect(within(row("So cancelada")).getByTestId("class-next-lesson")).toHaveTextContent("15/10 (cancelada)");
+    expect(within(row("So cancelada")).getByTestId("class-lessons-warning")).toHaveTextContent("Nenhuma aula ativa à frente — gerar aulas");
+    expect(within(row("Sem aulas")).getByTestId("class-lessons-warning")).toHaveTextContent("Nenhuma aula ativa à frente");
+    expect(within(row("Sem dia")).getByTestId("class-lessons-warning")).toHaveTextContent("Sem dia da semana");
+    expect(within(row("Manual")).queryByTestId("class-lessons-warning")).toBeNull(); // contínuas desligadas: sem aviso
+    // o aviso leva ao diálogo "Gerar aulas"
+    fireEvent.click(within(row("Sem aulas")).getByTestId("class-lessons-warning"));
+    expect(await screen.findByRole("dialog")).toHaveTextContent(/Gerar aulas/i);
+  });
+
+  it("classLessonDiagnostic: API antiga (sem os campos) e turma inativa não geram aviso", () => {
+    const base = { status: "ACTIVE" as const, weekday: 3, autoGenerateLessons: true };
+    expect(classLessonDiagnostic(base)).toEqual({ next: null, warning: null });
+    expect(classLessonDiagnostic({ ...base, nextLesson: null, nextActiveLesson: null }).warning).toBe("no-active");
+    expect(classLessonDiagnostic({ ...base, status: "INACTIVE" as never, nextActiveLesson: null }).warning).toBeNull();
+    expect(classLessonDiagnostic({ ...base, weekday: null, nextActiveLesson: null }).warning).toBe("no-weekday");
+  });
+
+  it("sem lessons:create (MONITOR) o aviso aparece sem o atalho de gerar", async () => {
+    clearSession();
+    loginAs("MONITOR");
+    mockApi({ "GET /classes": () => json(200, [diag[2]], { "X-Total-Count": "1" }), "GET /units": unitSearch() });
+    renderPage(<TurmasPage />);
+    const warning = await screen.findByTestId("class-lessons-warning");
+    expect(warning).toHaveTextContent("Nenhuma aula ativa à frente.");
+    expect(warning.tagName).toBe("P");
+  });
+});
+
