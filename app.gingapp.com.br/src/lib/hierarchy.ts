@@ -1,4 +1,4 @@
-import type { Hierarchy, HierarchyLevel, HierarchyPerson, HierarchyTeacher } from "@/lib/queries";
+import type { Hierarchy, HierarchyLevel, HierarchyTeacher } from "@/lib/queries";
 import { legacyBadge, type Badge } from "@/lib/roles";
 
 /* ---------- Escolha Linha do tempo | Hierarquia (lembrada no navegador) ---------- */
@@ -74,7 +74,7 @@ export const GROUP_BORDER = 1;
 export const GROUP_HEAD_H = 56;
 export const GROUP_HEAD_GAP = 16;
 export const GROUP_MIN_W = 292;
-/** Altura do cartão de nível sem alunos (cabeçalho + frase "Ninguém neste nível ainda"). */
+/** Altura do cartão de nível sem ninguém (cabeçalho + frase "Ninguém neste nível ainda"). */
 const GROUP_EMPTY_BODY = 22;
 
 /** Colunas de cartões por fileira conforme a largura da tela (2-3 no celular, mais no desktop). */
@@ -84,7 +84,11 @@ export function columnsFor(width: number): number {
   return 6;
 }
 
-export type NodeKind = "root" | "master" | "teacher" | "staff" | "level" | "mine" | "below";
+/**
+ * Nós da árvore: grupo (root) -> [cartão "Equipe" só para quem não tem corda no sistema exibido] -> um cartão de NÍVEL por
+ * corda (com a equipe daquela corda + os alunos) -> bloco "abaixo de você" ou o "eu" avulso.
+ */
+export type NodeKind = "root" | "team" | "level" | "mine" | "below";
 
 export interface LayoutNode {
   key: string;
@@ -93,13 +97,12 @@ export interface LayoutNode {
   y: number;
   w: number;
   h: number;
-  person?: HierarchyPerson | HierarchyTeacher;
-  /** Cargo do grupo da pessoa (nós "staff"; em "master"/"teacher" legados vem do papel de acesso). */
-  badge?: Badge;
   level?: HierarchyLevel;
+  /** Nó "level": a equipe cuja corda atual é este nível; nó "team": a equipe sem corda no sistema exibido. */
+  staff?: StaffEntry[];
   /** Nó "mine" avulso (aluno sem nível no sistema exibido): só a pessoa. */
   me?: Hierarchy["me"];
-  /** Nó "level": colunas da grade de alunos e quantos cartões (alunos + "+N") ela tem. */
+  /** Nós "level"/"team": colunas da grade de cartões e quantos cartões (equipe + alunos + "+N") ela tem. */
   cols?: number;
   items?: number;
   /** Índice de entrada (atraso da animação). */
@@ -125,14 +128,16 @@ export interface Layout {
   mine: { x: number; y: number; w: number; h: number } | null;
   /** O cartão da pessoa "eu" em si (coordenadas do mundo, sem o deslocamento x do centro). */
   meCard: { x: number; y: number; w: number; h: number } | null;
+  /** Níveis abaixo do meu que NÃO viraram cartão (sem equipe): resumidos no bloco "alunos abaixo de você". */
+  belowLevels: HierarchyLevel[];
 }
 
-/** Cartões de um nível: os alunos listados + o cartão final "+N" quando o total passa do que veio. */
-export const levelItems = (level: HierarchyLevel): number => level.students.length + (level.count > level.students.length ? 1 : 0);
+/** Cartões de um nível: equipe + alunos listados + o cartão final "+N" quando o total passa do que veio. */
+export const levelItems = (level: HierarchyLevel, staffCount = 0): number =>
+  staffCount + level.students.length + (level.count > level.students.length ? 1 : 0);
 
-/** Medidas do cartão de um nível (cabeçalho + grade de `cols` colunas máx.). */
-export function groupSize(level: HierarchyLevel, cols: number): { w: number; h: number; cols: number; items: number } {
-  const items = levelItems(level);
+/** Caixa de um cartão-seção (nível ou "Equipe"): cabeçalho + grade de `cols` colunas máx. com `items` cartões de pessoa. */
+function boxSize(items: number, cols: number): { w: number; h: number; cols: number; items: number } {
   const used = Math.max(1, Math.min(cols, items));
   const chrome = 2 * (GROUP_BORDER + GROUP_PAD);
   const gridW = used * PERSON_W + (used - 1) * CARD_GAP;
@@ -143,12 +148,33 @@ export function groupSize(level: HierarchyLevel, cols: number): { w: number; h: 
   return { w, h, cols: used, items };
 }
 
-/** Um cargo do grupo com as suas pessoas (uma linha da árvore, ou mais se passar de 5). */
+/** Medidas do cartão de um nível (cabeçalho + grade de `cols` colunas máx.), contando a equipe que está nele. */
+export function groupSize(level: HierarchyLevel, cols: number, staffCount = 0): { w: number; h: number; cols: number; items: number } {
+  return boxSize(levelItems(level, staffCount), cols);
+}
+
+/** Medidas do cartão "Equipe" (pessoas sem corda no sistema exibido). */
+export const teamSize = (people: number, cols: number): { w: number; h: number; cols: number; items: number } => boxSize(people, cols);
+
+/** Um cargo do grupo com as suas pessoas. */
 export interface StaffTier {
   badge: Badge;
   people: HierarchyTeacher[];
   /** "staff" = veio de `staff`; "master"/"teacher" = fallback de backend antigo (masters/teachers). */
   kind: "staff" | "master" | "teacher";
+}
+
+/** Uma pessoa da equipe com o cargo (selo) com que aparece. */
+export interface StaffEntry {
+  key: string;
+  person: HierarchyTeacher;
+  badge: Badge;
+}
+
+/** Onde cada pessoa da equipe aparece: dentro do nível da SUA corda, ou em "Equipe" (sem corda / corda fora do sistema exibido). */
+export interface StaffPlacement {
+  byLevel: Map<number, StaffEntry[]>;
+  unplaced: StaffEntry[];
 }
 
 /**
@@ -170,6 +196,33 @@ export function staffTiers(h: Hierarchy): StaffTier[] {
 /** O aluno ativo tem "meu professor" na equipe (qualquer cargo)? */
 export const hasMyTeacher = (h: Hierarchy): boolean => staffTiers(h).some((t) => t.people.some((p) => p.isMyTeacher));
 
+const byRankThenName = (a: StaffEntry, b: StaffEntry): number => b.badge.rank - a.badge.rank || a.person.displayName.localeCompare(b.person.displayName, "pt-BR");
+
+/**
+ * Distribui a equipe pela escada: cada pessoa vai para o cartão do NÍVEL da sua corda atual (`person.level.id` existente em
+ * `h.levels`); sem corda ou com corda fora do sistema exibido cai em `unplaced` (cartão "Equipe"). Cada pessoa aparece UMA
+ * vez (pelo cargo de maior rank) e, no mesmo destino, fica do maior rank para o menor e depois por nome.
+ */
+export function placeStaff(h: Hierarchy): StaffPlacement {
+  const levelIds = new Set(h.levels.map((l) => l.id));
+  const seen = new Set<number>();
+  const byLevel = new Map<number, StaffEntry[]>();
+  const unplaced: StaffEntry[] = [];
+  for (const tier of staffTiers(h)) {
+    for (const person of tier.people) {
+      if (seen.has(person.id)) continue;
+      seen.add(person.id);
+      const entry: StaffEntry = { key: `${tier.kind === "staff" ? `s${tier.badge.slug}-` : tier.kind === "master" ? "m" : "t"}${person.id}`, person, badge: tier.badge };
+      const levelId = person.level?.id;
+      if (levelId !== undefined && levelIds.has(levelId)) byLevel.set(levelId, [...(byLevel.get(levelId) ?? []), entry]);
+      else unplaced.push(entry);
+    }
+  }
+  for (const list of byLevel.values()) list.sort(byRankThenName);
+  unplaced.sort(byRankThenName);
+  return { byLevel, unplaced };
+}
+
 /** Linha de uma folha até o "barramento" (rampa com canto suave). */
 function downPath(px: number, pb: number, jy: number, r = 18): string {
   if (Math.abs(px) < 1) return `M${px} ${pb}V${jy}`;
@@ -186,12 +239,25 @@ function upPath(cx: number, jy: number, ct: number, r = 18): string {
   return `M0 ${jy}H${cx - s * rr}Q${cx} ${jy} ${cx} ${jy + rr}V${ct}`;
 }
 
+/** Retângulo (coordenadas do mundo) do `index`-ésimo cartão da grade de um cartão-seção, que fica centrada na caixa. */
+function gridCell(node: LayoutNode, cols: number, index: number): { x: number; y: number; w: number; h: number } {
+  const inner = GROUP_BORDER + GROUP_PAD;
+  const gridW = cols * PERSON_W + (cols - 1) * CARD_GAP;
+  return {
+    x: node.x + inner + (node.w - 2 * inner - gridW) / 2 + (index % cols) * (PERSON_W + CARD_GAP),
+    y: node.y + inner + GROUP_HEAD_H + GROUP_HEAD_GAP + Math.floor(index / cols) * (PERSON_H + CARD_ROW_GAP),
+    w: PERSON_W,
+    h: PERSON_H,
+  };
+}
+
 /**
- * Monta a árvore DE CIMA PARA BAIXO centrada em x=0: raiz (grupo) -> um bloco por CARGO DO GRUPO, do maior rank
- * para o menor (em fileiras de até `maxCols` cartões; sem `staff`: mestres e professores) -> um CARTÃO DE NÍVEL por
- * corda, do mais alto até o MEU (cabeçalho + grade de cartões de aluno iguais aos da equipe) -> bloco esmaecido
- * "N alunos abaixo de você". Sem nível meu (aluno sem graduação) mostra todos os níveis e um cartão "você" ao final;
- * se eu sou da equipe, o "eu" é o meu cartão na equipe. Funções puras: testáveis sem DOM.
+ * Monta a escada DE CIMA PARA BAIXO centrada em x=0: raiz (grupo) -> [cartão "Equipe", só para quem não tem corda no
+ * sistema exibido] -> UM CARTÃO DE NÍVEL por corda, do mais alto até o MEU, cada um com a equipe cuja corda é aquela
+ * (do maior rank ao menor) e os alunos do nível, tudo no mesmo cartão de pessoa -> bloco esmaecido "N alunos abaixo de
+ * você" (níveis abaixo do meu SEM equipe; os que têm equipe continuam como cartão para ninguém sumir). Sem nível meu
+ * (aluno sem graduação) mostra todos os níveis e um cartão "você" ao final; se eu sou da equipe, o "eu" é o meu cartão
+ * dentro do nível da minha corda (ou em "Equipe"). Funções puras: testáveis sem DOM.
  */
 export function buildLayout(h: Hierarchy, maxCols = columnsFor(typeof window === "undefined" ? 1280 : window.innerWidth)): Layout {
   const nodes: LayoutNode[] = [];
@@ -207,13 +273,7 @@ export function buildLayout(h: Hierarchy, maxCols = columnsFor(typeof window ===
     const cTop = Math.min(...children.map((c) => c.y));
     const jy = pBottom + (cTop - pBottom) / 2;
     parents.forEach((p, i) => edges.push({ key: `${tag}-p${i}`, d: downPath(p.x + p.w / 2, p.y + p.h, jy), tone }));
-    children.forEach((c, i) =>
-      edges.push({
-        key: `${tag}-c${i}`,
-        d: upPath(c.x + c.w / 2, jy, c.y),
-        tone: (c.kind === "teacher" || c.kind === "staff") && (c.person as HierarchyTeacher | undefined)?.isMyTeacher ? "mine" : tone,
-      }),
-    );
+    children.forEach((c, i) => edges.push({ key: `${tag}-c${i}`, d: upPath(c.x + c.w / 2, jy, c.y), tone }));
   };
 
   const place = (items: Omit<LayoutNode, "x" | "y" | "order">[], tone: LayoutEdge["tone"], tag: string, link = true): LayoutNode[] => {
@@ -235,56 +295,49 @@ export function buildLayout(h: Hierarchy, maxCols = columnsFor(typeof window ===
 
   let mine: Layout["mine"] = null;
   let meCard: Layout["meCard"] = null;
+  /** A equipe consultando a própria hierarquia: o "eu" é o cartão dela (nunca um aluno de nível). */
+  const markStaffMe = (node: LayoutNode | undefined, staff: StaffEntry[], cols: number) => {
+    const at = staff.findIndex((s) => s.person.isMe);
+    if (!node || at < 0) return;
+    meCard = gridCell(node, cols, at);
+    mine = meCard;
+  };
 
   // raiz: grupo + sistema
   place([{ key: "root", kind: "root", w: ROOT_W, h: ROOT_H }], "normal", "root", false);
 
-  staffTiers(h).forEach((tier, ti) => {
-    const people = tier.people.map((p) => ({
-      key: `${tier.kind === "staff" ? `s${tier.badge.slug}-` : tier.kind === "master" ? "m" : "t"}${p.id}`,
-      kind: tier.kind,
-      w: PERSON_W,
-      h: PERSON_H,
-      person: p,
-      badge: tier.badge,
-    }));
-    for (let i = 0; i < people.length; i += maxCols) {
-      const row = place(people.slice(i, i + maxCols), "normal", `st${ti}-${i}`, i === 0);
-      // A equipe consultando a própria hierarquia: o "eu" é o cartão dela na equipe (nunca um aluno de nível).
-      const self = row.find((n) => (n.person as HierarchyTeacher | undefined)?.isMe);
-      if (self) {
-        meCard = { x: self.x, y: self.y, w: self.w, h: self.h };
-        mine = meCard;
-      }
-    }
-  });
+  const placement = placeStaff(h);
+  if (placement.unplaced.length > 0) {
+    const size = teamSize(placement.unplaced.length, maxCols);
+    const [node] = place([{ key: "team", kind: "team", w: size.w, h: size.h, staff: placement.unplaced, cols: size.cols, items: size.items }], "normal", "team");
+    markStaffMe(node, placement.unplaced, size.cols);
+  }
 
+  const staffOf = (level: HierarchyLevel): StaffEntry[] => placement.byLevel.get(level.id) ?? [];
   const mineIndex = h.levels.findIndex((l) => l.isMine);
-  const shown = mineIndex < 0 ? h.levels : h.levels.slice(0, mineIndex + 1);
+  const shown = mineIndex < 0 ? h.levels : h.levels.filter((l, i) => i <= mineIndex || staffOf(l).length > 0);
+  const belowLevels = mineIndex < 0 ? [] : h.levels.slice(mineIndex + 1).filter((l) => !shown.includes(l));
   shown.forEach((level, i) => {
-    const size = groupSize(level, maxCols);
+    const staff = staffOf(level);
+    const size = groupSize(level, maxCols, staff.length);
     const [node] = place(
-      [{ key: `l${level.id}`, kind: "level", w: size.w, h: size.h, level, cols: size.cols, items: size.items }],
+      [{ key: `l${level.id}`, kind: "level", w: size.w, h: size.h, level, staff, cols: size.cols, items: size.items }],
       level.isMine ? "mine" : "normal",
       `lv${i}`,
     );
+    markStaffMe(node, staff, size.cols);
     const at = level.students.findIndex((s) => s.isMe);
     if (level.isMine && node && at >= 0) {
-      // o cartão "eu" é o `at`-ésimo da grade; a grade fica centrada no cartão do nível
-      const inner = GROUP_BORDER + GROUP_PAD;
-      const gridW = size.cols * PERSON_W + (size.cols - 1) * CARD_GAP;
-      const cx = node.x + inner + (node.w - 2 * inner - gridW) / 2 + (at % size.cols) * (PERSON_W + CARD_GAP);
-      const cy = node.y + inner + GROUP_HEAD_H + GROUP_HEAD_GAP + Math.floor(at / size.cols) * (PERSON_H + CARD_ROW_GAP);
-      meCard = { x: cx, y: cy, w: PERSON_W, h: PERSON_H };
-      mine = { x: node.x, y: cy, w: node.w, h: PERSON_H };
+      // o cartão "eu" vem depois da equipe do nível, na grade centrada no cartão do nível
+      meCard = gridCell(node, size.cols, staff.length + at);
+      mine = { x: node.x, y: meCard.y, w: node.w, h: PERSON_H };
     } else if (level.isMine && node) {
       mine = { x: node.x, y: node.y, w: node.w, h: node.h };
     }
   });
 
   if (mineIndex >= 0) {
-    const lower = h.levels.slice(mineIndex + 1);
-    if (lower.length > 0) place([{ key: "below", kind: "below", w: BELOW_W, h: BELOW_H }], "dim", "below");
+    if (belowLevels.length > 0) place([{ key: "below", kind: "below", w: BELOW_W, h: BELOW_H }], "dim", "below");
   } else if (h.me && !h.me.isStaff) {
     const [node] = place([{ key: "me", kind: "mine", w: PERSON_W, h: PERSON_H, me: h.me }], "mine", "me");
     if (node) {
@@ -294,7 +347,7 @@ export function buildLayout(h: Hierarchy, maxCols = columnsFor(typeof window ===
   }
 
   const width = maxHalf * 2 + 80;
-  return { nodes, edges, width, height: Math.max(0, y - GAP_Y) + 40, mine, meCard };
+  return { nodes, edges, width, height: Math.max(0, y - GAP_Y) + 40, mine, meCard, belowLevels };
 }
 
 /* ---------- Pan / zoom (transform CSS: translate(x,y) scale(s), origem no canto superior esquerdo) ---------- */

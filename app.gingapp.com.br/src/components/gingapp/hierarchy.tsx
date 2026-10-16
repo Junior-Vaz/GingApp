@@ -16,10 +16,10 @@ import {
   zoomAt,
   type Layout,
   type LayoutNode,
+  type StaffEntry,
   type Transform,
 } from "@/lib/hierarchy";
-import { useHierarchy, type GraduationLevel, type Hierarchy, type HierarchyLevel, type HierarchyPerson, type HierarchyTeacher } from "@/lib/queries";
-import type { Badge } from "@/lib/roles";
+import { useHierarchy, type GraduationLevel, type Hierarchy, type HierarchyLevel } from "@/lib/queries";
 import { Avatar } from "./avatar";
 import { Rope } from "./rope";
 import { RoleChip } from "./roles";
@@ -82,7 +82,8 @@ function LevelChip({ level }: { level: GraduationLevel }) {
   );
 }
 
-function StaffCard({ person, badge, group }: { person: HierarchyPerson | HierarchyTeacher; badge: Badge; group: Hierarchy["group"] }) {
+function StaffCard({ entry, group }: { entry: StaffEntry; group: Hierarchy["group"] }) {
+  const { person, badge } = entry;
   return (
     <PersonCard
       name={person.displayName}
@@ -91,35 +92,61 @@ function StaffCard({ person, badge, group }: { person: HierarchyPerson | Hierarc
       variant="staff"
       chip={<RoleChip badge={badge} />}
       rope={person.level}
-      isMe={"isMe" in person && person.isMe === true}
-      isMyTeacher={"isMyTeacher" in person && person.isMyTeacher}
+      isMe={person.isMe === true}
+      isMyTeacher={person.isMyTeacher}
     />
   );
 }
 
+/** "2 na equipe · 12 alunos": a contagem de alunos NUNCA inclui a equipe (ela vem como cartões de pessoa). */
+function levelCaption(staff: number, students: number): string {
+  return staff > 0 ? `${staff} na equipe · ${plural(students, "aluno", "alunos")}` : plural(students, "aluno", "alunos");
+}
+
 /**
- * Um NÍVEL da escada: cabeçalho compacto (corda + nome + "N alunos", abre a lista) e a grade de cartões de aluno do
- * mesmo estilo da equipe, com o cartão final "+N" quando há mais alunos do que os listados.
+ * Um NÍVEL da escada: cabeçalho compacto (corda + nome + contagem, abre a lista de alunos) e UMA grade de cartões de
+ * pessoa: primeiro a equipe cuja corda é este nível (do maior cargo ao menor), depois os alunos, com o cartão final "+N"
+ * quando há mais alunos do que os listados.
  */
-function LevelGroup({ level, cols, group, onOpen, selected }: { level: HierarchyLevel; cols: number; group: Hierarchy["group"]; onOpen: (level: HierarchyLevel) => void; selected: boolean }) {
+function LevelGroup({
+  level,
+  staff,
+  cols,
+  group,
+  onOpen,
+  selected,
+}: {
+  level: HierarchyLevel;
+  staff: StaffEntry[];
+  cols: number;
+  group: Hierarchy["group"];
+  onOpen: (level: HierarchyLevel) => void;
+  selected: boolean;
+}) {
   const hidden = Math.max(0, level.count - level.students.length);
+  const caption = levelCaption(staff.length, level.count);
   return (
     <section className={`hier-group ${level.isMine ? "is-mine" : ""}`.trim()} aria-label={`Nível ${level.name}`} data-testid="hier-level">
       <button
         type="button"
         className={`hier-level hier-level-head ${selected ? "is-selected" : ""}`.trim()}
         onClick={() => onOpen(level)}
-        aria-label={`${level.name}: ${plural(level.count, "aluno", "alunos")}. Ver alunos`}
+        aria-label={`${level.name}: ${caption}. Ver alunos`}
         aria-haspopup="dialog"
       >
         <Rope {...level} orientation="horizontal" length={76} thickness={16} />
         <span className="hier-level-body">
           <strong className="hier-name">{level.name}</strong>
-          <span className="hier-role">{plural(level.count, "aluno", "alunos")}</span>
+          <span className="hier-role">{caption}</span>
         </span>
       </button>
-      {level.students.length > 0 ? (
-        <ul className="hier-grid" style={{ "--cols": cols } as CSSProperties} aria-label={`Alunos de ${level.name}`}>
+      {staff.length + level.students.length > 0 ? (
+        <ul className="hier-grid" style={{ "--cols": cols } as CSSProperties} aria-label={`Pessoas de ${level.name}`}>
+          {staff.map((entry) => (
+            <li key={entry.key}>
+              <StaffCard entry={entry} group={group} />
+            </li>
+          ))}
           {level.students.map((s) => (
             <li key={s.studentId}>
               <PersonCard name={s.displayName} photo={s.photo} group={group} variant="student" chip={<LevelChip level={level} />} rope={level} isMe={s.isMe} />
@@ -147,6 +174,30 @@ function LevelGroup({ level, cols, group, onOpen, selected }: { level: Hierarchy
   );
 }
 
+/** Equipe SEM corda no sistema exibido (ou com corda de outro sistema): um único cartão-seção "Equipe" logo abaixo do grupo. */
+function TeamGroup({ staff, cols, group }: { staff: StaffEntry[]; cols: number; group: Hierarchy["group"] }) {
+  return (
+    <section className="hier-group" aria-label="Equipe" data-testid="hier-team">
+      <div className="hier-level-head is-static">
+        <span className="hier-team-icon">
+          <Crown aria-hidden="true" />
+        </span>
+        <span className="hier-level-body">
+          <strong className="hier-name">Equipe</strong>
+          <span className="hier-role">{plural(staff.length, "pessoa", "pessoas")} sem corda neste sistema</span>
+        </span>
+      </div>
+      <ul className="hier-grid" style={{ "--cols": cols } as CSSProperties} aria-label="Pessoas da equipe">
+        {staff.map((entry) => (
+          <li key={entry.key}>
+            <StaffCard entry={entry} group={group} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** "Eu" avulso: aluno sem corda no sistema exibido (o mesmo cartão de pessoa, com a frase "Sem graduação ainda"). */
 function MeCard({ me, group }: { me: NonNullable<Hierarchy["me"]>; group: Hierarchy["group"] }) {
   return (
@@ -162,8 +213,8 @@ function MeCard({ me, group }: { me: NonNullable<Hierarchy["me"]>; group: Hierar
   );
 }
 
-function BelowNode({ h, count }: { h: Hierarchy; count: number }) {
-  const lower = h.levels.slice(h.levels.findIndex((l) => l.isMine) + 1);
+function BelowNode({ lower }: { lower: HierarchyLevel[] }) {
+  const count = lower.reduce((sum, l) => sum + l.count, 0);
   return (
     <div className="hier-card hier-below" data-testid="hier-below">
       <strong className="hier-name">{plural(count, "aluno abaixo de você", "alunos abaixo de você")}</strong>
@@ -194,22 +245,23 @@ function RootNode({ h }: { h: Hierarchy }) {
   );
 }
 
-function renderNode(node: LayoutNode, h: Hierarchy, selectedId: number | null, open: (l: HierarchyLevel) => void, below: number): ReactNode {
+function renderNode(node: LayoutNode, h: Hierarchy, selectedId: number | null, open: (l: HierarchyLevel) => void, lower: HierarchyLevel[]): ReactNode {
   switch (node.kind) {
     case "root":
       return <RootNode h={h} />;
-    case "master":
-    case "teacher":
-    case "staff":
-      return node.person && node.badge ? <StaffCard person={node.person} badge={node.badge} group={h.group} /> : null;
+    case "team":
+      return <TeamGroup staff={node.staff ?? []} cols={node.cols ?? 1} group={h.group} />;
     case "level":
-      return node.level ? <LevelGroup level={node.level} cols={node.cols ?? 1} group={h.group} onOpen={open} selected={selectedId === node.level.id} /> : null;
+      return node.level ? (
+        <LevelGroup level={node.level} staff={node.staff ?? []} cols={node.cols ?? 1} group={h.group} onOpen={open} selected={selectedId === node.level.id} />
+      ) : null;
     case "mine":
       return node.me ? <MeCard me={node.me} group={h.group} /> : null;
     case "below":
-      return <BelowNode h={h} count={below} />;
+      return <BelowNode lower={lower} />;
   }
 }
+
 /* ---------- Cartão com os alunos de um nível ---------- */
 
 function LevelSheet({ level, onClose }: { level: HierarchyLevel; onClose: () => void }) {
@@ -238,7 +290,7 @@ function LevelSheet({ level, onClose }: { level: HierarchyLevel; onClose: () => 
           {hidden > 0 && <li className="hier-sheet-more">e mais {plural(hidden, "aluno", "alunos")}</li>}
         </ul>
       ) : (
-        <p className="hier-sheet-empty">Ninguém neste nível ainda.</p>
+        <p className="hier-sheet-empty">Nenhum aluno neste nível ainda.</p>
       )}
     </aside>
   );
@@ -266,8 +318,8 @@ function HierarchySkeleton() {
 /* ---------- Canvas ---------- */
 
 /**
- * Hierarquia do grupo em TELA CHEIA (mesmo contêiner do mapa): árvore de cima para baixo — grupo, cargos do
- * grupo (do maior rank ao menor, com selo colorido) e as cordas do mais alto até a minha. Arrastar = pan; roda/pinça/botões = zoom; "Centralizar em mim".
+ * Hierarquia do grupo em TELA CHEIA (mesmo contêiner do mapa): escada de cima para baixo — grupo e as cordas do sistema
+ * do mais alto até a minha, cada nível com a equipe da sua corda (selo do cargo) e os alunos. Arrastar = pan; roda/pinça/botões = zoom; "Centralizar em mim".
  * Pan/zoom são só `transform` CSS sobre o "mundo" (sem bibliotecas).
  */
 export function HierarchyCanvas({ viewToggle }: { viewToggle: ReactNode }) {
@@ -494,7 +546,6 @@ function HierarchyTree({ h, viewToggle }: { h: Hierarchy; viewToggle: ReactNode 
   const openLevel = useCallback((level: HierarchyLevel) => setSelectedId(level.id), []);
   const selected = selectedId === null ? null : (h.levels.find((l) => l.id === selectedId) ?? null);
 
-  const below = progress.belowCount;
   const nextName = progress.next?.name;
   const summary = h.me?.isStaff ? (
     <>
@@ -560,7 +611,7 @@ function HierarchyTree({ h, viewToggle }: { h: Hierarchy; viewToggle: ReactNode 
               className={`hier-node is-${node.kind}`}
               style={{ left: node.x + off, top: node.y, width: node.w, minHeight: node.h, "--i": node.order } as CSSProperties}
             >
-              {renderNode(node, h, selectedId, openLevel, below)}
+              {renderNode(node, h, selectedId, openLevel, layout.belowLevels)}
             </div>
           ))}
         </div>

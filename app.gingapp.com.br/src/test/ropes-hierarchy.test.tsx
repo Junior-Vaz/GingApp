@@ -36,7 +36,7 @@ import { GraduationCard, RopeRuler } from "@/components/gingapp/graduation-parts
 import { HierarchyCanvas } from "@/components/gingapp/hierarchy";
 import { Rope } from "@/components/gingapp/rope";
 import { JourneyPage } from "@/components/gingapp/journey";
-import { buildLayout, centerOn, clampScale, columnsFor, groupSize, MAX_SCALE, MIN_SCALE, PERSON_AVATAR, PERSON_H, PERSON_W, progressOf, shortName, staffTiers, zoomAt } from "@/lib/hierarchy";
+import { buildLayout, centerOn, clampScale, columnsFor, groupSize, MAX_SCALE, MIN_SCALE, PERSON_AVATAR, PERSON_H, PERSON_W, placeStaff, progressOf, shortName, staffTiers, zoomAt } from "@/lib/hierarchy";
 import { normalizeStaff } from "@/lib/queries";
 import type { Badge } from "@/lib/roles";
 import { buildTimeline } from "@/lib/derive";
@@ -221,7 +221,8 @@ describe("lógica pura da hierarquia", () => {
     expect(p.belowCount).toBe(7);
     const layout = buildLayout(h);
     const kinds = layout.nodes.map((n) => n.kind);
-    expect(kinds).toEqual(["root", "master", "teacher", "teacher", "level", "level", "below"]);
+    // equipe DENTRO do nível da sua corda (mestre em azul, Prof Ana em mista); só o Prof Beto (sem corda) vira cartão "Equipe"
+    expect(kinds).toEqual(["root", "team", "level", "level", "below"]);
     const ys = layout.nodes.map((n) => n.y);
     expect([...ys].sort((a, b) => a - b)).toEqual(ys);
     expect(layout.mine).not.toBeNull();
@@ -247,9 +248,10 @@ describe("Hierarquia (canvas)", () => {
     expect(text()).toContain("Mestre Bimba Filho");
     expect(text()).toContain("Prof Ana");
     expect(q("[data-testid='my-teacher']")!.textContent).toContain("Seu professor");
-    // sem `staff` (backend antigo): selos do papel de acesso, Mestre antes de Professor
+    // sem `staff` (backend antigo): selos do papel de acesso; cada um dentro do cartão do nível da sua corda
     const roleNames = [...container!.querySelectorAll(".hier-person.is-staff .badge")].map((n) => n.textContent);
-    expect(roleNames).toEqual(["Mestre", "Professor", "Professor"]);
+    expect(roleNames).toEqual(["Professor", "Mestre", "Professor"]); // Beto (sem corda, "Equipe") -> azul (Mestre) -> mista (Ana)
+    expect(q("[data-testid='my-teacher']")!.closest("[data-testid='hier-level']")!.getAttribute("aria-label")).toBe("Nível Corda verde, amarela e azul");
     expect(text()).toContain("Corda azul");
     expect(q("[data-testid='hier-me']")!.textContent).toContain("Você está aqui");
     expect(q("[data-testid='hier-me']")!.textContent).toContain("Camila Souza Lima");
@@ -291,9 +293,11 @@ describe("Hierarquia (canvas)", () => {
       name: c.querySelector(".hier-name")!.textContent,
       role: c.querySelector(".badge")!.textContent,
     }));
+    // sem corda: um único cartão "Equipe"; rank desc e, no mesmo cargo, por nome
+    expect(container!.querySelectorAll("[data-testid='hier-team']")).toHaveLength(1);
     expect(cards).toEqual([
-      { name: "Mestre Joao", role: "Contramestre" },
       { name: "Mestra Lia", role: "Contramestre" },
+      { name: "Mestre Joao", role: "Contramestre" },
       { name: "Prof Ana", role: "Formado" },
       { name: "Zeca Monitor", role: "Monitor" },
     ]);
@@ -321,8 +325,10 @@ describe("Hierarquia (canvas)", () => {
       const legacy = staffTiers(sample(over));
       expect(legacy.map((t) => `${t.kind}:${t.badge.name}:${t.people.length}`)).toEqual(["master:Mestre:1", "teacher:Professor:2"]);
     }
-    // o layout usa os mesmos nós: sem staff = 1 master + 2 teachers (comportamento antigo)
-    expect(buildLayout(sample()).nodes.filter((n) => n.kind === "master" || n.kind === "teacher")).toHaveLength(3);
+    // o layout usa a mesma equipe: sem staff = 1 master + 2 teachers (comportamento antigo), cada um no destino da sua corda
+    const placement = placeStaff(sample());
+    expect([...placement.byLevel.values()].flat()).toHaveLength(2);
+    expect(placement.unplaced.map((e) => e.person.displayName)).toEqual(["Prof Beto"]);
   });
 
   it("normalizeStaff (select de useHierarchy): resposta fora do contrato vira [] e o rank manda na ordem", () => {
@@ -404,8 +410,8 @@ describe("Hierarquia (canvas)", () => {
       const groups = nodes.filter((n) => n.kind === "level");
       expect(groups).toHaveLength(3);
       // 12 listados + cartão "+N" = 13 cartões; a altura acompanha as fileiras
-      const first = groupSize(big.levels[0]!, cols);
-      expect(first.items).toBe(12 + 1);
+      const first = groupSize(big.levels[0]!, cols, 1); // + o mestre (corda azul) dentro do nível
+      expect(first.items).toBe(1 + 12 + 1);
       expect(groups[0]!.h).toBe(first.h);
       // nada se sobrepõe na vertical e tudo cabe na largura do mundo
       for (let i = 1; i < nodes.length; i += 1) {
@@ -480,6 +486,185 @@ describe("Hierarquia (canvas)", () => {
     state.hierarchy = { data: null, isLoading: false, error: new Error("Falhou") };
     render(<HierarchyCanvas viewToggle={null} />);
     expect(q("[role='alert']")!.textContent).toContain("Não foi possível carregar a hierarquia");
+  });
+});
+
+describe("Hierarquia: a equipe fica DENTRO do nível da sua corda (um único fluxo, sem bloco de equipe no topo)", () => {
+  const rope = (id: number, name: string, order: number, color: string) => ({ id, name, order, color });
+  /** Escada do sistema, do nível mais alto (Mestre) ao mais baixo. */
+  const L_MESTRE = rope(60, "Branca - Mestre", 6, "#ffffff");
+  const L_MARROM = rope(50, "Marrom", 5, "#92400e");
+  const L_AZUL_VERDE = rope(40, "Azul e verde", 4, "#0ea5e9");
+  const L_AZUL = rope(30, "Azul", 3, "#3b82f6");
+  const L_VERDE = rope(20, "Verde", 2, "#22c55e");
+  const L_CRUA = rope(10, "Crua", 1, "#f5f5f4");
+  const empty = (base: ReturnType<typeof rope>, over: Partial<HierarchyLevel> = {}): HierarchyLevel => ({ ...base, count: 0, isMine: false, students: [], ...over });
+  const badge = (id: number, name: string, rank: number, accessRole: Badge["accessRole"]): Badge => ({ id, name, slug: name.toLowerCase(), color: null, icon: null, accessRole, rank });
+  const mestre = badge(1, "Mestre", 100, "MESTRE");
+  const contramestre = badge(2, "Contramestre", 90, "PROFESSOR");
+  const instrutor = badge(3, "Instrutor", 50, "INSTRUTOR");
+  const monitor = badge(4, "Monitor", 10, "MONITOR");
+  const who = (id: number, displayName: string, lv: ReturnType<typeof rope> | null, over: { isMyTeacher?: boolean; isMe?: boolean } = {}) => ({
+    id,
+    displayName,
+    photo: null,
+    level: lv,
+    isMyTeacher: false,
+    ...over,
+  });
+
+  function ladder(over: Partial<Hierarchy> = {}): Hierarchy {
+    const marrom = empty(L_MARROM, { count: 1, students: [{ studentId: 900, displayName: "Aluno Marrom", photo: null, isMe: false }] });
+    return {
+      group: { id: 1, name: "Grupo Semente", logoUrl: null },
+      system: { id: 1, name: "Sistema por cores clássicas (10 graus)" },
+      masters: [],
+      teachers: [],
+      levels: [empty(L_MESTRE), marrom, empty(L_AZUL_VERDE), empty(L_AZUL), empty(L_VERDE), empty(L_CRUA)],
+      staff: [
+        { groupRole: instrutor, people: [who(30, "Instrutor Mysterio", L_AZUL_VERDE, { isMyTeacher: true }), who(31, "Bia Instrutora", L_MARROM)] },
+        { groupRole: mestre, people: [who(10, "Mestre Jacaré", L_MESTRE)] },
+        { groupRole: contramestre, people: [who(20, "Contramestre Modelo", L_MARROM)] },
+      ],
+      me: null,
+      higherCount: 0,
+      totalStudents: 1,
+      ...over,
+    };
+  }
+
+  /** nome do nível -> nomes das pessoas dentro do cartão dele, na ordem do DOM. */
+  const peopleByLevel = () =>
+    Object.fromEntries(
+      [...container!.querySelectorAll<HTMLElement>("[data-testid='hier-level']")].map((section) => [
+        section.querySelector(".hier-level-head .hier-name")!.textContent!,
+        [...section.querySelectorAll(".hier-person:not(.hier-more-card) .hier-name")].map((n) => n.textContent),
+      ]),
+    ) as Record<string, string[]>;
+
+  it("mestre no nível mais alto, contramestre em Marrom, instrutor em Azul e verde; níveis na ordem do sistema; ninguém duplicado", () => {
+    state.hierarchy = { data: ladder(), isLoading: false, error: null };
+    render(<HierarchyCanvas viewToggle={null} />);
+    const levels = [...container!.querySelectorAll("[data-testid='hier-level']")].map((s) => s.querySelector(".hier-level-head .hier-name")!.textContent);
+    expect(levels).toEqual(["Branca - Mestre", "Marrom", "Azul e verde", "Azul", "Verde", "Crua"]);
+    const byLevel = peopleByLevel();
+    expect(byLevel["Branca - Mestre"]).toEqual(["Mestre Jacaré"]);
+    // mesmo nível: maior cargo primeiro (Contramestre antes de Instrutor), depois os alunos
+    expect(byLevel["Marrom"]).toEqual(["Contramestre Modelo", "Bia Instrutora", "Aluno Marrom"]);
+    expect(byLevel["Azul e verde"]).toEqual(["Instrutor Mysterio"]);
+    expect(byLevel["Azul"]).toEqual([]);
+    // sem bloco de equipe separado e cada pessoa uma única vez
+    expect(q("[data-testid='hier-team']")).toBeNull();
+    const everyone = [...container!.querySelectorAll(".hier-person:not(.hier-more-card) .hier-name")].map((n) => n.textContent);
+    expect(everyone).toHaveLength(5);
+    expect(new Set(everyone).size).toBe(5);
+    for (const card of container!.querySelectorAll(".hier-person.is-staff")) expect(card.closest("[data-testid='hier-level']")).not.toBeNull();
+    // selo do cargo em cada cartão de equipe
+    expect([...container!.querySelectorAll(".hier-person.is-staff .badge")].map((n) => n.textContent)).toEqual(["Mestre", "Contramestre", "Instrutor", "Instrutor"]);
+    // contagens honestas: a equipe NÃO vira aluno (cabeçalho do grupo e do nível)
+    expect(q(".hier-root")!.textContent).toContain("1 aluno");
+    expect(q(".hier-root")!.textContent).not.toContain("alunos");
+    const marromHead = container!.querySelectorAll<HTMLElement>("button.hier-level-head")[1]!;
+    expect(marromHead.textContent).toContain("2 na equipe · 1 aluno");
+    expect(container!.querySelectorAll("button.hier-level-head")[3]!.textContent).toContain("0 alunos");
+    expect(container!.querySelectorAll("button.hier-level-head")[3]!.textContent).not.toContain("equipe");
+    // no layout: root e depois só níveis, de cima para baixo
+    expect(buildLayout(ladder(), 3).nodes.map((n) => n.kind)).toEqual(["root", "level", "level", "level", "level", "level", "level"]);
+  });
+
+  it("'Seu professor' continua no cartão do professor e 'Você' no da equipe que consulta, ambos dentro do nível da corda", () => {
+    const h = ladder();
+    h.staff![0]!.people.push(who(32, "Monitor Zé", L_VERDE, { isMe: true }));
+    h.staff!.push({ groupRole: monitor, people: [] });
+    h.me = { studentId: 5, displayName: "Monitor Zé", photo: null, level: L_VERDE, order: 2, isStaff: true };
+    state.hierarchy = { data: h, isLoading: false, error: null };
+    render(<HierarchyCanvas viewToggle={null} />);
+    const teacher = q("[data-testid='my-teacher']")!;
+    expect(teacher.textContent).toContain("Instrutor Mysterio");
+    expect(teacher.textContent).toContain("Seu professor");
+    expect(teacher.closest("[data-testid='hier-level']")!.getAttribute("aria-label")).toBe("Nível Azul e verde");
+    const me = q("[data-testid='hier-me']")!;
+    expect(me.textContent).toContain("Você");
+    expect(me.textContent).not.toContain("Você está aqui");
+    expect(me.closest("[data-testid='hier-level']")!.getAttribute("aria-label")).toBe("Nível Verde");
+    expect(container!.querySelectorAll(".hier-person.is-me")).toHaveLength(1);
+    // "Centralizar em mim" = o cartão da equipe dentro do cartão do nível Verde
+    const layout = buildLayout(h, 3);
+    const verde = layout.nodes.find((n) => n.level?.name === "Verde")!;
+    expect(layout.meCard).toEqual(layout.mine);
+    expect(layout.meCard!.y).toBeGreaterThanOrEqual(verde.y);
+    expect(layout.meCard!.y + layout.meCard!.h).toBeLessThanOrEqual(verde.y + verde.h);
+  });
+
+  it("aluno e equipe no mesmo nível: 'Você está aqui' no aluno, equipe antes dele, e o 'eu' aparece uma vez", () => {
+    const h = ladder();
+    h.levels[1] = empty(L_MARROM, {
+      count: 2,
+      isMine: true,
+      students: [
+        { studentId: 7, displayName: "Camila Souza Lima", photo: null, isMe: true },
+        { studentId: 900, displayName: "Aluno Marrom", photo: null, isMe: false },
+      ],
+    });
+    h.levels[4] = empty(L_VERDE, { count: 3 });
+    h.me = { studentId: 7, displayName: "Camila Souza Lima", photo: null, level: L_MARROM, order: 5 };
+    h.totalStudents = 5;
+    state.hierarchy = { data: h, isLoading: false, error: null };
+    render(<HierarchyCanvas viewToggle={null} />);
+    expect(peopleByLevel()["Marrom"]).toEqual(["Contramestre Modelo", "Bia Instrutora", "Camila Souza Lima", "Aluno Marrom"]);
+    expect(container!.querySelectorAll("[data-testid='hier-me']")).toHaveLength(1);
+    expect(q("[data-testid='hier-me']")!.textContent).toContain("Você está aqui");
+    expect(q(".hier-group.is-mine")!.getAttribute("aria-label")).toBe("Nível Marrom");
+    // níveis abaixo do meu, SEM equipe, viram o bloco esmaecido; o Instrutor (Azul e verde) mantém o cartão para não sumir
+    const names = [...container!.querySelectorAll("[data-testid='hier-level']")].map((s) => s.getAttribute("aria-label"));
+    expect(names).toEqual(["Nível Branca - Mestre", "Nível Marrom", "Nível Azul e verde"]);
+    expect(peopleByLevel()["Azul e verde"]).toEqual(["Instrutor Mysterio"]);
+    expect(q("[data-testid='hier-below']")!.textContent).toContain("3 alunos abaixo de você"); // Verde (3) + Azul e Crua (0); Azul e verde é cartão
+    const layout = buildLayout(h, 3);
+    expect(layout.belowLevels.map((l) => l.name)).toEqual(["Azul", "Verde", "Crua"]);
+    expect(layout.nodes.at(-1)!.kind).toBe("below");
+    // o meu cartão (aluno) fica depois da equipe na grade do nível Marrom: 3ª posição (índice 2) com 3 colunas
+    const marrom = layout.nodes.find((n) => n.level?.name === "Marrom")!;
+    expect(layout.meCard!.y).toBeGreaterThanOrEqual(marrom.y);
+    expect(layout.meCard!.y + layout.meCard!.h).toBeLessThanOrEqual(marrom.y + marrom.h);
+  });
+
+  it("equipe sem corda ou com corda fora do sistema exibido: UM cartão 'Equipe' logo abaixo do grupo, sem duplicar", () => {
+    const outra = rope(999, "Corda de outro sistema", 1, "#000000");
+    const h = ladder({
+      staff: [
+        { groupRole: mestre, people: [who(10, "Mestre Sem Corda", null)] },
+        { groupRole: instrutor, people: [who(30, "Instrutor Mysterio", L_AZUL_VERDE), who(33, "Instrutor Forasteiro", outra)] },
+      ],
+    });
+    state.hierarchy = { data: h, isLoading: false, error: null };
+    render(<HierarchyCanvas viewToggle={null} />);
+    const team = container!.querySelectorAll("[data-testid='hier-team']");
+    expect(team).toHaveLength(1);
+    expect([...team[0]!.querySelectorAll(".hier-person .hier-name")].map((n) => n.textContent)).toEqual(["Mestre Sem Corda", "Instrutor Forasteiro"]);
+    expect(team[0]!.textContent).toContain("2 pessoas");
+    expect(peopleByLevel()["Azul e verde"]).toEqual(["Instrutor Mysterio"]);
+    // a seção Equipe vem antes do primeiro nível e depois do grupo
+    const order = [...container!.querySelectorAll(".hier-root, [data-testid='hier-team'], [data-testid='hier-level']")].map((n) => n.getAttribute("data-testid") ?? "root");
+    expect(order.slice(0, 3)).toEqual(["root", "hier-team", "hier-level"]);
+    const everyone = [...container!.querySelectorAll(".hier-person:not(.hier-more-card) .hier-name")].map((n) => n.textContent);
+    expect(new Set(everyone).size).toBe(everyone.length);
+    expect(buildLayout(h, 3).nodes.slice(0, 3).map((n) => n.kind)).toEqual(["root", "team", "level"]);
+  });
+
+  it("placeStaff: uma vez por pessoa (maior cargo), por nível, ordenada por rank e nome; sem staff cai em masters/teachers", () => {
+    const h = ladder({
+      staff: [
+        { groupRole: instrutor, people: [who(1, "Zeca", L_MARROM), who(2, "Ana", L_MARROM), who(3, "Duplicado", L_MARROM)] },
+        { groupRole: contramestre, people: [who(4, "Bruno", L_MARROM), who(3, "Duplicado", L_MARROM)] },
+      ],
+    });
+    const p = placeStaff(h);
+    expect(p.byLevel.get(L_MARROM.id)!.map((e) => `${e.person.displayName}:${e.badge.name}`)).toEqual(["Bruno:Contramestre", "Duplicado:Contramestre", "Ana:Instrutor", "Zeca:Instrutor"]);
+    expect(p.unplaced).toEqual([]);
+    const legacy = placeStaff(ladder({ staff: [], masters: [who(1, "Mestre Antigo", L_MESTRE)], teachers: [who(2, "Prof Antigo", null)] }));
+    expect([...legacy.byLevel.values()].flat().map((e) => e.person.displayName)).toEqual(["Mestre Antigo"]);
+    expect(legacy.unplaced.map((e) => e.person.displayName)).toEqual(["Prof Antigo"]);
   });
 });
 
