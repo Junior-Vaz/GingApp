@@ -106,6 +106,14 @@ enum PaymentAccountStatus {
   ERROR
 }
 
+/// Como a conta do provedor do grupo foi ligada (PLANO_PROJETO.md 10.55): MANUAL = o Mestre colou o Access Token da
+/// PROPRIA conta na tela de configuracao do painel (caminho principal; token sem refresh/expiracao); OAUTH = fluxo OAuth
+/// do vendedor (opcional, dormente sem MERCADOPAGO_CLIENT_ID/SECRET/REDIRECT_URI no servidor).
+enum PaymentAccountMode {
+  MANUAL
+  OAUTH
+}
+
 enum SubscriptionStatus {
   TRIALING
   ACTIVE
@@ -1148,26 +1156,26 @@ model StudentGraduation {
 /// amountCents: valores monetarios sempre em centavos (Int) para evitar erro de ponto
 /// flutuante — decisao de modelagem, o plano nao especifica o tipo do campo.
 model FinancialRecord {
-  id             Int             @id @default(autoincrement())
-  organizationId Int
-  studentId      Int?
-  unitId         Int?
-  description    String
-  amountCents    Int
-  type           String?
-  dueDate        DateTime
-  paidAt         DateTime?
-  status         FinancialStatus @default(PENDING)
+  id               Int             @id @default(autoincrement())
+  organizationId   Int
+  studentId        Int?
+  unitId           Int?
+  description      String
+  amountCents      Int
+  type             String?
+  dueDate          DateTime
+  paidAt           DateTime?
+  status           FinancialStatus @default(PENDING)
   /// Competencia 'YYYY-MM' (so nos lancamentos gerados em lote por POST /finance/generate-monthly); o
   /// unique (studentId, competence, type) garante 1 mensalidade por aluno+mes mesmo com chamadas
   /// concorrentes (NULLs sao distintos no Postgres: lancamentos avulsos nao sao afetados).
-  competence     String?
+  competence       String?
   /// Baixa (E07): forma de pagamento e valor efetivamente pago (centavos; padrao = amountCents).
-  paymentMethod  PaymentMethod?
-  paidCents      Int?
+  paymentMethod    PaymentMethod?
+  paidCents        Int?
   /// Origem da baixa (MANUAL | PIX_AUTO). So tem sentido com status PAID; a API devolve `paidVia` derivado (ver
   /// finance-record.view.ts): PAID sem valor aqui = MANUAL (lancamentos antigos).
-  paidVia        PaidVia?
+  paidVia          PaidVia?
   /// Cobranca Pix no provedor de pagamento do GRUPO (Mercado Pago via OAuth; ver interface/http/payments). Nunca saem
   /// crus pela API: GET /finance e /finance/me devolvem so `pix: { status, expiresAt, generatedAt }`; o QR so vem de
   /// /finance/:id/pix. gatewayPaymentId = id do pagamento no provedor (unico por provider quando nao nulo).
@@ -1188,8 +1196,11 @@ model FinancialRecord {
   /// Ultima conferencia do Pix pela reconciliacao (fila justa: menos recente primeiro; tambem o "claim" atomico que
   /// impede duas replicas de conferirem o mesmo Pix na mesma rodada).
   pixLastCheckedAt DateTime?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
+  /// Conta do provedor (providerUserId) em que o Pix atual foi criado (PLANO_PROJETO.md 10.56, M3): se a conta do grupo
+  /// mudou depois, o Pix vira 'account_changed' (terminal, alerta ao Mestre) em vez de 404 eterno na reconciliacao.
+  gatewayAccountId String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id])
   student      Student?     @relation(fields: [studentId], references: [id])
@@ -1207,24 +1218,34 @@ model FinancialRecord {
 /// mensalidades cai na conta do PROPRIO grupo; o GingApp nunca toca no dinheiro. Tokens CIFRADOS (AES-256-GCM,
 /// shared/payments/payment-crypto.ts) e NUNCA devolvidos em resposta, log ou auditoria. Uma conta por grupo e provider.
 model PaymentProviderAccount {
-  id              Int                  @id @default(autoincrement())
-  organizationId  Int
+  id               Int                  @id @default(autoincrement())
+  organizationId   Int
   /// 'mercadopago' | 'stub' (PaymentProvider.id do servidor que conectou).
-  provider        String
+  provider         String
   /// user_id do vendedor no provedor (MP: collector_id dos pagamentos).
-  providerUserId  String?
-  accessTokenEnc  String?
-  refreshTokenEnc String?
-  tokenExpiresAt  DateTime?
-  publicKey       String?
-  liveMode        Boolean              @default(false)
-  status          PaymentAccountStatus @default(CONNECTED)
-  connectedAt     DateTime?
-  connectedById   Int?
+  providerUserId   String?
+  accessTokenEnc   String?
+  /// MANUAL: sempre null (sem refresh; a renovacao/cron pula a conta).
+  refreshTokenEnc  String?
+  /// MANUAL: sempre null (token de longa duracao colado pelo Mestre).
+  tokenExpiresAt   DateTime?
+  publicKey        String?
+  liveMode         Boolean              @default(false)
+  /// OAUTH para as linhas anteriores ao modo manual (PLANO_PROJETO.md 10.55).
+  mode             PaymentAccountMode   @default(OAUTH)
+  /// Assinatura secreta do webhook DO GRUPO (x-signature), cifrada (AES-GCM v2, AAD proprio). null = sem segredo.
+  webhookSecretEnc String?
+  /// Ultimos 4 caracteres do access token (so para o Mestre reconhecer qual colou; nunca mais que isso).
+  tokenHint        String?
+  status           PaymentAccountStatus @default(CONNECTED)
+  connectedAt      DateTime?
+  connectedById    Int?
   /// Ultimo erro (texto curto, sem token/segredo) da renovacao/uso da conta.
-  lastError       String?
-  createdAt       DateTime             @default(now())
-  updatedAt       DateTime             @updatedAt
+  lastError        String?
+  /// Ultimo aviso "a assinatura do webhook nao confere" (no maximo 1 por 24 h por grupo - PLANO_PROJETO.md 10.56, A2).
+  signatureAlertAt DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
 
   organization Organization @relation(fields: [organizationId], references: [id])
 
@@ -1268,6 +1289,11 @@ model PaymentWebhookEvent {
   /// PAID, DUPLICATE, ALREADY_APPLIED, PENDING, CANCELLED, AMOUNT_MISMATCH, PAID_CONFLICT, REFUND_ALERT, IGNORED, ...
   outcome           String?
   rawSafe           Json?
+  /// Webhook: true = x-signature conferida com o segredo do grupo (ou o do servidor); false = sem segredo nenhum,
+  /// processado so como GATILHO (o pagamento e sempre buscado no provedor). null = consulta/reconciliacao.
+  signatureVerified Boolean?
+  /// Webhook processado como gatilho porque a assinatura NAO conferiu (10.56, A2): MISSING | MISMATCH | UNREADABLE.
+  signatureProblem  String?
 
   @@unique([provider, eventId])
   @@index([provider, paymentId])

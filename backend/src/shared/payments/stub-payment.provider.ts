@@ -7,7 +7,9 @@ import {
   ProviderPayment,
   ProviderPaymentStatus,
   ProviderTokens,
+  ValidatedCredentials,
 } from './payment-provider.interface';
+import { mercadoPagoAppConfig } from './payments.config';
 
 interface StubPayment extends ProviderPayment {
   /** Token do vendedor dono do pagamento: getPayment com outro token = 404 (como um provedor real). */
@@ -27,7 +29,9 @@ const RAW: Record<ProviderPaymentStatus, string> = {
 /**
  * Provedor SIMULADO (sem rede) para dev e testes: PAYMENTS_PROVIDER=stub (padrao fora de producao; proibido em
  * producao - payments.config.ts). Comportamento deterministico:
- *  - OAuth: `code` comecando com 'bad' => INVALID_GRANT; `ok-<userId>` => vendedor <userId>; outro => vendedor '9000'.
+ *  - Modo MANUAL: ver validateCredentials (`TEST-...-<userId>` / `APP_USR-...-<userId>`; `INVALID` => 401).
+ *  - OAuth (so com as envs do OAuth, como o real): `code` comecando com 'bad' => INVALID_GRANT; `ok-<userId>` =>
+ *    vendedor <userId>; outro => vendedor '9000'.
  *  - Pix: guardado em memoria por id; mesma chave de idempotencia => o MESMO pagamento (como o provedor real).
  *  - getPayment com token de outro vendedor => NOT_FOUND.
  * Os metodos `setStatus`/`seedPayment` existem SO para testes/dev (nao ha rota HTTP para eles).
@@ -44,9 +48,44 @@ export class StubPaymentProvider implements PaymentProvider {
   readonly createCalls: CreatePixPaymentInput[] = [];
   /** Falha simulada na proxima chamada de refreshToken. */
   failNextRefresh: 'INVALID_GRANT' | 'TRANSIENT' | null = null;
+  /** Falha simulada na proxima validateCredentials (modo MANUAL). */
+  failNextValidate: 'TRANSIENT' | null = null;
+  /** Tokens manuais "revogados no provedor" (o Mestre gerou outro / apagou a aplicacao): qualquer uso => 401. */
+  readonly revokedTokens = new Set<string>();
+  /** Chamadas de refreshToken (os testes conferem que conta MANUAL nunca renova). */
+  refreshCalls = 0;
+  /** Tokens que o provedor responde 403 (politica/permissao, NAO revogacao) em qualquer uso, inclusive /users/me. */
+  readonly forbiddenTokens = new Set<string>();
+  /** Chamado DEPOIS de criar o Pix e ANTES de devolve-lo (simula algo concorrente durante a chamada ao provedor). */
+  onPixCreated: ((payment: ProviderPayment) => Promise<void>) | null = null;
 
-  isConfigured(): boolean {
-    return true;
+  /** Igual ao provedor real: o OAuth so fica ativo com MERCADOPAGO_CLIENT_ID/SECRET/REDIRECT_URI no ambiente. */
+  isOAuthConfigured(): boolean {
+    return mercadoPagoAppConfig() !== null;
+  }
+
+  /**
+   * Modo MANUAL simulado: token `TEST-...` ou `APP_USR-...` com >= 10 caracteres e valido; o dono e o numero final do
+   * token (`...-<userId>`, como os tokens reais do MP) ou '9000'. Contem `INVALID` / outro formato / revogado =>
+   * UNAUTHORIZED (401). `failNextValidate` simula o provedor fora do ar.
+   */
+  async validateCredentials(input: { accessToken: string }): Promise<ValidatedCredentials> {
+    const failure = this.failNextValidate;
+    this.failNextValidate = null;
+    if (failure === 'TRANSIENT') throw new PaymentProviderError('Provedor indisponivel (stub).', 'TRANSIENT', 503);
+    if (this.forbiddenTokens.has(input.accessToken)) {
+      throw new PaymentProviderError('Mercado Pago recusou (GET /users/me: HTTP 403) (stub).', 'UNAUTHORIZED', 403);
+    }
+    const seller = this.manualSellerOf(input.accessToken);
+    if (!seller) throw new PaymentProviderError('Mercado Pago recusou (GET /users/me: HTTP 401) (stub).', 'UNAUTHORIZED', 401);
+    return { providerUserId: seller, nickname: `stub-${seller}` };
+  }
+
+  /** Dono de um token manual valido (ver validateCredentials) ou null. */
+  private manualSellerOf(accessToken: string): string | null {
+    if (!/^(TEST|APP_USR)-/.test(accessToken) || accessToken.length < 10 || /INVALID/.test(accessToken)) return null;
+    if (this.revokedTokens.has(accessToken)) return null;
+    return /-(\d{1,15})$/.exec(accessToken)?.[1] ?? '9000';
   }
 
   buildAuthorizeUrl(state: string): string {
@@ -60,6 +99,7 @@ export class StubPaymentProvider implements PaymentProvider {
   }
 
   async refreshToken(refreshToken: string): Promise<ProviderTokens> {
+    this.refreshCalls += 1;
     const failure = this.failNextRefresh;
     this.failNextRefresh = null;
     if (failure === 'INVALID_GRANT') throw new PaymentProviderError('refresh_token invalido (stub).', 'INVALID_GRANT', 400);
@@ -82,10 +122,14 @@ export class StubPaymentProvider implements PaymentProvider {
     return tokens;
   }
 
+  /** Dono do token: OAuth simulado (`stub-access-<userId>-...`) ou token manual (`TEST-`/`APP_USR-...-<userId>`). */
   private sellerOf(accessToken: string): string {
+    if (this.forbiddenTokens.has(accessToken)) throw new PaymentProviderError('Acesso negado (stub).', 'UNAUTHORIZED', 403);
     const match = /^stub-access-(\d+)-/.exec(accessToken);
-    if (!match) throw new PaymentProviderError('Token invalido (stub).', 'UNAUTHORIZED', 401);
-    return match[1];
+    if (match) return match[1];
+    const manual = this.manualSellerOf(accessToken);
+    if (!manual) throw new PaymentProviderError('Token invalido (stub).', 'UNAUTHORIZED', 401);
+    return manual;
   }
 
   async createPixPayment(input: CreatePixPaymentInput): Promise<ProviderPayment> {
@@ -114,6 +158,7 @@ export class StubPaymentProvider implements PaymentProvider {
     };
     this.payments.set(id, payment);
     this.byIdempotencyKey.set(`${seller}:${input.idempotencyKey}`, id);
+    if (this.onPixCreated) await this.onPixCreated(this.view(payment));
     return this.view(payment);
   }
 

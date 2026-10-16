@@ -1,4 +1,5 @@
 import { isProduction } from '../config/runtime-config';
+import { frontendBaseUrl } from '../mail/mail.config';
 
 /**
  * Configuracao do provedor de pagamento das mensalidades (PLANO_PROJETO.md 10.52), lida do ambiente A CADA chamada
@@ -28,15 +29,37 @@ export function paymentsProviderKind(env: Env = process.env): PaymentsProviderKi
 }
 
 /**
- * Validacao de BOOT (chamada na fabrica do PAYMENT_PROVIDER, shared.module.ts): em producao com o Mercado Pago
- * CONFIGURADO (MERCADOPAGO_CLIENT_ID/SECRET/REDIRECT_URI) exige PAYMENTS_TOKEN_KEY - sem ela a chave dos tokens seria o
- * JWT_SECRET (girar o JWT_SECRET derrubaria todas as contas conectadas). Sem o provedor configurado nada e exigido.
+ * Validacao de BOOT (chamada na fabrica do PAYMENT_PROVIDER, shared.module.ts). Desde o modo MANUAL (PLANO_PROJETO.md
+ * 10.55) NAO exige mais nada do Mercado Pago no ambiente: so valida PAYMENTS_PROVIDER (stub em producao continua
+ * derrubando o boot - configuracao insegura). PAYMENTS_TOKEN_KEY passou a OPCIONAL (recomendada): sem ela a chave dos
+ * tokens deriva do JWT_SECRET. Trocar a chave (ou o JWT_SECRET sem PAYMENTS_TOKEN_KEY) torna os tokens gravados
+ * ilegiveis: a conta vira ERROR com mensagem clara ("cole as credenciais novamente") no primeiro uso - nunca crash.
  */
 export function assertPaymentsBootConfig(env: Env = process.env): void {
-  if (!isProduction(env) || paymentsProviderKind(env) !== 'mercadopago' || mercadoPagoAppConfig(env) === null) return;
-  if (!clean(env.PAYMENTS_TOKEN_KEY)) {
-    throw new Error('PAYMENTS_TOKEN_KEY e obrigatoria em producao com o Mercado Pago configurado (chave longa e aleatoria; nao troque depois).');
+  paymentsProviderKind(env);
+}
+
+/** PAYMENTS_TOKEN_KEY fixada? (status/diagnostico; sem ela a chave deriva do JWT_SECRET.) */
+export function hasDedicatedTokenKey(env: Env = process.env): boolean {
+  return clean(env.PAYMENTS_TOKEN_KEY).length > 0;
+}
+
+/**
+ * Pagamentos online disponiveis no servidor: PAYMENTS_PROVIDER efetivo valido (mercadopago, padrao em producao; ou stub
+ * fora de producao). NAO depende de credencial nenhuma no ambiente: cada grupo cola as da PROPRIA conta no painel.
+ */
+export function paymentsAvailable(env: Env = process.env): boolean {
+  try {
+    paymentsProviderKind(env);
+    return true;
+  } catch {
+    return false;
   }
+}
+
+/** OAuth do vendedor (OPCIONAL/avancado): so com MERCADOPAGO_CLIENT_ID/SECRET/REDIRECT_URI validos no ambiente. */
+export function oauthAvailable(env: Env = process.env): boolean {
+  return mercadoPagoAppConfig(env) !== null;
 }
 
 /**
@@ -69,31 +92,76 @@ export function mercadoPagoAppConfig(env: Env = process.env): MercadoPagoAppConf
   return { clientId, clientSecret, redirectUri };
 }
 
-/** Segredo da assinatura dos webhooks (x-signature). Vazio = nao configurado. */
+/**
+ * Segredo GLOBAL (do servidor) da assinatura dos webhooks (x-signature). Vazio = nao configurado. Desde o modo MANUAL
+ * (10.55) e so COMPATIBILIDADE e SO para contas OAUTH (10.56, A1): o webhook de um grupo MANUAL nunca e conferido com
+ * ele (a aplicacao do Mercado Pago do grupo tem outro segredo).
+ */
 export function webhookSecret(env: Env = process.env): string | null {
   return clean(env.MERCADOPAGO_WEBHOOK_SECRET) || null;
 }
 
+/** `?org=<id>` do webhook: inteiro positivo (int4). Qualquer outra coisa = null (tratado como ausente). */
+export function parseWebhookOrg(value: unknown): number | null {
+  const raw = typeof value === 'string' ? value.trim() : typeof value === 'number' ? String(value) : '';
+  if (!/^\d{1,10}$/.test(raw)) return null;
+  const id = Number(raw);
+  return Number.isSafeInteger(id) && id >= 1 && id <= 2147483647 ? id : null;
+}
+
 /**
- * URL publica do webhook enviada como notification_url em cada Pix: derivada de MERCADOPAGO_REDIRECT_URI trocando
- * `/payments/mercadopago/callback` por `/webhooks/mercadopago` (mesma API, mesmo prefixo /api) e com
- * `source_news=webhooks` (so webhooks, sem IPN). Fora desse formato (ou sem https) = null: o webhook cadastrado no
- * painel do Mercado Pago + a reconciliacao cobrem.
+ * Base PUBLICA do endpoint do webhook (sem query): `${PAINEL_URL}/api/webhooks/mercadopago` (o nginx do painel repassa
+ * `/api` ao backend - docs/EASYPANEL.md). Compatibilidade: sem PAINEL_URL, deriva de MERCADOPAGO_REDIRECT_URI trocando
+ * `/payments/mercadopago/callback` por `/webhooks/mercadopago`. Nada disso = null.
  */
-export function webhookNotificationUrl(env: Env = process.env): string | null {
+function webhookBaseUrl(env: Env): URL | null {
+  const painel = frontendBaseUrl('PAINEL', env);
+  if (painel) {
+    try {
+      const url = new URL(`${painel}/api/webhooks/mercadopago`);
+      url.search = '';
+      url.hash = '';
+      return url;
+    } catch {
+      return null;
+    }
+  }
   const redirect = clean(env.MERCADOPAGO_REDIRECT_URI);
   if (!redirect) return null;
   try {
     const url = new URL(redirect);
-    if (url.protocol !== 'https:') return null;
     if (!/\/payments\/mercadopago\/callback\/?$/.test(url.pathname)) return null;
     url.pathname = url.pathname.replace(/\/payments\/mercadopago\/callback\/?$/, '/webhooks/mercadopago');
-    url.search = 'source_news=webhooks';
+    url.search = '';
     url.hash = '';
-    return url.toString();
+    return url;
   } catch {
     return null;
   }
+}
+
+/**
+ * URL do webhook DO GRUPO para mostrar no painel (o Mestre pode cadastra-la no painel do Mercado Pago, opcional):
+ * `${PAINEL_URL}/api/webhooks/mercadopago?org=<id>`. null sem PAINEL_URL (nem MERCADOPAGO_REDIRECT_URI) e tambem quando
+ * a base NAO e https (10.56, B9): o provedor nao entrega em http, entao a URL nao e mostrada como utilizavel.
+ */
+export function groupWebhookUrl(organizationId: number, env: Env = process.env): string | null {
+  const url = webhookBaseUrl(env);
+  if (!url || url.protocol !== 'https:') return null;
+  url.search = `org=${organizationId}`;
+  return url.toString();
+}
+
+/**
+ * notification_url enviada em CADA Pix: a URL do webhook do grupo + `source_news=webhooks` (so webhooks, sem IPN). Assim
+ * o grupo NAO precisa cadastrar webhook no painel do Mercado Pago. So https (o provedor recusa/ignora http); sem isso
+ * (dev) = null: a consulta do GET /pix e a reconciliacao cobrem.
+ */
+export function webhookNotificationUrl(organizationId: number, env: Env = process.env): string | null {
+  const url = webhookBaseUrl(env);
+  if (!url || url.protocol !== 'https:') return null;
+  url.search = `org=${organizationId}&source_news=webhooks`;
+  return url.toString();
 }
 
 /** PAYMENTS_APPLICATION_FEE_PERCENT (0..50, padrao 0): taxa da plataforma sobre cada Pix (application_fee). */
@@ -139,3 +207,29 @@ export const TOKEN_REFRESH_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 export const OAUTH_STATE_TTL_MS = 10 * 60 * 1000;
 /** Tolerancia do `ts` da assinatura do webhook (rejeita notificacao velha/replay). */
 export const WEBHOOK_MAX_AGE_MS = 10 * 60 * 1000;
+/**
+ * Janela em que um Pix vencido SEM confirmacao do provedor ainda conta como "nao resolvido" (pagamento no ultimo minuto
+ * + webhook atrasado): o GET /pix ainda confere no provedor e a TROCA de conta do grupo fica bloqueada (10.56, M3).
+ */
+export const PIX_UNRESOLVED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+/** Avisos "assinatura do webhook nao confere": no maximo 1 por grupo nesta janela (10.56, A2). */
+export const WEBHOOK_SIGNATURE_ALERT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+const positiveInt = (raw: string | undefined, fallback: number): number => {
+  const n = Number(clean(raw));
+  return clean(raw) !== '' && Number.isInteger(n) && n >= 0 ? n : fallback;
+};
+
+/**
+ * Limites dos webhooks SEM assinatura valida (so gatilho), POR PROCESSO (cada replica tem os seus - 10.56, M5):
+ *  - `known`: o `data.id` ja e o gatewayPaymentId de um lancamento DO grupo (barato e legitimo): generoso;
+ *  - `unknown`: id desconhecido do grupo (pode ser lixo/ataque): apertado;
+ *  - `cooldownMs`: mesmo pagamento + mesmo grupo no maximo 1 consulta ao provedor nesse intervalo.
+ */
+export function webhookUnsignedLimits(env: Env = process.env): { known: number; unknown: number; cooldownMs: number } {
+  return {
+    known: positiveInt(env.WEBHOOK_UNSIGNED_KNOWN_ORG_LIMIT, 120),
+    unknown: positiveInt(env.WEBHOOK_UNSIGNED_ORG_LIMIT, 10),
+    cooldownMs: positiveInt(env.WEBHOOK_UNSIGNED_COOLDOWN_MS, 5_000),
+  };
+}

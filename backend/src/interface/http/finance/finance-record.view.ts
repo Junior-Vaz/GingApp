@@ -4,10 +4,17 @@ import { FinancialRecord, FinancialStatus, PaidVia } from '@prisma/client';
 export type PixViewStatus = 'PENDING' | 'PAID' | 'EXPIRED' | 'CANCELLED';
 
 /**
- * Status crus do provedor em que o Pix ainda pode ser pago. Locais (fora desta lista): 'expired' (vencido) e
- * 'approved_mismatch' (aprovado com valor diferente do lancamento: alerta ao Mestre, sai da fila da reconciliacao).
+ * Status crus do provedor em que o Pix ainda pode ser pago. Locais (fora desta lista): 'expired' (vencido, confirmado
+ * pelo provedor), 'expired_unconfirmed' (o provedor ainda dizia "pendente" muito depois da validade: sai da fila da
+ * reconciliacao, mas conta como NAO resolvido - 10.56, M3), 'approved_mismatch' (aprovado com valor diferente do
+ * lancamento: alerta ao Mestre, sai da fila) e 'account_changed' (Pix criado numa conta do provedor que nao e mais a do
+ * grupo: terminal, alerta ao Mestre - 10.56, M3).
  */
 export const PIX_OPEN_GATEWAY_STATUSES = ['pending', 'in_process', 'authorized', 'in_mediation'];
+/** Vencido localmente SEM confirmacao do provedor (ver acima). */
+export const PIX_EXPIRED_UNCONFIRMED = 'expired_unconfirmed';
+/** Pix de uma conta do provedor que nao e mais a do grupo (ver acima). */
+export const PIX_ACCOUNT_CHANGED = 'account_changed';
 
 type PixFields = Pick<
   FinancialRecord,
@@ -22,7 +29,7 @@ export function pixStatusOf(record: PixFields, now: Date = new Date()): PixViewS
   if (!record.pixGeneratedAt) return null;
   if (record.status === FinancialStatus.PAID) return record.paidVia === PaidVia.PIX_AUTO ? 'PAID' : 'CANCELLED';
   if (record.status === FinancialStatus.CANCELLED) return 'CANCELLED';
-  if (record.gatewayStatus === 'expired') return 'EXPIRED';
+  if (record.gatewayStatus === 'expired' || record.gatewayStatus === PIX_EXPIRED_UNCONFIRMED) return 'EXPIRED';
   if (!PIX_OPEN_GATEWAY_STATUSES.includes(record.gatewayStatus ?? '')) return 'CANCELLED';
   if (record.pixExpiresAt && record.pixExpiresAt.getTime() <= now.getTime()) return 'EXPIRED';
   return 'PENDING';
@@ -41,6 +48,7 @@ const HIDDEN_KEYS = [
   'pixAmountCents',
   'pixSeq',
   'pixLastCheckedAt',
+  'gatewayAccountId',
 ] as const;
 
 type HiddenKey = (typeof HIDDEN_KEYS)[number];

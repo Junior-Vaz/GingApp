@@ -37,13 +37,41 @@ function mockApi(routes: Record<string, (call: Call) => Response>) {
 const mp = (o: Partial<MercadoPagoStatus> = {}): MercadoPagoStatus => ({
   provider: "mercadopago",
   available: true,
+  oauthAvailable: false,
+  mode: null,
   connected: false,
   liveMode: true,
   providerUserId: null,
   connectedAt: null,
   status: "NOT_CONNECTED",
+  tokenHint: null,
+  publicKey: null,
+  hasWebhookSecret: false,
+  webhookSecretReadable: true,
+  webhookUrl: null,
+  lastError: null,
   ...o,
 });
+
+const TOKEN = "APP_USR-0000000000000000-super-secreto-123";
+/** Senha FICTICIA do Mestre (reautenticacao ao definir/trocar o token). */
+const SENHA = "senha-do-mestre-1";
+const PASSWORD_LABEL = "Sua senha (para confirmar)";
+const WEBHOOK_URL = "https://api.gingapp.com.br/api/payments/mercadopago/webhook";
+const connectedMp = (o: Partial<MercadoPagoStatus> = {}) =>
+  mp({
+    connected: true,
+    status: "CONNECTED",
+    mode: "MANUAL",
+    liveMode: true,
+    tokenHint: "9f3a",
+    providerUserId: "99",
+    connectedAt: "2026-10-05T15:00:00.000Z",
+    webhookUrl: WEBHOOK_URL,
+    ...o,
+  });
+const type = (label: string | RegExp, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+const putCalls = (calls: Call[]) => calls.filter((c) => c.method === "PUT" && c.path === "/payments/mercadopago/credentials");
 
 const CODE = "00020126580014br.gov.bcb.pix0136abc-123";
 const charge = (o: Partial<PixCharge> = {}): PixCharge => ({
@@ -92,48 +120,382 @@ describe("Receber por Pix: cartão de conexão (MESTRE)", () => {
   it("servidor sem Mercado Pago (available=false): aviso neutro, sem botão de conectar", async () => {
     mockApi({ "GET /payments/mercadopago/status": () => json(200, mp({ available: false })) });
     wrap(<PixConnectionCard />);
-    expect(await screen.findByTestId("pix-unavailable")).toHaveTextContent("Pix automático ainda não está habilitado neste ambiente");
-    expect(screen.queryByRole("button", { name: /Conectar/ })).toBeNull();
+    expect(await screen.findByTestId("pix-unavailable")).toHaveTextContent("Pix automático indisponível neste ambiente");
+    expect(screen.queryByRole("button", { name: /Conectar|Salvar/ })).toBeNull();
+    expect(screen.queryByTestId("pix-credentials-form")).toBeNull();
   });
 
-  it("desconectado: explica em 3 linhas; Conectar faz POST /connect e redireciona o navegador para a url", async () => {
+  it("desconectado: mostra o formulário de credenciais (campos, ajuda, aviso) e o botão fica desabilitado sem token", async () => {
+    mockApi({ "GET /payments/mercadopago/status": () => json(200, mp()) });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-disconnected");
+    expect(box).toHaveTextContent("Conectar sua conta Mercado Pago");
+    expect(box).toHaveTextContent("O GingApp não recebe nem repassa dinheiro");
+    expect(box).toHaveTextContent("Não compartilhe esse token. Ele permite criar cobranças na sua conta.");
+    const token = screen.getByLabelText("Access Token de produção");
+    expect(token).toHaveAttribute("type", "password");
+    expect(token).toHaveAttribute("autocomplete", "off");
+    expect(token).toHaveAttribute("spellcheck", "false");
+    expect(screen.getByLabelText("Chave pública (opcional)")).toBeInTheDocument();
+    expect(screen.getByLabelText("Segredo do webhook (opcional)")).toHaveAttribute("type", "password");
+    // M6: senha atual para confirmar (gerenciador de senhas reconhece como senha atual).
+    const password = screen.getByLabelText(PASSWORD_LABEL);
+    expect(password).toHaveAttribute("type", "password");
+    expect(password).toHaveAttribute("autocomplete", "current-password");
+    expect(screen.getByRole("button", { name: "Salvar e conectar" })).toBeDisabled();
+    // mostrar/ocultar
+    fireEvent.click(screen.getByRole("button", { name: "Mostrar token" }));
+    expect(token).toHaveAttribute("type", "text");
+    // passo-a-passo recolhível
+    fireEvent.click(screen.getByRole("button", { name: /Onde encontro o Access Token\?/ }));
+    expect(await screen.findByText(/os nomes e a posição das opções podem mudar/)).toBeInTheDocument();
+    // sem OAuth no servidor: nenhum link secundário
+    expect(screen.queryByRole("button", { name: "Conectar por autorização" })).toBeNull();
+  });
+
+  it("validação do token: espaços no meio e token curto bloqueiam o botão (sem ecoar o valor)", async () => {
+    mockApi({ "GET /payments/mercadopago/status": () => json(200, mp()) });
+    wrap(<PixConnectionCard />);
+    await screen.findByTestId("pix-disconnected");
+    const save = screen.getByRole("button", { name: "Salvar e conectar" });
+    type("Access Token de produção", "curto");
+    expect(screen.getByText(/parece curto demais/)).toBeInTheDocument();
+    expect(save).toBeDisabled();
+    type("Access Token de produção", "APP_USR-123456 7890123456789012");
+    expect(screen.getByText(/não pode ter espaços/)).toBeInTheDocument();
+    expect(save).toBeDisabled();
+    type("Access Token de produção", `  ${TOKEN}  `); // espaços nas pontas são aparados
+    expect(save).toBeDisabled(); // falta a senha
+    type(PASSWORD_LABEL, SENHA);
+    expect(save).toBeEnabled();
+  });
+
+  it("salvar: PUT /credentials só com os campos preenchidos (trim), toast 'Mercado Pago conectado' e campos limpos", async () => {
+    // O PUT devolve o estado ainda desconectado só para dar para conferir que os campos foram esvaziados.
     const calls = mockApi({
       "GET /payments/mercadopago/status": () => json(200, mp()),
+      "PUT /payments/mercadopago/credentials": () => json(200, mp()),
+    });
+    wrap(<PixConnectionCard />);
+    await screen.findByTestId("pix-disconnected");
+    type("Access Token de produção", `  ${TOKEN} `);
+    type("Chave pública (opcional)", " APP_USR-pub-1 ");
+    type("Segredo do webhook (opcional)", " seg ");
+    type(PASSWORD_LABEL, SENHA);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar e conectar" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Mercado Pago conectado"));
+    expect(putCalls(calls)).toHaveLength(1);
+    expect(putCalls(calls)[0]!.body).toEqual({ accessToken: TOKEN, currentPassword: SENHA, publicKey: "APP_USR-pub-1", webhookSecret: "seg" });
+    expect(screen.getByLabelText("Access Token de produção")).toHaveValue("");
+    expect(screen.getByLabelText("Chave pública (opcional)")).toHaveValue("");
+    expect(screen.getByLabelText("Segredo do webhook (opcional)")).toHaveValue("");
+    expect(screen.getByLabelText(PASSWORD_LABEL)).toHaveValue("");
+  });
+
+  it("salvar só o token: o PUT não leva chave pública nem segredo; depois o cartão mostra 'Conectado'", async () => {
+    let state = mp();
+    const calls = mockApi({
+      "GET /payments/mercadopago/status": () => json(200, state),
+      "PUT /payments/mercadopago/credentials": () => {
+        state = connectedMp();
+        return json(200, state);
+      },
+    });
+    wrap(<PixConnectionCard />);
+    await screen.findByTestId("pix-disconnected");
+    type("Access Token de produção", TOKEN);
+    type(PASSWORD_LABEL, SENHA);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar e conectar" }));
+    expect(await screen.findByTestId("pix-connected")).toBeInTheDocument();
+    expect(putCalls(calls)[0]!.body).toEqual({ accessToken: TOKEN, currentPassword: SENHA });
+    expect(document.body.textContent).not.toContain(TOKEN);
+    expect(document.body.textContent).not.toContain(SENHA);
+  });
+
+  it("M6: senha incorreta => mensagem amigável e o campo da senha é limpo; 2FA ativo => pede o código e o envia junto", async () => {
+    let responses: Array<() => Response> = [];
+    const calls = mockApi({
+      "GET /payments/mercadopago/status": () => json(200, mp()),
+      "PUT /payments/mercadopago/credentials": () => responses.shift()!(),
+    });
+    wrap(<PixConnectionCard />);
+    await screen.findByTestId("pix-disconnected");
+    type("Access Token de produção", TOKEN);
+
+    responses = [() => json(403, { message: "x", code: "INVALID_PASSWORD" })];
+    type(PASSWORD_LABEL, "errada");
+    fireEvent.click(screen.getByRole("button", { name: "Salvar e conectar" }));
+    expect(await screen.findByTestId("pix-credentials-error")).toHaveTextContent("Senha incorreta.");
+    expect(screen.getByLabelText(PASSWORD_LABEL)).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Salvar e conectar" })).toBeDisabled();
+
+    responses = [() => json(403, { message: "x", code: "TWO_FACTOR_REQUIRED" }), () => json(200, connectedMp())];
+    type(PASSWORD_LABEL, SENHA);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar e conectar" }));
+    const code = await screen.findByLabelText("Código do aplicativo autenticador");
+    expect(screen.getByTestId("pix-credentials-error")).toHaveTextContent("aplicativo autenticador");
+    expect(screen.getByRole("button", { name: "Salvar e conectar" })).toBeDisabled(); // falta o código
+    fireEvent.change(code, { target: { value: " 123456 " } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar e conectar" }));
+    expect(await screen.findByTestId("pix-connected")).toBeInTheDocument();
+    expect(putCalls(calls).at(-1)!.body).toEqual({ accessToken: TOKEN, currentPassword: SENHA, twoFactorCode: "123456" });
+    expect(document.body.textContent).not.toContain(SENHA);
+  });
+
+  it("INVALID_CREDENTIALS: mensagem amigável, sem ecoar o token nem o texto do servidor; formulário segue aberto", async () => {
+    mockApi({
+      "GET /payments/mercadopago/status": () => json(200, mp()),
+      "PUT /payments/mercadopago/credentials": () => json(422, { message: `token ${TOKEN} invalido`, code: "INVALID_CREDENTIALS" }),
+    });
+    wrap(<PixConnectionCard />);
+    await screen.findByTestId("pix-disconnected");
+    type("Access Token de produção", TOKEN);
+    type(PASSWORD_LABEL, SENHA);
+    fireEvent.click(screen.getByRole("button", { name: "Salvar e conectar" }));
+    const alert = await screen.findByTestId("pix-credentials-error");
+    expect(alert).toHaveTextContent("O Mercado Pago recusou o token");
+    expect(document.body.textContent).not.toContain(TOKEN);
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Salvar e conectar" })).toBeEnabled();
+  });
+
+  it("outros erros do salvar: ACCESS_TOKEN_REQUIRED, PAYMENTS_UNAVAILABLE, MP_ACCOUNT_ERROR, Pix em aberto e erro genérico", async () => {
+    let body: Record<string, unknown> = {};
+    let status = 400;
+    mockApi({
+      "GET /payments/mercadopago/status": () => json(200, mp()),
+      "PUT /payments/mercadopago/credentials": () => json(status, body),
+    });
+    wrap(<PixConnectionCard />);
+    await screen.findByTestId("pix-disconnected");
+    type("Access Token de produção", TOKEN);
+    type(PASSWORD_LABEL, SENHA);
+    const cases: Array<[number, Record<string, unknown>, string]> = [
+      [400, { message: "x", code: "ACCESS_TOKEN_REQUIRED" }, "Informe o Access Token do Mercado Pago."],
+      [403, { message: "x", code: "REAUTH_REQUIRED" }, "Digite a sua senha para confirmar."],
+      [503, { message: "x", code: "PAYMENTS_UNAVAILABLE" }, "Pagamentos online não estão disponíveis no momento."],
+      [409, { message: "x", code: "MP_ACCOUNT_ERROR" }, "Não foi possível usar a conta do Mercado Pago"],
+      [409, { message: "x", code: "PIX_OPEN_ACCOUNT_SWITCH" }, "Há Pix em aberto. Aguarde pagarem/expirarem ou cancele-os antes de trocar a conta."],
+      [409, { message: "x", code: "OPEN_PIX_BLOCKS_ACCOUNT_CHANGE" }, "Há Pix em aberto."],
+      [500, { message: `falha com ${TOKEN}` }, "Não foi possível salvar as credenciais do Mercado Pago. Tente novamente."],
+    ];
+    for (const [s, b, expected] of cases) {
+      status = s;
+      body = b;
+      fireEvent.click(screen.getByRole("button", { name: "Salvar e conectar" }));
+      await waitFor(() => expect(screen.getByTestId("pix-credentials-error")).toHaveTextContent(expected));
+      expect(document.body.textContent).not.toContain(TOKEN);
+    }
+  });
+
+  it("OAuth opcional: com oauthAvailable aparece o link secundário (POST /connect e redireciona); sem ele, não aparece", async () => {
+    const calls = mockApi({
+      "GET /payments/mercadopago/status": () => json(200, mp({ oauthAvailable: true })),
       "POST /payments/mercadopago/connect": () => json(201, { url: "https://auth.mercadopago.com/oauth?x=1" }),
     });
     wrap(<PixConnectionCard />);
     const box = await screen.findByTestId("pix-disconnected");
-    expect(within(box).getAllByRole("listitem")).toHaveLength(3);
-    fireEvent.click(within(box).getByRole("button", { name: /Conectar Mercado Pago/ }));
+    expect(box).toHaveTextContent("Prefere conectar pelo Mercado Pago?");
+    fireEvent.click(within(box).getByRole("button", { name: "Conectar por autorização" }));
     await waitFor(() => expect(redirectTo).toHaveBeenCalledWith("https://auth.mercadopago.com/oauth?x=1"));
     expect(calls.filter((c) => c.method === "POST" && c.path === "/payments/mercadopago/connect")).toHaveLength(1);
+    expect(putCalls(calls)).toHaveLength(0);
   });
 
-  it("conectado: selo, modo Teste, desde quando; Desconectar pede confirmação e faz DELETE", async () => {
-    const calls = mockApi({
-      "GET /payments/mercadopago/status": () =>
-        json(200, mp({ connected: true, status: "CONNECTED", liveMode: false, connectedAt: "2026-10-05T15:00:00.000Z", providerUserId: "99" })),
-      "DELETE /payments/mercadopago/disconnect": () => new Response(null, { status: 204 }),
+  it("conectado: selo, modo Teste, token terminado em ••••, conta, desde quando e chave pública", async () => {
+    mockApi({
+      "GET /payments/mercadopago/status": () => json(200, connectedMp({ liveMode: false, publicKey: "APP_USR-pub-1" })),
     });
     wrap(<PixConnectionCard />);
     const box = await screen.findByTestId("pix-connected");
     expect(box).toHaveTextContent("Conectado");
     expect(box).toHaveTextContent("Teste");
+    expect(box).toHaveTextContent("terminado em ••••9f3a");
+    expect(box).toHaveTextContent(/Conta:\s*99/);
     expect(box).toHaveTextContent("desde 05/10/2026");
+    expect(box).toHaveTextContent("APP_USR-pub-1");
+    expect(screen.queryByTestId("pix-credentials-form")).toBeNull();
+  });
+
+  it("conectado em Produção mostra o selo 'Produção'", async () => {
+    mockApi({ "GET /payments/mercadopago/status": () => json(200, connectedMp()) });
+    wrap(<PixConnectionCard />);
+    expect(await screen.findByTestId("pix-connected")).toHaveTextContent("Produção");
+  });
+
+  it("webhook: mostra a URL somente leitura e Copiar escreve na área de transferência", async () => {
+    mockApi({ "GET /payments/mercadopago/status": () => json(200, connectedMp()) });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-webhook");
+    expect(box).toHaveTextContent("O GingApp envia a URL abaixo em cada Pix: você não precisa cadastrar nada no Mercado Pago");
+    expect(box).toHaveTextContent("se a assinatura não conferir, o Pix ainda é confirmado pela consulta ao Mercado Pago");
+    const url = within(box).getByLabelText("URL do webhook");
+    expect(url).toHaveValue(WEBHOOK_URL);
+    expect(url).toHaveAttribute("readonly");
+    fireEvent.click(within(box).getByRole("button", { name: /Copiar/ }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(WEBHOOK_URL));
+    expect(toast.success).toHaveBeenCalledWith("URL do webhook copiada.");
+  });
+
+  it("webhook: definir o segredo envia PUT parcial só com webhookSecret e limpa o campo", async () => {
+    const calls = mockApi({
+      "GET /payments/mercadopago/status": () => json(200, connectedMp()),
+      "PUT /payments/mercadopago/credentials": () => json(200, connectedMp({ hasWebhookSecret: true })),
+    });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-webhook");
+    expect(within(box).getByRole("button", { name: "Salvar segredo" })).toBeDisabled();
+    expect(within(box).queryByText("Segredo configurado")).toBeNull();
+    type("Segredo do webhook", "  meu-segredo ");
+    fireEvent.click(within(box).getByRole("button", { name: "Salvar segredo" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Segredo do webhook salvo"));
+    expect(putCalls(calls)[0]!.body).toEqual({ webhookSecret: "meu-segredo" });
+    expect(await within(box).findByText("Segredo configurado")).toBeInTheDocument();
+    expect(screen.getByLabelText("Segredo do webhook")).toHaveValue("");
+  });
+
+  it("webhook: com segredo configurado mostra o selo e Remover envia webhookSecret vazio", async () => {
+    let state = connectedMp({ hasWebhookSecret: true });
+    const calls = mockApi({
+      "GET /payments/mercadopago/status": () => json(200, state),
+      "PUT /payments/mercadopago/credentials": () => {
+        state = connectedMp({ hasWebhookSecret: false });
+        return json(200, state);
+      },
+    });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-webhook");
+    expect(box).toHaveTextContent("Segredo configurado");
+    fireEvent.click(within(box).getByRole("button", { name: "Remover" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Segredo do webhook removido"));
+    expect(putCalls(calls)[0]!.body).toEqual({ webhookSecret: "" });
+    await waitFor(() => expect(within(box).queryByText("Segredo configurado")).toBeNull());
+  });
+
+  it("Trocar token: abre o formulário de atualização e o PUT leva só os campos preenchidos", async () => {
+    const calls = mockApi({
+      "GET /payments/mercadopago/status": () => json(200, connectedMp()),
+      "PUT /payments/mercadopago/credentials": () => json(200, connectedMp({ tokenHint: "zzzz" })),
+    });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-connected");
+    fireEvent.click(within(box).getByRole("button", { name: "Trocar token" }));
+    const form = await screen.findByTestId("pix-credentials-form");
+    expect(within(form).getByRole("button", { name: "Salvar novo token" })).toBeDisabled();
+    expect(within(form).queryByLabelText(/Segredo do webhook/)).toBeNull();
+    type("Novo Access Token de produção", TOKEN);
+    expect(within(form).getByRole("button", { name: "Salvar novo token" })).toBeDisabled(); // falta a senha
+    type(PASSWORD_LABEL, SENHA);
+    fireEvent.click(within(form).getByRole("button", { name: "Salvar novo token" }));
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Token do Mercado Pago atualizado"));
+    expect(putCalls(calls)[0]!.body).toEqual({ accessToken: TOKEN, currentPassword: SENHA });
+    await waitFor(() => expect(screen.queryByTestId("pix-credentials-form")).toBeNull());
+    expect(await screen.findByText(/••••zzzz/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain(TOKEN);
+  });
+
+  it("Trocar token: Cancelar fecha o formulário sem chamar a API", async () => {
+    const calls = mockApi({ "GET /payments/mercadopago/status": () => json(200, connectedMp()) });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-connected");
+    fireEvent.click(within(box).getByRole("button", { name: "Trocar token" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancelar" }));
+    expect(screen.queryByTestId("pix-credentials-form")).toBeNull();
+    expect(putCalls(calls)).toHaveLength(0);
+  });
+
+  it("Desconectar pede confirmação (Pix em aberto serão cancelados) e só então faz DELETE", async () => {
+    const calls = mockApi({
+      "GET /payments/mercadopago/status": () => json(200, connectedMp()),
+      "DELETE /payments/mercadopago/disconnect": () => json(200, mp()),
+    });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-connected");
     fireEvent.click(within(box).getByRole("button", { name: "Desconectar" }));
     const confirm = await screen.findByRole("alertdialog");
+    expect(confirm).toHaveTextContent("Pix em aberto serão cancelados");
     expect(calls.some((c) => c.method === "DELETE")).toBe(false); // só depois de confirmar
     fireEvent.click(within(confirm).getByRole("button", { name: "Desconectar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/payments/mercadopago/disconnect")).toBe(true));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Mercado Pago desconectado."));
   });
 
-  it("revogado: avisa e oferece Reconectar", async () => {
-    mockApi({ "GET /payments/mercadopago/status": () => json(200, mp({ connected: false, status: "REVOKED" })) });
+  it("Desconectar com erro de Pix em aberto: toast amigável e o diálogo permanece", async () => {
+    mockApi({
+      "GET /payments/mercadopago/status": () => json(200, connectedMp()),
+      "DELETE /payments/mercadopago/disconnect": () => json(409, { message: "x", code: "PIX_OPEN" }),
+    });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-connected");
+    fireEvent.click(within(box).getByRole("button", { name: "Desconectar" }));
+    const confirm = await screen.findByRole("alertdialog");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Desconectar" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("Há Pix em aberto")));
+  });
+
+  it.each(["REVOKED", "ERROR"] as const)("%s: avisa para colar o token de novo e mostra o formulário", async (st) => {
+    mockApi({ "GET /payments/mercadopago/status": () => json(200, mp({ connected: false, status: st })) });
     wrap(<PixConnectionCard />);
     const box = await screen.findByTestId("pix-broken");
-    expect(box).toHaveTextContent("revogado");
-    expect(within(box).getByRole("button", { name: /Reconectar Mercado Pago/ })).toBeInTheDocument();
+    expect(box).toHaveTextContent("Não foi possível usar sua conta. Cole o token novamente.");
+    expect(within(box).getByLabelText("Access Token de produção")).toBeInTheDocument();
+    expect(within(box).getByRole("button", { name: "Salvar e conectar" })).toBeDisabled();
+  });
+
+  it("B8: em ERROR mostra o motivo curto do servidor e permite Desconectar (com confirmação); REVOKED não", async () => {
+    const calls = mockApi({
+      "GET /payments/mercadopago/status": () =>
+        json(200, mp({ connected: false, status: "ERROR", mode: "MANUAL", lastError: "O Mercado Pago recusou o Access Token do grupo." })),
+      "DELETE /payments/mercadopago/disconnect": () => json(200, mp({ status: "REVOKED" })),
+    });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-broken");
+    expect(within(box).getByTestId("pix-last-error")).toHaveTextContent("Motivo: O Mercado Pago recusou o Access Token do grupo.");
+    fireEvent.click(within(box).getByRole("button", { name: "Desconectar" }));
+    const confirm = await screen.findByRole("alertdialog");
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+    fireEvent.click(within(confirm).getByRole("button", { name: "Desconectar" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE" && c.path === "/payments/mercadopago/disconnect")).toBe(true));
+
+    cleanup();
+    mockApi({ "GET /payments/mercadopago/status": () => json(200, mp({ connected: false, status: "REVOKED" })) });
+    wrap(<PixConnectionCard />);
+    const revoked = await screen.findByTestId("pix-broken");
+    expect(within(revoked).queryByRole("button", { name: "Desconectar" })).toBeNull();
+    expect(within(revoked).queryByTestId("pix-last-error")).toBeNull();
+  });
+
+  it("B8: Trocar token vem com a chave pública salva; esvaziar o campo envia publicKey vazio (remove)", async () => {
+    const calls = mockApi({
+      "GET /payments/mercadopago/status": () => json(200, connectedMp({ publicKey: "APP_USR-pub-1" })),
+      "PUT /payments/mercadopago/credentials": () => json(200, connectedMp({ publicKey: null })),
+    });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-connected");
+    expect(box).toHaveTextContent("só os 4 últimos caracteres");
+    fireEvent.click(within(box).getByRole("button", { name: "Trocar token" }));
+    const form = await screen.findByTestId("pix-credentials-form");
+    expect(within(form).getByLabelText("Chave pública (opcional)")).toHaveValue("APP_USR-pub-1");
+    type("Chave pública (opcional)", "");
+    type("Novo Access Token de produção", TOKEN);
+    type(PASSWORD_LABEL, SENHA);
+    fireEvent.click(within(form).getByRole("button", { name: "Salvar novo token" }));
+    await waitFor(() => expect(putCalls(calls)).toHaveLength(1));
+    expect(putCalls(calls)[0]!.body).toEqual({ accessToken: TOKEN, currentPassword: SENHA, publicKey: "" });
+  });
+
+  it("B5/A2: conexão OAUTH não oferece segredo próprio; segredo ilegível mostra aviso para colar de novo", async () => {
+    mockApi({ "GET /payments/mercadopago/status": () => json(200, connectedMp({ mode: "OAUTH", tokenHint: null })) });
+    wrap(<PixConnectionCard />);
+    const box = await screen.findByTestId("pix-webhook");
+    expect(within(box).queryByLabelText("Segredo do webhook")).toBeNull();
+
+    cleanup();
+    mockApi({
+      "GET /payments/mercadopago/status": () => json(200, connectedMp({ hasWebhookSecret: true, webhookSecretReadable: false })),
+    });
+    wrap(<PixConnectionCard />);
+    expect(await screen.findByTestId("pix-webhook-unreadable")).toHaveTextContent("Cole o segredo de novo");
   });
 });
 

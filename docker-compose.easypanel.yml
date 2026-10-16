@@ -162,18 +162,22 @@ services:
       # por grupo (padrao 1024; 0 = sem limite). Limite por arquivo: 5 MB (fixo no codigo).
       UPLOADS_DIR: "/app/uploads"
       UPLOAD_ORG_QUOTA_MB: "${UPLOAD_ORG_QUOTA_MB:-1024}"
-      # Pix de mensalidade na conta Mercado Pago DE CADA GRUPO (OPCIONAL; PLANO_PROJETO.md 10.52, docs/EASYPANEL.md secao 25).
-      # Sem MERCADOPAGO_CLIENT_ID/SECRET/REDIRECT_URI o recurso fica INDISPONIVEL (status.available=false) e nada muda.
-      # PAYMENTS_PROVIDER=stub e PROIBIDO em producao (o boot falha). REDIRECT_URI = https://painel.gingapp.com.br/api/payments/mercadopago/callback
-      # (o webhook e derivado dela: .../api/webhooks/mercadopago). Sem MERCADOPAGO_WEBHOOK_SECRET o webhook e RECUSADO (503)
-      # e so a reconciliacao (a cada 15 min) da baixa. PAYMENTS_TOKEN_KEY: chave dos tokens cifrados, OBRIGATORIA com o MP
-      # configurado (boot falha sem ela; fixe; trocar = reconectar). PAYMENTS_ALLOW_TEST_ACCOUNTS=true so em homologacao.
+      # Pix de mensalidade na conta Mercado Pago DE CADA GRUPO (PLANO_PROJETO.md 10.52/10.55, docs/EASYPANEL.md secao 25).
+      # NENHUMA variavel do Mercado Pago e necessaria: cada Mestre cola as credenciais da PROPRIA conta no painel (Financeiro).
+      # PAYMENTS_PROVIDER=stub e PROIBIDO em producao (o boot falha). PAYMENTS_TOKEN_KEY (RECOMENDADA): chave das credenciais
+      # cifradas; vazia = deriva do JWT_SECRET; pode ser definida depois (contas antigas re-cifradas no uso; rotacao com
+      # PAYMENTS_TOKEN_KEY_PREVIOUS); sem ela, trocar o JWT_SECRET = contas em ERROR e os Mestres colam de novo (o sistema
+      # nao cai). O webhook de cada grupo sai de PAINEL_URL (<PAINEL_URL>/api/webhooks/mercadopago?org=<id>), enviado
+      # em cada Pix. PAYMENTS_ALLOW_TEST_ACCOUNTS=true so em homologacao. OPCIONAL/avancado: OAuth com
+      # MERCADOPAGO_CLIENT_ID/SECRET/REDIRECT_URI (dormente sem as 3); PAYMENTS_APPLICATION_FEE_PERCENT so vale no OAuth (no
+      # manual nao ha split/taxa); MERCADOPAGO_WEBHOOK_SECRET = assinatura global (compat) SO para contas OAuth.
       PAYMENTS_PROVIDER: "${PAYMENTS_PROVIDER:-mercadopago}"
       MERCADOPAGO_CLIENT_ID: "${MERCADOPAGO_CLIENT_ID:-}"
       MERCADOPAGO_CLIENT_SECRET: "${MERCADOPAGO_CLIENT_SECRET:-}"
       MERCADOPAGO_REDIRECT_URI: "${MERCADOPAGO_REDIRECT_URI:-}"
       MERCADOPAGO_WEBHOOK_SECRET: "${MERCADOPAGO_WEBHOOK_SECRET:-}"
       PAYMENTS_TOKEN_KEY: "${PAYMENTS_TOKEN_KEY:-}"
+      PAYMENTS_TOKEN_KEY_PREVIOUS: "${PAYMENTS_TOKEN_KEY_PREVIOUS:-}"
       PAYMENTS_ALLOW_TEST_ACCOUNTS: "${PAYMENTS_ALLOW_TEST_ACCOUNTS:-false}"
       PAYMENTS_APPLICATION_FEE_PERCENT: "${PAYMENTS_APPLICATION_FEE_PERCENT:-0}"
       PAYMENTS_FALLBACK_PAYER_EMAIL: "${PAYMENTS_FALLBACK_PAYER_EMAIL:-}"

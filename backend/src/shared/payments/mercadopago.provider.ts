@@ -4,6 +4,7 @@ import {
   MP_CANCEL_BODY,
   mapMpPayment,
   mapMpTokens,
+  mapMpUser,
   mpAuthorizeUrl,
   mpPixPaymentBody,
   mpTokenBody,
@@ -14,6 +15,7 @@ import {
   PaymentProviderError,
   ProviderPayment,
   ProviderTokens,
+  ValidatedCredentials,
 } from './payment-provider.interface';
 import { MercadoPagoAppConfig, mercadoPagoAppConfig } from './payments.config';
 
@@ -28,8 +30,15 @@ const TIMEOUT_MS = 10_000;
 export class MercadoPagoProvider implements PaymentProvider {
   readonly id = 'mercadopago';
 
-  isConfigured(): boolean {
+  isOAuthConfigured(): boolean {
     return mercadoPagoAppConfig() !== null;
+  }
+
+  /** Modo MANUAL: GET /users/me com o token colado (401/403 => UNAUTHORIZED; o token nunca vai para a mensagem). */
+  async validateCredentials(input: { accessToken: string }): Promise<ValidatedCredentials> {
+    const body = await this.request('GET', '/users/me', { accessToken: input.accessToken });
+    const user = mapMpUser(body);
+    return { providerUserId: user.providerUserId, nickname: user.nickname };
   }
 
   private app(): MercadoPagoAppConfig {

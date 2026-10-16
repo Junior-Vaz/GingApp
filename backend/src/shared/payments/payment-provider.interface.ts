@@ -1,6 +1,8 @@
 /**
- * Provedor de pagamento das MENSALIDADES dos alunos (PLANO_PROJETO.md 10.52). Cada GRUPO conecta a PROPRIA conta do
- * provedor (OAuth do vendedor - modelo marketplace): o dinheiro cai na conta do grupo e o GingApp nunca toca nele.
+ * Provedor de pagamento das MENSALIDADES dos alunos (PLANO_PROJETO.md 10.52/10.55). Cada GRUPO liga a PROPRIA conta do
+ * provedor - caminho principal: o Mestre COLA o Access Token da conta dele no painel (modo MANUAL); opcional: OAuth do
+ * vendedor (modo OAUTH, dormente sem as credenciais da aplicacao no ambiente). O dinheiro cai na conta do grupo e o
+ * GingApp nunca toca nele.
  *
  * NAO confundir com shared/billing (BillingGatewayService): aquele e a assinatura dos GRUPOS ao GingApp (SaaS).
  *
@@ -23,6 +25,15 @@ export interface ProviderTokens {
   providerUserId: string;
   publicKey: string | null;
   liveMode: boolean;
+}
+
+/** Dono de um Access Token colado manualmente (modo MANUAL). */
+export interface ValidatedCredentials {
+  /** Id do vendedor no provedor (MP: users/me.id = collector_id dos pagamentos). */
+  providerUserId: string;
+  /** Quando o provedor informar; senao o chamador usa a heuristica do prefixo (liveModeFromAccessToken). */
+  liveMode?: boolean;
+  nickname?: string | null;
 }
 
 /** Status normalizado do pagamento (o cru do provedor vai em `rawStatus`). */
@@ -93,8 +104,17 @@ export interface PaymentProvider {
   /** Identificador gravado em PaymentProviderAccount.provider / FinancialRecord.gatewayProvider. */
   readonly id: string;
 
-  /** O servidor tem as credenciais da aplicacao (client id/secret/redirect)? Sem isso o grupo nao conecta. */
-  isConfigured(): boolean;
+  /**
+   * OAuth do vendedor disponivel (credenciais da APLICACAO do GingApp no ambiente: client id/secret/redirect)? OPCIONAL
+   * desde o modo MANUAL (10.55): sem isso so o OAuth fica dormente; o grupo conecta colando o proprio Access Token.
+   */
+  isOAuthConfigured(): boolean;
+
+  /**
+   * Modo MANUAL: confere o Access Token colado pelo Mestre no provedor (MP: GET /users/me com o token) e devolve o dono.
+   * Token recusado => PaymentProviderError UNAUTHORIZED (401/403); rede/5xx => TRANSIENT. Nunca ecoa o token.
+   */
+  validateCredentials(input: { accessToken: string }): Promise<ValidatedCredentials>;
 
   /** URL de autorizacao (OAuth) para o Mestre conectar a conta do grupo. `state` ja assinado pelo chamador. */
   buildAuthorizeUrl(state: string): string;

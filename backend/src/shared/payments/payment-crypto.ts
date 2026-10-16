@@ -8,9 +8,12 @@ import { OAUTH_STATE_TTL_MS, WEBHOOK_MAX_AGE_MS } from './payments.config';
  *  - tokens OAuth do vendedor: AES-256-GCM com subchave propria (HKDF info 'provider-token');
  *  - `state` do OAuth: HMAC-SHA256 com outra subchave (info 'oauth-state');
  *  - assinatura do webhook do Mercado Pago (x-signature): HMAC-SHA256 com MERCADOPAGO_WEBHOOK_SECRET.
- * Chave-mestra = PAYMENTS_TOKEN_KEY ou, na falta (so fora de producao / sem Mercado Pago configurado), o JWT_SECRET. Em
- * producao com o Mercado Pago configurado o boot EXIGE PAYMENTS_TOKEN_KEY (payments.config.ts assertPaymentsBootConfig).
- * ATENCAO: trocar a chave-mestra torna os tokens gravados ilegiveis (a conta vira ERROR e o Mestre reconecta).
+ * Chave-mestra PRIMARIA (cifra) = PAYMENTS_TOKEN_KEY (OPCIONAL, recomendada) ou, na falta, o JWT_SECRET (10.55: o boot
+ * nao exige a chave). Decifrar tenta uma LISTA (PLANO_PROJETO.md 10.56, M2): [PAYMENTS_TOKEN_KEY, PAYMENTS_TOKEN_KEY_PREVIOUS,
+ * derivada do JWT_SECRET] - definir a PAYMENTS_TOKEN_KEY DEPOIS (ou rotaciona-la guardando a antiga em _PREVIOUS) nao
+ * quebra as contas ja gravadas; quem decifra com chave nao-primaria re-cifra com a primaria (rotacao preguicosa, no
+ * PaymentAccountService). Trocar o JWT_SECRET SEM PAYMENTS_TOKEN_KEY (e sem o antigo em _PREVIOUS) torna os tokens
+ * ilegiveis: no primeiro uso a conta vira ERROR com aviso ao Mestre para colar as credenciais de novo (nunca crash).
  * Comparacoes de assinatura SEMPRE em tempo constante.
  */
 const HKDF_SALT = 'gingapp-payments-v1';
@@ -19,16 +22,34 @@ function masterKey(): string {
   return process.env.PAYMENTS_TOKEN_KEY?.trim() || resolveJwtSecret(process.env.JWT_SECRET);
 }
 
+/** Chaves-mestras aceitas para DECIFRAR, a primaria primeiro (sem repeticao). */
+function decryptMasterKeys(): string[] {
+  let jwtDerived = '';
+  try {
+    jwtDerived = resolveJwtSecret(process.env.JWT_SECRET);
+  } catch {
+    jwtDerived = ''; // JWT_SECRET invalido para o ambiente: so as chaves explicitas valem
+  }
+  const keys = [masterKey(), process.env.PAYMENTS_TOKEN_KEY_PREVIOUS?.trim() || '', jwtDerived].filter((k) => k.length > 0);
+  return [...new Set(keys)];
+}
+
 const tokenKey = (): Buffer => deriveSubkey(masterKey(), HKDF_SALT, 'provider-token');
 const stateKey = (): Buffer => deriveSubkey(masterKey(), HKDF_SALT, 'oauth-state');
 
-/** Contexto do token: entra como AAD (`<grupo>:<provedor>`) - um token copiado para a linha de OUTRO grupo nao decifra. */
+/**
+ * Contexto do token: entra como AAD (`<grupo>:<provedor>`) - um token copiado para a linha de OUTRO grupo nao decifra.
+ * `purpose` separa segredos diferentes da MESMA linha (ex.: 'webhook-secret' => AAD `<grupo>:<provedor>:webhook-secret`):
+ * o segredo do webhook copiado para a coluna do access token (ou vice-versa) nao decifra.
+ */
 export interface ProviderTokenContext {
   organizationId: number;
   provider: string;
+  purpose?: 'webhook-secret';
 }
 
-const tokenAad = (ctx: ProviderTokenContext): string => `${ctx.organizationId}:${ctx.provider}`;
+const tokenAad = (ctx: ProviderTokenContext): string =>
+  ctx.purpose ? `${ctx.organizationId}:${ctx.provider}:${ctx.purpose}` : `${ctx.organizationId}:${ctx.provider}`;
 
 /** Cifra no formato `v2:` (com AAD do grupo+provedor). */
 export function encryptProviderToken(plain: string, ctx: ProviderTokenContext): string {
@@ -40,7 +61,25 @@ export function encryptProviderToken(plain: string, ctx: ProviderTokenContext): 
  * do AAD continuam legiveis (sao regravados em v2 na proxima renovacao/reconexao).
  */
 export function decryptProviderToken(stored: string, ctx: ProviderTokenContext): string {
-  return aesGcmDecrypt(tokenKey(), stored, 'token do provedor de pagamento', tokenAad(ctx));
+  return decryptProviderTokenWithRotation(stored, ctx).plain;
+}
+
+/**
+ * Decifra tentando a lista de chaves (primaria primeiro). `rotated` = decifrou com chave NAO-primaria (ou formato v1
+ * legado): o chamador deve re-cifrar com encryptProviderToken. Nenhuma chave serve => lanca (como antes).
+ */
+export function decryptProviderTokenWithRotation(stored: string, ctx: ProviderTokenContext): { plain: string; rotated: boolean } {
+  const keys = decryptMasterKeys();
+  let lastError: unknown = null;
+  for (let i = 0; i < keys.length; i += 1) {
+    try {
+      const plain = aesGcmDecrypt(deriveSubkey(keys[i], HKDF_SALT, 'provider-token'), stored, 'token do provedor de pagamento', tokenAad(ctx));
+      return { plain, rotated: i > 0 || !stored.startsWith('v2:') };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error('token do provedor de pagamento ilegivel');
 }
 
 /** Igualdade de textos em tempo constante (tamanhos diferentes = false, sem vazar onde difere). */

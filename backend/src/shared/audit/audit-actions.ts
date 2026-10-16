@@ -64,11 +64,17 @@ export const AuditAction = {
   // Pagamentos (PLANO_PROJETO.md 10.52): conta do provedor do grupo (OAuth) e Pix de mensalidade. Nunca token/QR no meta.
   PAYMENT_ACCOUNT_CONNECT: 'PAYMENT_ACCOUNT_CONNECT',
   PAYMENT_ACCOUNT_DISCONNECT: 'PAYMENT_ACCOUNT_DISCONNECT',
+  // Modo MANUAL (10.55): atualizacao parcial (chave publica / assinatura do webhook) sem trocar o Access Token.
+  PAYMENT_ACCOUNT_UPDATE: 'PAYMENT_ACCOUNT_UPDATE',
   PAYMENT_ACCOUNT_ERROR: 'PAYMENT_ACCOUNT_ERROR',
   PAYMENT_PIX_GENERATE: 'PAYMENT_PIX_GENERATE',
   PAYMENT_PIX_CONFIRMED: 'PAYMENT_PIX_CONFIRMED',
   // Pix recebido que NAO deu baixa (valor divergente, lancamento ja pago/cancelado) ou estornado/contestado no provedor
   PAYMENT_PIX_ALERT: 'PAYMENT_PIX_ALERT',
+  // 10.56: webhook de um Pix REAL do grupo cuja assinatura nao conferiu (processado so como gatilho; 1 por 24 h por grupo)
+  PAYMENT_WEBHOOK_SIGNATURE_PROBLEM: 'PAYMENT_WEBHOOK_SIGNATURE_PROBLEM',
+  // 10.56: senha/2FA errados ao definir/trocar o Access Token (reautenticacao do PUT /credentials). Nunca a senha no meta.
+  PAYMENT_ACCOUNT_REAUTH_FAILED: 'PAYMENT_ACCOUNT_REAUTH_FAILED',
   // Turmas
   CLASS_CREATE: 'CLASS_CREATE',
   CLASS_UPDATE: 'CLASS_UPDATE',

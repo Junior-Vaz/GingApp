@@ -9,6 +9,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Put,
   Query,
   Res,
   UseGuards,
@@ -22,6 +23,7 @@ import { Public } from '../../../shared/decorators/public.decorator';
 import { RequireFeature } from '../../../shared/decorators/require-feature.decorator';
 import { MestreOnlyGuard } from '../../../shared/guards/mestre-only.guard';
 import { UserThrottlerGuard } from '../../../shared/guards/user-throttler.guard';
+import { SaveMercadoPagoCredentialsDto } from './dto/save-mercadopago-credentials.dto';
 import { PaymentAccountService } from './payment-account.service';
 import { PaymentsWebhookService } from './payments-webhook.service';
 import { PixService } from './pix.service';
@@ -32,11 +34,15 @@ const PIX_READ_THROTTLE = { default: { limit: Number(process.env.PIX_READ_THROTT
 // Callback do OAuth (publico): poucos acessos legitimos.
 const CALLBACK_THROTTLE = { default: { limit: Number(process.env.PAYMENTS_CALLBACK_THROTTLE_LIMIT ?? 30), ttl: 60_000 } };
 // Webhook (publico, IPs do Mercado Pago compartilhados por todos os grupos): limite proprio, mais alto que o global.
+// Alem dele, o servico limita por GRUPO os eventos SEM assinatura (so gatilho) - payments-webhook.service.ts.
 const WEBHOOK_THROTTLE = { default: { limit: Number(process.env.WEBHOOK_THROTTLE_LIMIT ?? 1200), ttl: 60_000 } };
+// Salvar credenciais chama o provedor (valida o token): 10/min por usuario.
+const CREDENTIALS_THROTTLE = { default: { limit: Number(process.env.PAYMENTS_CREDENTIALS_THROTTLE_LIMIT ?? 10), ttl: 60_000 } };
 
 /**
- * Conexao da conta Mercado Pago DO GRUPO (OAuth do vendedor) - so o MESTRE (PLANO_PROJETO.md 10.52).
- * O callback e PUBLICO (o navegador volta do Mercado Pago sem o nosso JWT): a seguranca vem do `state` assinado.
+ * Conta Mercado Pago DO GRUPO - so o MESTRE (PLANO_PROJETO.md 10.52/10.55). Caminho principal: credenciais coladas
+ * (PUT /credentials). OAuth opcional (connect/callback). O callback e PUBLICO (o navegador volta do Mercado Pago sem o
+ * nosso JWT): a seguranca vem do `state` assinado.
  */
 @Controller('payments/mercadopago')
 export class PaymentsConnectionController {
@@ -52,6 +58,25 @@ export class PaymentsConnectionController {
     return this.accounts.status(organizationId);
   }
 
+  /**
+   * Modo MANUAL (caminho principal, PLANO_PROJETO.md 10.55): o Mestre cola as credenciais da PROPRIA conta Mercado Pago
+   * do grupo. Valida o token no provedor; devolve o status (nunca o token/segredo). 10/min por usuario (e por IP).
+   * Com `accessToken` exige REAUTENTICACAO (`currentPassword` + `twoFactorCode` se 2FA ativo - 10.56, M6): 403
+   * REAUTH_REQUIRED / INVALID_PASSWORD / TWO_FACTOR_REQUIRED / INVALID_TWO_FACTOR_CODE. Parcial (sem token) nao pede senha.
+   */
+  @Put('credentials')
+  @RequireFeature('finance')
+  @UseGuards(MestreOnlyGuard, UserThrottlerGuard)
+  @Throttle(CREDENTIALS_THROTTLE)
+  saveCredentials(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser('id') userId: number,
+    @Body() dto: SaveMercadoPagoCredentialsDto,
+  ) {
+    return this.accounts.saveManualCredentials(organizationId, userId, dto);
+  }
+
+  /** OAuth (opcional/avancado): so com MERCADOPAGO_CLIENT_ID/SECRET/REDIRECT_URI; senao 409 OAUTH_UNAVAILABLE. */
   @Post('connect')
   @RequireFeature('finance')
   @UseGuards(MestreOnlyGuard)
@@ -134,7 +159,12 @@ export class PixController {
   }
 }
 
-/** Webhook do Mercado Pago: PUBLICO (sem JWT), autenticado pela assinatura x-signature. Corpo/query lidos sem DTO. */
+/**
+ * Webhook do Mercado Pago: PUBLICO (sem JWT). Grupo por `?org=<id>` (notification_url de cada Pix) ou pelo `user_id` do
+ * corpo; x-signature conferida com o segredo DO GRUPO (MANUAL) ou o global (so OAUTH). Sem segredo, ou assinatura que
+ * nao confere = so GATILHO limitado (o pagamento e sempre buscado no provedor com o token do grupo). Resposta constante
+ * `{ received: true }` (10.56, B2). Corpo/query lidos sem DTO.
+ */
 @Controller('webhooks')
 export class PaymentsWebhookController {
   constructor(private readonly webhook: PaymentsWebhookService) {}

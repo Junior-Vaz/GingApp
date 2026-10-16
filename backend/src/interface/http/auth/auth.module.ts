@@ -27,6 +27,7 @@ import { TwoFactorService } from './two-factor.service';
   ],
   controllers: [AuthController],
   providers: [AuthService, TwoFactorService, AccountService, AccountExportService, JwtStrategy],
-  exports: [AuthService],
+  // TwoFactorService exportado para a reautenticacao do PUT /payments/mercadopago/credentials (PLANO_PROJETO.md 10.56).
+  exports: [AuthService, TwoFactorService],
 })
 export class AuthModule {}

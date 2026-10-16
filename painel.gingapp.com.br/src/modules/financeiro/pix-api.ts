@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { notifyError } from "@/lib/crud";
 import { redirectTo } from "@/lib/redirect";
 import { BILLING_KEY, finance } from "./finance-api";
-import type { MercadoPagoStatus, PixCharge } from "./pix";
+import { mpCredentialsErrorMessage, type MercadoPagoCredentialsInput, type MercadoPagoStatus, type PixCharge } from "./pix";
 
 /** Polling leve do Pix aberto: a cada 5 s por até 3 min (depois disso o usuário pode "Verificar agora"). */
 export const PIX_POLL_MS = 5_000;
@@ -23,7 +23,7 @@ export function useMercadoPagoStatus(enabled = true) {
   });
 }
 
-/** Conectar = pedir a URL do OAuth e levar o navegador inteiro até ela; desconectar = DELETE + refaz o estado. */
+/** Conectar por autorização (opcional) = pedir a URL do OAuth e levar o navegador inteiro até ela; desconectar = DELETE + refaz o estado. */
 export function useMercadoPagoActions() {
   const queryClient = useQueryClient();
   const connect = useMutation({
@@ -32,14 +32,31 @@ export function useMercadoPagoActions() {
     onError: (error) => notifyError(error, "Não foi possível iniciar a conexão com o Mercado Pago."),
   });
   const disconnect = useMutation({
-    mutationFn: () => api.delete<void>("/payments/mercadopago/disconnect"),
+    mutationFn: () => api.delete<MercadoPagoStatus | undefined>("/payments/mercadopago/disconnect"),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: MP_STATUS_KEY });
       toast.success("Mercado Pago desconectado.");
     },
-    onError: (error) => notifyError(error, "Não foi possível desconectar o Mercado Pago."),
+    onError: (error) => toast.error(mpCredentialsErrorMessage(error, "Não foi possível desconectar o Mercado Pago.")),
   });
   return { connect, disconnect };
+}
+
+/**
+ * PUT /payments/mercadopago/credentials: o Mestre cola as credenciais da PRÓPRIA conta. Devolve o novo estado, que
+ * já alimenta o cache. Sem retenção (`gcTime: 0`): o token não fica guardado no estado da mutação; os erros são
+ * tratados no formulário (mensagem amigável, nunca o texto do servidor).
+ */
+export function useSaveMercadoPagoCredentials() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    gcTime: 0,
+    mutationFn: (input: MercadoPagoCredentialsInput) => api.put<MercadoPagoStatus | undefined>("/payments/mercadopago/credentials", input),
+    onSuccess: (status) => {
+      if (status && typeof status === "object" && "status" in status) queryClient.setQueryData(MP_STATUS_KEY, status);
+      else void queryClient.invalidateQueries({ queryKey: MP_STATUS_KEY });
+    },
+  });
 }
 
 /** Lista, totais e inadimplentes refeitos (o Pix pago muda tudo isso). */

@@ -97,8 +97,14 @@ const waitFor = (assertion: () => void) => act(async () => void (await vi.waitFo
 const text = () => (container?.textContent ?? "").split(String.fromCharCode(160)).join(" ");
 const cards = () => [...container!.querySelectorAll('[data-testid="lesson-card"]')];
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  // relogio fixo em NOW (so Date): as aulas fabricadas acima sao relativas a 14/10/2026, nao ao dia em que o teste roda
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
 afterEach(() => {
+  vi.useRealTimers();
   act(() => root?.unmount());
   container?.remove();
   root = null;

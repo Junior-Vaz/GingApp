@@ -3,13 +3,16 @@ import { createHmac } from 'node:crypto';
 import { describe, it } from 'node:test';
 import {
   buildExternalReference,
+  liveModeFromAccessToken,
   mapMpPayment,
+  mapMpUser,
   mapMpStatus,
   mpPixPaymentBody,
   parseExternalReference,
 } from '../src/shared/payments/mercadopago.mapping';
 import {
   decryptProviderToken,
+  decryptProviderTokenWithRotation,
   encryptProviderToken,
   signOAuthState,
   verifyOAuthState,
@@ -18,9 +21,14 @@ import {
 import {
   applicationFeeCents,
   assertPaymentsBootConfig,
+  groupWebhookUrl,
+  oauthAvailable,
+  parseWebhookOrg,
+  paymentsAvailable,
   paymentsProviderKind,
   testModeAllowed,
   webhookNotificationUrl,
+  webhookUnsignedLimits,
 } from '../src/shared/payments/payments.config';
 import { resolveJwtSecret } from '../src/shared/config/runtime-config';
 import { aesGcmEncrypt, deriveSubkey } from '../src/shared/security/aes-gcm';
@@ -84,6 +92,11 @@ describe('payments: cifra dos tokens e state do OAuth', () => {
     const a = encryptProviderToken('APP_USR-token-123', ctx);
     assert.throws(() => decryptProviderToken(a, { organizationId: 8, provider: 'mercadopago' }));
     assert.throws(() => decryptProviderToken(a, { organizationId: 7, provider: 'stub' }));
+    // Segredo do webhook (10.55): AAD proprio - trocado de coluna com o token nao decifra.
+    const hook = encryptProviderToken('segredo-do-webhook', { ...ctx, purpose: 'webhook-secret' });
+    assert.equal(decryptProviderToken(hook, { ...ctx, purpose: 'webhook-secret' }), 'segredo-do-webhook');
+    assert.throws(() => decryptProviderToken(hook, ctx));
+    assert.throws(() => decryptProviderToken(a, { ...ctx, purpose: 'webhook-secret' }));
     // v1 (sem AAD, formato anterior): mesma subchave, decifra em qualquer contexto.
     const masterKey = process.env.PAYMENTS_TOKEN_KEY?.trim() || resolveJwtSecret(process.env.JWT_SECRET);
     const v1 = aesGcmEncrypt(deriveSubkey(masterKey, 'gingapp-payments-v1', 'provider-token'), 'APP_USR-legado');
@@ -91,17 +104,55 @@ describe('payments: cifra dos tokens e state do OAuth', () => {
     assert.equal(decryptProviderToken(v1, ctx), 'APP_USR-legado');
   });
 
-  it('boot: PAYMENTS_TOKEN_KEY exigida em producao SO com o Mercado Pago configurado; conta de teste so com flag', () => {
+  it('chave dos tokens (10.56, M2): definir PAYMENTS_TOKEN_KEY DEPOIS / rotacionar com _PREVIOUS nao quebra; sem chave valida lanca', () => {
+    const saved = { key: process.env.PAYMENTS_TOKEN_KEY, prev: process.env.PAYMENTS_TOKEN_KEY_PREVIOUS, jwt: process.env.JWT_SECRET };
+    const restore = () => {
+      for (const [k, v] of [['PAYMENTS_TOKEN_KEY', saved.key], ['PAYMENTS_TOKEN_KEY_PREVIOUS', saved.prev], ['JWT_SECRET', saved.jwt]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    };
+    try {
+      delete process.env.PAYMENTS_TOKEN_KEY;
+      delete process.env.PAYMENTS_TOKEN_KEY_PREVIOUS;
+      process.env.JWT_SECRET = 'jwt-unit-antigo-' + 'x'.repeat(40);
+      const viaJwt = encryptProviderToken('APP_USR-token-jwt', ctx);
+      assert.deepEqual(decryptProviderTokenWithRotation(viaJwt, ctx), { plain: 'APP_USR-token-jwt', rotated: false });
+      // Define a chave DEPOIS: a antiga (derivada do JWT) ainda decifra e pede rotacao.
+      process.env.PAYMENTS_TOKEN_KEY = 'k1'.repeat(32);
+      assert.deepEqual(decryptProviderTokenWithRotation(viaJwt, ctx), { plain: 'APP_USR-token-jwt', rotated: true });
+      const viaK1 = encryptProviderToken('APP_USR-token-k1', ctx);
+      assert.deepEqual(decryptProviderTokenWithRotation(viaK1, ctx), { plain: 'APP_USR-token-k1', rotated: false });
+      // Rotaciona K1 -> K2 guardando K1 em _PREVIOUS e troca o JWT: K1 ainda decifra (rotated); o derivado do JWT antigo nao.
+      process.env.PAYMENTS_TOKEN_KEY = 'k2'.repeat(32);
+      process.env.PAYMENTS_TOKEN_KEY_PREVIOUS = 'k1'.repeat(32);
+      process.env.JWT_SECRET = 'jwt-unit-novo-' + 'y'.repeat(40);
+      assert.deepEqual(decryptProviderTokenWithRotation(viaK1, ctx), { plain: 'APP_USR-token-k1', rotated: true });
+      assert.throws(() => decryptProviderToken(viaJwt, ctx), 'JWT rotacionado sem a chave antiga: ilegivel (a conta vira ERROR no uso)');
+    } finally {
+      restore();
+    }
+  });
+
+  it('boot (10.55): NADA do Mercado Pago e exigido no ambiente (PAYMENTS_TOKEN_KEY opcional); stub em producao ainda falha', () => {
     const mp = {
       NODE_ENV: 'production',
       MERCADOPAGO_CLIENT_ID: 'id',
       MERCADOPAGO_CLIENT_SECRET: 'secret',
       MERCADOPAGO_REDIRECT_URI: 'https://api.x.com/api/payments/mercadopago/callback',
     };
-    assert.throws(() => assertPaymentsBootConfig(mp), /PAYMENTS_TOKEN_KEY/);
+    assert.doesNotThrow(() => assertPaymentsBootConfig(mp));
     assert.doesNotThrow(() => assertPaymentsBootConfig({ ...mp, PAYMENTS_TOKEN_KEY: 'k'.repeat(40) }));
     assert.doesNotThrow(() => assertPaymentsBootConfig({ NODE_ENV: 'production' }));
     assert.doesNotThrow(() => assertPaymentsBootConfig({ ...mp, NODE_ENV: 'development' }));
+    assert.throws(() => assertPaymentsBootConfig({ NODE_ENV: 'production', PAYMENTS_PROVIDER: 'stub' }), /stub/);
+    // Disponivel sem credencial nenhuma; OAuth so com as 3 envs (https em producao).
+    assert.equal(paymentsAvailable({ NODE_ENV: 'production' }), true);
+    assert.equal(paymentsAvailable({ NODE_ENV: 'development' }), true);
+    assert.equal(paymentsAvailable({ PAYMENTS_PROVIDER: 'paypal' }), false);
+    assert.equal(oauthAvailable({ NODE_ENV: 'production' }), false);
+    assert.equal(oauthAvailable(mp), true);
+    assert.equal(oauthAvailable({ ...mp, MERCADOPAGO_REDIRECT_URI: 'http://api.x.com/cb' }), false);
     assert.equal(testModeAllowed({ NODE_ENV: 'production' }), false);
     assert.equal(testModeAllowed({ NODE_ENV: 'production', PAYMENTS_ALLOW_TEST_ACCOUNTS: 'true' }), true);
     assert.equal(testModeAllowed({ NODE_ENV: 'development' }), true);
@@ -165,6 +216,8 @@ describe('payments: mapeamento do Mercado Pago e configuracao', () => {
     assert.equal(p.status, 'APPROVED');
     assert.equal(p.collectorId, '555');
     assert.deepEqual(p.pix, { qrCode: 'qr', qrCodeBase64: 'b64', ticketUrl: 'https://t' });
+    assert.deepEqual(mapMpUser({ id: 123456, nickname: 'GRUPO' }), { providerUserId: '123456', nickname: 'GRUPO' });
+    assert.throws(() => mapMpUser({ nickname: 'sem id' }));
     assert.equal(mapMpStatus('in_process'), 'PENDING');
     assert.equal(mapMpStatus('charged_back'), 'CHARGED_BACK');
     assert.equal(mapMpStatus('novo'), 'UNKNOWN');
@@ -175,13 +228,37 @@ describe('payments: mapeamento do Mercado Pago e configuracao', () => {
     assert.equal(paymentsProviderKind({ NODE_ENV: 'production' }), 'mercadopago');
     assert.equal(paymentsProviderKind({ NODE_ENV: 'development' }), 'stub');
     assert.throws(() => paymentsProviderKind({ PAYMENTS_PROVIDER: 'paypal' }));
+    // 10.55: URL do webhook DO GRUPO a partir de PAINEL_URL (?org=<id>); compat com MERCADOPAGO_REDIRECT_URI.
     assert.equal(
-      webhookNotificationUrl({ MERCADOPAGO_REDIRECT_URI: 'https://api.x.com/api/payments/mercadopago/callback' }),
-      'https://api.x.com/api/webhooks/mercadopago?source_news=webhooks',
+      webhookNotificationUrl(42, { PAINEL_URL: 'https://painel.x.com/' }),
+      'https://painel.x.com/api/webhooks/mercadopago?org=42&source_news=webhooks',
     );
-    assert.equal(webhookNotificationUrl({ MERCADOPAGO_REDIRECT_URI: 'http://localhost:3000/api/payments/mercadopago/callback' }), null);
+    assert.equal(groupWebhookUrl(42, { PAINEL_URL: 'https://painel.x.com' }), 'https://painel.x.com/api/webhooks/mercadopago?org=42');
+    // 10.56 (B9): base sem https nao e mostrada como utilizavel (o provedor nao entrega em http).
+    assert.equal(groupWebhookUrl(42, { PAINEL_URL: 'http://localhost:4174' }), null);
+    assert.equal(webhookNotificationUrl(42, { PAINEL_URL: 'http://localhost:4174' }), null, 'notification_url so https');
+    assert.equal(groupWebhookUrl(42, {}), null);
+    assert.equal(
+      webhookNotificationUrl(7, { MERCADOPAGO_REDIRECT_URI: 'https://api.x.com/api/payments/mercadopago/callback' }),
+      'https://api.x.com/api/webhooks/mercadopago?org=7&source_news=webhooks',
+    );
+    assert.equal(webhookNotificationUrl(7, { MERCADOPAGO_REDIRECT_URI: 'http://localhost:3000/api/payments/mercadopago/callback' }), null);
+    assert.equal(parseWebhookOrg('15'), 15);
+    for (const bad of [undefined, '', '0', '-1', '1.5', 'abc', '99999999999', ['1'], '2147483648']) {
+      assert.equal(parseWebhookOrg(bad), null, String(bad));
+    }
+    // Heuristica UNICA de teste x producao do token colado (a confirmacao real e o live_mode do pagamento).
+    assert.equal(liveModeFromAccessToken('TEST-123-abc-999'), false);
+    assert.equal(liveModeFromAccessToken('APP_USR-123-abc-999'), true);
     assert.equal(applicationFeeCents(999, { PAYMENTS_APPLICATION_FEE_PERCENT: '2.5' }), 24);
     assert.equal(applicationFeeCents(999, {}), 0);
+    // 10.56 (M5): limites dos gatilhos sem assinatura (por processo), ajustaveis por env.
+    assert.deepEqual(webhookUnsignedLimits({}), { known: 120, unknown: 10, cooldownMs: 5000 });
+    assert.deepEqual(
+      webhookUnsignedLimits({ WEBHOOK_UNSIGNED_KNOWN_ORG_LIMIT: '5', WEBHOOK_UNSIGNED_ORG_LIMIT: '1', WEBHOOK_UNSIGNED_COOLDOWN_MS: '0' }),
+      { known: 5, unknown: 1, cooldownMs: 0 },
+    );
+    assert.equal(webhookUnsignedLimits({ WEBHOOK_UNSIGNED_ORG_LIMIT: 'abc' }).unknown, 10);
     assert.throws(() => applicationFeeCents(100, { PAYMENTS_APPLICATION_FEE_PERCENT: '80' }));
   });
 });

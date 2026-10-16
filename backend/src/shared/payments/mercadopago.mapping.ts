@@ -72,6 +72,29 @@ export function mapMpTokens(body: unknown, now: Date = new Date()): ProviderToke
   };
 }
 
+/**
+ * Modo MANUAL (PLANO_PROJETO.md 10.55) - UNICO lugar da heuristica "credencial de teste ou de producao": o Access Token
+ * de TESTE do Mercado Pago comeca com `TEST-`; o de producao com `APP_USR-`. E so uma PRE-classificacao na hora de salvar
+ * (o GET /users/me nao informa o modo): a confirmacao real e o `live_mode` de cada pagamento - pagamento de teste em
+ * producao nunca da baixa (outcome TEST_MODE), salvo PAYMENTS_ALLOW_TEST_ACCOUNTS=true. CONFERIR NO SANDBOX o prefixo.
+ */
+export function liveModeFromAccessToken(accessToken: string): boolean {
+  return !/^TEST-/i.test(accessToken.trim());
+}
+
+/** Resposta de GET /users/me (dono do token): id (= collector_id dos pagamentos) e nickname. */
+export function mapMpUser(body: unknown): { providerUserId: string; nickname: string | null } {
+  const data = (body ?? {}) as Record<string, unknown>;
+  const id = data.id;
+  if ((typeof id !== 'number' && typeof id !== 'string') || String(id).trim() === '') {
+    throw new Error('Resposta de /users/me do Mercado Pago sem id.');
+  }
+  return {
+    providerUserId: String(id),
+    nickname: typeof data.nickname === 'string' && data.nickname ? data.nickname.slice(0, 80) : null,
+  };
+}
+
 /** Corpo do POST /v1/payments para Pix. */
 export function mpPixPaymentBody(input: CreatePixPaymentInput): Record<string, unknown> {
   const body: Record<string, unknown> = {

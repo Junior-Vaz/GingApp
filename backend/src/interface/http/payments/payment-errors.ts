@@ -6,11 +6,19 @@ import { PaymentProviderError } from '../../../shared/payments/payment-provider.
  * { statusCode, error, code, message }). A UI decide a mensagem/acao pelo `code` (contrato de PLANO_PROJETO.md 10.52).
  */
 export const PaymentErrorCode = {
-  /** Servidor sem credenciais do provedor (MERCADOPAGO_CLIENT_ID/SECRET/REDIRECT_URI). */
+  /** Pagamentos online desligados no servidor (PAYMENTS_PROVIDER invalido). Nao depende de credencial no ambiente. */
   PAYMENTS_UNAVAILABLE: 'PAYMENTS_UNAVAILABLE',
+  /** POST /connect (OAuth) sem MERCADOPAGO_CLIENT_ID/SECRET/REDIRECT_URI no servidor: use as credenciais manuais. */
+  OAUTH_UNAVAILABLE: 'OAUTH_UNAVAILABLE',
+  /** PUT /credentials: Access Token recusado pelo Mercado Pago (ou de TESTE em producao). */
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
+  /** PUT /credentials: o grupo ainda nao tem conta e o corpo veio sem accessToken. */
+  ACCESS_TOKEN_REQUIRED: 'ACCESS_TOKEN_REQUIRED',
+  /** Troca para OUTRA conta do Mercado Pago com Pix ainda pagavel da conta atual (o OAuth usa `?mp=pix-aberto`). */
+  PIX_OPEN_ACCOUNT_CHANGE: 'PIX_OPEN_ACCOUNT_CHANGE',
   /** O grupo nao conectou a conta do Mercado Pago (ou desconectou). */
   MP_NOT_CONNECTED: 'MP_NOT_CONNECTED',
-  /** A conta conectada falhou (renovacao do token recusada): o Mestre precisa reconectar. */
+  /** A conta conectada falhou (token recusado/ilegivel ou renovacao recusada): o Mestre cola as credenciais de novo. */
   MP_ACCOUNT_ERROR: 'MP_ACCOUNT_ERROR',
   /** Lancamento cancelado / sem valor: nao aceita Pix. */
   RECORD_NOT_PAYABLE: 'RECORD_NOT_PAYABLE',
@@ -33,12 +41,26 @@ export const PaymentErrorCode = {
   PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
   /** Provedor recusou o pedido (dados invalidos, conta sem Pix habilitado, etc.). */
   PROVIDER_ERROR: 'PROVIDER_ERROR',
+  /** PUT /credentials com accessToken sem `currentPassword` (reautenticacao obrigatoria - 10.56, M6). 403. */
+  REAUTH_REQUIRED: 'REAUTH_REQUIRED',
+  /** PUT /credentials: `currentPassword` incorreta. 403. */
+  INVALID_PASSWORD: 'INVALID_PASSWORD',
+  /** PUT /credentials: o Mestre tem 2FA ativo e nao mandou `twoFactorCode`. 403. */
+  TWO_FACTOR_REQUIRED: 'TWO_FACTOR_REQUIRED',
+  /** PUT /credentials: `twoFactorCode` incorreto. 403 (excesso de falhas = 429 do 2FA). */
+  INVALID_TWO_FACTOR_CODE: 'INVALID_TWO_FACTOR_CODE',
+  /** Assinatura do webhook propria em conta OAUTH (nao suportado: OAUTH usa so o segredo do servidor - 10.56, B5). */
+  WEBHOOK_SECRET_NOT_SUPPORTED: 'WEBHOOK_SECRET_NOT_SUPPORTED',
+  /** A conta do Mercado Pago do grupo foi trocada/desconectada enquanto o Pix era gerado (o Pix criado foi cancelado). */
+  ACCOUNT_CHANGED: 'ACCOUNT_CHANGED',
 } as const;
 
 export type PaymentErrorCodeValue = (typeof PaymentErrorCode)[keyof typeof PaymentErrorCode];
 
 const ERROR_NAMES: Record<number, string> = {
   400: 'Bad Request',
+  401: 'Unauthorized',
+  403: 'Forbidden',
   404: 'Not Found',
   409: 'Conflict',
   422: 'Unprocessable Entity',

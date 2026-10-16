@@ -1,13 +1,16 @@
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, Logger } from '@nestjs/common';
 import { FinancialStatus, OrgRole, PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHmac } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
+import { PaymentAccountService } from '../src/interface/http/payments/payment-account.service';
 import { PixService } from '../src/interface/http/payments/pix.service';
 import { PAYMENT_PROVIDER } from '../src/shared/payments/payment-provider.interface';
 import { StubPaymentProvider } from '../src/shared/payments/stub-payment.provider';
+import { encryptTwoFactorSecret } from '../src/shared/security/two-factor-crypto';
+import { generateTotpSecret, totpCode } from '../src/shared/security/totp';
 import { createTestApp } from './utils/test-app';
 import { DEV_PASSWORD, SecondOrg, createSecondOrg, loginAs, todaySaoPaulo } from './utils/list-helpers';
 
@@ -23,6 +26,76 @@ const MAIL_DOMAIN = 'e2e-pix.local';
 const WEBHOOK_SECRET = 'e2e-webhook-secret'; // o mesmo de test/env-setup.ts
 const SELLER_MAIN = `77${TAG.slice(-7)}`;
 const SELLER_OTHER = `78${TAG.slice(-7)}`;
+// Modo MANUAL (10.55): valores FICTICIOS no formato do MP (o stub deriva o vendedor do numero final do token).
+const SELLER_MANUAL = `76${TAG.slice(-7)}`;
+const SELLER_MANUAL_2 = `75${TAG.slice(-7)}`;
+const MANUAL_TOKEN = `APP_USR-e2e${TAG}-abcdef-${SELLER_MANUAL}`;
+const MANUAL_TOKEN_2 = `APP_USR-e2e${TAG}-zzzzzz-${SELLER_MANUAL_2}`;
+const MANUAL_HOOK_SECRET = `e2e-hook-manual-${TAG}`;
+const MANUAL_PUBLIC_KEY = `APP_USR-pk-e2e-${TAG}`;
+/** Vendedor para o qual o grupo "other" troca (OAuth) na reconciliacao/desconexao. */
+const SELLER_NEW = `79${TAG.slice(-7)}`;
+/** Chave dos tokens FICTICIA (10.56, M2): definida "depois" no meio do teste. */
+const TOKEN_KEY_LATER = `e2e-token-key-${TAG}-`.padEnd(64, 'k');
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** OAuth OPCIONAL: so com estas envs (ficticias; nunca credenciais reais). Ligadas no before() e restauradas no after(). */
+const OAUTH_ENV: Record<string, string> = {
+  MERCADOPAGO_CLIENT_ID: 'e2e-client-id',
+  MERCADOPAGO_CLIENT_SECRET: 'e2e-client-secret-ficticio',
+  MERCADOPAGO_REDIRECT_URI: 'https://painel.e2e.test/api/payments/mercadopago/callback',
+};
+
+/** Roda `fn` com envs trocadas (valor undefined = remove) e restaura depois. */
+async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const saved: Record<string, string | undefined> = {};
+  for (const k of Object.keys(vars)) saved[k] = process.env[k];
+  for (const [k, v] of Object.entries(vars)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+/**
+ * Captura TUDO o que os servicos mandam ao Logger do Nest (o logger de teste do Nest silencia log/warn, entao o
+ * prototype e interceptado) + stdout/stderr durante `fn` - prova de que token/segredo nao vao para o log.
+ */
+async function captureOutput<T>(fn: () => Promise<T>): Promise<{ result: T; output: string }> {
+  const chunks: string[] = [];
+  const out = process.stdout.write.bind(process.stdout);
+  const err = process.stderr.write.bind(process.stderr);
+  const grab = (chunk: unknown) => {
+    chunks.push(typeof chunk === 'string' ? chunk : Buffer.isBuffer(chunk) ? chunk.toString('utf8') : String(chunk));
+    return true;
+  };
+  const methods = ['log', 'warn', 'error', 'debug', 'verbose'] as const;
+  const proto = Logger.prototype as unknown as Record<string, (...args: unknown[]) => void>;
+  const saved = methods.map((m) => proto[m]);
+  for (const m of methods) {
+    const original = proto[m];
+    proto[m] = function (this: unknown, ...args: unknown[]) {
+      chunks.push(args.map((a) => (typeof a === 'string' ? a : JSON.stringify(a))).join(' '));
+      return original.apply(this, args);
+    };
+  }
+  process.stdout.write = grab as typeof process.stdout.write;
+  process.stderr.write = grab as typeof process.stderr.write;
+  try {
+    const result = await fn();
+    return { result, output: chunks.join('\n') };
+  } finally {
+    process.stdout.write = out;
+    process.stderr.write = err;
+    methods.forEach((m, i) => (proto[m] = saved[i]));
+  }
+}
 
 describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
   let app: INestApplication;
@@ -32,6 +105,8 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
 
   let main: SecondOrg;
   let other: SecondOrg;
+  let manual: SecondOrg;
+  const savedOauthEnv: Record<string, string | undefined> = {};
   const extraUserIds: number[] = [];
   let professorToken: string;
   let monitorToken: string;
@@ -41,10 +116,10 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
   let dependentId: number;
   let strangerStudentId: number;
   let noEmailStudentId: number;
-  const orgIds = (): number[] => [main.organizationId, other.organizationId];
+  const orgIds = (): number[] => [main.organizationId, other.organizationId, manual.organizationId];
   let notifSeq = 0;
 
-  const api = (method: 'get' | 'post' | 'delete', path: string, token?: string) => {
+  const api = (method: 'get' | 'post' | 'put' | 'delete', path: string, token?: string) => {
     const req = request(server())[method](`/api${path}`);
     return token ? req.set('Authorization', `Bearer ${token}`) : req;
   };
@@ -78,7 +153,7 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
   function webhook(
     dataId: string,
     body: Record<string, unknown>,
-    opts: { secret?: string; ts?: number; signature?: string | null } = {},
+    opts: { secret?: string; ts?: number; signature?: string | null; org?: number | string } = {},
   ) {
     notifSeq += 1;
     const requestId = `req-${TAG}-${notifSeq}`;
@@ -86,9 +161,31 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
     const v1 = createHmac('sha256', opts.secret ?? WEBHOOK_SECRET)
       .update(`id:${dataId};request-id:${requestId};ts:${ts};`)
       .digest('hex');
-    let req = request(server()).post(`/api/webhooks/mercadopago?data.id=${dataId}&type=payment`).set('x-request-id', requestId);
+    const org = opts.org !== undefined ? `&org=${opts.org}` : '';
+    let req = request(server())
+      .post(`/api/webhooks/mercadopago?data.id=${dataId}&type=payment${org}`)
+      .set('x-request-id', requestId);
     if (opts.signature !== null) req = req.set('x-signature', opts.signature ?? `ts=${ts},v1=${v1}`);
-    return req.send({ type: 'payment', action: 'payment.updated', data: { id: dataId }, ...body });
+    // eventId = o id que o servico grava (data.id + x-request-id): a 2a via le o resultado no banco (B2: a resposta e
+    // constante e nao traz mais `outcome`).
+    return Object.assign(req.send({ type: 'payment', action: 'payment.updated', data: { id: dataId }, ...body }), {
+      eventId: `payment:${dataId}:request:${requestId}`,
+    });
+  }
+
+  type Hook = ReturnType<typeof webhook>;
+  /** Linha do evento gravada para a notificacao (null = nada gravado). */
+  const eventOf = (hook: Hook) =>
+    prisma.paymentWebhookEvent.findUnique({ where: { provider_eventId: { provider: 'stub', eventId: hook.eventId } } });
+  /**
+   * Envia, confere o status HTTP e a resposta CONSTANTE `{ received: true }` (B2) e devolve o `outcome` gravado no banco
+   * (null = o servico nao gravou nada - ex.: gatilho que nao resolveu a nada, M5-a).
+   */
+  async function hookOutcome(hook: Hook, status = 200): Promise<string | null> {
+    const res = await hook;
+    assert.equal(res.status, status, JSON.stringify(res.body));
+    if (status === 200) assert.deepEqual(res.body, { received: true });
+    return (await eventOf(hook))?.outcome ?? null;
   }
 
   const paymentIdOf = async (recordId: number): Promise<string> => {
@@ -128,11 +225,17 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
   };
 
   before(async () => {
+    // OAuth (opcional) ligado para os testes do fluxo OAuth; o modo MANUAL e testado tambem SEM estas envs.
+    for (const [k, v] of Object.entries(OAUTH_ENV)) {
+      savedOauthEnv[k] = process.env[k];
+      process.env[k] = v;
+    }
     app = await createTestApp({ disableThrottle: true });
     stub = app.get<StubPaymentProvider>(PAYMENT_PROVIDER);
     assert.ok(stub instanceof StubPaymentProvider, 'os testes exigem PAYMENTS_PROVIDER=stub');
     main = await createSecondOrg(app, prisma, `pix-main-${TAG}`);
     other = await createSecondOrg(app, prisma, `pix-other-${TAG}`);
+    manual = await createSecondOrg(app, prisma, `pix-manual-${TAG}`);
 
     professorToken = (await makeMember(main.organizationId, OrgRole.PROFESSOR, 'professor')).token;
     monitorToken = (await makeMember(main.organizationId, OrgRole.MONITOR, 'monitor')).token;
@@ -163,30 +266,44 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
     await prisma.student.deleteMany({ where: { organizationId: { in: ids } } });
     await prisma.organizationUser.deleteMany({ where: { organizationId: { in: ids } } });
     await prisma.user.deleteMany({ where: { id: { in: extraUserIds } } });
+    await manual.cleanup();
     await other.cleanup();
     await main.cleanup();
     await prisma.$disconnect();
     await app.close();
+    for (const [k, v] of Object.entries(savedOauthEnv)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
   });
 
   // -----------------------------------------------------------------------------------------------
   describe('conexao (OAuth do vendedor)', () => {
-    it('status sem conexao: disponivel no servidor, nao conectado', async () => {
+    it('status sem conexao: disponivel no servidor, nao conectado (contrato 10.55 completo)', async () => {
       const res = await api('get', '/payments/mercadopago/status', main.token).expect(200);
       assert.deepEqual(res.body, {
         provider: 'stub',
         available: true,
+        oauthAvailable: true,
+        mode: null,
         connected: false,
         liveMode: false,
         providerUserId: null,
         connectedAt: null,
         status: 'NOT_CONNECTED',
+        tokenHint: null,
+        publicKey: null,
+        hasWebhookSecret: false,
+        webhookSecretReadable: true,
+        webhookUrl: `https://painel.e2e.test/api/webhooks/mercadopago?org=${main.organizationId}`,
+        lastError: null,
       });
     });
 
-    it('RBAC: sem token 401; PROFESSOR, MONITOR e ALUNO 403 em status/connect/disconnect', async () => {
+    it('RBAC: sem token 401; PROFESSOR, MONITOR e ALUNO 403 em status/credentials/connect/disconnect', async () => {
       for (const [method, path] of [
         ['get', '/payments/mercadopago/status'],
+        ['put', '/payments/mercadopago/credentials'],
         ['post', '/payments/mercadopago/connect'],
         ['delete', '/payments/mercadopago/disconnect'],
       ] as const) {
@@ -260,6 +377,613 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
       assert.ok(!JSON.stringify(audits).includes(tokens.accessToken));
 
       await connect(other, SELLER_OTHER);
+    });
+
+    it('B5: conta OAUTH nao aceita segredo de webhook proprio (409 WEBHOOK_SECRET_NOT_SUPPORTED); chave publica sim, sem senha', async () => {
+      const res = await api('put', '/payments/mercadopago/credentials', main.token).send({ webhookSecret: 'x-y-z' }).expect(409);
+      assert.equal(res.body.code, 'WEBHOOK_SECRET_NOT_SUPPORTED');
+      const row = await prisma.paymentProviderAccount.findFirstOrThrow({ where: { organizationId: main.organizationId } });
+      assert.equal(row.webhookSecretEnc, null);
+      const ok = await api('put', '/payments/mercadopago/credentials', main.token).send({ publicKey: 'TEST-pk-oauth' }).expect(200);
+      assert.equal(ok.body.publicKey, 'TEST-pk-oauth');
+      assert.equal(ok.body.hasWebhookSecret, false);
+      assert.equal(ok.body.mode, 'OAUTH');
+    });
+  });
+
+  // -----------------------------------------------------------------------------------------------
+  describe('modo MANUAL (10.55): credenciais da conta do grupo coladas no painel', () => {
+    /**
+     * PUT /credentials. Com `accessToken` manda a senha do Mestre (reautenticacao - 10.56, M6), salvo se o corpo ja
+     * trouxer `currentPassword` (inclusive `undefined`, que o JSON omite: o caso "sem senha").
+     */
+    const credentials = (body: Record<string, unknown>, token = manual.token) =>
+      api('put', '/payments/mercadopago/credentials', token).send(
+        'accessToken' in body && !('currentPassword' in body) ? { ...body, currentPassword: DEV_PASSWORD } : body,
+      );
+    let mestre2: { userId: number; token: string };
+    const accountRow = () =>
+      prisma.paymentProviderAccount.findUnique({
+        where: { organizationId_provider: { organizationId: manual.organizationId, provider: 'stub' } },
+      });
+    let manualStudentId: number;
+    /** Lancamento + Pix gerado na conta MANUAL; devolve id do lancamento e do pagamento. */
+    const manualPix = async (amountCents: number) => {
+      const rec = await mkRecord(manual.organizationId, manualStudentId, amountCents);
+      await api('post', `/finance/${rec.id}/pix`, manual.token).expect(200);
+      return { recordId: rec.id, paymentId: await paymentIdOf(rec.id) };
+    };
+    const noOauthNoGlobalSecret = {
+      MERCADOPAGO_CLIENT_ID: undefined,
+      MERCADOPAGO_CLIENT_SECRET: undefined,
+      MERCADOPAGO_REDIRECT_URI: undefined,
+      MERCADOPAGO_WEBHOOK_SECRET: undefined,
+    };
+
+    before(async () => {
+      manualStudentId = (await mkStudent(manual.organizationId, 'Aluno manual', { email: `aluno-manual-${TAG}@${MAIL_DOMAIN}` })).id;
+      // Segundo Mestre: todos os Mestres sao avisados quando o token e definido/trocado (M6).
+      mestre2 = await makeMember(manual.organizationId, OrgRole.MESTRE, 'mestre2');
+    });
+
+    it('OAuth dormente SEM env nenhuma do MP: oauthAvailable=false, POST /connect => 409 OAUTH_UNAVAILABLE (nada gravado)', async () => {
+      await withEnv(noOauthNoGlobalSecret, async () => {
+        const status = await api('get', '/payments/mercadopago/status', manual.token).expect(200);
+        assert.equal(status.body.available, true, 'disponivel sem credencial nenhuma no ambiente');
+        assert.equal(status.body.oauthAvailable, false);
+        assert.equal(status.body.mode, null);
+        const res = await api('post', '/payments/mercadopago/connect', manual.token).expect(409);
+        assert.equal(res.body.code, 'OAUTH_UNAVAILABLE');
+      });
+      assert.equal(await prisma.paymentOauthState.count({ where: { organizationId: manual.organizationId } }), 0);
+    });
+
+    it('primeira conexao sem accessToken => 400 ACCESS_TOKEN_REQUIRED; corpo invalido => 400; token recusado => 422 INVALID_CREDENTIALS sem eco nem log', async () => {
+      assert.equal((await credentials({ webhookSecret: MANUAL_HOOK_SECRET }).expect(400)).body.code, 'ACCESS_TOKEN_REQUIRED');
+      assert.equal((await credentials({}).expect(400)).body.code, 'ACCESS_TOKEN_REQUIRED');
+      // Validacao: espaco/quebra interna, curto, null, campo desconhecido.
+      await credentials({ accessToken: 'APP_USR-abc def-123' }).expect(400);
+      await credentials({ accessToken: 'APP_USR-abc\n-123456' }).expect(400);
+      await credentials({ accessToken: 'curto' }).expect(400);
+      await credentials({ accessToken: MANUAL_TOKEN, publicKey: null }).expect(400);
+      await credentials({ accessToken: MANUAL_TOKEN, clientSecret: 'x' }).expect(400);
+      await credentials({ accessToken: 'x'.repeat(600) }).expect(400);
+
+      const bad = `APP_USR-INVALID-${TAG}-123456`;
+      const { result, output } = await captureOutput(() => credentials({ accessToken: bad, webhookSecret: MANUAL_HOOK_SECRET }));
+      assert.equal(result.status, 422);
+      assert.equal(result.body.code, 'INVALID_CREDENTIALS');
+      assert.ok(!JSON.stringify(result.body).includes(bad) && !JSON.stringify(result.body).includes(MANUAL_HOOK_SECRET));
+      assert.ok(output.includes('Credenciais do Mercado Pago recusadas'), 'a captura do log funciona (o aviso foi logado)');
+      assert.ok(!output.includes(bad) && !output.includes(MANUAL_HOOK_SECRET), 'token/segredo fora do log');
+      // Provedor fora do ar na validacao => 503 PROVIDER_UNAVAILABLE.
+      stub.failNextValidate = 'TRANSIENT';
+      assert.equal((await credentials({ accessToken: MANUAL_TOKEN }).expect(503)).body.code, 'PROVIDER_UNAVAILABLE');
+      assert.equal(await accountRow(), null, 'nada gravado');
+    });
+
+    it('credencial de TESTE em producao => 422 INVALID_CREDENTIALS (sem PAYMENTS_ALLOW_TEST_ACCOUNTS); fora de producao aceita', async () => {
+      const res = await atProduction(() => credentials({ accessToken: `TEST-e2e${TAG}-${SELLER_MANUAL}` }));
+      assert.equal(res.status, 422);
+      assert.equal(res.body.code, 'INVALID_CREDENTIALS');
+      assert.equal(await accountRow(), null);
+    });
+
+    it('salva (SEM env do MP): CONNECTED, mode MANUAL, tokenHint de 4 chars; token/segredo cifrados v2 e fora de resposta/auditoria/log', async () => {
+      const { result, output } = await withEnv(noOauthNoGlobalSecret, () =>
+        captureOutput(() => credentials({ accessToken: MANUAL_TOKEN, publicKey: MANUAL_PUBLIC_KEY, webhookSecret: MANUAL_HOOK_SECRET })),
+      );
+      assert.equal(result.status, 200, JSON.stringify(result.body));
+      const body = result.body;
+      assert.equal(body.connected, true);
+      assert.equal(body.status, 'CONNECTED');
+      assert.equal(body.mode, 'MANUAL');
+      assert.equal(body.providerUserId, SELLER_MANUAL);
+      assert.equal(body.liveMode, true, 'APP_USR- = producao (heuristica do prefixo)');
+      assert.equal(body.tokenHint, MANUAL_TOKEN.slice(-4));
+      assert.equal(body.tokenHint.length, 4);
+      assert.equal(body.publicKey, MANUAL_PUBLIC_KEY);
+      assert.equal(body.hasWebhookSecret, true);
+      assert.equal(body.oauthAvailable, false);
+      assert.equal(body.webhookUrl, `https://painel.e2e.test/api/webhooks/mercadopago?org=${manual.organizationId}`);
+      const text = JSON.stringify(body);
+      assert.ok(!text.includes(MANUAL_TOKEN) && !text.includes(MANUAL_HOOK_SECRET) && !text.includes('v2:'));
+      assert.ok(!output.includes(MANUAL_TOKEN) && !output.includes(MANUAL_HOOK_SECRET), 'token/segredo fora do log');
+      assert.ok(!output.includes(DEV_PASSWORD), 'senha da reautenticacao fora do log');
+      assert.equal(body.webhookSecretReadable, true);
+      assert.equal(body.lastError, null);
+
+      // 2a via (Prisma direto): cifrado, sem refresh/expiracao.
+      const row = (await accountRow())!;
+      assert.equal(row.mode, 'MANUAL');
+      assert.match(row.accessTokenEnc!, /^v2:/);
+      assert.match(row.webhookSecretEnc!, /^v2:/);
+      assert.ok(!row.accessTokenEnc!.includes(MANUAL_TOKEN) && !row.webhookSecretEnc!.includes(MANUAL_HOOK_SECRET));
+      assert.equal(row.refreshTokenEnc, null);
+      assert.equal(row.tokenExpiresAt, null);
+      assert.equal(row.connectedById, manual.userId);
+
+      const audits = await prisma.auditLog.findMany({ where: { organizationId: manual.organizationId, action: { startsWith: 'PAYMENT_ACCOUNT' } } });
+      assert.equal(audits.filter((a) => a.action === 'PAYMENT_ACCOUNT_CONNECT').length, 1);
+      const auditText = JSON.stringify(audits);
+      assert.ok(auditText.includes('MANUAL') && auditText.includes('signatureKey'));
+      assert.ok(!auditText.includes(MANUAL_TOKEN) && !auditText.includes(MANUAL_HOOK_SECRET) && !auditText.includes('v2:'));
+      assert.ok(!auditText.includes(DEV_PASSWORD), 'senha fora da auditoria');
+      // GET status devolve o mesmo (sem segredo).
+      const status = await api('get', '/payments/mercadopago/status', manual.token).expect(200);
+      assert.equal(status.body.mode, 'MANUAL');
+      assert.ok(!JSON.stringify(status.body).includes(MANUAL_TOKEN));
+      // M6: TODOS os Mestres avisados (sino), sem segredo.
+      for (const userId of [manual.userId, mestre2.userId]) {
+        const notes = await prisma.notification.findMany({ where: { userId, type: 'FINANCE_PAYMENTS_ACCOUNT_CONNECTED' } });
+        assert.equal(notes.length, 1, `aviso ao Mestre ${userId}`);
+        assert.ok(!notes[0].body.includes(MANUAL_TOKEN));
+      }
+    });
+
+    it('M6: definir/trocar o token exige a senha (403 REAUTH_REQUIRED / INVALID_PASSWORD) e o 2FA ativo; parcial nao pede senha', async () => {
+      const before = (await accountRow())!;
+      const missing = await credentials({ accessToken: MANUAL_TOKEN_2, currentPassword: undefined }).expect(403);
+      assert.equal(missing.body.code, 'REAUTH_REQUIRED');
+      const wrong = await credentials({ accessToken: MANUAL_TOKEN_2, currentPassword: 'senha-errada' }).expect(403);
+      assert.equal(wrong.body.code, 'INVALID_PASSWORD');
+      assert.ok(!JSON.stringify(wrong.body).includes('senha-errada'));
+      assert.equal((await accountRow())!.accessTokenEnc, before.accessTokenEnc, 'nada muda sem reautenticar');
+      const failures = await prisma.auditLog.findMany({ where: { organizationId: manual.organizationId, action: 'PAYMENT_ACCOUNT_REAUTH_FAILED' } });
+      assert.equal(failures.length, 1);
+      assert.ok(!JSON.stringify(failures).includes('senha-errada'));
+
+      // 2FA ativo: senha certa sem codigo => 403 TWO_FACTOR_REQUIRED; codigo errado => 403 INVALID_TWO_FACTOR_CODE; certo => 200.
+      const secret = generateTotpSecret();
+      await prisma.user.update({
+        where: { id: manual.userId },
+        data: { twoFactorEnabled: true, twoFactorSecret: encryptTwoFactorSecret(secret), twoFactorLastStep: null },
+      });
+      try {
+        assert.equal((await credentials({ accessToken: MANUAL_TOKEN }).expect(403)).body.code, 'TWO_FACTOR_REQUIRED');
+        const right = totpCode(secret);
+        const wrongCode = right === '000000' ? '111111' : '000000';
+        assert.equal((await credentials({ accessToken: MANUAL_TOKEN, twoFactorCode: wrongCode }).expect(403)).body.code, 'INVALID_TWO_FACTOR_CODE');
+        const ok = await credentials({ accessToken: MANUAL_TOKEN, twoFactorCode: right }).expect(200);
+        assert.equal(ok.body.status, 'CONNECTED');
+      } finally {
+        await prisma.user.update({
+          where: { id: manual.userId },
+          data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorLastStep: null },
+        });
+      }
+      // Atualizacao parcial (sem token) nao pede senha: coberta pelo teste seguinte (PUT sem currentPassword => 200).
+    });
+
+    it('atualizacao PARCIAL (so webhookSecret / publicKey "") nao perde o token; auditada como PAYMENT_ACCOUNT_UPDATE', async () => {
+      const before = (await accountRow())!;
+      const res = await credentials({ webhookSecret: `${MANUAL_HOOK_SECRET}-2` }).expect(200);
+      assert.equal(res.body.connected, true);
+      assert.equal(res.body.hasWebhookSecret, true);
+      assert.equal(res.body.tokenHint, MANUAL_TOKEN.slice(-4));
+      const mid = (await accountRow())!;
+      assert.equal(mid.accessTokenEnc, before.accessTokenEnc, 'token intacto');
+      assert.notEqual(mid.webhookSecretEnc, before.webhookSecretEnc);
+      const cleared = await credentials({ publicKey: '' }).expect(200);
+      assert.equal(cleared.body.publicKey, null);
+      assert.equal(cleared.body.hasWebhookSecret, true, 'campo ausente nao muda');
+      assert.equal((await accountRow())!.accessTokenEnc, before.accessTokenEnc);
+      assert.equal(await prisma.auditLog.count({ where: { organizationId: manual.organizationId, action: 'PAYMENT_ACCOUNT_UPDATE' } }), 2);
+      // Volta o segredo original para os testes do webhook.
+      await credentials({ webhookSecret: MANUAL_HOOK_SECRET, publicKey: MANUAL_PUBLIC_KEY }).expect(200);
+    });
+
+    it('outro grupo isolado: nao ve nem altera a conta MANUAL deste grupo', async () => {
+      const otherStatus = await api('get', '/payments/mercadopago/status', other.token).expect(200);
+      assert.notEqual(otherStatus.body.providerUserId, SELLER_MANUAL);
+      assert.notEqual(otherStatus.body.tokenHint, MANUAL_TOKEN.slice(-4));
+      assert.equal(otherStatus.body.webhookUrl, `https://painel.e2e.test/api/webhooks/mercadopago?org=${other.organizationId}`);
+      assert.equal(await prisma.paymentProviderAccount.count({ where: { providerUserId: SELLER_MANUAL } }), 1);
+      // Mestre de outro grupo nao alcanca o lancamento deste.
+      const rec = await mkRecord(manual.organizationId, manualStudentId);
+      await api('post', `/finance/${rec.id}/pix`, other.token).expect(404);
+    });
+
+    it('gera Pix com a conta MANUAL: notification_url do grupo (?org) e SEM application_fee mesmo com taxa configurada', async () => {
+      const { result: pix } = await withEnv({ PAYMENTS_APPLICATION_FEE_PERCENT: '5' }, async () => ({ result: await manualPix(15000) }));
+      const call = stub.createCalls[stub.createCalls.length - 1];
+      assert.equal(call.externalReference, `gingapp:${manual.organizationId}:${pix.recordId}`);
+      assert.equal(call.notificationUrl, `https://painel.e2e.test/api/webhooks/mercadopago?org=${manual.organizationId}&source_news=webhooks`);
+      assert.equal(call.applicationFeeCents, 0, 'modo MANUAL nao tem split/taxa da plataforma');
+      const payment = await stub.getPayment({ accessToken: MANUAL_TOKEN, paymentId: pix.paymentId });
+      assert.equal(payment.collectorId, SELLER_MANUAL, 'Pix criado na conta do grupo (token manual)');
+    });
+
+    it('A2: assinatura errada/ausente (inclusive com o segredo GLOBAL) => gatilho (sem 401), problema gravado, corpo forjado nao baixa, aviso UNICO; segredo certo => verificado e baixa UMA vez', async () => {
+      const { recordId, paymentId } = await manualPix(4400); // PENDENTE no provedor
+      await withEnv({ WEBHOOK_UNSIGNED_COOLDOWN_MS: '0' }, async () => {
+        // Fabricas (o supertest abre o servidor ao criar o pedido: um por vez).
+        const cases: Array<[() => Hook, string]> = [
+          // O grupo tem segredo proprio: o global (env) NAO vale para ele (A1) => assinatura nao confere.
+          [() => webhook(paymentId, { status: 'approved', transaction_amount: 44 }, { org: manual.organizationId }), 'MISMATCH'],
+          [() => webhook(paymentId, {}, { org: manual.organizationId, secret: 'segredo-errado' }), 'MISMATCH'],
+          [() => webhook(paymentId, {}, { org: manual.organizationId, signature: null }), 'MISSING'],
+        ];
+        for (const [make, problem] of cases) {
+          const hook = make();
+          assert.equal(await hookOutcome(hook), 'PENDING', 'processado como gatilho: o provedor diz pendente');
+          const ev = (await eventOf(hook))!;
+          assert.equal(ev.signatureVerified, false);
+          assert.equal(ev.signatureProblem, problem);
+        }
+      });
+      assert.equal((await prisma.financialRecord.findUniqueOrThrow({ where: { id: recordId } })).status, FinancialStatus.PENDING, 'corpo forjado nao baixa');
+      // Aviso UNICO (janela de 24 h) aos Mestres + auditoria, sem o segredo.
+      for (const userId of [manual.userId, mestre2.userId]) {
+        assert.equal(await prisma.notification.count({ where: { userId, type: 'FINANCE_PAYMENTS_WEBHOOK_SIGNATURE' } }), 1);
+      }
+      const alerts = await prisma.auditLog.findMany({ where: { organizationId: manual.organizationId, action: 'PAYMENT_WEBHOOK_SIGNATURE_PROBLEM' } });
+      assert.equal(alerts.length, 1);
+      assert.ok(!JSON.stringify(alerts).includes(MANUAL_HOOK_SECRET));
+
+      stub.setStatus(paymentId, 'APPROVED');
+      const ok = webhook(paymentId, {}, { org: manual.organizationId, secret: MANUAL_HOOK_SECRET });
+      assert.equal(await hookOutcome(ok), 'PAID');
+      assert.equal((await eventOf(ok))!.signatureProblem, null);
+      assert.equal(await hookOutcome(webhook(paymentId, {}, { org: manual.organizationId, secret: MANUAL_HOOK_SECRET })), 'DUPLICATE');
+      const r = await prisma.financialRecord.findUniqueOrThrow({ where: { id: recordId } });
+      assert.equal(r.status, FinancialStatus.PAID);
+      assert.equal(r.paidVia, 'PIX_AUTO');
+      assert.equal(await prisma.auditLog.count({ where: { action: 'FINANCE_PAY', resourceId: String(recordId) } }), 1);
+      const events = await prisma.paymentWebhookEvent.findMany({ where: { paymentId, source: 'WEBHOOK', outcome: 'PAID' } });
+      assert.equal(events.length, 1);
+      assert.equal(events[0].signatureVerified, true);
+    });
+
+    it('fallback por user_id (sem ?org): segredo do grupo confere e da a baixa', async () => {
+      const { recordId, paymentId } = await manualPix(4500);
+      stub.setStatus(paymentId, 'APPROVED');
+      assert.equal(await hookOutcome(webhook(paymentId, { user_id: SELLER_MANUAL }, { secret: MANUAL_HOOK_SECRET })), 'PAID');
+      assert.equal((await prisma.financialRecord.findUniqueOrThrow({ where: { id: recordId } })).status, FinancialStatus.PAID);
+      // ?org invalido e ignorado (cai no user_id).
+      const { paymentId: p2, recordId: r2 } = await manualPix(4501);
+      stub.setStatus(p2, 'APPROVED');
+      assert.equal(await hookOutcome(webhook(p2, { user_id: SELLER_MANUAL }, { org: 'abc', secret: MANUAL_HOOK_SECRET })), 'PAID');
+      assert.equal((await prisma.financialRecord.findUniqueOrThrow({ where: { id: r2 } })).status, FinancialStatus.PAID);
+    });
+
+    it('A1: grupo MANUAL SEM segredo proprio + segredo GLOBAL no servidor => gatilho processa (nao 401), signatureVerified=false, sem "problema"', async () => {
+      await credentials({ webhookSecret: '' }).expect(200);
+      assert.ok(process.env.MERCADOPAGO_WEBHOOK_SECRET, 'o segredo global (compat) esta definido neste teste');
+      const real = await manualPix(4550);
+      stub.setStatus(real.paymentId, 'APPROVED');
+      // Assinado com o segredo GLOBAL (o de uma aplicacao que NAO e a do grupo): nao vale para MANUAL, mas nao derruba.
+      const hook = webhook(real.paymentId, {}, { org: manual.organizationId });
+      assert.equal(await hookOutcome(hook), 'PAID');
+      const ev = (await eventOf(hook))!;
+      assert.equal(ev.signatureVerified, false);
+      assert.equal(ev.signatureProblem, null, 'sem segredo do grupo = gatilho simples, nao "assinatura errada"');
+    });
+
+    it('SEM segredo nenhum: processa como GATILHO (signatureVerified=false); corpo forjado nao baixa; gatilho que nao resolve NAO grava (M5)', async () => {
+      await withEnv({ MERCADOPAGO_WEBHOOK_SECRET: undefined }, async () => {
+        const pending = await manualPix(4600);
+        // Corpo forjado dizendo "aprovado" (sem assinatura): o provedor diz pendente => nada de baixa.
+        const forged = webhook(
+          pending.paymentId,
+          { action: 'payment.updated', status: 'approved', transaction_amount: 46, live_mode: true },
+          { org: manual.organizationId, signature: null },
+        );
+        assert.equal(await hookOutcome(forged), 'PENDING');
+        assert.equal((await prisma.financialRecord.findUniqueOrThrow({ where: { id: pending.recordId } })).status, FinancialStatus.PENDING);
+        assert.equal((await eventOf(forged))!.signatureVerified, false);
+        // Mesmo pagamento de novo em menos de 5 s, sem assinatura: 429 (cache anti-martelada).
+        assert.equal((await webhook(pending.paymentId, {}, { org: manual.organizationId, signature: null })).status, 429);
+
+        // Pagamento inexistente / de outro vendedor / referencia forjada: nada baixa e NADA e gravado (M5-a).
+        const before = await prisma.paymentWebhookEvent.count();
+        assert.equal(await hookOutcome(webhook('999999999999', { user_id: SELLER_MANUAL }, { org: manual.organizationId, signature: null })), null);
+        const forgedRef = stub.seedPayment({ sellerUserId: SELLER_OTHER, amountCents: 4600, externalReference: `gingapp:${manual.organizationId}:${pending.recordId}` });
+        assert.equal(await hookOutcome(webhook(forgedRef, { user_id: SELLER_MANUAL }, { org: manual.organizationId, signature: null })), null);
+        // Assinatura presente mas sem segredo algum para conferir: so gatilho (nunca confianca no corpo).
+        const forgedRef2 = stub.seedPayment({ sellerUserId: SELLER_OTHER, amountCents: 4600, externalReference: `gingapp:${manual.organizationId}:${pending.recordId}` });
+        assert.equal(await hookOutcome(webhook(forgedRef2, {}, { org: manual.organizationId, secret: 'qualquer' })), null);
+        assert.equal((await prisma.financialRecord.findUniqueOrThrow({ where: { id: pending.recordId } })).status, FinancialStatus.PENDING);
+        // Sem nenhuma pista de grupo e sem segredo: descartado sem gravar nada.
+        assert.equal(await hookOutcome(webhook('888888888888', {}, { signature: null })), null);
+        // B2: grupo inexistente responde IGUAL (sem oraculo de enumeracao).
+        assert.equal(await hookOutcome(webhook('888888888889', {}, { org: 2_000_000_000, signature: null })), null);
+        assert.equal(await prisma.paymentWebhookEvent.count(), before, 'nenhuma linha gravada pelos gatilhos que nao resolveram');
+
+        // O gatilho funciona para o pagamento REAL aprovado no provedor (a baixa vem do provedor, nao do corpo).
+        const real = await manualPix(4700);
+        stub.setStatus(real.paymentId, 'APPROVED');
+        assert.equal(await hookOutcome(webhook(real.paymentId, {}, { org: manual.organizationId, signature: null })), 'PAID');
+        assert.equal((await prisma.financialRecord.findUniqueOrThrow({ where: { id: real.recordId } })).status, FinancialStatus.PAID);
+        assert.equal(await prisma.auditLog.count({ where: { action: 'FINANCE_PAY', resourceId: String(real.recordId) } }), 1);
+
+        // Limite POR GRUPO dos gatilhos de id DESCONHECIDO (apertado); pagamento JA CONHECIDO do grupo usa o limite generoso (M5-b).
+        const known = await manualPix(4710);
+        await withEnv({ WEBHOOK_UNSIGNED_ORG_LIMIT: '1' }, async () => {
+          const limited = await webhook('777777777777', {}, { org: manual.organizationId, signature: null });
+          assert.equal(limited.status, 429);
+          assert.equal(limited.body.code, 'WEBHOOK_RATE_LIMITED');
+          assert.equal(await hookOutcome(webhook(known.paymentId, {}, { org: manual.organizationId, signature: null })), 'PENDING');
+        });
+      });
+      await credentials({ webhookSecret: MANUAL_HOOK_SECRET }).expect(200);
+    });
+
+    it('troca para OUTRA conta com Pix aberto => 409 PIX_OPEN_ACCOUNT_CHANGE (nada muda); sem Pix aberto troca, audita e avisa os Mestres', async () => {
+      const open = await prisma.financialRecord.findMany({
+        where: { organizationId: manual.organizationId, gatewayStatus: 'pending', status: { in: ['PENDING', 'OVERDUE'] }, pixExpiresAt: { gt: new Date() } },
+      });
+      assert.ok(open.length >= 1, 'ha Pix aberto da conta atual');
+      const before = (await accountRow())!;
+      const blocked = await credentials({ accessToken: MANUAL_TOKEN_2 }).expect(409);
+      assert.equal(blocked.body.code, 'PIX_OPEN_ACCOUNT_CHANGE');
+      const same = (await accountRow())!;
+      assert.equal(same.providerUserId, SELLER_MANUAL);
+      assert.equal(same.accessTokenEnc, before.accessTokenEnc);
+      // Colar de novo o token da MESMA conta nao e troca (permitido mesmo com Pix aberto).
+      await credentials({ accessToken: MANUAL_TOKEN }).expect(200);
+
+      for (const r of open) await api('post', `/finance/${r.id}/cancel`, manual.token).expect(200);
+      const changed = await credentials({ accessToken: MANUAL_TOKEN_2 }).expect(200);
+      assert.equal(changed.body.providerUserId, SELLER_MANUAL_2);
+      assert.equal(changed.body.hasWebhookSecret, false, 'assinatura da conta antiga nao vale para a nova');
+      assert.equal(await prisma.notification.count({ where: { userId: manual.userId, type: 'FINANCE_PAYMENTS_ACCOUNT_CHANGED' } }), 1);
+      const audit = await prisma.auditLog.findFirst({
+        where: { organizationId: manual.organizationId, action: 'PAYMENT_ACCOUNT_CONNECT' },
+        orderBy: { id: 'desc' },
+      });
+      assert.ok(JSON.stringify(audit).includes('previousProviderUserId'));
+      assert.ok(!JSON.stringify(audit).includes(MANUAL_TOKEN_2));
+    });
+
+    const DAY = 24 * 60 * 60 * 1000;
+    const accountWhere = () => ({ organizationId_provider: { organizationId: manual.organizationId, provider: 'stub' } });
+
+    it('M3-a: troca de conta bloqueada tambem por Pix VENCIDO sem confirmacao (pendente ou expired_unconfirmed) ate 7 dias', async () => {
+      const rec = await mkRecord(manual.organizationId, manualStudentId, 4720);
+      await api('post', `/finance/${rec.id}/pix`, manual.token).expect(200);
+      const accounts = app.get(PaymentAccountService);
+      // Vencido ha 2 dias no relogio, o provedor nunca confirmou: ainda pode ter sido pago no ultimo minuto.
+      await prisma.financialRecord.update({ where: { id: rec.id }, data: { pixExpiresAt: new Date(Date.now() - 2 * DAY) } });
+      assert.equal((await credentials({ accessToken: MANUAL_TOKEN }).expect(409)).body.code, 'PIX_OPEN_ACCOUNT_CHANGE');
+      await prisma.financialRecord.update({ where: { id: rec.id }, data: { gatewayStatus: 'expired_unconfirmed' } });
+      assert.equal((await credentials({ accessToken: MANUAL_TOKEN }).expect(409)).body.code, 'PIX_OPEN_ACCOUNT_CHANGE');
+      assert.equal((await accountRow())!.providerUserId, SELLER_MANUAL_2, 'nada mudou');
+      // Mais de 7 dias depois da validade deixa de bloquear.
+      const n = await accounts.countUnresolvedPix(manual.organizationId);
+      await prisma.financialRecord.update({ where: { id: rec.id }, data: { pixExpiresAt: new Date(Date.now() - 8 * DAY) } });
+      assert.equal(await accounts.countUnresolvedPix(manual.organizationId), n - 1);
+      await prisma.financialRecord.update({ where: { id: rec.id }, data: { status: FinancialStatus.CANCELLED } });
+    });
+
+    it('M3-c: Pix de OUTRA conta (gatewayAccountId) vira account_changed na reconciliacao e no GET (terminal + alerta unico); novo Pix na conta atual', async () => {
+      const rec = await mkRecord(manual.organizationId, manualStudentId, 4730);
+      await api('post', `/finance/${rec.id}/pix`, manual.token).expect(200);
+      let row = await prisma.financialRecord.findUniqueOrThrow({ where: { id: rec.id } });
+      assert.equal(row.gatewayAccountId, SELLER_MANUAL_2, 'grava a conta em que o Pix foi criado');
+      const firstPid = row.gatewayPaymentId;
+      // Simula um Pix criado na conta ANTERIOR do grupo.
+      await prisma.financialRecord.update({
+        where: { id: rec.id },
+        data: { gatewayAccountId: SELLER_MANUAL, pixGeneratedAt: new Date(Date.now() - 20 * 60 * 1000) },
+      });
+      const createsBefore = stub.createCalls.length;
+      const stats = await app.get(PixService).reconcilePending();
+      assert.ok(stats.accountChanged >= 1, JSON.stringify(stats));
+      row = await prisma.financialRecord.findUniqueOrThrow({ where: { id: rec.id } });
+      assert.equal(row.gatewayStatus, 'account_changed');
+      assert.equal(row.status, FinancialStatus.PENDING, 'nada de baixa as cegas');
+      const alertWhere = { action: 'PAYMENT_PIX_ALERT', resourceId: String(rec.id) };
+      assert.equal(await prisma.auditLog.count({ where: alertWhere }), 1);
+      assert.ok(JSON.stringify(await prisma.auditLog.findFirst({ where: alertWhere })).includes('ACCOUNT_CHANGED'));
+      const noteWhere = { userId: manual.userId, type: 'FINANCE_PIX_ALERT', body: { contains: 'conta ANTERIOR' } };
+      assert.equal(await prisma.notification.count({ where: noteWhere }), 1);
+      // Terminal: nao volta para a fila (nem alerta de novo).
+      await app.get(PixService).reconcilePending(new Date(Date.now() + 6 * 60 * 1000));
+      assert.equal(await prisma.auditLog.count({ where: alertWhere }), 1);
+      // Gerar de novo cria um Pix na conta ATUAL.
+      const again = await api('post', `/finance/${rec.id}/pix`, manual.token).expect(200);
+      assert.equal(again.body.status, 'PENDING');
+      assert.equal(stub.createCalls.length, createsBefore + 1);
+      row = await prisma.financialRecord.findUniqueOrThrow({ where: { id: rec.id } });
+      assert.notEqual(row.gatewayPaymentId, firstPid);
+      assert.equal(row.gatewayAccountId, SELLER_MANUAL_2);
+      // GET /pix de um Pix de outra conta: terminal tambem (sem 404 eterno), segundo alerta (outro pagamento).
+      await prisma.financialRecord.update({ where: { id: rec.id }, data: { gatewayAccountId: SELLER_MANUAL } });
+      const view = await api('get', `/finance/${rec.id}/pix`, manual.token).expect(200);
+      assert.equal(view.body.status, 'CANCELLED');
+      assert.equal(view.body.qrCode, null);
+      assert.equal(await prisma.auditLog.count({ where: alertWhere }), 2);
+      await prisma.financialRecord.update({ where: { id: rec.id }, data: { status: FinancialStatus.CANCELLED } });
+    });
+
+    it('M3-b: troca de conta x gravacao de Pix serializadas pelo lock da conta; conta trocada DURANTE a chamada ao provedor => Pix cancelado, nada gravado', async () => {
+      const accounts = app.get(PaymentAccountService);
+      const order: string[] = [];
+      const exclusive = accounts.withAccountLock(manual.organizationId, 'exclusive', async () => {
+        order.push('troca:inicio');
+        await sleep(300);
+        order.push('troca:fim');
+      });
+      while (!order.includes('troca:inicio')) await sleep(10);
+      const shared = accounts.withAccountLock(manual.organizationId, 'shared', async () => {
+        order.push('pix');
+      });
+      await Promise.all([exclusive, shared]);
+      assert.deepEqual(order, ['troca:inicio', 'troca:fim', 'pix'], 'a gravacao do Pix espera a troca terminar');
+
+      const rec = await mkRecord(manual.organizationId, manualStudentId, 4740);
+      const seen: { id?: string } = {};
+      stub.onPixCreated = async (payment) => {
+        seen.id = payment.id;
+        // Outra replica troca a conta enquanto o provedor respondia.
+        await prisma.paymentProviderAccount.update({ where: accountWhere(), data: { providerUserId: `troca-${TAG}` } });
+      };
+      try {
+        const res = await api('post', `/finance/${rec.id}/pix`, manual.token).expect(409);
+        assert.equal(res.body.code, 'ACCOUNT_CHANGED');
+      } finally {
+        stub.onPixCreated = null;
+        await prisma.paymentProviderAccount.update({ where: accountWhere(), data: { providerUserId: SELLER_MANUAL_2 } });
+      }
+      assert.ok(seen.id, 'o Pix chegou a ser criado no provedor');
+      assert.equal((await stub.getPayment({ accessToken: MANUAL_TOKEN_2, paymentId: seen.id })).status, 'CANCELLED');
+      assert.equal((await prisma.financialRecord.findUniqueOrThrow({ where: { id: rec.id } })).gatewayPaymentId, null);
+    });
+
+    it('A2: segredo do webhook ILEGIVEL => status webhookSecretReadable=false; webhook vira gatilho UNREADABLE com aviso; colar o token limpa o segredo', async () => {
+      const newSecret = `${MANUAL_HOOK_SECRET}-novo`;
+      await credentials({ webhookSecret: newSecret }).expect(200);
+      const acc = await prisma.paymentProviderAccount.findUniqueOrThrow({ where: accountWhere() });
+      const parts = acc.webhookSecretEnc!.split(':');
+      parts[3] = Buffer.from('lixo').toString('base64');
+      await prisma.paymentProviderAccount.update({ where: accountWhere(), data: { webhookSecretEnc: parts.join(':') } });
+      const st = await api('get', '/payments/mercadopago/status', manual.token).expect(200);
+      assert.equal(st.body.hasWebhookSecret, true);
+      assert.equal(st.body.webhookSecretReadable, false);
+
+      const p = await manualPix(4810);
+      stub.setStatus(p.paymentId, 'APPROVED');
+      const notesBefore = await prisma.notification.count({ where: { userId: manual.userId, type: 'FINANCE_PAYMENTS_WEBHOOK_SIGNATURE' } });
+      const hook = webhook(p.paymentId, {}, { org: manual.organizationId, secret: newSecret });
+      assert.equal(await hookOutcome(hook), 'PAID', 'o Pix e confirmado pela consulta ao provedor');
+      const ev = (await eventOf(hook))!;
+      assert.equal(ev.signatureVerified, false);
+      assert.equal(ev.signatureProblem, 'UNREADABLE');
+      assert.equal(await prisma.notification.count({ where: { userId: manual.userId, type: 'FINANCE_PAYMENTS_WEBHOOK_SIGNATURE' } }), notesBefore + 1);
+
+      const re = await credentials({ accessToken: MANUAL_TOKEN_2 }).expect(200);
+      assert.equal(re.body.hasWebhookSecret, false, 'segredo ilegivel limpo ao colar o token');
+      assert.equal(re.body.webhookSecretReadable, true);
+    });
+
+    it('B3/B4: 403 do provedor (politica) no uso e em /users/me NAO poe a conta em ERROR (503, conta segue CONNECTED)', async () => {
+      const errorsBefore = await prisma.notification.count({ where: { userId: manual.userId, type: 'FINANCE_PAYMENTS_ACCOUNT_ERROR' } });
+      stub.forbiddenTokens.add(MANUAL_TOKEN_2);
+      try {
+        const rec = await mkRecord(manual.organizationId, manualStudentId, 4820);
+        const res = await api('post', `/finance/${rec.id}/pix`, manual.token).expect(503);
+        assert.equal(res.body.code, 'PROVIDER_UNAVAILABLE');
+        assert.equal((await accountRow())!.status, 'CONNECTED');
+      } finally {
+        stub.forbiddenTokens.delete(MANUAL_TOKEN_2);
+      }
+      assert.equal(await prisma.notification.count({ where: { userId: manual.userId, type: 'FINANCE_PAYMENTS_ACCOUNT_ERROR' } }), errorsBefore);
+    });
+
+    it('renovacao/cron PULAM a conta MANUAL (sem refresh); reconciliacao funciona igual', async () => {
+      const refreshBefore = stub.refreshCalls;
+      const where = { organizationId_provider: { organizationId: manual.organizationId, provider: 'stub' } };
+      // Mesmo com uma validade "perto de vencer" gravada, a conta MANUAL nao entra na renovacao.
+      await prisma.paymentProviderAccount.update({ where, data: { tokenExpiresAt: new Date(Date.now() + 60 * 60 * 1000) } });
+      const before = await prisma.paymentProviderAccount.findUniqueOrThrow({ where });
+      const rec = await mkRecord(manual.organizationId, manualStudentId, 4800);
+      await api('post', `/finance/${rec.id}/pix`, manual.token).expect(200);
+      const pid = await paymentIdOf(rec.id);
+      stub.setStatus(pid, 'APPROVED');
+      await prisma.financialRecord.update({ where: { id: rec.id }, data: { pixGeneratedAt: new Date(Date.now() - 20 * 60 * 1000) } });
+      await app.get(PaymentAccountService).refreshExpiring();
+      const stats = await app.get(PixService).reconcilePending();
+      assert.ok(stats.paid >= 1);
+      assert.equal((await prisma.financialRecord.findUniqueOrThrow({ where: { id: rec.id } })).status, FinancialStatus.PAID);
+      assert.equal(stub.refreshCalls, refreshBefore, 'nenhum refresh para conta MANUAL');
+      const after = await prisma.paymentProviderAccount.findUniqueOrThrow({ where });
+      assert.equal(after.accessTokenEnc, before.accessTokenEnc);
+      assert.equal(after.status, 'CONNECTED');
+      await prisma.paymentProviderAccount.update({ where, data: { tokenExpiresAt: null } });
+    });
+
+    it('token MANUAL revogado no provedor em uso => conta ERROR + aviso "cole as credenciais" + MP_ACCOUNT_ERROR; colar de novo reconecta', async () => {
+      const pending = await manualPix(4890);
+      stub.revokedTokens.add(MANUAL_TOKEN_2);
+      try {
+        // B1: revogacao descoberta NO MEIO do webhook => 503 (o MP reenvia), nao "processado/UNRESOLVED".
+        const hook = webhook(pending.paymentId, {}, { org: manual.organizationId, signature: null });
+        const res = await hook;
+        assert.equal(res.status, 503);
+        assert.equal(res.body.code, 'PAYMENTS_ACCOUNT_UNAVAILABLE');
+        assert.equal(await eventOf(hook), null, 'gatilho nao assinado nao grava linha');
+        assert.equal((await accountRow())!.status, 'ERROR');
+        const rec = await mkRecord(manual.organizationId, manualStudentId, 4900);
+        assert.equal((await api('post', `/finance/${rec.id}/pix`, manual.token).expect(409)).body.code, 'MP_ACCOUNT_ERROR');
+        const row = (await accountRow())!;
+        assert.equal(row.status, 'ERROR');
+        assert.match(row.lastError ?? '', /Cole as credenciais/);
+        const notes = await prisma.notification.findMany({ where: { userId: manual.userId, type: 'FINANCE_PAYMENTS_ACCOUNT_ERROR' } });
+        assert.equal(notes.length, 1);
+        assert.match(notes[0].body, /Access Token/);
+        const status = await api('get', '/payments/mercadopago/status', manual.token).expect(200);
+        assert.equal(status.body.status, 'ERROR');
+        assert.equal(status.body.connected, false);
+        assert.equal(status.body.mode, 'MANUAL');
+        assert.match(status.body.lastError ?? '', /Cole as credenciais/, 'B8: o motivo curto vai no status');
+        // Colar o token novamente (agora valido) volta a CONNECTED.
+        stub.revokedTokens.delete(MANUAL_TOKEN_2);
+        assert.equal((await credentials({ accessToken: MANUAL_TOKEN_2 }).expect(200)).body.status, 'CONNECTED');
+      } finally {
+        stub.revokedTokens.delete(MANUAL_TOKEN_2);
+      }
+    });
+
+    it('chave trocada (token ilegivel) => ERROR com mensagem clara, sem crash', async () => {
+      const where = { organizationId_provider: { organizationId: manual.organizationId, provider: 'stub' } };
+      const acc = await prisma.paymentProviderAccount.findUniqueOrThrow({ where });
+      const parts = acc.accessTokenEnc!.split(':');
+      parts[3] = Buffer.from('lixo').toString('base64');
+      await prisma.paymentProviderAccount.update({ where, data: { accessTokenEnc: parts.join(':') } });
+      const rec = await mkRecord(manual.organizationId, manualStudentId, 5000);
+      assert.equal((await api('post', `/finance/${rec.id}/pix`, manual.token).expect(409)).body.code, 'MP_ACCOUNT_ERROR');
+      const row = await prisma.paymentProviderAccount.findUniqueOrThrow({ where });
+      assert.equal(row.status, 'ERROR');
+      assert.match(row.lastError ?? '', /ilegível/);
+      await credentials({ accessToken: MANUAL_TOKEN_2 }).expect(200);
+    });
+
+    it('M2: PAYMENTS_TOKEN_KEY definida DEPOIS nao quebra (decifra pela chave antiga e re-cifra uma vez); JWT trocado sem chave => ERROR com UM aviso, sem loop', async () => {
+      const jwtTrocado = `e2e-jwt-trocado-${TAG}-`.padEnd(64, 'j');
+      await withEnv({ PAYMENTS_TOKEN_KEY: undefined }, () => credentials({ accessToken: MANUAL_TOKEN_2 }).expect(200));
+      const before = (await accountRow())!.accessTokenEnc;
+      await withEnv({ PAYMENTS_TOKEN_KEY: TOKEN_KEY_LATER }, async () => {
+        const a = await mkRecord(manual.organizationId, manualStudentId, 5100);
+        await api('post', `/finance/${a.id}/pix`, manual.token).expect(200);
+      });
+      const rotated = (await accountRow())!.accessTokenEnc;
+      assert.notEqual(rotated, before, 're-cifrado com a chave nova (rotacao preguicosa)');
+      // Agora so a chave nova importa: trocar o JWT_SECRET nao atrapalha; e nao re-cifra de novo.
+      await withEnv({ PAYMENTS_TOKEN_KEY: TOKEN_KEY_LATER, JWT_SECRET: jwtTrocado }, async () => {
+        const b = await mkRecord(manual.organizationId, manualStudentId, 5200);
+        await api('post', `/finance/${b.id}/pix`, manual.token).expect(200);
+      });
+      assert.equal((await accountRow())!.accessTokenEnc, rotated, 'rotacao acontece UMA vez');
+      // Sem a chave e com o JWT trocado: nenhuma chave decifra => ERROR + UM aviso; as chamadas seguintes nao repetem.
+      const notesBefore = await prisma.notification.count({ where: { userId: manual.userId, type: 'FINANCE_PAYMENTS_ACCOUNT_ERROR' } });
+      await withEnv({ PAYMENTS_TOKEN_KEY: undefined, JWT_SECRET: jwtTrocado }, async () => {
+        for (const amount of [5300, 5301, 5302]) {
+          const r = await mkRecord(manual.organizationId, manualStudentId, amount);
+          assert.equal((await api('post', `/finance/${r.id}/pix`, manual.token).expect(409)).body.code, 'MP_ACCOUNT_ERROR');
+        }
+      });
+      const row = (await accountRow())!;
+      assert.equal(row.status, 'ERROR');
+      assert.match(row.lastError ?? '', /ilegível/);
+      assert.equal(await prisma.notification.count({ where: { userId: manual.userId, type: 'FINANCE_PAYMENTS_ACCOUNT_ERROR' } }), notesBefore + 1);
+      // Reconecta (ambiente padrao) para o teste seguinte.
+      await credentials({ accessToken: MANUAL_TOKEN_2 }).expect(200);
+    });
+
+    it('desconectar apaga token, segredo e final do token (REVOKED); depois exige accessToken de novo', async () => {
+      const res = await api('delete', '/payments/mercadopago/disconnect', manual.token).expect(200);
+      assert.equal(res.body.status, 'REVOKED');
+      assert.equal(res.body.connected, false);
+      assert.equal(res.body.mode, null);
+      assert.equal(res.body.tokenHint, null);
+      assert.equal(res.body.hasWebhookSecret, false);
+      const row = (await accountRow())!;
+      assert.equal(row.accessTokenEnc, null);
+      assert.equal(row.webhookSecretEnc, null);
+      assert.equal(row.tokenHint, null);
+      assert.equal((await credentials({ webhookSecret: 'x-y-z' }).expect(400)).body.code, 'ACCESS_TOKEN_REQUIRED');
+      assert.ok(await prisma.auditLog.count({ where: { organizationId: manual.organizationId, action: 'PAYMENT_ACCOUNT_DISCONNECT' } }) >= 1);
     });
   });
 
@@ -372,24 +1096,31 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
       paymentId = await paymentIdOf(recPaid);
     });
 
-    it('assinatura ausente/errada/antiga => 401 e nada muda', async () => {
-      stub.setStatus(paymentId, 'APPROVED');
-      for (const res of [
-        await webhook(paymentId, { id: `n-${TAG}-a`, user_id: SELLER_MAIN }, { signature: null }),
-        await webhook(paymentId, { id: `n-${TAG}-b`, user_id: SELLER_MAIN }, { secret: 'segredo-errado' }),
-        await webhook(paymentId, { id: `n-${TAG}-c`, user_id: SELLER_MAIN }, { ts: Date.now() - 60 * 60 * 1000 }),
-        await webhook(paymentId, { id: `n-${TAG}-d`, user_id: SELLER_MAIN }, { signature: 'ts=1,v1=zz' }),
-      ]) {
-        assert.equal(res.status, 401);
-        assert.equal(res.body.code, 'INVALID_SIGNATURE');
-      }
+    it('A2 (OAUTH, segredo do SERVIDOR): assinatura ausente/errada/antiga/malformada => gatilho (200, nunca 401), corpo forjado nao baixa; so auditoria (1x), sem aviso ao Mestre', async () => {
+      await withEnv({ WEBHOOK_UNSIGNED_COOLDOWN_MS: '0' }, async () => {
+        const cases: Array<[() => Hook, string]> = [
+          [() => webhook(paymentId, { id: `n-${TAG}-a`, user_id: SELLER_MAIN, status: 'approved' }, { signature: null }), 'MISSING'],
+          [() => webhook(paymentId, { id: `n-${TAG}-b`, user_id: SELLER_MAIN }, { secret: 'segredo-errado' }), 'MISMATCH'],
+          [() => webhook(paymentId, { id: `n-${TAG}-c`, user_id: SELLER_MAIN }, { ts: Date.now() - 60 * 60 * 1000 }), 'MISMATCH'],
+          [() => webhook(paymentId, { id: `n-${TAG}-d`, user_id: SELLER_MAIN }, { signature: 'ts=1,v1=zz' }), 'MISMATCH'],
+        ];
+        for (const [make, problem] of cases) {
+          const hook = make();
+          assert.equal(await hookOutcome(hook), 'PENDING', 'o provedor diz pendente');
+          const ev = (await eventOf(hook))!;
+          assert.equal(ev.signatureVerified, false);
+          assert.equal(ev.signatureProblem, problem);
+        }
+      });
       const r = await prisma.financialRecord.findUniqueOrThrow({ where: { id: recPaid } });
       assert.equal(r.status, FinancialStatus.PENDING);
+      assert.equal(await prisma.auditLog.count({ where: { organizationId: main.organizationId, action: 'PAYMENT_WEBHOOK_SIGNATURE_PROBLEM' } }), 1);
+      assert.equal(await prisma.notification.count({ where: { userId: main.userId, type: 'FINANCE_PAYMENTS_WEBHOOK_SIGNATURE' } }), 0);
     });
 
     it('approved valido da baixa UMA vez (PIX, PIX_AUTO, recibo, avisos); reentrega e outra notificacao nao duplicam', async () => {
-      const res = await webhook(paymentId, { id: `n-${TAG}-1`, user_id: SELLER_MAIN }).expect(200);
-      assert.equal(res.body.outcome, 'PAID');
+      stub.setStatus(paymentId, 'APPROVED');
+      assert.equal(await hookOutcome(webhook(paymentId, { id: `n-${TAG}-1`, user_id: SELLER_MAIN })), 'PAID');
 
       const r = await prisma.financialRecord.findUniqueOrThrow({ where: { id: recPaid } });
       assert.equal(r.status, FinancialStatus.PAID);
@@ -404,8 +1135,8 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
       assert.equal(receipt.body.paidCents, 12345);
 
       // Reentrega da MESMA notificacao e outra notificacao do mesmo pagamento.
-      assert.equal((await webhook(paymentId, { id: `n-${TAG}-1`, user_id: SELLER_MAIN }).expect(200)).body.outcome, 'DUPLICATE');
-      assert.equal((await webhook(paymentId, { id: `n-${TAG}-2`, user_id: SELLER_MAIN }).expect(200)).body.outcome, 'DUPLICATE');
+      assert.equal(await hookOutcome(webhook(paymentId, { id: `n-${TAG}-1`, user_id: SELLER_MAIN })), 'DUPLICATE');
+      assert.equal(await hookOutcome(webhook(paymentId, { id: `n-${TAG}-2`, user_id: SELLER_MAIN })), 'DUPLICATE');
 
       assert.equal(await prisma.auditLog.count({ where: { action: 'FINANCE_PAY', resourceId: String(recPaid) } }), 1);
       assert.equal(await prisma.auditLog.count({ where: { action: 'PAYMENT_PIX_CONFIRMED', resourceId: String(recPaid) } }), 1);
@@ -472,7 +1203,7 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
     it('pagamento aprovado de lancamento APAGADO alerta o Mestre uma vez (ORPHAN_PAID, M3)', async () => {
       const ghostId = 2_000_000_000 + Number(TAG.slice(-6));
       const pid = stub.seedPayment({ sellerUserId: SELLER_MAIN, amountCents: 5500, externalReference: `gingapp:${main.organizationId}:${ghostId}` });
-      assert.equal((await webhook(pid, { user_id: SELLER_MAIN }).expect(200)).body.outcome, 'ORPHAN_PAID');
+      assert.equal(await hookOutcome(webhook(pid, { user_id: SELLER_MAIN })), 'ORPHAN_PAID');
       await webhook(pid, { user_id: SELLER_MAIN }).expect(200);
       assert.equal(await prisma.auditLog.count({ where: { action: 'PAYMENT_PIX_ALERT', resourceId: String(ghostId) } }), 1);
       assert.ok((await prisma.notification.count({ where: { userId: main.userId, type: 'FINANCE_PIX_ALERT', body: { contains: String(ghostId) } } })) === 1);
@@ -500,8 +1231,7 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
       await api('post', `/finance/${recPaid}/refund`, main.token).expect(200);
       // O estorno limpou o Pix do lancamento; o grupo e achado pelo user_id e o pagamento aponta para o lancamento,
       // mas ja foi aplicado uma vez (evento outcome PAID).
-      const res = await webhook(paymentId, { id: `n-${TAG}-3`, user_id: SELLER_MAIN }).expect(200);
-      assert.equal(res.body.outcome, 'ALREADY_APPLIED');
+      assert.equal(await hookOutcome(webhook(paymentId, { id: `n-${TAG}-3`, user_id: SELLER_MAIN })), 'ALREADY_APPLIED');
       const r = await prisma.financialRecord.findUniqueOrThrow({ where: { id: recPaid } });
       assert.equal(r.status, FinancialStatus.PENDING);
       assert.equal(r.paidVia, null);
@@ -510,8 +1240,7 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
     it('valor divergente nao da baixa e alerta o Mestre (uma vez)', async () => {
       const rec = await mkRecord(main.organizationId, alunoStudentId, 20000);
       const forged = stub.seedPayment({ sellerUserId: SELLER_MAIN, amountCents: 100, externalReference: `gingapp:${main.organizationId}:${rec.id}` });
-      const res = await webhook(forged, { id: `n-${TAG}-4`, user_id: SELLER_MAIN }).expect(200);
-      assert.equal(res.body.outcome, 'AMOUNT_MISMATCH');
+      assert.equal(await hookOutcome(webhook(forged, { id: `n-${TAG}-4`, user_id: SELLER_MAIN })), 'AMOUNT_MISMATCH');
       await webhook(forged, { id: `n-${TAG}-5`, user_id: SELLER_MAIN }).expect(200);
       const r = await prisma.financialRecord.findUniqueOrThrow({ where: { id: rec.id } });
       assert.equal(r.status, FinancialStatus.PENDING);
@@ -523,11 +1252,10 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
       const rec = await mkRecord(main.organizationId, alunoStudentId, 5000);
       // Pagamento real na conta do OUTRO grupo, com a referencia forjada para o lancamento do grupo principal.
       const foreign = stub.seedPayment({ sellerUserId: SELLER_OTHER, amountCents: 5000, externalReference: `gingapp:${main.organizationId}:${rec.id}` });
-      const a = await webhook(foreign, { id: `n-${TAG}-6`, user_id: SELLER_OTHER }).expect(200);
-      assert.equal(a.body.outcome, 'UNRESOLVED');
+      // Assinado (segredo do servidor, contas OAUTH): fica a trilha UNRESOLVED.
+      assert.equal(await hookOutcome(webhook(foreign, { id: `n-${TAG}-6`, user_id: SELLER_OTHER })), 'UNRESOLVED');
       // user_id "mentindo" (vendedor do grupo principal): o token dele nao enxerga o pagamento do outro vendedor.
-      const b = await webhook(foreign, { id: `n-${TAG}-7`, user_id: SELLER_MAIN }).expect(200);
-      assert.equal(b.body.outcome, 'UNRESOLVED');
+      assert.equal(await hookOutcome(webhook(foreign, { id: `n-${TAG}-7`, user_id: SELLER_MAIN })), 'UNRESOLVED');
       const r = await prisma.financialRecord.findUniqueOrThrow({ where: { id: rec.id } });
       assert.equal(r.status, FinancialStatus.PENDING);
     });
@@ -537,7 +1265,7 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
       const first = await api('post', `/finance/${rec.id}/pix`, main.token).expect(200);
       const pid = await paymentIdOf(rec.id);
       stub.setStatus(pid, 'CANCELLED');
-      assert.equal((await webhook(pid, { id: `n-${TAG}-8`, user_id: SELLER_MAIN }).expect(200)).body.outcome, 'CANCELLED');
+      assert.equal(await hookOutcome(webhook(pid, { id: `n-${TAG}-8`, user_id: SELLER_MAIN })), 'CANCELLED');
       const view = await api('get', `/finance/${rec.id}/pix`, main.token).expect(200);
       assert.equal(view.body.status, 'CANCELLED');
       const second = await api('post', `/finance/${rec.id}/pix`, main.token).expect(200);
@@ -558,7 +1286,7 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
       const conn = await prisma.paymentProviderAccount.findFirstOrThrow({ where: { organizationId: main.organizationId } });
       assert.equal(conn.status, 'CONNECTED');
       stub.setStatus(oldPid, 'APPROVED'); // mesmo que o provedor ainda aprovasse o antigo, o valor nao confere:
-      assert.equal((await webhook(oldPid, { id: `n-${TAG}-9`, user_id: SELLER_MAIN }).expect(200)).body.outcome, 'AMOUNT_MISMATCH');
+      assert.equal(await hookOutcome(webhook(oldPid, { id: `n-${TAG}-9`, user_id: SELLER_MAIN })), 'AMOUNT_MISMATCH');
     });
   });
 
@@ -578,6 +1306,22 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
       // Rodar de novo nao mexe (ja pago sai da fila).
       await app.get(PixService).reconcilePending();
       assert.equal(await prisma.auditLog.count({ where: { action: 'FINANCE_PAY', resourceId: String(rec.id) } }), 1);
+    });
+
+    it('M4: lote POR GRUPO (perOrg) - um grupo nao monopoliza a rodada; o resto fica para a proxima', async () => {
+      const recs: number[] = [];
+      for (const [amount, minutesAgo] of [[6010, 30], [6020, 20]] as const) {
+        const rec = await mkRecord(main.organizationId, alunoStudentId, amount);
+        await api('post', `/finance/${rec.id}/pix`, main.token).expect(200);
+        stub.setStatus(await paymentIdOf(rec.id), 'APPROVED');
+        await prisma.financialRecord.update({ where: { id: rec.id }, data: { pixGeneratedAt: new Date(Date.now() - minutesAgo * 60 * 1000) } });
+        recs.push(rec.id);
+      }
+      const statusOf = async () => Promise.all(recs.map(async (id) => (await prisma.financialRecord.findUniqueOrThrow({ where: { id } })).status));
+      await app.get(PixService).reconcilePending(new Date(), 300, 1);
+      assert.deepEqual(await statusOf(), [FinancialStatus.PAID, FinancialStatus.PENDING], 'so 1 por grupo nesta rodada (o mais antigo)');
+      await app.get(PixService).reconcilePending(new Date(), 300, 1);
+      assert.deepEqual(await statusOf(), [FinancialStatus.PAID, FinancialStatus.PAID]);
     });
 
     it('token perto de vencer e renovado no uso; refresh recusado => conta ERROR, aviso ao Mestre e MP_ACCOUNT_ERROR', async () => {
@@ -628,12 +1372,20 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
       assert.equal(events.length, 1);
       assert.equal(events[0].processedAt, null);
 
+      // M4: na MESMA rodada, um Pix aprovado de OUTRO grupo (conta ok) e conferido normalmente.
+      const otherStudent = await mkStudent(other.organizationId, 'Aluno M4', { email: `aluno-m4-${TAG}@${MAIL_DOMAIN}` });
+      const otherRec = await mkRecord(other.organizationId, otherStudent.id, 6110);
+      await api('post', `/finance/${otherRec.id}/pix`, other.token).expect(200);
+      stub.setStatus(await paymentIdOf(otherRec.id), 'APPROVED');
+      await prisma.financialRecord.update({ where: { id: otherRec.id }, data: { pixGeneratedAt: new Date(Date.now() - 20 * 60 * 1000) } });
+
       const stats = await app.get(PixService).reconcilePending();
       assert.ok(stats.unavailable >= 1);
       let r = await prisma.financialRecord.findUniqueOrThrow({ where: { id: rec.id } });
       assert.equal(r.status, FinancialStatus.PENDING);
       assert.equal(r.gatewayStatus, 'pending', 'nunca vence localmente sem resposta do provedor');
-      assert.ok(r.pixLastCheckedAt, 'a conferencia avanca a fila');
+      assert.equal(r.pixLastCheckedAt, null, 'M4: grupo sem conta utilizavel e PULADO sem reivindicar (nao consome o lote)');
+      assert.equal((await prisma.financialRecord.findUniqueOrThrow({ where: { id: otherRec.id } })).status, FinancialStatus.PAID);
 
       await connect(main, SELLER_MAIN); // reconecta a MESMA conta
       const later = await app.get(PixService).reconcilePending(new Date(Date.now() + 6 * 60 * 1000));
@@ -658,19 +1410,37 @@ describe('Pagamentos: Pix na conta Mercado Pago do grupo (e2e)', () => {
         where: { organizationId: other.organizationId, gatewayStatus: 'pending', status: { in: ['PENDING', 'OVERDUE'] }, pixExpiresAt: { gt: new Date() } },
       });
       assert.ok(open.length >= 1, 'o grupo "other" tem Pix aberto (teste do token)');
-      const NEW_SELLER = `79${TAG.slice(-7)}`;
-      assert.equal((await connectRaw(other, NEW_SELLER)).mp, 'pix-aberto');
+      assert.equal((await connectRaw(other, SELLER_NEW)).mp, 'pix-aberto');
       const acc = await prisma.paymentProviderAccount.findFirstOrThrow({ where: { organizationId: other.organizationId } });
       assert.equal(acc.providerUserId, SELLER_OTHER);
 
       for (const r of open) await api('post', `/finance/${r.id}/cancel`, other.token).expect(200);
-      assert.equal((await connectRaw(other, NEW_SELLER)).mp, 'ok');
+      assert.equal((await connectRaw(other, SELLER_NEW)).mp, 'ok');
       assert.equal(await prisma.notification.count({ where: { userId: other.userId, type: 'FINANCE_PAYMENTS_ACCOUNT_CHANGED' } }), 1);
       const audit = await prisma.auditLog.findFirst({
         where: { organizationId: other.organizationId, action: 'PAYMENT_ACCOUNT_CONNECT' },
         orderBy: { id: 'desc' },
       });
       assert.ok(JSON.stringify(audit).includes('previousProviderUserId'));
+    });
+
+    it('B7: conta OAUTH vencida SEM o OAuth no servidor => ERROR "reconecte colando as credenciais" + UM aviso (nao 503 eterno)', async () => {
+      const where = { organizationId_provider: { organizationId: other.organizationId, provider: 'stub' } };
+      const before = await prisma.notification.count({ where: { userId: other.userId, type: 'FINANCE_PAYMENTS_ACCOUNT_ERROR' } });
+      const student = await mkStudent(other.organizationId, 'Aluno B7', { email: `aluno-b7-${TAG}@${MAIL_DOMAIN}` });
+      await withEnv({ MERCADOPAGO_CLIENT_ID: undefined, MERCADOPAGO_CLIENT_SECRET: undefined, MERCADOPAGO_REDIRECT_URI: undefined }, async () => {
+        await prisma.paymentProviderAccount.update({ where, data: { tokenExpiresAt: new Date(Date.now() - 60 * 60 * 1000) } });
+        for (const amount of [6300, 6301]) {
+          const rec = await mkRecord(other.organizationId, student.id, amount);
+          assert.equal((await api('post', `/finance/${rec.id}/pix`, other.token).expect(409)).body.code, 'MP_ACCOUNT_ERROR');
+        }
+      });
+      const row = await prisma.paymentProviderAccount.findUniqueOrThrow({ where });
+      assert.equal(row.status, 'ERROR');
+      assert.match(row.lastError ?? '', /colando as credenciais/);
+      assert.equal(await prisma.notification.count({ where: { userId: other.userId, type: 'FINANCE_PAYMENTS_ACCOUNT_ERROR' } }), before + 1);
+      await connect(other, SELLER_NEW); // reconecta (OAuth de volta no ambiente)
+      assert.equal((await prisma.paymentProviderAccount.findUniqueOrThrow({ where })).status, 'CONNECTED');
     });
 
     it('token ilegivel (chave trocada/adulterado) => conta ERROR + aviso ao Mestre + MP_ACCOUNT_ERROR (A1-e)', async () => {

@@ -33,15 +33,117 @@ export interface PixCharge {
 
 /** GET /payments/mercadopago/status (só o MESTRE). */
 export interface MercadoPagoStatus {
-  /** 'mercadopago' (real) ou 'stub' (ambiente sem o aplicativo Mercado Pago). */
+  /** 'mercadopago' (real) ou 'stub' (ambiente sem pagamentos reais). */
   provider: string;
-  /** O servidor tem as credenciais do aplicativo Mercado Pago configuradas. */
+  /** O servidor aceita cobranças por Pix (false = "Pix automático indisponível neste ambiente"). */
   available: boolean;
+  /** O servidor também oferece a conexão por autorização (OAuth); opcional, o caminho principal é colar o token. */
+  oauthAvailable: boolean;
+  /** Como a conta foi conectada: token colado (MANUAL) ou autorização (OAUTH). */
+  mode: "MANUAL" | "OAUTH" | null;
   connected: boolean;
   liveMode: boolean;
   providerUserId: string | null;
   connectedAt: string | null;
   status: "CONNECTED" | "REVOKED" | "ERROR" | "NOT_CONNECTED";
+  /** Últimos 4 caracteres do Access Token (o token inteiro nunca volta do servidor; não identifica o token). */
+  tokenHint: string | null;
+  publicKey: string | null;
+  hasWebhookSecret: boolean;
+  /** false = há segredo do webhook salvo, mas ele não pode mais ser lido (o Mestre cola de novo). */
+  webhookSecretReadable?: boolean | undefined;
+  /** URL do webhook do GingApp (já enviada em cada Pix; só para conferência/cópia). null = sem https no servidor. */
+  webhookUrl: string | null;
+  /** Motivo curto (texto do servidor, sem segredo) quando status = ERROR. */
+  lastError?: string | null | undefined;
+}
+
+/**
+ * PUT /payments/mercadopago/credentials: campo ausente = não muda; string vazia em publicKey/webhookSecret = limpa;
+ * accessToken é obrigatório na primeira conexão e exige a senha atual (currentPassword) e, com 2FA ativo, o código.
+ */
+export interface MercadoPagoCredentialsInput {
+  accessToken?: string | undefined;
+  publicKey?: string | undefined;
+  webhookSecret?: string | undefined;
+  currentPassword?: string | undefined;
+  twoFactorCode?: string | undefined;
+}
+
+export const MP_TOKEN_MIN_LENGTH = 20;
+
+/** Problema do Access Token digitado/colado (null = ok ou ainda vazio). Nunca ecoa o valor. */
+export function accessTokenProblem(raw: string): string | null {
+  const value = raw.trim();
+  if (!value) return null;
+  if (/\s/.test(value)) return "O token não pode ter espaços nem quebras de linha. Copie de novo, só o código.";
+  if (value.length < MP_TOKEN_MIN_LENGTH) return "O token parece curto demais. Confira se copiou o código completo.";
+  return null;
+}
+
+/**
+ * Só os campos preenchidos (trim) vão no PUT; vazio = não muda. Exceção: com `initialPublicKey` (atualização), esvaziar
+ * a chave pública envia "" (limpa) e mantê-la igual não envia nada. A senha (sem trim) e o código 2FA só vão junto do
+ * Access Token (reautenticação exigida pelo servidor).
+ */
+export function buildCredentialsPayload(
+  fields: { accessToken?: string; publicKey?: string; webhookSecret?: string; currentPassword?: string; twoFactorCode?: string },
+  options: { initialPublicKey?: string | null } = {},
+): MercadoPagoCredentialsInput {
+  const out: MercadoPagoCredentialsInput = {};
+  const accessToken = fields.accessToken?.trim();
+  const publicKey = fields.publicKey?.trim();
+  const webhookSecret = fields.webhookSecret?.trim();
+  const initialPublicKey = options.initialPublicKey?.trim() || "";
+  if (accessToken) {
+    out.accessToken = accessToken;
+    if (fields.currentPassword) out.currentPassword = fields.currentPassword;
+    const code = fields.twoFactorCode?.trim();
+    if (code) out.twoFactorCode = code;
+  }
+  if (publicKey && publicKey !== initialPublicKey) out.publicKey = publicKey;
+  else if (!publicKey && initialPublicKey) out.publicKey = "";
+  if (webhookSecret) out.webhookSecret = webhookSecret;
+  return out;
+}
+
+export const MP_PIX_OPEN_MESSAGE = "Há Pix em aberto. Aguarde pagarem/expirarem ou cancele-os antes de trocar a conta.";
+
+/** Bloqueio de troca de conta com Pix em aberto (o backend pode nomear o código de formas diferentes). */
+export function isPixOpenBlockCode(code: string | undefined): boolean {
+  if (!code) return false;
+  const upper = code.toUpperCase();
+  return upper.includes("PIX") && (upper.includes("OPEN") || upper.includes("ACCOUNT"));
+}
+
+const MP_CREDENTIAL_ERRORS: Record<string, string> = {
+  INVALID_CREDENTIALS: "O Mercado Pago recusou o token. Confira se copiou o Access Token de produção, completo, da conta que vai receber.",
+  ACCESS_TOKEN_REQUIRED: "Informe o Access Token do Mercado Pago.",
+  MP_ACCOUNT_ERROR: "Não foi possível usar a conta do Mercado Pago. Confira o token e tente de novo.",
+  PAYMENTS_UNAVAILABLE: "Pagamentos online não estão disponíveis no momento.",
+  PROVIDER_UNAVAILABLE: "O Mercado Pago não respondeu. Tente de novo em instantes.",
+  REAUTH_REQUIRED: "Digite a sua senha para confirmar.",
+  INVALID_PASSWORD: "Senha incorreta. Digite a senha que você usa para entrar no painel.",
+  TWO_FACTOR_REQUIRED: "Digite o código do seu aplicativo autenticador (verificação em duas etapas).",
+  INVALID_TWO_FACTOR_CODE: "Código de verificação incorreto. Confira o código no aplicativo autenticador.",
+  WEBHOOK_SECRET_NOT_SUPPORTED: "Na conexão por autorização o segredo do webhook não é usado.",
+};
+
+/** Códigos em que o formulário passa a pedir o código do aplicativo autenticador (2FA). */
+export const MP_TWO_FACTOR_CODES: readonly string[] = ["TWO_FACTOR_REQUIRED", "INVALID_TWO_FACTOR_CODE"];
+
+/**
+ * Mensagem amigável para erros de salvar/desconectar as credenciais. Nunca usa o texto do servidor (por segurança,
+ * para jamais ecoar o token); sem código conhecido cai no `fallback`.
+ */
+export function mpCredentialsErrorMessage(
+  error: unknown,
+  fallback = "Não foi possível salvar as credenciais do Mercado Pago. Tente novamente.",
+): string {
+  const code = pixErrorCode(error);
+  if (isPixOpenBlockCode(code)) return MP_PIX_OPEN_MESSAGE;
+  if (code && MP_CREDENTIAL_ERRORS[code]) return MP_CREDENTIAL_ERRORS[code];
+  return fallback;
 }
 
 /** Lançamento mudou (talvez pago por Pix) desde que o formulário o leu: PATCH 409 RECORD_CHANGED. */
@@ -71,6 +173,7 @@ const PIX_ERRORS: Record<string, string> = {
   PROVIDER_ERROR: "O Mercado Pago recusou a operação. Confira a conta conectada do grupo.",
   PAYMENTS_UNAVAILABLE: "Pagamentos online não estão disponíveis no momento.",
   PIX_NOT_FOUND: "Nenhum Pix foi gerado para este lançamento.",
+  ACCOUNT_CHANGED: "A conta do Mercado Pago do grupo mudou enquanto o Pix era gerado. Tente de novo.",
   RECORD_CHANGED: RECORD_CHANGED_MESSAGE,
   RECORD_PAID_VIA_PIX: RECORD_PAID_VIA_PIX_MESSAGE,
 };

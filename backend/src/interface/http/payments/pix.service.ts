@@ -1,5 +1,13 @@
 import { ConflictException, HttpException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { FinancialRecord, FinancialStatus, PaidVia, PaymentMethod, Prisma } from '@prisma/client';
+import {
+  FinancialRecord,
+  FinancialStatus,
+  PaidVia,
+  PaymentAccountMode,
+  PaymentAccountStatus,
+  PaymentMethod,
+  Prisma,
+} from '@prisma/client';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { KeyedMutex } from '../../../shared/payments/keyed-mutex';
@@ -18,6 +26,7 @@ import { PixInvalidationReason, PixLifecycleHooks } from '../../../shared/paymen
 import {
   PIX_EXPIRATION_MINUTES,
   PIX_REUSE_MIN_REMAINING_MS,
+  PIX_UNRESOLVED_WINDOW_MS,
   applicationFeeCents,
   fallbackPayerEmail,
   isValidEmail,
@@ -27,7 +36,13 @@ import {
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { FinanceCollectionService } from '../finance/finance-collection.service';
 import { brl } from '../finance/finance-overdue.service';
-import { PIX_OPEN_GATEWAY_STATUSES, PixViewStatus, pixStatusOf } from '../finance/finance-record.view';
+import {
+  PIX_ACCOUNT_CHANGED,
+  PIX_EXPIRED_UNCONFIRMED,
+  PIX_OPEN_GATEWAY_STATUSES,
+  PixViewStatus,
+  pixStatusOf,
+} from '../finance/finance-record.view';
 import { civilTodayStart } from '../finance/finance.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { StudentsService } from '../students/students.service';
@@ -101,15 +116,18 @@ const RECONCILE_MIN_AGE_MS = 5 * 60 * 1000;
  * resposta do provedor (conta indisponivel/erro = continua na fila - achado A1-b).
  */
 const RECONCILE_EXPIRED_GRACE_MS = 30 * 60 * 1000;
-export const RECONCILE_BATCH_SIZE = 50;
+/** Teto TOTAL de Pix conferidos por rodada da reconciliacao (10.56, M4: antes 50 no total, sem divisao por grupo). */
+export const RECONCILE_BATCH_SIZE = 300;
+/** Teto POR GRUPO por rodada (um grupo com muitos Pix nao monopoliza a rodada). */
+export const RECONCILE_PER_ORG = 20;
 /** Intervalo minimo entre duas conferencias do MESMO Pix pela reconciliacao (fila justa por pixLastCheckedAt). */
 export const RECONCILE_RECHECK_MS = 5 * 60 * 1000;
 /** GET /pix tambem confere no provedor Pix EXPIRADO ha menos que isto (pagamento no ultimo minuto - achado A1-c). */
-const SYNC_EXPIRED_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+const SYNC_EXPIRED_WINDOW_MS = PIX_UNRESOLVED_WINDOW_MS;
 /** Cache da consulta ao provedor por pagamento no GET /pix (o polling de 5 s nao bate no provedor a cada chamada). */
 export const PIX_SYNC_CACHE_MS = 12_000;
 /** Status locais de Pix ainda nao confirmados como encerrados pelo provedor (conferir antes de gerar outro - B11). */
-const UNSETTLED_GATEWAY_STATUSES = [...PIX_OPEN_GATEWAY_STATUSES, 'expired'];
+const UNSETTLED_GATEWAY_STATUSES = [...PIX_OPEN_GATEWAY_STATUSES, 'expired', PIX_EXPIRED_UNCONFIRMED];
 
 /**
  * Pix de mensalidade na conta do provedor DO GRUPO (PLANO_PROJETO.md 10.52): gerar (reaproveitando o pendente valido -
@@ -192,14 +210,19 @@ export class PixService {
   ): Promise<PixView> {
     // Cliques duplos / pedidos paralelos do mesmo lancamento: um de cada vez (o 2o reaproveita o Pix do 1o).
     return this.mutex.run(`pix:${recordId}`, async () => {
-      if (!this.provider.isConfigured()) {
-        throw paymentError(503, PaymentErrorCode.PAYMENTS_UNAVAILABLE, 'Pagamentos online não estão configurados no servidor.');
-      }
+      this.accounts.assertAvailable();
       let record = await this.loadRecord(organizationId, recordId);
       this.assertPayable(record);
       const connected = await this.accounts.getConnected(organizationId);
 
       const now = new Date();
+      // Pix anterior criado em OUTRA conta do provedor (o grupo trocou de conta): o token atual nao o enxerga nem cancela.
+      // Vira 'account_changed' (terminal + alerta ao Mestre) e um Pix novo pode ser gerado na conta atual (10.56, M3-c).
+      if (this.fromOtherAccount(record, connected) && this.hasUnsettledPix(record)) {
+        await this.markAccountChanged(record, connected);
+        record = await this.loadRecord(organizationId, recordId);
+        this.assertPayable(record);
+      }
       if (this.isReusable(record, now)) return this.toView(record, now);
 
       // Pix anterior ainda pagavel (valor antigo ou quase vencendo): cancela no provedor antes de gerar outro, para o
@@ -230,8 +253,12 @@ export class PixService {
             externalReference,
             payerEmail,
             expiresAt,
-            notificationUrl: webhookNotificationUrl(),
-            applicationFeeCents: applicationFeeCents(record.amountCents),
+            // URL do webhook DO GRUPO (?org=<id>): o grupo nao precisa cadastrar webhook no painel do Mercado Pago.
+            notificationUrl: webhookNotificationUrl(organizationId),
+            // Taxa da plataforma (application_fee) so existe no OAuth (marketplace). No modo MANUAL o token e da
+            // propria conta do grupo: nao ha split nem taxa (10.55).
+            applicationFeeCents:
+              connected.account.mode === PaymentAccountMode.OAUTH ? applicationFeeCents(record.amountCents) : 0,
             // Mesma chave = mesmo pagamento no provedor (repeticao/concorrencia entre replicas nao duplica cobranca).
             idempotencyKey: `gingapp-pix-${organizationId}-${record.id}-${record.amountCents}-${seq}`,
           }),
@@ -265,23 +292,47 @@ export class PixService {
         throw paymentError(502, PaymentErrorCode.PROVIDER_ERROR, 'O Mercado Pago devolveu um Pix que não está mais pendente. Tente de novo.');
       }
 
-      const result = await this.prisma.financialRecord.updateMany({
-        where: { id: record.id, organizationId, status: { in: OPEN }, amountCents: record.amountCents },
-        data: {
-          gatewayProvider: this.provider.id,
-          gatewayPaymentId: payment.id,
-          gatewayStatus: payment.rawStatus,
-          pixQrCode: payment.pix.qrCode,
-          pixQrCodeBase64: payment.pix.qrCodeBase64,
-          pixTicketUrl: payment.pix.ticketUrl,
-          pixExpiresAt: payment.expiresAt ?? expiresAt,
-          pixGeneratedAt: now,
-          pixAmountCents: record.amountCents,
-          pixSeq: seq,
-          pixLastCheckedAt: null,
-        },
+      // Gravacao sob o lock COMPARTILHADO da conta do grupo (10.56, M3-b): a troca de conta (lock exclusivo) espera, e se
+      // ela aconteceu DURANTE a chamada ao provedor, o Pix recem-criado na conta antiga e cancelado e nada e gravado.
+      const pix = payment.pix;
+      const write = await this.accounts.withAccountLock(organizationId, 'shared', async (tx) => {
+        const account = await tx.paymentProviderAccount.findUnique({
+          where: { organizationId_provider: { organizationId, provider: this.provider.id } },
+          select: { status: true, providerUserId: true },
+        });
+        if (!account || account.status === PaymentAccountStatus.REVOKED || account.providerUserId !== connected.account.providerUserId) {
+          return 'account-changed' as const;
+        }
+        const updated = await tx.financialRecord.updateMany({
+          where: { id: record.id, organizationId, status: { in: OPEN }, amountCents: record.amountCents },
+          data: {
+            gatewayProvider: this.provider.id,
+            gatewayPaymentId: payment.id,
+            gatewayStatus: payment.rawStatus,
+            gatewayAccountId: connected.account.providerUserId,
+            pixQrCode: pix.qrCode,
+            pixQrCodeBase64: pix.qrCodeBase64,
+            pixTicketUrl: pix.ticketUrl,
+            pixExpiresAt: payment.expiresAt ?? expiresAt,
+            pixGeneratedAt: now,
+            pixAmountCents: record.amountCents,
+            pixSeq: seq,
+            pixLastCheckedAt: null,
+          },
+        });
+        return updated.count === 0 ? ('record-changed' as const) : ('ok' as const);
       });
-      if (result.count === 0) {
+      if (write === 'account-changed') {
+        // Cancela com o token ANTIGO (o da conta em que o Pix foi criado), sem renovar/confirmar a conta nova.
+        try {
+          await this.provider.cancelPayment({ accessToken: connected.accessToken, paymentId: payment.id });
+        } catch (error) {
+          this.logger.warn(`Pix ${payment.id} da conta anterior nao cancelado (grupo ${organizationId}): ${(error as Error).message}`);
+        }
+        await this.bumpSeq(record.id, seq);
+        throw paymentError(409, PaymentErrorCode.ACCOUNT_CHANGED, 'A conta do Mercado Pago do grupo mudou enquanto o Pix era gerado. Tente de novo.');
+      }
+      if (write === 'record-changed') {
         await this.cancelQuietly(connected, payment.id);
         await this.bumpSeq(record.id, seq);
         throw paymentError(409, PaymentErrorCode.RECORD_CHANGED, 'O lançamento mudou enquanto o Pix era gerado; recarregue.');
@@ -350,6 +401,48 @@ export class PixService {
       !!record.gatewayPaymentId &&
       UNSETTLED_GATEWAY_STATUSES.includes(record.gatewayStatus ?? '')
     );
+  }
+
+  /** O Pix atual do lancamento foi criado numa conta do provedor que NAO e a conectada agora (10.56, M3-c)? */
+  private fromOtherAccount(record: Pick<FinancialRecord, 'gatewayAccountId'>, connected: ConnectedAccount): boolean {
+    return !!record.gatewayAccountId && !!connected.account.providerUserId && record.gatewayAccountId !== connected.account.providerUserId;
+  }
+
+  /**
+   * Pix de uma conta anterior do grupo: o token atual nao o enxerga (404) nem cancela. Estado TERMINAL 'account_changed'
+   * (sai da fila; um Pix novo pode ser gerado) + auditoria e aviso aos Mestres UMA vez (o update condicional e o claim):
+   * o Mestre confere na conta ANTIGA se foi pago e baixa a mao. Antes: 404 eterno na reconciliacao (M3/M4).
+   */
+  private async markAccountChanged(
+    record: Pick<FinancialRecord, 'id' | 'organizationId' | 'gatewayPaymentId' | 'gatewayAccountId' | 'description' | 'amountCents'>,
+    connected: ConnectedAccount,
+  ): Promise<boolean> {
+    if (!record.gatewayPaymentId) return false;
+    const result = await this.prisma.financialRecord.updateMany({
+      where: { id: record.id, gatewayPaymentId: record.gatewayPaymentId, gatewayStatus: { in: UNSETTLED_GATEWAY_STATUSES } },
+      data: { gatewayStatus: PIX_ACCOUNT_CHANGED },
+    });
+    if (result.count === 0) return false;
+    await this.audit.record({
+      organizationId: record.organizationId,
+      userId: null,
+      action: AuditAction.PAYMENT_PIX_ALERT,
+      entity: AuditEntity.FINANCE,
+      entityId: record.id,
+      meta: {
+        reason: 'ACCOUNT_CHANGED',
+        provider: this.provider.id,
+        gatewayPaymentId: record.gatewayPaymentId,
+        pixAccountId: record.gatewayAccountId,
+        currentAccountId: connected.account.providerUserId,
+      },
+    });
+    await this.accounts.notifyMestres(record.organizationId, {
+      title: 'Pix precisa de atenção',
+      body: `O Pix de "${record.description}" (${brl(record.amountCents)}) foi gerado na conta ANTERIOR do Mercado Pago do grupo e não pode mais ser conferido daqui. Confira naquela conta se foi pago e dê baixa à mão; se não foi, gere um Pix novo.`,
+      type: 'FINANCE_PIX_ALERT',
+    });
+    return true;
   }
 
   /**
@@ -456,6 +549,11 @@ export class PixService {
     ) {
       try {
         const connected = await this.accounts.getConnected(organizationId);
+        if (this.fromOtherAccount(record, connected)) {
+          // Pix de uma conta anterior: o token atual daria 404 para sempre (10.56, M3-c).
+          await this.markAccountChanged(record, connected);
+          return this.toView(await this.loadRecord(organizationId, recordId));
+        }
         const payment = await this.withToken(organizationId, connected, (accessToken) =>
           this.provider.getPayment({ accessToken, paymentId: record.gatewayPaymentId! }),
         );
@@ -746,6 +844,10 @@ export class PixService {
     outcome: string | null;
     rawSafe: Prisma.InputJsonValue | null;
     processed?: boolean;
+    /** Webhook: x-signature conferida (true) ou processado so como gatilho (false). */
+    signatureVerified?: boolean;
+    /** Webhook processado como gatilho porque a assinatura nao conferiu (10.56, A2). */
+    signatureProblem?: string | null;
   }): Promise<void> {
     const data = {
       paymentId: input.paymentId,
@@ -755,6 +857,8 @@ export class PixService {
       outcome: input.outcome,
       rawSafe: input.rawSafe ?? Prisma.JsonNull,
       processedAt: input.processed === false ? null : new Date(),
+      ...(input.signatureVerified !== undefined ? { signatureVerified: input.signatureVerified } : {}),
+      ...(input.signatureProblem !== undefined ? { signatureProblem: input.signatureProblem } : {}),
     };
     const key = { provider: this.provider.id, eventId: input.eventId.slice(0, 190) };
     try {
@@ -776,32 +880,79 @@ export class PixService {
    * updatedAt lido, preservado) antes da consulta: duas replicas nunca conferem o mesmo Pix na mesma rodada (M5) e o
    * formulario aberto no painel nao fica "desatualizado" so por causa da reconciliacao. Conta indisponivel ou erro do
    * provedor => o Pix CONTINUA na fila (nunca vence localmente sem resposta do provedor - A1-b).
+   *
+   * 10.56 (M4): lote POR GRUPO (`perOrg`, teto total `limit`). Grupo sem conta utilizavel (desconectado/ERROR/token
+   * ilegivel) e PULADO sem reivindicar nada: nao consome o lote dos outros nem "gira" a fila dele (volta quando a conta
+   * for reconectada). Pix de uma conta ANTERIOR do grupo vira 'account_changed' (terminal + alerta), sem chamar o provedor.
    */
-  async reconcilePending(now: Date = new Date(), limit = RECONCILE_BATCH_SIZE) {
-    const records = await this.prisma.financialRecord.findMany({
-      where: {
-        gatewayProvider: this.provider.id,
-        gatewayPaymentId: { not: null },
-        status: { in: OPEN },
-        gatewayStatus: { in: PIX_OPEN_GATEWAY_STATUSES },
-        pixGeneratedAt: { lt: new Date(now.getTime() - RECONCILE_MIN_AGE_MS) },
-        OR: [{ pixLastCheckedAt: null }, { pixLastCheckedAt: { lt: new Date(now.getTime() - RECONCILE_RECHECK_MS) } }],
-      },
-      orderBy: [{ pixLastCheckedAt: { sort: 'asc', nulls: 'first' } }, { pixGeneratedAt: 'asc' }, { id: 'asc' }],
-      take: limit,
-      select: { id: true, organizationId: true, gatewayPaymentId: true, pixExpiresAt: true, pixLastCheckedAt: true, updatedAt: true },
+  async reconcilePending(now: Date = new Date(), limit = RECONCILE_BATCH_SIZE, perOrg = RECONCILE_PER_ORG) {
+    const eligible: Prisma.FinancialRecordWhereInput = {
+      gatewayProvider: this.provider.id,
+      gatewayPaymentId: { not: null },
+      status: { in: OPEN },
+      gatewayStatus: { in: PIX_OPEN_GATEWAY_STATUSES },
+      pixGeneratedAt: { lt: new Date(now.getTime() - RECONCILE_MIN_AGE_MS) },
+      OR: [{ pixLastCheckedAt: null }, { pixLastCheckedAt: { lt: new Date(now.getTime() - RECONCILE_RECHECK_MS) } }],
+    };
+    const stats = { checked: 0, paid: 0, cancelled: 0, expired: 0, errors: 0, unavailable: 0, skipped: 0, accountChanged: 0, groups: 0 };
+    const groups = await this.prisma.financialRecord.groupBy({
+      by: ['organizationId'],
+      where: eligible,
+      _count: { _all: true },
+      _min: { pixLastCheckedAt: true },
     });
-    const stats = { checked: 0, paid: 0, cancelled: 0, expired: 0, errors: 0, unavailable: 0, skipped: 0 };
-    const byOrg = new Map<number, typeof records>();
-    for (const r of records) byOrg.set(r.organizationId, [...(byOrg.get(r.organizationId) ?? []), r]);
+    const usable = new Set(
+      (
+        await this.prisma.paymentProviderAccount.findMany({
+          where: {
+            provider: this.provider.id,
+            organizationId: { in: groups.map((g) => g.organizationId) },
+            status: PaymentAccountStatus.CONNECTED,
+            accessTokenEnc: { not: null },
+          },
+          select: { organizationId: true },
+        })
+      ).map((a) => a.organizationId),
+    );
+    // Grupo menos conferido primeiro (nunca conferido = mais antigo).
+    groups.sort(
+      (a, b) =>
+        (a._min.pixLastCheckedAt?.getTime() ?? 0) - (b._min.pixLastCheckedAt?.getTime() ?? 0) || a.organizationId - b.organizationId,
+    );
 
-    for (const [organizationId, list] of byOrg) {
-      let connected: ConnectedAccount | null = null;
+    let budget = limit;
+    for (const group of groups) {
+      const organizationId = group.organizationId;
+      if (!usable.has(organizationId)) {
+        stats.unavailable += group._count._all; // pulado: nada e decidido sem o provedor e nada e reivindicado
+        continue;
+      }
+      if (budget <= 0) break;
+      let connected: ConnectedAccount;
       try {
         connected = await this.accounts.getConnected(organizationId);
       } catch {
-        connected = null; // conta desconectada/em erro: nada e decidido sem o provedor (volta a ser conferido depois)
+        stats.unavailable += group._count._all; // virou ERROR agora (aviso unico no PaymentAccountService)
+        continue;
       }
+      const list = await this.prisma.financialRecord.findMany({
+        where: { ...eligible, organizationId },
+        orderBy: [{ pixLastCheckedAt: { sort: 'asc', nulls: 'first' } }, { pixGeneratedAt: 'asc' }, { id: 'asc' }],
+        take: Math.min(perOrg, budget),
+        select: {
+          id: true,
+          organizationId: true,
+          gatewayPaymentId: true,
+          gatewayAccountId: true,
+          description: true,
+          amountCents: true,
+          pixExpiresAt: true,
+          pixLastCheckedAt: true,
+          updatedAt: true,
+        },
+      });
+      budget -= list.length;
+      stats.groups += 1;
       for (const r of list) {
         const claim = await this.prisma.financialRecord.updateMany({
           where: { id: r.id, pixLastCheckedAt: r.pixLastCheckedAt, updatedAt: r.updatedAt },
@@ -812,8 +963,8 @@ export class PixService {
           continue;
         }
         stats.checked += 1;
-        if (!connected) {
-          stats.unavailable += 1;
+        if (this.fromOtherAccount(r, connected)) {
+          if (await this.markAccountChanged(r, connected)) stats.accountChanged += 1;
           continue;
         }
         try {
@@ -826,11 +977,12 @@ export class PixService {
           });
           if (outcome === 'PAID') stats.paid += 1;
           if (outcome === 'CANCELLED') stats.cancelled += 1;
-          // O PROVEDOR respondeu "pendente" muito depois da validade: vence localmente (sai da fila).
+          // O PROVEDOR respondeu "pendente" muito depois da validade: vence localmente (sai da fila), mas SEM confirmacao
+          // ('expired_unconfirmed': o GET /pix ainda confere por 7 dias e a troca de conta fica bloqueada - 10.56, M3-a).
           if (outcome === 'PENDING' && r.pixExpiresAt && r.pixExpiresAt.getTime() < now.getTime() - RECONCILE_EXPIRED_GRACE_MS) {
             const result = await this.prisma.financialRecord.updateMany({
               where: { id: r.id, gatewayPaymentId: r.gatewayPaymentId, status: { in: OPEN }, gatewayStatus: { in: PIX_OPEN_GATEWAY_STATUSES } },
-              data: { gatewayStatus: 'expired' },
+              data: { gatewayStatus: PIX_EXPIRED_UNCONFIRMED },
             });
             stats.expired += result.count;
           }
@@ -864,6 +1016,11 @@ export class PixService {
       connected = await this.accounts.getConnected(record.organizationId);
     } catch (error) {
       this.logger.warn(`Pix ${paymentId} nao cancelado no provedor (${reason}, lancamento ${record.id}): ${(error as Error).message}`);
+      return false;
+    }
+    if (this.fromOtherAccount(record, connected)) {
+      // Pix de uma conta anterior: o token atual nao o cancela; terminal + alerta (10.56, M3-c).
+      await this.markAccountChanged(record, connected);
       return false;
     }
     const ctx = { source: 'SYNC' as const, providerUserId: connected.account.providerUserId };
