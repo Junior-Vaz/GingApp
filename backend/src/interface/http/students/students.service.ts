@@ -21,6 +21,7 @@ import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
 import { formatCpf } from '../../../shared/security/person-document';
 import { PersonFichaService } from '../people/person-ficha.service';
 import { PersonIdentityService } from '../people/person-identity.service';
+import { assertClassesEnrollable, enrollStudentInClass } from '../classes/class-enrollment';
 
 /** Alunos do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
@@ -231,11 +232,20 @@ export class StudentsService {
     return student;
   }
 
+  /**
+   * Cadastro do aluno. `classIds` (cadastro rápido): matricula o aluno nessas turmas NA MESMA transação do cadastro, com a
+   * regra única de POST /classes/:id/students (class-enrollment.ts). Turma inexistente/de outro grupo/fora do escopo de
+   * unidade do usuário => 404 ANTES de gravar qualquer coisa (o aluno não é criado). `createAccess` NÃO é tratado aqui:
+   * o controller cria o acesso depois (StudentAccessService.createForNewStudent) para a falha dele não desfazer o cadastro.
+   */
   async create(organizationId: number, dto: CreateStudentDto, user?: AuthenticatedUser) {
-    const unitId = resolveWriteUnit(await this.unitScope.resolve(user, organizationId), dto.unitId);
+    const scope = await this.unitScope.resolve(user, organizationId);
+    const unitId = resolveWriteUnit(scope, dto.unitId);
     if (unitId) {
       await this.assertUnitBelongsToOrganization(organizationId, unitId);
     }
+    const classIds = [...new Set(dto.classIds ?? [])];
+    await assertClassesEnrollable(this.prisma, organizationId, classIds, scope);
     await this.assertWithinStudentLimit(organizationId);
 
     // Ficha unica (docs/FICHA_UNICA.md): a pessoa ja existe? (CPF / CPF do responsavel + nascimento / codigo GingApp /
@@ -271,6 +281,7 @@ export class StudentsService {
               joinedAt: dto.joinedAt ? new Date(dto.joinedAt) : undefined,
             },
           });
+          for (const classId of classIds) await enrollStudentInClass(tx, organizationId, classId, student.id);
           return { student, person };
         });
         return { ...student, person };

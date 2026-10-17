@@ -217,7 +217,7 @@ describe("alunos: convite por e-mail", () => {
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
     fireEvent.click(screen.getByRole("button", { name: "Acesso de José Álvaro" })); // modo cards (padrão): a ação é um botão
-    fireEvent.click(await screen.findByRole("button", { name: /Criar acesso/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Definir senha manualmente/ })); // "Criar acesso" agora é o clique único
     return screen.findByRole("dialog", { name: "Criar acesso do aluno" });
   }
   const invite = "Enviar convite por e-mail (a pessoa define a própria senha)";

@@ -1,10 +1,13 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OrgRole } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { PermissionsService } from '../../../shared/access/permissions.service';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
+import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { resetMemberPassword } from '../../../shared/security/reset-member-password';
-import { ResetMemberPasswordDto } from '../../../shared/security/reset-member-password.dto';
+import { ResetStudentPasswordDto } from '../../../shared/security/reset-member-password.dto';
+import { providedOrGeneratedPassword } from '../../../shared/security/temporary-password';
 import { CreateStudentAccountDto } from './dto/create-student-account.dto';
 import { PasswordResetService } from '../../../shared/security/password-reset.service';
 import { PersonIdentityService } from '../people/person-identity.service';
@@ -41,7 +44,30 @@ export interface StudentAccountResult {
   account: MemberAccountView;
   /** true = e-mail de convite enviado (sendInvite + SMTP ativo + usuário novo). false = sem convite ou falha no envio. */
   inviteSent: boolean;
+  /**
+   * Senha provisória GERADA pelo servidor (corpo sem `password`, sem `sendInvite`, e-mail novo). Só aparece aqui, uma
+   * única vez, na resposta HTTP (Cache-Control: no-store); nunca em log, auditoria, notificação ou e-mail.
+   */
+  temporaryPassword?: string;
 }
+
+/** Resultado do acesso criado junto do cadastro do aluno (POST /students com createAccess). */
+export type RegistrationAccessStatus = 'CREATED' | 'LINKED' | 'SKIPPED_NO_EMAIL' | 'SKIPPED_NO_PERMISSION' | 'FAILED';
+
+export interface RegistrationAccess {
+  status: RegistrationAccessStatus;
+  /** E-mail de login (CREATED/LINKED). */
+  email?: string;
+  /** SÓ quando CREATED: a senha provisória gerada (mostrada uma única vez). LINKED nunca devolve senha. */
+  temporaryPassword?: string;
+  mustChangePassword?: boolean;
+  /** Texto curto em português quando SKIPPED (qualquer motivo) ou FAILED. */
+  reason?: string;
+}
+
+export const NO_EMAIL_FOR_ACCESS_REASON = 'Sem e-mail: cadastre um e-mail para criar o acesso depois.';
+export const NO_PERMISSION_FOR_ACCESS_REASON = 'Você não tem permissão para criar o acesso: peça a quem administra o grupo.';
+export const ACCESS_FAILED_GENERIC_REASON = 'O aluno foi cadastrado, mas não foi possível criar o acesso agora. Tente criar o acesso na ficha do aluno.';
 
 /**
  * Acesso (login) do aluno — E01 do plano. Sempre isolado por organizationId do token: aluno de outro
@@ -50,11 +76,14 @@ export interface StudentAccountResult {
  */
 @Injectable()
 export class StudentAccessService {
+  private readonly logger = new Logger(StudentAccessService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwordReset: PasswordResetService,
     private readonly audit: AuditService,
     private readonly people: PersonIdentityService,
+    private readonly permissions: PermissionsService,
   ) {}
 
   private async groupName(organizationId: number): Promise<string> {
@@ -69,13 +98,27 @@ export class StudentAccessService {
     return { hasAccount: true, account: await this.loadAccount(organizationId, student.userId) };
   }
 
-  async createAccount(organizationId: number, studentId: number, dto: CreateStudentAccountDto): Promise<StudentAccountResult> {
+  /**
+   * Cria (ou vincula) o login do aluno. `password` omitida e sem `sendInvite` => o servidor GERA a senha provisória fácil
+   * (generateTemporaryPassword) e a devolve em `temporaryPassword` — só quando o User é NOVO (e-mail já existente é só
+   * vinculado e a senha dele nunca é tocada nem devolvida). `via` marca a origem na auditoria (ex.: 'quick-register').
+   */
+  async createAccount(
+    organizationId: number,
+    studentId: number,
+    dto: CreateStudentAccountDto,
+    options: { via?: string } = {},
+  ): Promise<StudentAccountResult> {
     const student = await this.requireStudent(organizationId, studentId);
     if (student.userId !== null) throw new ConflictException(ALREADY_HAS_ACCOUNT);
     assertInviteRequest(this.passwordReset, dto.sendInvite, dto.password);
 
     const email = dto.email ?? student.email;
     if (!email) throw new BadRequestException(EMAIL_REQUIRED_MESSAGE);
+
+    const chosen = dto.sendInvite
+      ? { password: undefined, generated: false }
+      : providedOrGeneratedPassword(dto.password);
 
     let result: { userId: number; created: boolean };
     try {
@@ -85,7 +128,7 @@ export class StudentAccessService {
           email,
           name: student.name,
           phone: student.phone,
-          password: dto.password,
+          password: chosen.password,
           role: OrgRole.ALUNO,
           invite: dto.sendInvite,
         });
@@ -118,25 +161,85 @@ export class StudentAccessService {
             await this.groupName(organizationId),
           )
         : false;
+    // A senha gerada só vale (e só é devolvida) quando o User foi criado agora; ao vincular, foi descartada.
+    const temporaryPassword = chosen.generated && result.created ? chosen.password : undefined;
     await this.audit.record({
       organizationId,
       // Usuario ja existente apenas vinculado ao aluno = LINK; usuario novo = CREATE.
       action: result.created ? AuditAction.STUDENT_ACCOUNT_CREATE : AuditAction.STUDENT_ACCOUNT_LINK,
       entity: AuditEntity.STUDENT,
       entityId: studentId,
-      meta: { userId: result.userId, linkedExistingUser: !result.created, inviteSent },
+      // `generated` e' so a bandeira (nunca a senha).
+      meta: {
+        userId: result.userId,
+        linkedExistingUser: !result.created,
+        inviteSent,
+        ...(temporaryPassword ? { generated: true } : {}),
+        ...(options.via ? { via: options.via } : {}),
+      },
     });
-    return { studentId, linkedExistingUser: !result.created, account, inviteSent };
+    return {
+      studentId,
+      linkedExistingUser: !result.created,
+      account,
+      inviteSent,
+      ...(temporaryPassword ? { temporaryPassword } : {}),
+    };
   }
 
-  /** Mestre/Professor redefine a senha do aluno (senha provisória) e revoga as sessões dele. */
-  async resetPassword(organizationId: number, studentId: number, dto: ResetMemberPasswordDto): Promise<void> {
+  /**
+   * Cadastro rápido (POST /students com createAccess): cria o acesso do aluno recém-criado com senha gerada. NUNCA lança:
+   * o cadastro do aluno já está feito e uma falha aqui vira `status: 'FAILED'` (com motivo em português, sem segredo).
+   * Só cria se o ator tem a MESMA permissão que POST /students/:id/account exige (students.edit); sem e-mail não cria.
+   */
+  async createForNewStudent(
+    organizationId: number,
+    student: { id: number; email: string | null },
+    user: AuthenticatedUser,
+  ): Promise<RegistrationAccess> {
+    if (!(await this.permissions.can(user, 'students', 'edit'))) {
+      return { status: 'SKIPPED_NO_PERMISSION', reason: NO_PERMISSION_FOR_ACCESS_REASON };
+    }
+    if (!student.email) return { status: 'SKIPPED_NO_EMAIL', reason: NO_EMAIL_FOR_ACCESS_REASON };
+    try {
+      const result = await this.createAccount(organizationId, student.id, {}, { via: 'quick-register' });
+      if (result.linkedExistingUser) {
+        return { status: 'LINKED', email: result.account.email, mustChangePassword: result.account.mustChangePassword };
+      }
+      return {
+        status: 'CREATED',
+        email: result.account.email,
+        temporaryPassword: result.temporaryPassword,
+        mustChangePassword: result.account.mustChangePassword,
+      };
+    } catch (error) {
+      if (error instanceof HttpException) {
+        // Mensagens das regras de negócio (e-mail indisponível, usuário já é outro aluno...): em português e sem segredo.
+        const message = error.message;
+        return { status: 'FAILED', reason: message || ACCESS_FAILED_GENERIC_REASON };
+      }
+      // Nunca loga `error.message` (erros do Prisma podem trazer os argumentos da consulta): só o tipo do erro.
+      this.logger.error(`Falha ao criar o acesso do aluno #${student.id} no cadastro rápido (${error instanceof Error ? error.name : 'erro'}).`);
+      return { status: 'FAILED', reason: ACCESS_FAILED_GENERIC_REASON };
+    }
+  }
+
+  /**
+   * Mestre/Professor redefine a senha do aluno e revoga as sessões dele. `newPassword` omitida => o servidor gera a
+   * provisória fácil e a devolve (`temporaryPassword`, única vez, sem log/auditoria); informada => devolve `{}`.
+   */
+  async resetPassword(
+    organizationId: number,
+    studentId: number,
+    dto: ResetStudentPasswordDto,
+  ): Promise<{ temporaryPassword?: string }> {
     const student = await this.requireStudent(organizationId, studentId);
     if (student.userId === null) throw new ConflictException(NO_ACCOUNT);
+    const chosen = providedOrGeneratedPassword(dto.newPassword);
     await resetMemberPassword(this.prisma, {
       organizationId,
       userId: student.userId,
-      newPassword: dto.newPassword,
+      newPassword: chosen.password,
       roles: [OrgRole.ALUNO, OrgRole.RESPONSAVEL],
       notFoundMessage: STUDENT_NOT_FOUND,
       wrongRoleMessage: 'Esta conta pertence à equipe do grupo; a senha é redefinida em Professores.',
@@ -146,8 +249,9 @@ export class StudentAccessService {
       action: AuditAction.MEMBER_PASSWORD_RESET,
       entity: AuditEntity.STUDENT,
       entityId: studentId,
-      meta: { userId: student.userId, kind: 'ALUNO' },
+      meta: { userId: student.userId, kind: 'ALUNO', ...(chosen.generated ? { generated: true } : {}) },
     });
+    return chosen.generated ? { temporaryPassword: chosen.password } : {};
   }
 
   private async requireStudent(organizationId: number, studentId: number) {

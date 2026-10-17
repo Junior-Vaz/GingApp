@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { OrgRole, Prisma, UserType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import type { Response } from 'express';
 import { randomBytes } from 'node:crypto';
 import { PasswordResetService } from '../../../shared/security/password-reset.service';
 import { findUserIdsByEmail } from '../../../shared/security/email-lookup';
@@ -105,6 +106,19 @@ export async function provisionMemberUser(
   });
   await tx.organizationUser.create({ data: { organizationId, userId: user.id, role: input.role, status: 'ACTIVE' } });
   return { userId: user.id, created: true };
+}
+
+/**
+ * Resposta das rotas de redefinir senha de aluno/responsável (SSOT): senha informada pelo Mestre/Professor => 204 sem
+ * corpo (como sempre foi); senha GERADA pelo servidor => 200 `{ temporaryPassword, mustChangePassword: true }` com
+ * `Cache-Control: no-store` (a senha só existe nesta resposta).
+ */
+export function sendResetPasswordResult(res: Response, result: { temporaryPassword?: string }): void {
+  if (result.temporaryPassword) {
+    res.status(200).set('Cache-Control', 'no-store').json({ temporaryPassword: result.temporaryPassword, mustChangePassword: true });
+    return;
+  }
+  res.status(204).end();
 }
 
 /** P2002 (unique) — corrida entre duas criações do mesmo e-mail/vínculo. */

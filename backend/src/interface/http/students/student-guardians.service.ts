@@ -4,7 +4,8 @@ import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { resetMemberPassword } from '../../../shared/security/reset-member-password';
-import { ResetMemberPasswordDto } from '../../../shared/security/reset-member-password.dto';
+import { ResetStudentPasswordDto } from '../../../shared/security/reset-member-password.dto';
+import { providedOrGeneratedPassword } from '../../../shared/security/temporary-password';
 import { CreateGuardianDto } from './dto/create-guardian.dto';
 import { CreateStudentAccountDto } from './dto/create-student-account.dto';
 import { UpdateGuardianDto } from './dto/update-guardian.dto';
@@ -246,14 +247,16 @@ export class StudentGuardiansService {
     organizationId: number,
     studentId: number,
     guardianId: number,
-    dto: ResetMemberPasswordDto,
-  ): Promise<void> {
+    dto: ResetStudentPasswordDto,
+  ): Promise<{ temporaryPassword?: string }> {
     const guardian = await this.requireGuardian(organizationId, studentId, guardianId);
     if (guardian.userId === null) throw new ConflictException(GUARDIAN_NO_ACCOUNT);
+    // `newPassword` omitida => senha provisória gerada pelo servidor (devolvida uma única vez; nunca logada/auditada).
+    const chosen = providedOrGeneratedPassword(dto.newPassword);
     await resetMemberPassword(this.prisma, {
       organizationId,
       userId: guardian.userId,
-      newPassword: dto.newPassword,
+      newPassword: chosen.password,
       roles: [OrgRole.RESPONSAVEL, OrgRole.ALUNO],
       notFoundMessage: GUARDIAN_NOT_FOUND,
       wrongRoleMessage: 'Esta conta pertence à equipe do grupo; a senha é redefinida em Professores.',
@@ -263,8 +266,9 @@ export class StudentGuardiansService {
       action: AuditAction.MEMBER_PASSWORD_RESET,
       entity: AuditEntity.GUARDIAN,
       entityId: guardianId,
-      meta: { studentId, userId: guardian.userId, kind: 'RESPONSAVEL' },
+      meta: { studentId, userId: guardian.userId, kind: 'RESPONSAVEL', ...(chosen.generated ? { generated: true } : {}) },
     });
+    return chosen.generated ? { temporaryPassword: chosen.password } : {};
   }
 
   /** O usuário do responsável não pode ser o próprio aluno nem já ser responsável deste mesmo aluno. */

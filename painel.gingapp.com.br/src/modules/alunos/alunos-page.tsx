@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { ArrowUpCircle, IdCard, KeyRound, LayoutGrid, Pencil, Plus, Table2, Upload, UserX, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +42,7 @@ import { PromoverDialog, type PromoteTarget } from "@/modules/professores/promov
 import { useGroupRoles } from "@/modules/professores/roles-api";
 import { ImportarAlunosDialog } from "./importar-alunos-dialog";
 import { NativeSelect } from "./native-select";
+import { NovoAlunoSheet, type CreateMode, type CreatedCredentials, type NovoAlunoHandle } from "./novo-aluno-sheet";
 import { ResponsaveisDialog } from "./responsaveis-dialog";
 import { useStudentsView, type StudentsView } from "./students-view";
 import {
@@ -49,13 +50,35 @@ import {
   emptyStudentForm,
   isMinor,
   makeStudentSchema,
+  studentToCreatePayload,
   studentToForm,
-  studentToPayload,
   studentToUpdatePayload,
+  type CreateExtras,
+  type CreatedStudent,
   type Student,
+  type StudentAccessOutcome,
   type StudentFormValues,
   type StudentInput,
 } from "./schema";
+
+/** Aviso quando o e-mail já tinha login no GingApp (acesso vinculado, sem senha nova). */
+const LINKED_NOTICE = "Este e-mail já tem login no GingApp: o aluno entra com a senha que já tem.";
+
+const ACCESS_SKIPPED_DEFAULT: Record<"SKIPPED_NO_EMAIL" | "SKIPPED_NO_PERMISSION" | "FAILED", string> = {
+  SKIPPED_NO_EMAIL: "Sem e-mail, o acesso ao app não foi criado.",
+  SKIPPED_NO_PERMISSION: "Você não tem permissão para criar acessos.",
+  FAILED: "Não foi possível criar o acesso ao app.",
+};
+
+/** O que fazer com o resultado do cadastro: credenciais para mostrar (acesso criado) ou nada (já avisado por toast). */
+type CreateOutcome = "credentials" | "saved";
+
+/** Dados do POST /students que o conflito (409) precisa guardar para reenviar com confirmNew. */
+interface PendingCreate {
+  values: StudentFormValues;
+  extras: CreateExtras;
+  mode: CreateMode;
+}
 
 const students = createCrud<Student, StudentInput>("/students", {
   created: "Aluno cadastrado.",
@@ -111,8 +134,11 @@ export function AlunosPage() {
   // "Promover a…" (cargos acumuláveis): só o Mestre concede; age na matrícula de aluno.
   const [promoting, setPromoting] = useState<PromoteTarget | null>(null);
   // 409 do cadastro (já no grupo / em outro grupo / possível duplicado) + os valores do formulário que o originaram.
-  const [conflict, setConflict] = useState<{ conflict: StudentConflict; values: StudentFormValues } | null>(null);
+  const [conflict, setConflict] = useState<({ conflict: StudentConflict } & PendingCreate) | null>(null);
   const [confirmingNew, setConfirmingNew] = useState(false);
+  // Credenciais do acesso recém-criado (senha provisória): só vivem aqui até "Concluir"/"Cadastrar outro"/fechar.
+  const [created, setCreated] = useState<CreatedCredentials | null>(null);
+  const newStudentRef = useRef<NovoAlunoHandle>(null);
   // Edição: o CPF chega MASCARADO do servidor; só aparece o campo de digitação se o usuário clicar em "Alterar CPF".
   const [changingCpf, setChangingCpf] = useState(false);
   const [view, setView] = useStudentsView();
@@ -192,6 +218,10 @@ export function AlunosPage() {
 
   const isEdit = editing !== null && editing !== "new";
   useEffect(() => setChangingCpf(false), [editing]);
+  // A senha provisória nunca sobrevive ao fechamento do "Novo aluno" (por qualquer caminho).
+  useEffect(() => {
+    if (editing !== "new") setCreated(null);
+  }, [editing]);
   const currentDocument = editing && editing !== "new" ? (editing.document ?? "").trim() : "";
   // Na edição, o CPF só é validado se o usuário o alterou (aluno legado com documento que não é CPF não fica preso).
   const originalDocument = editing && editing !== "new" ? editing.document : undefined;
@@ -212,22 +242,64 @@ export function AlunosPage() {
   }
 
   /**
+   * Avisa o resultado do cadastro. Acesso CREATED: guarda as credenciais (senha provisória, só desta resposta) para o
+   * cartão do "Novo aluno". LINKED / sem acesso / falha de acesso: toast (o aluno foi cadastrado mesmo assim).
+   */
+  function announceCreated(student: CreatedStudent, { values }: PendingCreate): CreateOutcome {
+    const access: StudentAccessOutcome | undefined = student.access;
+    const name = student.name || values.name.trim();
+    if (access?.status === "CREATED" && access.temporaryPassword) {
+      toast.success("Aluno cadastrado.");
+      setCreated({
+        studentName: name,
+        phone: student.phone ?? (values.phone.trim() || null),
+        email: access.email ?? student.email ?? values.email.trim(),
+        password: access.temporaryPassword,
+      });
+      return "credentials";
+    }
+    if (!access) {
+      toast.success("Aluno cadastrado.");
+    } else if (access.status === "LINKED") {
+      toast.success("Aluno cadastrado.", { description: LINKED_NOTICE, duration: 10_000 });
+    } else {
+      const reason =
+        access.status === "CREATED"
+          ? "O acesso foi criado, mas a senha não foi devolvida: use Acesso > Gerar nova senha fácil."
+          : (access.reason ?? ACCESS_SKIPPED_DEFAULT[access.status]);
+      toast.warning(`Aluno cadastrado, mas sem acesso ao app. ${reason}`, {
+        duration: 12_000,
+        action: { label: "Criar acesso depois", onClick: () => setAccessOf({ ...student, name }) },
+      });
+    }
+    return "saved";
+  }
+
+  /**
    * POST /students. Os 409 de pessoa já existente abrem o diálogo correspondente (nada é criado); os 400 de
    * CPF/código GingApp viram toast com mensagem clara. Em qualquer erro relança, para o formulário continuar aberto.
    */
-  async function createStudent(values: StudentFormValues, confirmNew = false): Promise<Student> {
-    const payload = { ...studentToPayload(values), ...(confirmNew ? { confirmNew: true } : {}) };
+  async function createStudent(pending: PendingCreate, confirmNew = false): Promise<CreateOutcome> {
+    const payload = { ...studentToCreatePayload(pending.values, pending.extras), ...(confirmNew ? { confirmNew: true } : {}) };
+    let student: CreatedStudent;
     try {
-      const student = await api.post<Student>("/students", payload);
-      void queryClient.invalidateQueries({ queryKey: students.rootKey });
-      toast.success("Aluno cadastrado.");
-      return student;
+      student = await api.post<CreatedStudent>("/students", payload);
     } catch (error) {
       const found = parseStudentConflict(error);
-      if (found) setConflict({ conflict: found, values });
+      if (found) setConflict({ conflict: found, ...pending });
       else toast.error(createErrorMessage(error, "Algo deu errado. Tente novamente."));
       throw error;
     }
+    void queryClient.invalidateQueries({ queryKey: students.rootKey });
+    await saveBilling(student, pending.values, null);
+    return announceCreated(student, pending);
+  }
+
+  /** Depois de cadastrar: com credenciais o cartão fica no sheet; senão "Cadastrar" fecha e "Cadastrar e novo" limpa. */
+  function finishNewStudent(outcome: CreateOutcome, mode: CreateMode) {
+    if (outcome === "credentials") return;
+    if (mode === "new") newStudentRef.current?.resetForNext();
+    else setEditing(null);
   }
 
   /** "Cadastrar mesmo assim" do possível duplicado: reenvia o MESMO corpo com confirmNew:true. */
@@ -235,10 +307,9 @@ export function AlunosPage() {
     if (!conflict) return;
     setConfirmingNew(true);
     try {
-      const student = await createStudent(conflict.values, true);
-      await saveBilling(student, conflict.values, null);
+      const outcome = await createStudent(conflict, true);
       setConflict(null);
-      setEditing(null);
+      finishNewStudent(outcome, conflict.mode);
     } catch {
       // erro já notificado (toast) ou novo conflito exibido
     } finally {
@@ -375,11 +446,35 @@ export function AlunosPage() {
         rowActions={(s) => <RowActions actions={studentActionList(s)} subject={s.name} />}
       />
 
+      {/* Cadastro: formulário enxuto (nome/contato/turma/acesso) com "Mais dados" e cartão de credenciais. */}
+      <NovoAlunoSheet
+        handleRef={newStudentRef}
+        open={editing === "new"}
+        onOpenChange={(o) => {
+          if (!o) {
+            setEditing(null);
+            setCreated(null);
+          }
+        }}
+        canEditFinance={canEditFinance}
+        created={created}
+        onSubmit={async (values, extras, mode) => {
+          const outcome = await createStudent({ values, extras, mode });
+          finishNewStudent(outcome, mode);
+        }}
+        onAnother={() => setCreated(null)}
+        onFinish={() => {
+          setCreated(null);
+          setEditing(null);
+        }}
+      />
+
+      {/* Edição: o formulário completo de sempre. */}
       <FormDialog<StudentFormValues>
         as="sheet"
-        open={editing !== null}
+        open={isEdit}
         onOpenChange={(o) => !o && setEditing(null)}
-        title={isEdit ? "Editar aluno" : "Novo aluno"}
+        title="Editar aluno"
         schema={formSchema}
         defaultValues={
           editing && editing !== "new"
@@ -387,12 +482,10 @@ export function AlunosPage() {
             : emptyStudentForm
         }
         onSubmit={async (values) => {
-          const saved = editing && editing !== "new" ? editing : null;
+          if (!editing || editing === "new") return;
           // Edição: 409 do PATCH (documento de outra pessoa / travado) chega como toast com a mensagem do backend.
-          const student = saved
-            ? await update.mutateAsync({ id: saved.id, data: studentToUpdatePayload(values, saved.document) })
-            : await createStudent(values);
-          await saveBilling(student, values, saved);
+          const student = await update.mutateAsync({ id: editing.id, data: studentToUpdatePayload(values, editing.document) });
+          await saveBilling(student, values, editing);
         }}
       >
         {(form) => (
@@ -493,42 +586,6 @@ export function AlunosPage() {
                 )}
               />
             )}
-            {!isEdit && (
-              <>
-                <FormField
-                  control={form.control}
-                  name="guardianDocument"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>CPF do responsável (para criança sem CPF)</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="000.000.000-00"
-                          autoComplete="off"
-                          {...field}
-                          value={field.value ?? ""}
-                          onChange={(e) => field.onChange(maskCpfInput(e.target.value))}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="gingappCode"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Código GingApp (se a pessoa já tem)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="GING-XXXX-XXXX" autoComplete="off" {...field} value={field.value ?? ""} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </>
-            )}
             <FormField
               control={form.control}
               name="phone"
@@ -555,7 +612,7 @@ export function AlunosPage() {
                 </FormItem>
               )}
             />
-            {canEditFinance && (!isEdit || billings.isSuccess) && (
+            {canEditFinance && billings.isSuccess && (
               <div className="grid grid-cols-2 gap-3">
                 <FormField
                   control={form.control}
@@ -585,27 +642,25 @@ export function AlunosPage() {
                 />
               </div>
             )}
-            {isEdit && (
-              <FormField
-                control={form.control}
-                name="status"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Status</FormLabel>
-                    <FormControl>
-                      <NativeSelect {...field}>
-                        {Object.entries(STUDENT_STATUS_LABEL).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
-                      </NativeSelect>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            )}
+            <FormField
+              control={form.control}
+              name="status"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Status</FormLabel>
+                  <FormControl>
+                    <NativeSelect {...field}>
+                      {Object.entries(STUDENT_STATUS_LABEL).map(([value, label]) => (
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
           </>
         )}
       </FormDialog>

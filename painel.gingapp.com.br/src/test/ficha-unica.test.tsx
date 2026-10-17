@@ -76,7 +76,7 @@ async function submitNewStudent(name = "Joana Mestra") {
   fireEvent.click(screen.getByRole("button", { name: /Novo aluno/ }));
   const sheet = await screen.findByRole("dialog");
   fireEvent.change(within(sheet).getByLabelText("Nome"), { target: { value: name } });
-  fireEvent.click(within(sheet).getByRole("button", { name: "Salvar" }));
+  fireEvent.click(within(sheet).getByRole("button", { name: "Cadastrar" }));
   return sheet;
 }
 
@@ -125,9 +125,10 @@ describe("Cadastro de aluno: conflitos de pessoa existente", () => {
     fireEvent.click(screen.getByRole("button", { name: /Novo aluno/ }));
     const sheet = await screen.findByRole("dialog");
     fireEvent.change(within(sheet).getByLabelText("Nome"), { target: { value: "Carlos Lima" } });
+    fireEvent.click(within(sheet).getByRole("button", { name: "Mais dados" })); // o CPF fica em "Mais dados"
     fireEvent.change(within(sheet).getByLabelText("CPF"), { target: { value: "52998224724" } });
     expect(within(sheet).getByLabelText("CPF")).toHaveValue("529.982.247-24");
-    fireEvent.click(within(sheet).getByRole("button", { name: "Salvar" }));
+    fireEvent.click(within(sheet).getByRole("button", { name: "Cadastrar" }));
     expect(await within(sheet).findByText(/CPF inválido/)).toBeInTheDocument();
     expect(calls.some((c) => c.method === "POST")).toBe(false);
   });

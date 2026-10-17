@@ -67,7 +67,25 @@ export interface StudentInput {
   gingappCode?: string | undefined;
   /** Só no cadastro (POST): confirma que NÃO é a mesma pessoa de um possível duplicado. */
   confirmNew?: boolean | undefined;
+  /** Só no cadastro (POST): cria já o acesso ao app (senha provisória gerada pelo servidor; exige e-mail). */
+  createAccess?: boolean | undefined;
+  /** Só no cadastro (POST): turmas (ativas) em que o aluno já entra matriculado. */
+  classIds?: number[] | undefined;
 }
+
+export type StudentAccessStatus = "CREATED" | "LINKED" | "SKIPPED_NO_EMAIL" | "SKIPPED_NO_PERMISSION" | "FAILED";
+
+/** Resultado do acesso ao app no POST /students (campo `access` da resposta). A senha só vem em CREATED, uma única vez. */
+export interface StudentAccessOutcome {
+  status: StudentAccessStatus;
+  email?: string | undefined;
+  temporaryPassword?: string | undefined;
+  mustChangePassword?: boolean | undefined;
+  reason?: string | undefined;
+}
+
+/** Resposta de POST /students: o aluno + (quando `createAccess` foi pedido) o resultado do acesso. */
+export type CreatedStudent = Student & { access?: StudentAccessOutcome | undefined };
 
 export const STUDENT_STATUS_LABEL: Record<StudentStatus, string> = {
   ACTIVE: "Ativo",
@@ -188,6 +206,29 @@ export function studentToPayload(values: StudentFormValues): StudentInput {
     guardianDocument: (values.guardianDocument ?? "").trim() || undefined,
     gingappCode: (values.gingappCode ?? "").trim().toUpperCase() || undefined,
   };
+}
+
+/** Opções do cadastro rápido que vão além dos campos do formulário. */
+export interface CreateExtras {
+  /** Cria o acesso ao app junto (só vale com e-mail válido). */
+  createAccess: boolean;
+  /** Turmas em que o aluno já entra matriculado. */
+  classIds: number[];
+}
+
+/** CRIAR (POST) no cadastro rápido: o payload de `studentToPayload` + `classIds` (se houver) + `createAccess` (se ligado). */
+export function studentToCreatePayload(values: StudentFormValues, extras: CreateExtras): StudentInput {
+  return {
+    ...studentToPayload(values),
+    ...(extras.classIds.length > 0 ? { classIds: extras.classIds } : {}),
+    ...(extras.createAccess ? { createAccess: true } : {}),
+  };
+}
+
+/** E-mail do formulário é válido (e não vazio)? Habilita o interruptor "Criar acesso ao app agora". */
+export function isValidEmail(value: string): boolean {
+  const email = value.trim();
+  return email !== "" && z.string().email().safeParse(email).success;
 }
 
 /**

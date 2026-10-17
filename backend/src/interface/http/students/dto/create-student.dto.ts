@@ -1,5 +1,18 @@
 import { StudentStatus } from '@prisma/client';
-import { IsBoolean, IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsDateString,
+  IsEmail,
+  IsEnum,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
 import { IsImageRef } from '../../../../shared/uploads/image-ref';
 
 export class CreateStudentDto {
@@ -57,4 +70,21 @@ export class CreateStudentDto {
   @IsOptional()
   @IsDateString()
   joinedAt?: string;
+
+  /**
+   * Cadastro rápido: já cria o LOGIN do aluno (como POST /students/:id/account, com senha provisória GERADA pelo
+   * servidor e troca obrigatória no 1º acesso). Exige o e-mail do aluno e a permissão de criar acesso; sem uma das
+   * duas o aluno é criado normalmente e `access.status` explica (SKIPPED_NO_EMAIL / SKIPPED_NO_PERMISSION).
+   */
+  @IsOptional()
+  @IsBoolean()
+  createAccess?: boolean;
+
+  /** Cadastro rápido: turmas (do grupo e do escopo de unidade do usuário) em que o aluno já nasce matriculado. Máx. 10. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  classIds?: number[];
 }

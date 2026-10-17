@@ -31,6 +31,13 @@ export interface StudentAccountResult {
   account: MemberAccount;
   /** Com sendInvite=true: o e-mail de convite foi enviado? (false = o acesso existe, mas o e-mail falhou.) */
   inviteSent?: boolean;
+  /** Sem `password` no corpo: a senha provisória gerada pelo servidor (só existe nesta resposta; nunca guardar). */
+  temporaryPassword?: string;
+}
+
+/** POST /students/:id/reset-password sem `newPassword`: o servidor gera a senha e a devolve (só nesta resposta). */
+export interface GeneratedPasswordResult {
+  temporaryPassword?: string;
 }
 
 /** Item de GET /students/:id/guardians. `consentPublicProfile` é SÓ leitura (vem do fluxo do Passaporte). */
@@ -145,6 +152,23 @@ export function useStudentAccessMutations(studentId: number) {
       mutationFn: (newPassword: string) => api.post<void>(`${base}/reset-password`, { newPassword }),
       onSuccess: notify<void>("Senha redefinida. As sessões abertas do aluno foram encerradas."),
       onError,
+    }),
+    /**
+     * Criar acesso em UM clique: só o e-mail; o servidor gera a senha provisória e a devolve (`temporaryPassword`).
+     * Sem toast de sucesso (o cartão de credenciais é o aviso) e `gcTime: 0`: a senha não fica no cache de mutações.
+     */
+    quickCreateAccount: useMutation({
+      mutationFn: (email: string) => api.post<StudentAccountResult>(`${base}/account`, { email }),
+      onSuccess: refresh,
+      onError,
+      gcTime: 0,
+    }),
+    /** "Gerar nova senha fácil": reset sem `newPassword` (o servidor gera e devolve; sessões abertas são encerradas). */
+    generatePassword: useMutation({
+      mutationFn: () => api.post<GeneratedPasswordResult>(`${base}/reset-password`, {}),
+      onSuccess: refresh,
+      onError,
+      gcTime: 0,
     }),
     createGuardian: useMutation({
       mutationFn: (payload: GuardianInput) => api.post<GuardianAccountResult>(`${base}/guardians`, payload),

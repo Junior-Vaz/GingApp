@@ -188,8 +188,7 @@ describe('Acesso do aluno, responsáveis e reset de senha (e2e)', () => {
       for (const password of ['curta', 'Dev@12345', 'xxDEV@12345xx']) {
         await http().post(`/api/students/${student.id}/account`).set(auth(mestre.token)).send({ email: email('pol'), password }).expect(400);
       }
-      const semSenha = await http().post(`/api/students/${student.id}/account`).set(auth(mestre.token)).send({ email: email('pol') }).expect(400);
-      assert.equal(semSenha.body.message, 'Informe a senha provisória para criar o acesso.');
+      // (senha AUSENTE com e-mail novo não é mais erro: o servidor gera a provisória — ver students-quick-register.e2e-spec.ts)
       const semEmail = await http().post(`/api/students/${student.id}/account`).set(auth(mestre.token)).send({ password: TEMP_PASSWORD }).expect(400);
       assert.equal(semEmail.body.message, 'Informe o e-mail de acesso.');
       await http().post(`/api/students/${student.id}/account`).set(auth(mestre.token)).send({ email: 'nao-e-email', password: TEMP_PASSWORD }).expect(400);
@@ -294,7 +293,8 @@ describe('Acesso do aluno, responsáveis e reset de senha (e2e)', () => {
       // senha fraca / corpo inválido
       await http().post(`/api/students/${student.id}/reset-password`).set(auth(mestre.token)).send({ newPassword: 'curta' }).expect(400);
       await http().post(`/api/students/${student.id}/reset-password`).set(auth(mestre.token)).send({ newPassword: 'Dev@12345' }).expect(400);
-      await http().post(`/api/students/${student.id}/reset-password`).set(auth(mestre.token)).send({}).expect(400);
+      // (newPassword AUSENTE não é mais erro: o servidor gera a provisória — ver students-quick-register.e2e-spec.ts)
+      await http().post(`/api/students/${student.id}/reset-password`).set(auth(mestre.token)).send({ newPassword: 123456789012 }).expect(400);
       await http().get('/api/auth/me').set(auth(oldToken)).expect(200); // nada mudou
 
       const res = await http().post(`/api/students/${student.id}/reset-password`).set(auth(mestre.token)).send({ newPassword: NEW_PASSWORD }).expect(204);

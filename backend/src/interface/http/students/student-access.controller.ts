@@ -9,18 +9,21 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { UserThrottlerGuard } from '../../../shared/guards/user-throttler.guard';
-import { ResetMemberPasswordDto } from '../../../shared/security/reset-member-password.dto';
+import { ResetStudentPasswordDto } from '../../../shared/security/reset-member-password.dto';
 import { MESTRE_RESET_THROTTLE_LIMIT } from '../organizations/organizations.controller';
 import { CreateGuardianDto } from './dto/create-guardian.dto';
 import { CreateStudentAccountDto } from './dto/create-student-account.dto';
+import { sendResetPasswordResult } from './member-account';
 import { UpdateGuardianDto } from './dto/update-guardian.dto';
 import { StudentAccessService } from './student-access.service';
 import { StudentGuardiansService } from './student-guardians.service';
@@ -67,24 +70,32 @@ export class StudentAccessController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CreateStudentAccountDto,
+    @Res({ passthrough: true }) res: Response,
   ) {
     await this.scoped(organizationId, id, user);
-    return this.access.createAccount(organizationId, id, dto);
+    const result = await this.access.createAccount(organizationId, id, dto);
+    // Senha provisória gerada pelo servidor: aparece só nesta resposta e nunca pode ficar em cache.
+    if (result.temporaryPassword) res.set('Cache-Control', 'no-store');
+    return result;
   }
 
+  /**
+   * `newPassword` opcional: informada => 204 sem corpo; omitida => o servidor gera a provisória e responde
+   * 200 `{ temporaryPassword, mustChangePassword: true }` (no-store). Ver sendResetPasswordResult.
+   */
   @Post(':id/reset-password')
   @CanAccess('students', 'edit')
   @UseGuards(UserThrottlerGuard)
   @Throttle(RESET_THROTTLE)
-  @HttpCode(HttpStatus.NO_CONTENT)
   async resetPassword(
     @CurrentOrganization() organizationId: number,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: ResetMemberPasswordDto,
+    @Body() dto: ResetStudentPasswordDto,
+    @Res() res: Response,
   ): Promise<void> {
     await this.scoped(organizationId, id, user);
-    await this.access.resetPassword(organizationId, id, dto);
+    sendResetPasswordResult(res, await this.access.resetPassword(organizationId, id, dto));
   }
 
   @Get(':id/guardians')
@@ -149,19 +160,20 @@ export class StudentAccessController {
     return this.guardians.createAccount(organizationId, id, guardianId, dto);
   }
 
+  /** Mesmo contrato de `:id/reset-password` (newPassword opcional; omitida => 200 com temporaryPassword). */
   @Post(':id/guardians/:guardianId/reset-password')
   @CanAccess('students', 'edit')
   @UseGuards(UserThrottlerGuard)
   @Throttle(RESET_THROTTLE)
-  @HttpCode(HttpStatus.NO_CONTENT)
   async resetGuardianPassword(
     @CurrentOrganization() organizationId: number,
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseIntPipe) id: number,
     @Param('guardianId', ParseIntPipe) guardianId: number,
-    @Body() dto: ResetMemberPasswordDto,
+    @Body() dto: ResetStudentPasswordDto,
+    @Res() res: Response,
   ): Promise<void> {
     await this.scoped(organizationId, id, user);
-    await this.guardians.resetPassword(organizationId, id, guardianId, dto);
+    sendResetPasswordResult(res, await this.guardians.resetPassword(organizationId, id, guardianId, dto));
   }
 }

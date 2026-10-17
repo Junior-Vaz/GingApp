@@ -6,6 +6,7 @@ import { CurrentOrganization } from '../../../shared/decorators/current-organiza
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
+import { StudentAccessService } from './student-access.service';
 import { StudentsService } from './students.service';
 import { CreateStudentDto } from './dto/create-student.dto';
 import { UpdateStudentDto } from './dto/update-student.dto';
@@ -15,7 +16,10 @@ import { withMaskedDocument } from '../../../shared/security/person-document';
 /** Fase 2 da ficha unica: o CPF legado (Student.document) sai MASCARADO em todas as respostas deste controller. */
 @Controller('students')
 export class StudentsController {
-  constructor(private readonly studentsService: StudentsService) {}
+  constructor(
+    private readonly studentsService: StudentsService,
+    private readonly studentAccess: StudentAccessService,
+  ) {}
 
   @Get()
   @CanAccess('students', 'view')
@@ -69,14 +73,26 @@ export class StudentsController {
     return this.studentsService.ficha(organizationId, id, user);
   }
 
+  /**
+   * Cadastro (rápido). Resposta: o aluno como sempre; com `createAccess: true` ganha `access`
+   * `{ status, email?, temporaryPassword?, mustChangePassword?, reason? }` (ver StudentAccessService.createForNewStudent).
+   * O acesso é criado DEPOIS do aluno: falha nele (FAILED) nunca desfaz o cadastro. A senha provisória só existe nesta
+   * resposta, com `Cache-Control: no-store`.
+   */
   @Post()
   @CanAccess('students', 'create')
   async create(
     @CurrentOrganization() organizationId: number,
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: CreateStudentDto,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return withMaskedDocument(await this.studentsService.create(organizationId, dto, user));
+    const student = await this.studentsService.create(organizationId, dto, user);
+    const masked = withMaskedDocument(student);
+    if (!dto.createAccess) return masked;
+    const access = await this.studentAccess.createForNewStudent(organizationId, student, user);
+    if (access.temporaryPassword) res.set('Cache-Control', 'no-store');
+    return { ...masked, access };
   }
 
   @Patch(':id')

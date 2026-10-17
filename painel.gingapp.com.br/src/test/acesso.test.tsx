@@ -130,7 +130,7 @@ describe("AlunosPage - acesso do aluno", () => {
     await screen.findByText("José Álvaro");
     await clickMenuAction("Acesso de José Álvaro");
     expect(await screen.findByTestId("sem-acesso")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Criar acesso/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Definir senha manualmente/ })); // "Criar acesso" é o clique único (ver acesso-rapido.test)
 
     const dialog = await screen.findByRole("dialog", { name: "Criar acesso do aluno" });
     expect(within(dialog).getByLabelText("E-mail de acesso")).toHaveValue("j@x.com"); // vem do cadastro do aluno
@@ -162,7 +162,7 @@ describe("AlunosPage - acesso do aluno", () => {
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
     await clickMenuAction("Acesso de José Álvaro");
-    fireEvent.click(await screen.findByRole("button", { name: /Criar acesso/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Definir senha manualmente/ }));
     const dialog = await screen.findByRole("dialog", { name: "Criar acesso do aluno" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Criar acesso" }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith(LINKED_MESSAGE));
@@ -178,7 +178,7 @@ describe("AlunosPage - acesso do aluno", () => {
     renderPage(<AlunosPage />);
     await screen.findByText("José Álvaro");
     await clickMenuAction("Acesso de José Álvaro");
-    fireEvent.click(await screen.findByRole("button", { name: /Criar acesso/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Definir senha manualmente/ }));
     const dialog = await screen.findByRole("dialog", { name: "Criar acesso do aluno" });
     fireEvent.change(within(dialog).getByLabelText("Senha provisória"), { target: { value: TEMP } });
     fireEvent.change(within(dialog).getByLabelText("Confirmar senha provisória"), { target: { value: TEMP } });
@@ -199,7 +199,7 @@ describe("AlunosPage - acesso do aluno", () => {
     const info = await screen.findByTestId("com-acesso");
     expect(within(info).getByText("ana@x.com")).toBeInTheDocument();
     expect(within(info).getByText("Troca de senha pendente")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Redefinir senha/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Definir manualmente/ })); // "Gerar nova senha fácil" é o clique único (ver acesso-rapido.test)
 
     const dialog = await screen.findByRole("dialog", { name: "Redefinir senha do aluno" });
     fireEvent.change(within(dialog).getByLabelText("Senha provisória"), { target: { value: TEMP } });

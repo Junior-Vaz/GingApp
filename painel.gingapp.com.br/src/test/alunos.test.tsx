@@ -192,14 +192,15 @@ describe("AlunosPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Novo aluno/ }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "A" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cadastrar" }));
     expect(await within(dialog).findByText(/mínimo 2 letras/)).toBeInTheDocument();
     expect(calls.some((c) => c.method === "POST")).toBe(false);
 
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Carlos Lima" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Mais dados" })); // a Unidade fica em "Mais dados"
     await within(dialog).findByRole("option", { name: "Sede Centro" });
     fireEvent.change(within(dialog).getByLabelText("Unidade"), { target: { value: "7" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cadastrar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
     expect(calls.find((c) => c.method === "POST")).toMatchObject({
       path: "/students",
@@ -217,7 +218,7 @@ describe("AlunosPage", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Carlos" } });
     fireEvent.change(within(dialog).getByLabelText("E-mail"), { target: { value: "xx" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cadastrar" }));
     expect(await within(dialog).findByText("E-mail inválido.")).toBeInTheDocument();
     expect(calls.some((c) => c.method === "POST")).toBe(false);
   });
@@ -406,7 +407,7 @@ describe("AlunosPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Novo aluno/ }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Carlos" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cadastrar" }));
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith("Limite de 10 alunos do plano atingido."));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });

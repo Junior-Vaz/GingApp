@@ -31,6 +31,7 @@ import {
 import { ClassLessonsRollingService, lessonsHorizonDays, lessonsHorizonEnd } from './class-lessons-rolling.service';
 import { RankingService } from '../ranking/ranking.service';
 import { LEVEL_SELECT, withRope } from '../graduations/rope';
+import { enrollStudentInClass } from './class-enrollment';
 
 // Reexporta: specs e outros módulos importam estes nomes daqui desde antes do gerador virar um arquivo próprio.
 export { GENERATE_LESSONS_LOCK_NS, MAX_GENERATE_LESSONS_SPAN_DAYS };
@@ -564,11 +565,7 @@ export class ClassesService {
     if (!student) {
       throw new BadRequestException('Aluno inválido para esta organização.');
     }
-    return this.prisma.classStudent.upsert({
-      where: { classId_studentId: { classId, studentId } },
-      create: { organizationId, classId, studentId },
-      update: { status: 'ACTIVE' },
-    });
+    return enrollStudentInClass(this.prisma, organizationId, classId, studentId);
   }
 
   /** Desmatricula: mantém o registro (histórico de frequência) e marca INACTIVE. */
