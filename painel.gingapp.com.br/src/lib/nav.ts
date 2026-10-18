@@ -5,6 +5,7 @@ import {
   Layers,
   CalendarDays,
   ClipboardCheck,
+  ClipboardList,
   Award,
   Wallet,
   PartyPopper,
@@ -55,6 +56,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // Transferências entre grupos (GET/POST /transfers): só o MESTRE (backend: 403 para os demais papéis).
   { to: "/transferencias", label: "Transferências", icon: ArrowRightLeft, roles: ["MESTRE"] },
   { to: "/eventos", label: "Eventos", icon: PartyPopper },
+  // Formulários de inscrição (/event-forms): quem gerencia eventos (events:edit = MESTRE, PROFESSOR, INSTRUTOR); o MONITOR é só leitura.
+  { to: "/formularios", label: "Formulários", icon: ClipboardList, roles: WITHOUT_MONITOR },
   { to: "/rodas", label: "Rodas", icon: CircleDot },
   // Certificados (certificates:view): o MONITOR não tem (backend: nada); o INSTRUTOR só lê.
   { to: "/certificados", label: "Certificados", icon: BadgeCheck, roles: WITHOUT_MONITOR },

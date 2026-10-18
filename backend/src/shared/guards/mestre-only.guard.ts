@@ -11,10 +11,16 @@ import { AuthenticatedRequest } from '../interfaces/authenticated-request.interf
 @Injectable()
 export class MestreOnlyGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
-    const user = context.switchToHttp().getRequest<AuthenticatedRequest>().user;
-    if (!user || user.userType !== UserType.MEMBER || user.role !== OrgRole.MESTRE || user.organizationId == null) {
-      throw new ForbiddenException('Apenas o Mestre do grupo pode executar esta operação.');
-    }
+    assertMestre(context.switchToHttp().getRequest<AuthenticatedRequest>().user);
     return true;
   }
+}
+
+/** Mesma regra do guard, para rotas em que so ALGUMAS variantes exigem o Mestre (ex.: uma acao entre varias). */
+export function assertMestre(user: AuthenticatedRequest['user'] | undefined): void {
+  if (!isMestre(user)) throw new ForbiddenException('Apenas o Mestre do grupo pode executar esta operação.');
+}
+
+export function isMestre(user: AuthenticatedRequest['user'] | undefined): boolean {
+  return !!user && user.userType === UserType.MEMBER && user.role === OrgRole.MESTRE && user.organizationId != null;
 }

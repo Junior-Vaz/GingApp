@@ -77,3 +77,15 @@ process.env.PAYMENTS_APPLICATION_FEE_PERCENT = '';
 process.env.PAYMENTS_FALLBACK_PAYER_EMAIL = '';
 process.env.PIX_THROTTLE_LIMIT = '1000';
 process.env.PIX_READ_THROTTLE_LIMIT = '1000';
+// Formularios de inscricao publicos: sem o job de retencao (o spec chama FormsRetentionCronService direto) e limites
+// por IP altos (registration-forms.e2e-spec.ts prova o 429 rebaixando um deles; os limites sao lidos a cada pedido).
+process.env.FORMS_RETENTION_PURGE = 'false';
+process.env.FORMS_READ_THROTTLE_LIMIT = '1000';
+process.env.FORMS_SHARE_THROTTLE_LIMIT = '1000';
+process.env.FORMS_UPLOAD_THROTTLE_LIMIT = '1000';
+process.env.FORMS_SUBMIT_THROTTLE_LIMIT = '1000';
+process.env.FORMS_LOOKUP_THROTTLE_LIMIT = '1000';
+// Tetos por IP do envio (5/h e 20/dia por formulario em producao): todos os e2e saem do mesmo IP (127.0.0.1); o spec
+// prova o 429 rebaixando o limite (lido a cada envio).
+process.env.FORMS_SUBMISSIONS_PER_IP_HOUR = '1000';
+process.env.FORMS_SUBMISSIONS_PER_IP_DAY = '1000';

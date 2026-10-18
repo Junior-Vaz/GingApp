@@ -40,6 +40,15 @@ describe("guard de rotas", () => {
     }
   });
 
+  it("inscrição pública /i/<slug> não exige login (nem com ?consultar=1)", async () => {
+    for (const [path, search] of [["/i/campeonato", {}], ["/i/campeonato?consultar=1", { consultar: 1 }]] as const) {
+      const router = makeRouter(path);
+      await router.load();
+      expect(router.state.location.pathname).toBe("/i/campeonato");
+      expect(router.state.location.search).toMatchObject(search);
+    }
+  });
+
   it("redefinição de senha é pública: /redefinir-senha?token=... não redireciona para o login", async () => {
     const router = makeRouter("/redefinir-senha?token=abc");
     await router.load();

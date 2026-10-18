@@ -456,6 +456,9 @@ model Organization {
   personRoles           PersonRole[]
   groupRoles            GroupRole[]
   paymentAccounts       PaymentProviderAccount[]
+  registrationForms     RegistrationForm[]
+  registrationSubmissions RegistrationSubmission[]
+  registrationFiles     RegistrationSubmissionFile[]
 
   @@index([status])
 }
@@ -1343,6 +1346,7 @@ model Event {
   state        State?             @relation(fields: [stateId], references: [id])
   city         City?              @relation(fields: [cityId], references: [id])
   participants EventParticipant[]
+  registrationForms RegistrationForm[]
 
   @@index([organizationId, date])
   @@index([stateId, date])
@@ -1369,6 +1373,242 @@ model EventParticipant {
 
   @@index([eventId])
   @@index([organizationId])
+}
+
+// =========================================================================
+// FORMULARIOS DE INSCRICAO (docs/PLANO_FORMULARIOS_INSCRICAO.md, F1): o Mestre monta o formulario (ligado a um
+// Event ou avulso), publica um link publico (/i/<slug>) e qualquer pessoa se inscreve SEM login.
+// =========================================================================
+
+/// DRAFT (so a equipe ve; link publico = 404), OPEN (aceita inscricoes), CLOSED (link mostra "encerradas"),
+/// ARCHIVED (fora das listas; link publico = 404).
+enum RegistrationFormStatus {
+  DRAFT
+  OPEN
+  CLOSED
+  ARCHIVED
+}
+
+/// NONE = gratuito; PIX_MANUAL = chave Pix do grupo + comprovante conferido pelo Mestre; PIX_AUTO = reservado (F2,
+/// Mercado Pago): aceito no enum mas a API responde 400 PAYMENT_MODE_NOT_AVAILABLE.
+enum RegistrationPaymentMode {
+  NONE
+  PIX_MANUAL
+  PIX_AUTO
+}
+
+/// Situacao da inscricao. PENDING e CONFIRMED ocupam vaga (maxSubmissions); WAITLIST/REJECTED/CANCELLED nao.
+enum RegistrationSubmissionStatus {
+  PENDING
+  CONFIRMED
+  WAITLIST
+  REJECTED
+  CANCELLED
+}
+
+enum RegistrationPaymentStatus {
+  NOT_REQUIRED
+  PENDING
+  CONFIRMED
+}
+
+model RegistrationForm {
+  id                  Int                     @id @default(autoincrement())
+  organizationId      Int
+  /// Evento ligado (opcional). Excluir o evento NAO apaga o formulario (vira avulso).
+  eventId             Int?
+  /// Unico no GingApp inteiro, curto e legivel (titulo + sufixo aleatorio). Definitivo na 1a publicacao (publishedAt).
+  slug                String                  @unique
+  title               String
+  intro               String?
+  /// Mesmo formato de Event.imageUrl (IsImageRef: /api/uploads/<uuid>.<ext> ou URL http(s)).
+  bannerUrl           String?
+  status              RegistrationFormStatus  @default(DRAFT)
+  opensAt             DateTime?
+  closesAt            DateTime?
+  maxSubmissions      Int?
+  allowWaitlist       Boolean                 @default(false)
+  paymentMode         RegistrationPaymentMode @default(NONE)
+  priceCents          Int?
+  pixKey              String?
+  /// CPF | CNPJ | EMAIL | PHONE | RANDOM
+  pixKeyType          String?
+  pixBeneficiary      String?
+  /// true = o Mestre aprova cada inscricao; false = confirma sozinha (sem pagamento) ou ao confirmar o pagamento.
+  requireApproval     Boolean                 @default(false)
+  confirmationMessage String?
+  /// Texto de consentimento (LGPD). Vazio = texto padrao do sistema. consentVersion sobe a cada troca do texto.
+  consentText         String?
+  consentVersion      Int                     @default(1)
+  /// Retencao: N meses depois do encerramento (closesAt/evento/fechamento/arquivamento) as respostas e anexos sao
+  /// anonimizados/apagados pelo job FORMS_RETENTION_PURGE.
+  retentionMonths     Int                     @default(12)
+  publishedAt         DateTime?
+  closedAt            DateTime?
+  archivedAt          DateTime?
+  purgedAt            DateTime?
+  /// Agrupamento do aviso ao Mestre (no maximo 1 por formulario a cada 5 min, com contador).
+  lastNotifiedAt      DateTime?
+  pendingNotifyCount  Int                     @default(0)
+  createdById         Int?
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+
+  organization Organization                 @relation(fields: [organizationId], references: [id])
+  event        Event?                       @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  sections     RegistrationFormSection[]
+  fields       RegistrationFormField[]
+  submissions  RegistrationSubmission[]
+  files        RegistrationSubmissionFile[]
+  consentVersions RegistrationConsentVersion[]
+
+  @@index([organizationId, status])
+  @@index([eventId])
+}
+
+/// Snapshot do texto de consentimento EFETIVO (texto do formulario ou o padrao com retentionMonths + rotulos dos campos
+/// CONSENT) de cada versao: prova o que a pessoa aceitou (RegistrationSubmission.consentVersion aponta para cá).
+/// Nova linha a cada mudanca do texto efetivo (SHA-256 diferente). Sem dado pessoal.
+model RegistrationConsentVersion {
+  id        Int      @id @default(autoincrement())
+  formId    Int
+  version   Int
+  textHash  String
+  text      String
+  createdAt DateTime @default(now())
+
+  form RegistrationForm @relation(fields: [formId], references: [id], onDelete: Cascade)
+
+  @@unique([formId, version])
+}
+
+model RegistrationFormSection {
+  id          Int      @id @default(autoincrement())
+  formId      Int
+  order       Int
+  title       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  form   RegistrationForm        @relation(fields: [formId], references: [id], onDelete: Cascade)
+  fields RegistrationFormField[]
+
+  @@index([formId, order])
+}
+
+/// Campo do formulario. `key` e ESTAVEL (as respostas sao guardadas por ela) e unica no formulario. Campo removido
+/// de um formulario que ja tem inscricoes vira `archived` (as respostas antigas continuam legiveis).
+/// type: SHORT_TEXT | LONG_TEXT | NUMBER | EMAIL | PHONE | CPF | DATE | SINGLE_CHOICE | MULTI_CHOICE | SELECT | CONSENT |
+/// FILE | INFO. mapsTo: name | nickname | birthDate | document | phone | email | city | group | teacher | cord.
+model RegistrationFormField {
+  id         Int      @id @default(autoincrement())
+  formId     Int
+  sectionId  Int?
+  key        String
+  order      Int
+  type       String
+  label      String
+  helpText   String?
+  required   Boolean  @default(false)
+  options    Json?
+  validation Json?
+  /// { fieldKey, equals } | null - reavaliado no servidor.
+  showIf     Json?
+  mapsTo     String?
+  archived   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  form    RegistrationForm         @relation(fields: [formId], references: [id], onDelete: Cascade)
+  section RegistrationFormSection? @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+
+  @@unique([formId, key])
+  @@index([formId, order])
+}
+
+/// Inscricao (anonima). answers = { fieldKey: valor } SEM o CPF de identificacao (documentHash/documentEnc, helper da
+/// ficha unica), sem o e-mail e o telefone de identificacao (colunas proprias). Outros campos CPF ficam cifrados.
+/// ipHash = HMAC do IP com segredo do servidor (nunca o IP cru). Depois da retencao: anonymizedAt e PII apagada.
+model RegistrationSubmission {
+  id                 Int                          @id @default(autoincrement())
+  organizationId     Int
+  formId             Int
+  /// INS-XXXXXX (alfabeto sem caracteres ambiguos).
+  protocol           String                       @unique
+  status             RegistrationSubmissionStatus @default(PENDING)
+  paymentStatus      RegistrationPaymentStatus    @default(NOT_REQUIRED)
+  answers            Json
+  name               String
+  email              String?
+  /// E-mail normalizado SO para duplicidade e limite de avisos (minusculas, sem "+tag"; gmail/googlemail sem pontos).
+  emailKey           String?
+  phone              String?
+  documentHash       String?
+  documentEnc        String?
+  documentLast4      String?
+  consentAt          DateTime
+  consentVersion     Int
+  ipHash             String?
+  userAgent          String?
+  /// Participante do evento criado/ligado ao CONFIRMAR (sem FK: o participante pode ser removido no evento).
+  eventParticipantId Int?
+  personId           Int?
+  /// Aluno ligado (so por acao do MESTRE: linkStudentId em approve/confirm-payment). O envio anonimo NUNCA liga.
+  studentId          Int?
+  /// Aluno ATIVO do grupo com o mesmo CPF (sugestao para o Mestre confirmar; nunca vinculo automatico).
+  suggestedStudentId Int?
+  reviewedById       Int?
+  reviewedAt         DateTime?
+  reviewNote         String?
+  internalNote       String?
+  anonymizedAt       DateTime?
+  createdAt          DateTime                     @default(now())
+  updatedAt          DateTime                     @updatedAt
+
+  organization Organization                 @relation(fields: [organizationId], references: [id])
+  form         RegistrationForm             @relation(fields: [formId], references: [id])
+  files        RegistrationSubmissionFile[]
+
+  @@index([formId, status])
+  @@index([formId, createdAt])
+  @@index([formId, documentHash])
+  @@index([formId, email])
+  @@index([formId, emailKey])
+  @@index([emailKey, createdAt])
+  @@index([formId, ipHash, createdAt])
+  @@index([organizationId])
+}
+
+/// Anexo PRIVADO (comprovante/documento): fica em PRIVATE_UPLOADS_DIR (nunca em /api/uploads), nome aleatorio,
+/// tipo pelos magic bytes. Enviado ANTES da inscricao (anonimo): pendingToken = SHA-256 do token devolvido ao
+/// navegador + expiresAt (2 h); ao enviar a inscricao o arquivo e ligado (submissionId) e o token some.
+model RegistrationSubmissionFile {
+  id             Int       @id @default(autoincrement())
+  submissionId   Int?
+  formId         Int
+  organizationId Int
+  fieldKey       String
+  /// Caminho RELATIVO no armazenamento privado (org-<id>/<uuid>.<ext>).
+  storageKey     String    @unique
+  originalName   String
+  mimeType       String
+  sizeBytes      Int
+  sha256         String
+  pendingToken   String?   @unique
+  expiresAt      DateTime?
+  /// HMAC do IP de quem enviou o anexo pendente (IPv6 agrupado por /64): teto de pendentes por IP+formulario.
+  ipHash         String?
+  createdAt      DateTime  @default(now())
+
+  submission   RegistrationSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  form         RegistrationForm        @relation(fields: [formId], references: [id], onDelete: Cascade)
+  organization Organization            @relation(fields: [organizationId], references: [id])
+
+  @@index([submissionId])
+  @@index([formId, expiresAt])
+  @@index([formId, ipHash])
+  @@index([organizationId, submissionId])
 }
 
 /// Comunicados internos do grupo, com escopo opcional por unidade (projeto.txt §47).

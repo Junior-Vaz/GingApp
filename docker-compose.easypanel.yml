@@ -162,6 +162,20 @@ services:
       # por grupo (padrao 1024; 0 = sem limite). Limite por arquivo: 5 MB (fixo no codigo).
       UPLOADS_DIR: "/app/uploads"
       UPLOAD_ORG_QUOTA_MB: "${UPLOAD_ORG_QUOTA_MB:-1024}"
+      # Formularios de inscricao (docs/EASYPANEL.md secao "Formularios de inscricao"): comprovantes/documentos enviados
+      # SEM login ficam num diretorio PRIVADO (volume gingapp_private_uploads), FORA de UPLOADS_DIR e nunca servidos
+      # por /api/uploads (so pelo painel, autenticado). O backend NAO sobe se PRIVATE_UPLOADS_DIR ficar dentro de
+      # UPLOADS_DIR. FORMS_FILE_MAX_MB = limite por anexo (padrao 5, maximo 9). FORMS_RETENTION_PURGE = job diario 04:45
+      # que anonimiza respostas e apaga anexos N meses depois do encerramento: dry-run (PADRAO: so log; o backend avisa no
+      # boot) | true | false. Inscricoes por IP+formulario: 5/hora e 20/dia (suba se uma academia inscreve muitos alunos da
+      # mesma rede). FORMS_PUBLIC_LEGACY=true aceita o app antigo em cache; false depois do deploy do app novo. Demais
+      # tetos (anexos pendentes por IP/bytes, lista de espera, e-mails por destinatario): padroes do codigo (secao 26).
+      PRIVATE_UPLOADS_DIR: "/app/private-uploads"
+      FORMS_FILE_MAX_MB: "${FORMS_FILE_MAX_MB:-5}"
+      FORMS_RETENTION_PURGE: "${FORMS_RETENTION_PURGE:-dry-run}"
+      FORMS_SUBMISSIONS_PER_IP_HOUR: "${FORMS_SUBMISSIONS_PER_IP_HOUR:-5}"
+      FORMS_SUBMISSIONS_PER_IP_DAY: "${FORMS_SUBMISSIONS_PER_IP_DAY:-20}"
+      FORMS_PUBLIC_LEGACY: "${FORMS_PUBLIC_LEGACY:-true}"
       # Pix de mensalidade na conta Mercado Pago DE CADA GRUPO (PLANO_PROJETO.md 10.52/10.55, docs/EASYPANEL.md secao 25).
       # NENHUMA variavel do Mercado Pago e necessaria: cada Mestre cola as credenciais da PROPRIA conta no painel (Financeiro).
       # PAYMENTS_PROVIDER=stub e PROIBIDO em producao (o boot falha). PAYMENTS_TOKEN_KEY (RECOMENDADA): chave das credenciais
@@ -184,6 +198,8 @@ services:
       PAYMENTS_RECONCILE_CRON: "${PAYMENTS_RECONCILE_CRON:-true}"
     volumes:
       - gingapp_uploads:/app/uploads
+      # Anexos privados das inscricoes (comprovantes): volume PROPRIO, sobrevive a redeploy.
+      - gingapp_private_uploads:/app/private-uploads
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 15s
@@ -283,6 +299,7 @@ volumes:
   gingapp_pgdata:
   gingapp_backups:
   gingapp_uploads:
+  gingapp_private_uploads:
 
 networks:
   gingapp:

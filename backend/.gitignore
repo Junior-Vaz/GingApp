@@ -26,3 +26,5 @@ yarn-error.log*
 
 # imagens enviadas (POST /uploads) em dev
 /uploads
+# anexos PRIVADOS das inscricoes (comprovantes, PRIVATE_UPLOADS_DIR) em dev
+/private-uploads

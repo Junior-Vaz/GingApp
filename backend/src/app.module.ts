@@ -56,6 +56,8 @@ import { PeopleModule } from './interface/http/people/people.module';
 import { RolesModule } from './interface/http/roles/roles.module';
 import { PaymentsModule } from './interface/http/payments/payments.module';
 import { isPaymentsReconcileCronEnabled } from './shared/payments/payments.config';
+import { RegistrationFormsModule } from './interface/http/registration-forms/registration-forms.module';
+import { formsRetentionMode } from './jobs/forms-retention-cron.service';
 
 const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
 
@@ -109,12 +111,14 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     // Pix de mensalidade na conta Mercado Pago do grupo (PLANO_PROJETO.md 10.52). Reconciliacao a cada 15 min
     // (PAYMENTS_RECONCILE_CRON) no mesmo agendador abaixo.
     PaymentsModule,
+    // Formularios de inscricao publicos (docs/PLANO_FORMULARIOS_INSCRICAO.md, F1): /event-forms (painel) e /public/forms.
+    RegistrationFormsModule,
 
     // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador
     // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.
     // Ginga Rank (RANKING_CRON): recalculo noturno 02:30 + fechamento mensal 03:00 do dia 1, no mesmo agendador.
     // Aulas continuas (LESSONS_CRON): geracao rolante diaria 01:30 (LESSONS_HORIZON_DAYS a frente), no mesmo agendador.
-    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled() || isLessonsCronEnabled() || isTransferCronEnabled() || isPaymentsReconcileCronEnabled()
+    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled() || isLessonsCronEnabled() || isTransferCronEnabled() || isPaymentsReconcileCronEnabled() || formsRetentionMode() !== 'off'
       ? [ScheduleModule.forRoot(), JobsModule]
       : []),
   ],

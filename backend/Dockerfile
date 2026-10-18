@@ -63,6 +63,9 @@ COPY package.json ./
 # usuario nestjs aqui: um volume nomeado novo herda este dono.
 RUN mkdir -p /app/uploads && chown nestjs:nodejs /app/uploads
 ENV UPLOADS_DIR=/app/uploads
+# Anexos PRIVADOS das inscricoes (comprovantes): diretorio IRMAO, fora do servido por /api/uploads (volume proprio no compose).
+RUN mkdir -p /app/private-uploads && chown nestjs:nodejs /app/private-uploads && chmod 700 /app/private-uploads
+ENV PRIVATE_UPLOADS_DIR=/app/private-uploads
 
 USER nestjs
 
@@ -109,6 +112,9 @@ ENV NODE_ENV=production
 # Imagens enviadas (POST /uploads): o compose monta o volume gingapp_uploads aqui (UPLOADS_DIR=/app/uploads).
 RUN mkdir -p /app/uploads
 ENV UPLOADS_DIR=/app/uploads
+# Anexos PRIVADOS das inscricoes (volume gingapp_private_uploads): nunca servidos por rota publica.
+RUN mkdir -p /app/private-uploads && chmod 700 /app/private-uploads
+ENV PRIVATE_UPLOADS_DIR=/app/private-uploads
 EXPOSE 3000
 #   3b. prisma/ranking-backfill.ts --auto - Ginga Rank: deriva os pontos do historico (idempotente, sem notificar).
 #      RANKING_BACKFILL=true roda sempre; =false nunca; sem a variavel roda UMA vez (tabela PointEvent vazia). Roda DEPOIS

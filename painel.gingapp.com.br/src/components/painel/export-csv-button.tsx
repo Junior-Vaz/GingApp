@@ -22,7 +22,13 @@ export function ExportCsvButton({
   label = "Exportar CSV",
   disabled,
   variant = "outline",
-}: CommonProps & { path: string; params?: QueryParams }) {
+  friendlyError,
+}: CommonProps & {
+  path: string;
+  params?: QueryParams;
+  /** Mensagem amigável por erro (ex.: 403); devolvendo texto, ele substitui a do servidor no toast. */
+  friendlyError?: (error: unknown) => string | undefined;
+}) {
   const [pending, setPending] = useState(false);
 
   async function run() {
@@ -31,7 +37,9 @@ export function ExportCsvButton({
       await downloadServerCsv(path, params, `${filename}-${todayStamp()}.csv`);
       toast.success("Arquivo CSV gerado.");
     } catch (error) {
-      notifyError(error, "Não foi possível exportar o CSV.");
+      const friendly = friendlyError?.(error);
+      if (friendly) toast.error(friendly);
+      else notifyError(error, "Não foi possível exportar o CSV.");
     } finally {
       setPending(false);
     }

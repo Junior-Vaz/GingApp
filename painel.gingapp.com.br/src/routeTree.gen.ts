@@ -25,6 +25,7 @@ import { Route as AppConfiguracoesRouteImport } from './routes/_app.configuracoe
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppEventosRouteImport } from './routes/_app.eventos'
 import { Route as AppFinanceiroRouteImport } from './routes/_app.financeiro'
+import { Route as AppFormulariosRouteImport } from './routes/_app.formularios'
 import { Route as AppFrequenciaRouteImport } from './routes/_app.frequencia'
 import { Route as AppGraduacoesRouteImport } from './routes/_app.graduacoes'
 import { Route as AppPerfilRouteImport } from './routes/_app.perfil'
@@ -35,6 +36,7 @@ import { Route as AppRodasRouteImport } from './routes/_app.rodas'
 import { Route as AppTransferenciasRouteImport } from './routes/_app.transferencias'
 import { Route as AppTurmasRouteImport } from './routes/_app.turmas'
 import { Route as AppUnidadesRouteImport } from './routes/_app.unidades'
+import { Route as AppFormulariosFormIdRouteImport } from './routes/_app.formularios_.$formId'
 import { Route as AppTurmasClassIdRouteImport } from './routes/_app.turmas_.$classId'
 import { Route as AppCheckinKindIdRouteImport } from './routes/_app.checkin.$kind.$id'
 
@@ -117,6 +119,11 @@ const AppFinanceiroRoute = AppFinanceiroRouteImport.update({
   path: '/financeiro',
   getParentRoute: () => AppRoute,
 } as any)
+const AppFormulariosRoute = AppFormulariosRouteImport.update({
+  id: '/formularios',
+  path: '/formularios',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppFrequenciaRoute = AppFrequenciaRouteImport.update({
   id: '/frequencia',
   path: '/frequencia',
@@ -167,6 +174,11 @@ const AppUnidadesRoute = AppUnidadesRouteImport.update({
   path: '/unidades',
   getParentRoute: () => AppRoute,
 } as any)
+const AppFormulariosFormIdRoute = AppFormulariosFormIdRouteImport.update({
+  id: '/formularios_/$formId',
+  path: '/formularios/$formId',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTurmasClassIdRoute = AppTurmasClassIdRouteImport.update({
   id: '/turmas_/$classId',
   path: '/turmas/$classId',
@@ -194,6 +206,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AppDashboardRoute
   '/eventos': typeof AppEventosRoute
   '/financeiro': typeof AppFinanceiroRoute
+  '/formularios': typeof AppFormulariosRoute
   '/frequencia': typeof AppFrequenciaRoute
   '/graduacoes': typeof AppGraduacoesRoute
   '/perfil': typeof AppPerfilRoute
@@ -204,6 +217,7 @@ export interface FileRoutesByFullPath {
   '/transferencias': typeof AppTransferenciasRoute
   '/turmas': typeof AppTurmasRoute
   '/unidades': typeof AppUnidadesRoute
+  '/formularios/$formId': typeof AppFormulariosFormIdRoute
   '/turmas/$classId': typeof AppTurmasClassIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
@@ -223,6 +237,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AppDashboardRoute
   '/eventos': typeof AppEventosRoute
   '/financeiro': typeof AppFinanceiroRoute
+  '/formularios': typeof AppFormulariosRoute
   '/frequencia': typeof AppFrequenciaRoute
   '/graduacoes': typeof AppGraduacoesRoute
   '/perfil': typeof AppPerfilRoute
@@ -233,6 +248,7 @@ export interface FileRoutesByTo {
   '/transferencias': typeof AppTransferenciasRoute
   '/turmas': typeof AppTurmasRoute
   '/unidades': typeof AppUnidadesRoute
+  '/formularios/$formId': typeof AppFormulariosFormIdRoute
   '/turmas/$classId': typeof AppTurmasClassIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
@@ -254,6 +270,7 @@ export interface FileRoutesById {
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/eventos': typeof AppEventosRoute
   '/_app/financeiro': typeof AppFinanceiroRoute
+  '/_app/formularios': typeof AppFormulariosRoute
   '/_app/frequencia': typeof AppFrequenciaRoute
   '/_app/graduacoes': typeof AppGraduacoesRoute
   '/_app/perfil': typeof AppPerfilRoute
@@ -264,6 +281,7 @@ export interface FileRoutesById {
   '/_app/transferencias': typeof AppTransferenciasRoute
   '/_app/turmas': typeof AppTurmasRoute
   '/_app/unidades': typeof AppUnidadesRoute
+  '/_app/formularios_/$formId': typeof AppFormulariosFormIdRoute
   '/_app/turmas_/$classId': typeof AppTurmasClassIdRoute
   '/_app/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
@@ -285,6 +303,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/eventos'
     | '/financeiro'
+    | '/formularios'
     | '/frequencia'
     | '/graduacoes'
     | '/perfil'
@@ -295,6 +314,7 @@ export interface FileRouteTypes {
     | '/transferencias'
     | '/turmas'
     | '/unidades'
+    | '/formularios/$formId'
     | '/turmas/$classId'
     | '/checkin/$kind/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -314,6 +334,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/eventos'
     | '/financeiro'
+    | '/formularios'
     | '/frequencia'
     | '/graduacoes'
     | '/perfil'
@@ -324,6 +345,7 @@ export interface FileRouteTypes {
     | '/transferencias'
     | '/turmas'
     | '/unidades'
+    | '/formularios/$formId'
     | '/turmas/$classId'
     | '/checkin/$kind/$id'
   id:
@@ -344,6 +366,7 @@ export interface FileRouteTypes {
     | '/_app/dashboard'
     | '/_app/eventos'
     | '/_app/financeiro'
+    | '/_app/formularios'
     | '/_app/frequencia'
     | '/_app/graduacoes'
     | '/_app/perfil'
@@ -354,6 +377,7 @@ export interface FileRouteTypes {
     | '/_app/transferencias'
     | '/_app/turmas'
     | '/_app/unidades'
+    | '/_app/formularios_/$formId'
     | '/_app/turmas_/$classId'
     | '/_app/checkin/$kind/$id'
   fileRoutesById: FileRoutesById
@@ -482,6 +506,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFinanceiroRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/formularios': {
+      id: '/_app/formularios'
+      path: '/formularios'
+      fullPath: '/formularios'
+      preLoaderRoute: typeof AppFormulariosRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/frequencia': {
       id: '/_app/frequencia'
       path: '/frequencia'
@@ -552,6 +583,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUnidadesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/formularios_/$formId': {
+      id: '/_app/formularios_/$formId'
+      path: '/formularios/$formId'
+      fullPath: '/formularios/$formId'
+      preLoaderRoute: typeof AppFormulariosFormIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/turmas_/$classId': {
       id: '/_app/turmas_/$classId'
       path: '/turmas/$classId'
@@ -579,6 +617,7 @@ interface AppRouteChildren {
   AppDashboardRoute: typeof AppDashboardRoute
   AppEventosRoute: typeof AppEventosRoute
   AppFinanceiroRoute: typeof AppFinanceiroRoute
+  AppFormulariosRoute: typeof AppFormulariosRoute
   AppFrequenciaRoute: typeof AppFrequenciaRoute
   AppGraduacoesRoute: typeof AppGraduacoesRoute
   AppPerfilRoute: typeof AppPerfilRoute
@@ -589,6 +628,7 @@ interface AppRouteChildren {
   AppTransferenciasRoute: typeof AppTransferenciasRoute
   AppTurmasRoute: typeof AppTurmasRoute
   AppUnidadesRoute: typeof AppUnidadesRoute
+  AppFormulariosFormIdRoute: typeof AppFormulariosFormIdRoute
   AppTurmasClassIdRoute: typeof AppTurmasClassIdRoute
   AppCheckinKindIdRoute: typeof AppCheckinKindIdRoute
 }
@@ -603,6 +643,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppDashboardRoute: AppDashboardRoute,
   AppEventosRoute: AppEventosRoute,
   AppFinanceiroRoute: AppFinanceiroRoute,
+  AppFormulariosRoute: AppFormulariosRoute,
   AppFrequenciaRoute: AppFrequenciaRoute,
   AppGraduacoesRoute: AppGraduacoesRoute,
   AppPerfilRoute: AppPerfilRoute,
@@ -613,6 +654,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppTransferenciasRoute: AppTransferenciasRoute,
   AppTurmasRoute: AppTurmasRoute,
   AppUnidadesRoute: AppUnidadesRoute,
+  AppFormulariosFormIdRoute: AppFormulariosFormIdRoute,
   AppTurmasClassIdRoute: AppTurmasClassIdRoute,
   AppCheckinKindIdRoute: AppCheckinKindIdRoute,
 }

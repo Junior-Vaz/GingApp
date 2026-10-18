@@ -8,6 +8,9 @@ import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { BCRYPT_ROUNDS } from '../../../shared/security/password-policy';
 import { revocationCutoff } from '../../../shared/security/token-revocation';
 import { generateGingappCode } from '../people/gingapp-code';
+import { deletePrivateFile } from '../registration-forms/private-storage';
+import { anonymizeSubmissions } from '../registration-forms/submission-purge';
+import { normalizeEmail } from '../../../shared/security/password-policy';
 import { OPEN_DELETION_STATUSES } from './deletion-request-status';
 
 export const REMOVED_NAME = 'Pessoa removida';
@@ -68,10 +71,14 @@ export class AnonymizationService {
     await this.assertNotLastMestre(user.id);
 
     const passwordHash = await bcrypt.hash(randomBytes(32).toString('base64url'), BCRYPT_ROUNDS);
-    const result = await this.prisma.$transaction((tx) => this.run(tx, request.id, user.id, passwordHash, now), {
+    // Inscricoes de formularios publicos do titular (mesmo e-mail ou CPF): anonimizadas na MESMA transacao; os anexos
+    // saem do disco depois do commit.
+    const registrations = { count: 0, storageKeys: [] as string[] };
+    const result = await this.prisma.$transaction((tx) => this.run(tx, request.id, user.id, passwordHash, now, registrations), {
       timeout: 60_000,
       maxWait: 10_000,
     });
+    for (const key of registrations.storageKeys) await deletePrivateFile(key).catch(() => undefined);
 
     await this.audit.record({
       organizationId: request.organizationId,
@@ -80,7 +87,7 @@ export class AnonymizationService {
       entityId: result.personId ?? user.id,
       action: AuditAction.PERSON_ANONYMIZE,
       // Nunca nome, e-mail ou documento: so contagens e ids.
-      meta: { requestId, targetUserId: user.id, ...result },
+      meta: { requestId, targetUserId: user.id, ...result, registrationSubmissionsAnonymized: registrations.count },
     });
     return result;
   }
@@ -111,6 +118,7 @@ export class AnonymizationService {
     userId: number,
     passwordHash: string,
     now: Date,
+    registrations: { count: number; storageKeys: string[] } = { count: 0, storageKeys: [] },
   ): Promise<AnonymizationResult> {
     // Fichas do login e as mescladas nelas (cadeia).
     const personIds = new Set<number>((await tx.person.findMany({ where: { userId }, select: { id: true } })).map((p) => p.id));
@@ -130,6 +138,23 @@ export class AnonymizationService {
       select: { id: true, status: true, leftAt: true, leftReason: true },
     });
     const studentIds = students.map((s) => s.id);
+
+    // Formularios de inscricao: e-mails (login + fichas) e hash do CPF das fichas ANTES de apagar os dados delas.
+    const owner = await tx.user.findUnique({ where: { id: userId }, select: { email: true } });
+    const personRows = ids.length
+      ? await tx.person.findMany({ where: { id: { in: ids } }, select: { email: true, documentHash: true, documentKind: true } })
+      : [];
+    const emails = [...new Set([owner?.email, ...personRows.map((p) => p.email)].filter((e): e is string => !!e).map(normalizeEmail))];
+    const documentHashes = personRows.filter((p) => p.documentKind === 'CPF' && p.documentHash).map((p) => p.documentHash as string);
+    const registrationMatch = [
+      ...(emails.length ? [{ email: { in: emails } }] : []),
+      ...(documentHashes.length ? [{ documentHash: { in: documentHashes } }] : []),
+    ];
+    if (registrationMatch.length > 0) {
+      const purged = await anonymizeSubmissions(tx, { OR: registrationMatch }, now);
+      registrations.count = purged.count;
+      registrations.storageKeys = purged.storageKeys;
+    }
 
     for (const personId of ids) {
       await tx.person.update({

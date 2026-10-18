@@ -91,6 +91,37 @@ export function renderTransferApprovalMail(input: {
   };
 }
 
+/**
+ * Aviso da inscricao em formulario publico (F1): so protocolo, titulo do formulario (do Mestre, escapado) e situacao.
+ * NUNCA texto digitado pelo inscrito (nem o nome): o envio e anonimo e o e-mail informado pode ser de outra pessoa, entao
+ * o aviso nao pode virar canal de mensagem do atacante para a caixa de terceiros. Saudacao fixa.
+ */
+export type RegistrationNoticeKind = 'RECEIVED' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED' | 'WAITLIST';
+
+export function renderRegistrationNoticeMail(input: {
+  notice: RegistrationNoticeKind;
+  formTitle: string;
+  protocol: string;
+  link: string;
+}): RenderedMail {
+  const hello = 'Olá!';
+  const situation: Record<RegistrationNoticeKind, string> = {
+    RECEIVED: 'Recebemos a sua inscrição. Guarde o número do protocolo para consultar a situação.',
+    CONFIRMED: 'A sua inscrição foi confirmada.',
+    REJECTED: 'A sua inscrição não foi aceita pelo organizador. Em caso de dúvida, fale com ele.',
+    CANCELLED: 'A sua inscrição foi cancelada.',
+    WAITLIST: 'A sua inscrição está na lista de espera. Você será avisado se uma vaga abrir.',
+  };
+  const line = `Inscrição ${input.protocol} em "${input.formTitle}".`;
+  const text = situation[input.notice];
+  const footer = 'Este é um aviso automático do GingApp. Não responda este e-mail. Se você não fez esta inscrição, ignore esta mensagem.';
+  return {
+    subject: `Inscrição ${input.protocol} - ${input.formTitle}`,
+    text: [hello, '', line, text, '', 'Consulte a situação em:', input.link, '', footer].join('\n'),
+    html: layout('Inscrição', [escapeHtml(hello), escapeHtml(line), escapeHtml(text)], input.link, 'Consultar inscrição', footer),
+  };
+}
+
 export function renderInviteMail(input: {
   name: string;
   groupName: string;

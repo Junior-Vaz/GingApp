@@ -21,6 +21,9 @@ export interface RowActionSpec {
   /** `true`: botão de ícone sempre visível; senão a ação vai para o menu "⋯". */
   primary?: boolean | undefined;
   destructive?: boolean | undefined;
+  /** Ação indisponível agora (continua visível, sem clique); `hint` explica o motivo no tooltip. */
+  disabled?: boolean | undefined;
+  hint?: string | undefined;
 }
 
 export type MaybeRowAction = RowActionSpec | false | null | undefined;
@@ -45,8 +48,9 @@ export function RowActions({ actions, subject }: { actions: MaybeRowAction[]; su
           variant="ghost"
           size="icon"
           className={cn("md:size-8", a.destructive && "text-destructive hover:text-destructive")}
-          title={a.label}
+          title={a.disabled && a.hint ? a.hint : a.label}
           aria-label={a.ariaLabel ?? a.label}
+          disabled={a.disabled}
           onClick={a.onSelect}
         >
           <a.icon />
@@ -66,6 +70,8 @@ export function RowActions({ actions, subject }: { actions: MaybeRowAction[]; su
                 key={a.key}
                 aria-label={a.ariaLabel ?? a.label}
                 className={cn(a.destructive && "text-destructive focus:text-destructive")}
+                {...(a.disabled ? { disabled: true } : {})}
+                title={a.disabled ? a.hint : undefined}
                 onSelect={a.onSelect}
               >
                 <a.icon /> {a.label}
@@ -83,7 +89,16 @@ export function ActionButtons({ actions }: { actions: MaybeRowAction[] }) {
   return (
     <>
       {present(actions).map((a) => (
-        <Button key={a.key} type="button" variant="ghost" size="sm" aria-label={a.ariaLabel} onClick={a.onSelect}>
+        <Button
+          key={a.key}
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-label={a.ariaLabel}
+          disabled={a.disabled}
+          title={a.disabled ? a.hint : undefined}
+          onClick={a.onSelect}
+        >
           <a.icon /> {a.label}
         </Button>
       ))}

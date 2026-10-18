@@ -95,6 +95,10 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/rodas/:id/participants', 'pública, mas terceiros anonimizados para quem não organiza'],
   ['/api/public/certificates/:code', 'pública por código secreto (quem tem o código pode verificar)'],
   ['/api/public/passport/:code', 'pública por código de passaporte PUBLICADO'],
+  // Formulários de inscrição (F1): só o que o Mestre PUBLICOU (definição do formulário, sem nenhuma inscrição);
+  // rascunho/arquivado/inexistente = 404 idêntico. As rotas do painel (/api/event-forms/*) exigem events.edit (403 aqui).
+  ['/api/public/forms/:slug', 'pública: definição de formulário PUBLICADO (campos, textos, Pix do grupo); nenhuma inscrição/dado de terceiro'],
+  ['/api/public/forms/:slug/share', 'pública: HTML Open Graph do formulário publicado (título/descrição/imagem); nenhum dado pessoal'],
 ]);
 
 function toArray(value: unknown): string[] {

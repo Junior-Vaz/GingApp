@@ -11,6 +11,7 @@ import { PixReconcileCronService } from './pix-reconcile-cron.service';
 import { RankingCronService } from './ranking-cron.service';
 import { TransferCronService } from './transfer-cron.service';
 import { UploadsGcCronService } from './uploads-gc-cron.service';
+import { FormsRetentionCronService } from './forms-retention-cron.service';
 
 /**
  * Jobs agendados. So entra no AppModule (junto com ScheduleModule.forRoot()) quando pelo menos um deles esta ligado
@@ -27,6 +28,8 @@ import { UploadsGcCronService } from './uploads-gc-cron.service';
     LessonsCronService,
     TransferCronService,
     PixReconcileCronService,
+    // Retencao LGPD dos formularios de inscricao + limpeza de anexos pendentes (FORMS_RETENTION_PURGE).
+    FormsRetentionCronService,
   ],
 })
 export class JobsModule {}

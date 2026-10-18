@@ -116,15 +116,25 @@ const jsonBody = (body: unknown): { body?: string } =>
 
 export const api = {
   /**
-   * Listagem paginada: o corpo é um array e o total vem no header `X-Total-Count`.
-   * Sem o header (ou inválido) o total é `items.length`.
+   * Listagem paginada. Dois formatos do backend: (a) o corpo é um array e o total vem no header `X-Total-Count`
+   * (quase todas as listas); (b) o corpo é `{ items, total, limit, offset }` (lista de inscrições dos formulários,
+   * que também manda o header). O total vem do header; sem ele (ou inválido), de `total` do corpo e, por fim, de
+   * `items.length`.
    */
   getPage: async <T>(path: string, params?: QueryParams, options?: RequestOptions): Promise<Page<T>> => {
-    const { data, headers } = await requestRaw<T[]>(`${path}${buildQuery(params)}`, { method: "GET" }, options);
-    const items = Array.isArray(data) ? data : [];
+    const { data, headers } = await requestRaw<T[] | { items?: T[]; total?: number }>(
+      `${path}${buildQuery(params)}`,
+      { method: "GET" },
+      options,
+    );
+    const wrapped = data !== null && typeof data === "object" && !Array.isArray(data) ? data : null;
+    const found = Array.isArray(data) ? data : wrapped?.items;
+    const items = Array.isArray(found) ? found : [];
     const raw = headers.get("X-Total-Count");
-    const total = raw !== null && raw.trim() !== "" ? Number(raw) : NaN;
-    return { items, total: Number.isFinite(total) && total >= 0 ? total : items.length };
+    const fromHeader = raw !== null && raw.trim() !== "" ? Number(raw) : NaN;
+    const fromBody = typeof wrapped?.total === "number" ? wrapped.total : NaN;
+    for (const total of [fromHeader, fromBody]) if (Number.isFinite(total) && total >= 0) return { items, total };
+    return { items, total: items.length };
   },
   get: <T>(path: string, options?: RequestOptions) =>
     request<T>(path, { method: "GET" }, options),

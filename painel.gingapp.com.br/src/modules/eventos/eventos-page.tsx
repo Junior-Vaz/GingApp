@@ -14,6 +14,7 @@ import { events } from "./api";
 import { EventForm } from "./event-form";
 import { ParticipantsDialog } from "./participants-dialog";
 import { CheckinLink } from "@/modules/checkin/checkin-link";
+import { EventFormLink } from "@/modules/formularios/event-form-link";
 import { EVENT_STATUS_LABEL, EVENT_TYPE_LABEL, EVENT_TYPES, type EventItem, type EventStatus } from "./types";
 
 const STATUS_VARIANT: Record<EventStatus, "default" | "secondary" | "outline" | "destructive"> = {
@@ -176,6 +177,7 @@ export function EventosPage() {
               <Users /> Participantes
             </Button>
             {canEdit && <CheckinLink kind="evento" id={e.id} label="QR de check-in" ariaLabel={`QR de check-in de ${e.title}`} />}
+            {canEdit && <EventFormLink event={{ id: e.id, title: e.title }} />}
             {canEdit && (
               <Button variant="ghost" size="sm" onClick={() => setEditing(e)} aria-label={`Editar ${e.title}`}>
                 Editar

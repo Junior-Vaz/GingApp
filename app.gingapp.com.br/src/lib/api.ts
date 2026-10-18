@@ -8,12 +8,15 @@ export class ApiError extends Error {
   status: number;
   /** Codigo de negocio opcional do corpo do erro (ex.: 'EVENT_FULL' no 409 de evento lotado). */
   code?: string;
+  /** Corpo JSON do erro (ex.: `fields` do 400 VALIDATION dos formulários públicos); ausente se não veio JSON. */
+  body?: unknown;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(message: string, status: number, code?: string, body?: unknown) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     if (code !== undefined) this.code = code;
+    if (body !== undefined && body !== null) this.body = body;
   }
 }
 
@@ -33,7 +36,12 @@ function extractMessage(body: unknown): string | undefined {
 interface RequestOptions {
   /** Endpoints públicos/login: um 401 aqui não é "sessão expirada". */
   skipAuthRedirect?: boolean;
+  /** Rota pública sem login (ex.: formulário de inscrição): NÃO anexa o token e um 401 nunca derruba a sessão. */
+  anonymous?: boolean;
 }
+
+/** Token a anexar: rotas anônimas nunca enviam Authorization (mesmo com sessão guardada no navegador). */
+const tokenFor = (options: RequestOptions): string | null => (options.anonymous ? null : getToken());
 
 /** Nome do header com o total de registros que casam com o filtro (listagens paginadas). */
 const TOTAL_COUNT_HEADER = "X-Total-Count";
@@ -48,7 +56,7 @@ async function failure(
   const body = await response.json().catch(() => null);
   // 401 de uma chamada feita com um token que JÁ FOI TROCADO (troca de senha enquanto ela estava em
   // voo) é obsoleto: a sessão atual é outra e válida - não pode ser derrubada por ele.
-  if (response.status === 401 && !options.skipAuthRedirect && getToken() === tokenUsed) {
+  if (response.status === 401 && !options.skipAuthRedirect && !options.anonymous && getToken() === tokenUsed) {
     clearSession();
     unauthorizedHandler?.();
   }
@@ -57,6 +65,7 @@ async function failure(
     extractMessage(body) ?? `Erro ${response.status} ao chamar ${path}`,
     response.status,
     typeof code === "string" ? code : undefined,
+    body,
   );
 }
 
@@ -65,7 +74,7 @@ async function requestRaw<T>(
   init: RequestInit = {},
   options: RequestOptions = {},
 ): Promise<{ data: T; total: number | null }> {
-  const token = getToken();
+  const token = tokenFor(options);
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
@@ -123,7 +132,7 @@ export const api = {
   getBlob: (path: string, options?: RequestOptions) => requestBlob(path, options),
   /** POST multipart (upload de arquivo): sem Content-Type manual - o navegador define o boundary. */
   postForm: async <T>(path: string, form: FormData, options: RequestOptions = {}): Promise<T> => {
-    const token = getToken();
+    const token = tokenFor(options);
     const response = await fetch(`${API_URL}${path}`, {
       method: "POST",
       body: form,

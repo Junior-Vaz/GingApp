@@ -84,8 +84,11 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-}
       # Imagens enviadas (POST /uploads): em disco, no volume abaixo.
       UPLOADS_DIR: "/app/uploads"
+      # Anexos PRIVADOS das inscricoes (formularios publicos): fora de UPLOADS_DIR, volume proprio.
+      PRIVATE_UPLOADS_DIR: "/app/private-uploads"
     volumes:
       - gingapp_prod_uploads:/app/uploads
+      - gingapp_prod_private_uploads:/app/private-uploads
     ports:
       - "3000:3000"
     depends_on:
@@ -133,3 +136,4 @@ services:
 volumes:
   gingapp_prod_pgdata:
   gingapp_prod_uploads:
+  gingapp_prod_private_uploads:
