@@ -58,6 +58,12 @@ import { PaymentsModule } from './interface/http/payments/payments.module';
 import { isPaymentsReconcileCronEnabled } from './shared/payments/payments.config';
 import { RegistrationFormsModule } from './interface/http/registration-forms/registration-forms.module';
 import { formsRetentionMode } from './jobs/forms-retention-cron.service';
+import { BirthdaysModule } from './interface/http/birthdays/birthdays.module';
+import { isBirthdayCronEnabled } from './jobs/birthdays-cron.service';
+import { CommunicationsModule } from './interface/http/communications/communications.module';
+import { isCommSchedulerEnabled } from './jobs/communications-scheduler.service';
+import { FeedModule } from './interface/http/feed/feed.module';
+import { isFeedMediaCleanupEnabled } from './jobs/feed-media-cleanup-cron.service';
 
 const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
 
@@ -113,12 +119,18 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     PaymentsModule,
     // Formularios de inscricao publicos (docs/PLANO_FORMULARIOS_INSCRICAO.md, F1): /event-forms (painel) e /public/forms.
     RegistrationFormsModule,
+    // Comunicar (docs/CONTRATO_FEED_ANIVERSARIOS_COMUNICACAO.md, secao 3): /communications. O agendador (COMM_SCHEDULER) entra no JobsModule.
+    CommunicationsModule,
+    // Aniversariantes (contrato secao 2): /birthdays. Os jobs (BIRTHDAY_CRON) entram no JobsModule.
+    BirthdaysModule,
+    // Feed do grupo (contrato secao 4): /feed. Limpeza das fotos pendentes/removidas (FEED_MEDIA_CLEANUP) no JobsModule.
+    FeedModule,
 
     // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador
     // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.
     // Ginga Rank (RANKING_CRON): recalculo noturno 02:30 + fechamento mensal 03:00 do dia 1, no mesmo agendador.
     // Aulas continuas (LESSONS_CRON): geracao rolante diaria 01:30 (LESSONS_HORIZON_DAYS a frente), no mesmo agendador.
-    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled() || isLessonsCronEnabled() || isTransferCronEnabled() || isPaymentsReconcileCronEnabled() || formsRetentionMode() !== 'off'
+    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled() || isLessonsCronEnabled() || isTransferCronEnabled() || isPaymentsReconcileCronEnabled() || formsRetentionMode() !== 'off' || isCommSchedulerEnabled() || isBirthdayCronEnabled() || isFeedMediaCleanupEnabled()
       ? [ScheduleModule.forRoot(), JobsModule]
       : []),
   ],

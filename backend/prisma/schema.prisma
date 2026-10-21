@@ -211,6 +211,16 @@ model User {
   dataDeletionRequests         DataDeletionRequest[]  @relation("DataDeletionRequestUser")
   passwordResetTokens          PasswordResetToken[]   @relation("PasswordResetTokenUser")
   uploads                      Upload[]               @relation("UploadUser")
+  birthdayGreetingsSent        BirthdayGreeting[]     @relation("BirthdayGreetingGreeter")
+  birthdayCongratsGiven        BirthdayCongrats[]     @relation("BirthdayCongratsGiver")
+  announcementAcks             AnnouncementAck[]      @relation("AnnouncementAckUser")
+  feedPosts                    FeedPost[]             @relation("FeedPostAuthor")
+  feedPostsApproved            FeedPost[]             @relation("FeedPostApprovedBy")
+  feedMediaUploaded            FeedPostMedia[]        @relation("FeedMediaUploader")
+  feedReactions                FeedReaction[]         @relation("FeedReactionUser")
+  feedComments                 FeedComment[]          @relation("FeedCommentAuthor")
+  feedReportsMade              FeedReport[]           @relation("FeedReportReporter")
+  feedReportsResolved          FeedReport[]           @relation("FeedReportResolver")
 
   @@index([userType])
 }
@@ -418,47 +428,67 @@ model Organization {
   /// Aviso de presenca (push/sino): quando a chamada de uma aula marca o aluno PRESENTE, ele e os responsaveis com
   /// login recebem "Presenca registrada". O MESTRE liga/desliga em PATCH /organizations/me. Padrao true.
   attendanceNotifications Boolean          @default(true)
+  /// Aniversariantes (docs/CONTRATO_FEED_ANIVERSARIOS_COMUNICACAO.md §2), editado pelo MESTRE em PUT /birthdays/settings:
+  /// resumo diario aos gestores (07:30 SP), parabens automaticos (desligado por padrao) com mensagem propria
+  /// (nulo = mensagem padrao) e hora (0..23, SP) do envio.
+  birthdayDailyDigest     Boolean          @default(true)
+  birthdayAutoGreeting    Boolean          @default(false)
+  birthdayGreetingMessage String?
+  birthdayGreetingHour    Int              @default(8)
+  /// Feed do grupo (contrato §4), editado pelo MESTRE em PUT /feed/settings. feedBlockedWords = palavras que mandam
+  /// o post para aprovacao (comparacao sem acento/caixa feita no backend).
+  feedEnabled             Boolean          @default(false)
+  feedPostingMode         FeedPostingMode  @default(MODERATED)
+  feedAllowComments       Boolean          @default(true)
+  feedBlockedWords        String[]         @default([])
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
-  studentBillings       StudentBilling[]
-  users                 OrganizationUser[]
-  units                 Unit[]
-  userUnitAccess        UserUnitAccess[]
-  students              Student[]
-  studentGuardians      StudentGuardian[]
-  classes               Class[]
-  classStudents         ClassStudent[]
-  lessons               Lesson[]
-  attendances           Attendance[]
-  attendanceNotices     AttendanceNotice[]
-  graduationSystems     GraduationSystem[]
-  graduationLevels      GraduationLevel[]
-  studentGraduations    StudentGraduation[]
-  financialRecords      FinancialRecord[]
-  events                Event[]
-  eventParticipants     EventParticipant[]
-  announcements         Announcement[]
-  quickNoticeTemplates  QuickNoticeTemplate[]
-  notifications         Notification[]
-  pushSubscriptions     PushSubscription[]
-  subscriptions         Subscription[]
-  featureOverrides      OrganizationFeatureOverride[]
-  auditLogs             AuditLog[]
-  platformAnnouncements PlatformAnnouncement[]
-  publicProfiles        PublicProfile[]
-  certificates          Certificate[]
-  rodas                 Roda[]
-  uploads               Upload[]
-  pointEvents           PointEvent[]
-  transfersOut          TransferRequest[]             @relation("TransferFrom")
-  transfersIn           TransferRequest[]             @relation("TransferTo")
-  personRoles           PersonRole[]
-  groupRoles            GroupRole[]
-  paymentAccounts       PaymentProviderAccount[]
-  registrationForms     RegistrationForm[]
+  birthdayGreetings       BirthdayGreeting[]
+  birthdayCongrats        BirthdayCongrats[]
+  announcementAcks        AnnouncementAck[]
+  feedPosts               FeedPost[]
+  feedMedia               FeedPostMedia[]
+  feedComments            FeedComment[]
+  feedReports             FeedReport[]
+  studentBillings         StudentBilling[]
+  users                   OrganizationUser[]
+  units                   Unit[]
+  userUnitAccess          UserUnitAccess[]
+  students                Student[]
+  studentGuardians        StudentGuardian[]
+  classes                 Class[]
+  classStudents           ClassStudent[]
+  lessons                 Lesson[]
+  attendances             Attendance[]
+  attendanceNotices       AttendanceNotice[]
+  graduationSystems       GraduationSystem[]
+  graduationLevels        GraduationLevel[]
+  studentGraduations      StudentGraduation[]
+  financialRecords        FinancialRecord[]
+  events                  Event[]
+  eventParticipants       EventParticipant[]
+  announcements           Announcement[]
+  quickNoticeTemplates    QuickNoticeTemplate[]
+  notifications           Notification[]
+  pushSubscriptions       PushSubscription[]
+  subscriptions           Subscription[]
+  featureOverrides        OrganizationFeatureOverride[]
+  auditLogs               AuditLog[]
+  platformAnnouncements   PlatformAnnouncement[]
+  publicProfiles          PublicProfile[]
+  certificates            Certificate[]
+  rodas                   Roda[]
+  uploads                 Upload[]
+  pointEvents             PointEvent[]
+  transfersOut            TransferRequest[]             @relation("TransferFrom")
+  transfersIn             TransferRequest[]             @relation("TransferTo")
+  personRoles             PersonRole[]
+  groupRoles              GroupRole[]
+  paymentAccounts         PaymentProviderAccount[]
+  registrationForms       RegistrationForm[]
   registrationSubmissions RegistrationSubmission[]
-  registrationFiles     RegistrationSubmissionFile[]
+  registrationFiles       RegistrationSubmissionFile[]
 
   @@index([status])
 }
@@ -525,6 +555,7 @@ model Unit {
   financialRecords FinancialRecord[]
   events           Event[]
   announcements    Announcement[]
+  feedPosts        FeedPost[]
 
   @@index([organizationId, status])
   @@index([latitude, longitude])
@@ -627,36 +658,41 @@ enum PersonDocumentKind {
 /// Mescla (POST /people/merge): a ficha mesclada NAO e apagada; ganha mergedIntoId (o codigo/CPF antigos continuam
 /// encontrando a ficha mantida seguindo essa cadeia).
 model Person {
-  id            Int                 @id @default(autoincrement())
+  id              Int                 @id @default(autoincrement())
   /// Codigo legivel unico por pessoa (GING-XXXX-XXXX, alfabeto sem 0/O/1/I, ultimo caractere = verificador).
-  gingappCode   String              @unique
-  name          String
-  nickname      String?
-  birthDate     DateTime?
-  photo         String?
-  gender        String?
-  email         String?
-  phone         String?
-  documentHash  String?             @unique
-  documentEnc   String?
-  documentLast4 String?
-  documentKind  PersonDocumentKind?
+  gingappCode     String              @unique
+  name            String
+  nickname        String?
+  birthDate       DateTime?
+  /// Opt-out do aniversario no grupo/app (contrato §2): false = nao aparece em /birthdays/week nem recebe parabens de colegas.
+  birthdayVisible Boolean             @default(true)
+  photo           String?
+  gender          String?
+  email           String?
+  phone           String?
+  documentHash    String?             @unique
+  documentEnc     String?
+  documentLast4   String?
+  documentKind    PersonDocumentKind?
   /// Login da pessoa (no maximo uma ficha por User).
-  userId        Int?                @unique
-  mergedIntoId  Int?
-  mergedAt      DateTime?
+  userId          Int?                @unique
+  mergedIntoId    Int?
+  mergedAt        DateTime?
   /// LGPD: ficha anonimizada (pedido de exclusao tratado pelo super admin). Os dados pessoais foram removidos; o id e
   /// o gingappCode (trocado por um codigo novo) ficam so para a integridade historica.
-  anonymizedAt  DateTime?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
+  anonymizedAt    DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
-  user       User?             @relation("PersonUser", fields: [userId], references: [id], onDelete: SetNull)
-  mergedInto Person?           @relation("PersonMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
-  mergedFrom Person[]          @relation("PersonMerge")
-  students   Student[]
-  transfers  TransferRequest[]
-  roles      PersonRole[]
+  user              User?              @relation("PersonUser", fields: [userId], references: [id], onDelete: SetNull)
+  mergedInto        Person?            @relation("PersonMerge", fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  mergedFrom        Person[]           @relation("PersonMerge")
+  students          Student[]
+  transfers         TransferRequest[]
+  roles             PersonRole[]
+  birthdayGreetings BirthdayGreeting[]
+  birthdayCongrats  BirthdayCongrats[]
+  feedPosts         FeedPost[]
 
   @@index([birthDate])
   @@index([mergedIntoId])
@@ -1008,6 +1044,7 @@ model Class {
   classStudents ClassStudent[]
   lessons       Lesson[]
   announcements Announcement[]
+  feedPosts     FeedPost[]
 
   @@index([organizationId, status])
   @@index([teacherUserId])
@@ -1341,11 +1378,11 @@ model Event {
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt
 
-  organization Organization       @relation(fields: [organizationId], references: [id])
-  unit         Unit?              @relation(fields: [unitId], references: [id])
-  state        State?             @relation(fields: [stateId], references: [id])
-  city         City?              @relation(fields: [cityId], references: [id])
-  participants EventParticipant[]
+  organization      Organization       @relation(fields: [organizationId], references: [id])
+  unit              Unit?              @relation(fields: [unitId], references: [id])
+  state             State?             @relation(fields: [stateId], references: [id])
+  city              City?              @relation(fields: [cityId], references: [id])
+  participants      EventParticipant[]
   registrationForms RegistrationForm[]
 
   @@index([organizationId, date])
@@ -1454,12 +1491,12 @@ model RegistrationForm {
   createdAt           DateTime                @default(now())
   updatedAt           DateTime                @updatedAt
 
-  organization Organization                 @relation(fields: [organizationId], references: [id])
-  event        Event?                       @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  sections     RegistrationFormSection[]
-  fields       RegistrationFormField[]
-  submissions  RegistrationSubmission[]
-  files        RegistrationSubmissionFile[]
+  organization    Organization                 @relation(fields: [organizationId], references: [id])
+  event           Event?                       @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  sections        RegistrationFormSection[]
+  fields          RegistrationFormField[]
+  submissions     RegistrationSubmission[]
+  files           RegistrationSubmissionFile[]
   consentVersions RegistrationConsentVersion[]
 
   @@index([organizationId, status])
@@ -1613,28 +1650,340 @@ model RegistrationSubmissionFile {
 
 /// Comunicados internos do grupo, com escopo opcional por unidade (projeto.txt §47).
 model Announcement {
-  id              Int       @id @default(autoincrement())
+  id              Int                 @id @default(autoincrement())
   organizationId  Int
   unitId          Int?
   title           String
   body            String
   publishedAt     DateTime?
-  isActive        Boolean   @default(true)
+  isActive        Boolean             @default(true)
   /// Alcance adicional (todos opcionais; se combinam por E): so alunos matriculados (ClassStudent ACTIVE) nesta turma
   /// e seus responsaveis; so quem pertence a unidades da UF (Unit.state); so um papel do grupo (ALUNO, RESPONSAVEL...).
   classId         Int?
   stateUf         String?
   audienceRole    OrgRole?
   createdByUserId Int
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  /// --- Comunicar (contrato §3). Tudo com padrao: o aviso rapido e o /announcements legados continuam iguais. ---
+  /// SENT (padrao/legado), SCHEDULED (aguarda o agendador) ou CANCELLED. `publishedAt` e o instante do envio
+  /// (nulo enquanto SCHEDULED); `unitId`/`classId` sao o alcance UNIT/CLASS; `createdByUserId` e o autor.
+  status          CommunicationStatus @default(SENT)
+  /// Tipo de alcance escolhido no Comunicar (nulo nos avisos legados, que usam unitId/classId/stateUf/audienceRole).
+  scopeType       CommunicationScope?
+  /// Alcance ROLE: ALUNO | RESPONSAVEL | EQUIPE (EQUIPE nao existe em OrgRole, por isso texto e nao `audienceRole`).
+  scopeRole       String?
+  scheduledAt     DateTime?
+  requiresAck     AckRequirement      @default(NONE)
+  pinToFeed       Boolean             @default(false)
+  pinnedUntil     DateTime?
+  /// Mesmo formato de Event.imageUrl (IsImageRef: /api/uploads/<uuid>.<ext> ou URL http(s)).
+  imageUrl        String?
+  recipientsCount Int                 @default(0)
+  lastResendAt    DateTime?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
 
-  organization  Organization @relation(fields: [organizationId], references: [id])
-  unit          Unit?        @relation(fields: [unitId], references: [id])
-  class         Class?       @relation(fields: [classId], references: [id])
-  createdByUser User         @relation("AnnouncementCreatedBy", fields: [createdByUserId], references: [id])
+  organization  Organization      @relation(fields: [organizationId], references: [id])
+  unit          Unit?             @relation(fields: [unitId], references: [id])
+  class         Class?            @relation(fields: [classId], references: [id])
+  createdByUser User              @relation("AnnouncementCreatedBy", fields: [createdByUserId], references: [id])
+  acks          AnnouncementAck[]
+  notifications Notification[]
 
   @@index([organizationId, publishedAt])
+  // Agendador (SCHEDULED vencidos) e listagem por status.
+  @@index([status, scheduledAt])
+  @@index([organizationId, status, createdAt])
+  // Fixados no feed vigentes.
+  @@index([organizationId, pinToFeed, status])
+}
+
+/// Confirmacao de um comunicado pelo destinatario (Li / Vou / Nao vou). Uma por usuario; pode trocar GOING<->NOT_GOING.
+model AnnouncementAck {
+  id             Int         @id @default(autoincrement())
+  organizationId Int
+  announcementId Int
+  userId         Int
+  response       AckResponse
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  announcement Announcement @relation(fields: [announcementId], references: [id], onDelete: Cascade)
+  user         User         @relation("AnnouncementAckUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([announcementId, userId])
+  @@index([organizationId, userId])
+}
+
+enum CommunicationStatus {
+  SENT
+  SCHEDULED
+  CANCELLED
+}
+
+enum CommunicationScope {
+  GROUP
+  UNIT
+  CLASS
+  ROLE
+  BIRTHDAY_MONTH
+}
+
+enum AckRequirement {
+  NONE
+  READ
+  GOING
+}
+
+enum AckResponse {
+  READ
+  GOING
+  NOT_GOING
+}
+
+/// --- Aniversariantes (contrato §2) ---
+enum BirthdayGreetingSource {
+  MANUAL
+  AUTO
+}
+
+/// Parabens enviado PELO GRUPO (equipe no painel = MANUAL, job = AUTO) a uma pessoa em um ano. Unico por pessoa+ano+origem
+/// (idempotencia do job e de "ja parabenizado este ano").
+model BirthdayGreeting {
+  id             Int                    @id @default(autoincrement())
+  organizationId Int
+  personId       Int
+  year           Int
+  source         BirthdayGreetingSource
+  greeterUserId  Int?
+  createdAt      DateTime               @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  person       Person       @relation(fields: [personId], references: [id], onDelete: Cascade)
+  greeter      User?        @relation("BirthdayGreetingGreeter", fields: [greeterUserId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, personId, year, source])
+  @@index([organizationId, year])
+}
+
+/// Parabens de um colega (app) a um aniversariante. Um por (aniversariante, quem deu, ano).
+model BirthdayCongrats {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  personId       Int
+  giverUserId    Int
+  year           Int
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  person       Person       @relation(fields: [personId], references: [id], onDelete: Cascade)
+  giver        User         @relation("BirthdayCongratsGiver", fields: [giverUserId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, personId, giverUserId, year])
+  @@index([organizationId, giverUserId, year])
+}
+
+/// --- Feed do grupo (contrato §4) ---
+enum FeedPostingMode {
+  ALL
+  STAFF_ONLY
+  MODERATED
+}
+
+enum FeedVisibility {
+  GROUP
+  UNIT
+  CLASS
+}
+
+enum FeedPostStatus {
+  PUBLISHED
+  PENDING_APPROVAL
+  HIDDEN
+  REMOVED
+}
+
+enum FeedCommentStatus {
+  PUBLISHED
+  HIDDEN
+  REMOVED
+}
+
+enum FeedReactionType {
+  AXE
+  SALVE
+  GINGA
+  PARABENS
+  CORACAO
+}
+
+enum FeedReportReason {
+  OFENSIVO
+  IMPROPRIO
+  SPAM
+  MENOR
+  OUTRO
+}
+
+enum FeedReportStatus {
+  OPEN
+  DISMISSED
+  ACTIONED
+}
+
+/// Post do feed. `authorUserId`/`authorPersonId` ficam nulos ao anonimizar (LGPD; body tambem vira nulo e a midia e apagada).
+/// REMOVED = apagado pelo autor/moderador (soft delete: `deletedAt`), nunca listado.
+model FeedPost {
+  id             Int            @id @default(autoincrement())
+  organizationId Int
+  authorUserId   Int?
+  authorPersonId Int?
+  body           String?
+  visibility     FeedVisibility @default(GROUP)
+  unitId         Int?
+  classId        Int?
+  status         FeedPostStatus @default(PUBLISHED)
+  pinned         Boolean        @default(false)
+  edited         Boolean        @default(false)
+  /// Motivo curto da ocultacao (ex.: 'REPORTS', 'MODERATOR'); nunca mostrado com culpa ao autor.
+  hiddenReason   String?
+  /// Quem ocultou/recusou (nulo = ocultacao automatica por denuncias). Sem FK: so referencia para a hierarquia da moderacao.
+  hiddenById     Int?
+  approvedById   Int?
+  approvedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  deletedAt      DateTime?
+
+  organization    Organization         @relation(fields: [organizationId], references: [id])
+  author          User?                @relation("FeedPostAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  authorPerson    Person?              @relation(fields: [authorPersonId], references: [id], onDelete: SetNull)
+  approvedBy      User?                @relation("FeedPostApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  unit            Unit?                @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  class           Class?               @relation(fields: [classId], references: [id], onDelete: Restrict)
+  media           FeedPostMedia[]
+  reactions       FeedReaction[]
+  comments        FeedComment[]
+  reports         FeedReport[]
+  activityNotices FeedActivityNotice[]
+
+  @@index([organizationId, status, pinned, createdAt(sort: Desc)])
+  @@index([organizationId, unitId])
+  @@index([organizationId, classId])
+  @@index([authorUserId])
+}
+
+/// Foto do post. Enviada antes (postId nulo = pendente, com `pendingExpiresAt`, limpa pelo job) e vinculada ao criar o post.
+/// Arquivos em armazenamento PRIVADO (FEED_MEDIA_DIR); `storageKey`/`thumbKey` sao nomes de arquivo, nunca URL.
+model FeedPostMedia {
+  id               Int       @id @default(autoincrement())
+  organizationId   Int
+  postId           Int?
+  uploaderUserId   Int?
+  storageKey       String    @unique
+  thumbKey         String    @unique
+  width            Int
+  height           Int
+  sizeBytes        Int
+  mimeType         String
+  order            Int       @default(0)
+  pendingExpiresAt DateTime?
+  createdAt        DateTime  @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  post         FeedPost?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  uploader     User?        @relation("FeedMediaUploader", fields: [uploaderUserId], references: [id], onDelete: SetNull)
+
+  @@index([postId, order])
+  @@index([pendingExpiresAt])
+  @@index([organizationId, uploaderUserId])
+}
+
+/// Uma reacao por usuario por post (trocar de tipo = update).
+model FeedReaction {
+  id        Int              @id @default(autoincrement())
+  postId    Int
+  userId    Int
+  type      FeedReactionType
+  createdAt DateTime         @default(now())
+
+  post FeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User     @relation("FeedReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([userId])
+}
+
+/// Comentario (um nivel de resposta via parentId). Anonimizado = authorUserId/body nulos.
+model FeedComment {
+  id             Int               @id @default(autoincrement())
+  organizationId Int
+  postId         Int
+  parentId       Int?
+  authorUserId   Int?
+  body           String?
+  status         FeedCommentStatus @default(PUBLISHED)
+  /// Quem ocultou (nulo = ocultacao automatica por denuncias). Sem FK.
+  hiddenById     Int?
+  createdAt      DateTime          @default(now())
+  deletedAt      DateTime?
+
+  organization Organization  @relation(fields: [organizationId], references: [id])
+  post         FeedPost      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  parent       FeedComment?  @relation("FeedCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies      FeedComment[] @relation("FeedCommentReplies")
+  author       User?         @relation("FeedCommentAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+  reports      FeedReport[]
+
+  @@index([postId, createdAt])
+  @@index([authorUserId])
+}
+
+/// Denuncia de post OU de comentario (exatamente um dos dois). Os unicos [reporter,postId] e [reporter,commentId] sao
+/// constraints simples: no Postgres NULL nao colide com NULL, entao cada alvo e unico por denunciante.
+model FeedReport {
+  id             Int              @id @default(autoincrement())
+  organizationId Int
+  postId         Int?
+  commentId      Int?
+  reporterUserId Int?
+  reason         FeedReportReason
+  note           String?
+  status         FeedReportStatus @default(OPEN)
+  resolvedById   Int?
+  resolvedAt     DateTime?
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+  post         FeedPost?    @relation(fields: [postId], references: [id], onDelete: Cascade)
+  comment      FeedComment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  reporter     User?        @relation("FeedReportReporter", fields: [reporterUserId], references: [id], onDelete: SetNull)
+  resolvedBy   User?        @relation("FeedReportResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@unique([reporterUserId, postId])
+  @@unique([reporterUserId, commentId])
+  @@index([organizationId, status, createdAt])
+  @@index([postId])
+  @@index([commentId])
+}
+
+/// Agrupamento das notificacoes de atividade (reacao/comentario) de um post por janela de 30 min: UMA Notification
+/// por (post, autor do post); `count` cresce dentro da janela; fora dela abre-se nova janela (nova Notification).
+model FeedActivityNotice {
+  id              Int      @id @default(autoincrement())
+  postId          Int
+  authorUserId    Int
+  windowStartedAt DateTime
+  count           Int      @default(1)
+  /// Ultimo usuario que reagiu/comentou (para "Fulano e mais N"); sem FK.
+  lastActorUserId Int?
+  notificationId  Int?
+
+  post         FeedPost      @relation(fields: [postId], references: [id], onDelete: Cascade)
+  notification Notification? @relation(fields: [notificationId], references: [id], onDelete: SetNull)
+
+  @@unique([postId, authorUserId])
+  @@index([windowStartedAt])
 }
 
 /// Modelo de AVISO RAPIDO (FAB do painel): texto pronto que o MESTRE cadastra para a equipe usar com 1 toque.
@@ -1666,11 +2015,18 @@ model Notification {
   type           String?
   readAt         DateTime?
   createdAt      DateTime  @default(now())
+  /// Carga extra para o app (contrato: `data.communicationId`, `data.postId`...). Nulo nas notificacoes antigas.
+  data           Json?
+  /// Liga a notificacao ao comunicado que a gerou: "lidos" = count(readAt != null) por announcementId.
+  announcementId Int?
 
-  organization Organization? @relation(fields: [organizationId], references: [id])
-  user         User          @relation(fields: [userId], references: [id])
+  organization        Organization?        @relation(fields: [organizationId], references: [id])
+  user                User                 @relation(fields: [userId], references: [id])
+  announcement        Announcement?        @relation(fields: [announcementId], references: [id], onDelete: SetNull)
+  feedActivityNotices FeedActivityNotice[]
 
   @@index([userId, createdAt])
+  @@index([announcementId, readAt])
 }
 
 /// Web Push (I13): um dispositivo/navegador inscrito para receber avisos no celular. OPCIONAL: so' usado quando

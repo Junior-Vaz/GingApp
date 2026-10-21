@@ -1,7 +1,23 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronRight, Clock, Download, Bell, ShieldCheck, AlertTriangle, QrCode } from "lucide-react";
+import {
+  Check,
+  ChevronRight,
+  Clock,
+  Download,
+  Bell,
+  ShieldCheck,
+  AlertTriangle,
+  QrCode,
+  Cake,
+  CircleCheck,
+  EyeOff,
+  Megaphone,
+  MessagesSquare,
+  PartyPopper,
+  type LucideIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -15,8 +31,9 @@ import {
   useFinance,
   useFinanceSummary,
   isOccurrenceNotification,
-  isRoleNotification,
   isTransferNotification,
+  notificationDestination,
+  notificationKind,
   useMyStudent,
   useMyUnit,
   useNotifications,
@@ -28,8 +45,11 @@ import {
   type FinanceStatus,
   type FinancialRecord,
   type Lesson,
+  type NotificationIconKind,
 } from "@/lib/queries";
+import { communicationIdOf, notificationRequiresAck } from "@/lib/communications";
 import { ClassCover, MyClasses, TeacherLine, UnitLine } from "./class-parts";
+import { NotificationAckActions } from "./pinned-communications";
 import { PushSettings } from "./push-settings";
 import { PixSheet } from "./pix-sheet";
 import { PIX_BADGE_LABEL, canPayWithPix, pixBadgeKind } from "@/lib/pix";
@@ -455,6 +475,22 @@ export function FinancialPage() {
 
 /* ------------------------------- Notificações ----------------------------- */
 
+const NOTIFICATION_ICONS: Record<NotificationIconKind, LucideIcon> = {
+  birthday: Cake,
+  congrats: PartyPopper,
+  communication: Megaphone,
+  feed: MessagesSquare,
+  approved: CircleCheck,
+  hidden: EyeOff,
+  default: Bell,
+};
+
+/** Ícone do tipo da notificação (sino para os tipos sem mapeamento). */
+function NotificationIcon({ type }: { type: string | null }) {
+  const Icon = NOTIFICATION_ICONS[notificationKind(type).icon];
+  return <Icon size={15} aria-hidden="true" />;
+}
+
 export function NotificationsPage() {
   const notifications = useNotifications();
   const announcements = useAnnouncements();
@@ -510,22 +546,31 @@ export function NotificationsPage() {
                   key={notice.id}
                   onClick={() => {
                     if (notice.readAt === null) markOne.mutate(notice.id);
-                    // Avisos de transferência levam direto à tela onde o pedido é decidido.
-                    if (isTransferNotification(notice.type)) void navigate({ to: "/transferencias" });
-                    // Avisos de cargo (concedido/revogado/sugestão) levam ao Perfil.
-                    else if (isRoleNotification(notice.type)) void navigate({ to: "/perfil" });
-                    // Aviso de ocorrência registrada leva a "Minhas ocorrências".
-                    else if (isOccurrenceNotification(notice.type)) void navigate({ to: "/ocorrencias" });
+                    // Transferência -> pedido; cargo -> Perfil; ocorrência -> "Minhas ocorrências"; FEED_* -> /feed.
+                    // COMMUNICATION fica aqui mesmo (a resposta é dada na própria notificação).
+                    const destination = notificationDestination(notice.type);
+                    // /feed só entra nos tipos de rota depois da regeneração do routeTree (agente de integração).
+                    if (destination && destination !== "/notificacoes") void navigate({ to: destination as "/perfil" | "/feed" });
                   }}
                 >
                   <div className="notice-meta">
-                    <Bell size={15} />
-                    <span>GingApp</span>
+                    <NotificationIcon type={notice.type} />
+                    <span>{notificationKind(notice.type).label}</span>
                     <time>{relativeTime(notice.createdAt)}</time>
                     {notice.readAt === null && <span className="cord-dot size-1.5" />}
                   </div>
                   <h3>{notice.title}</h3>
                   <p>{notice.body}</p>
+                  {communicationIdOf(notice) !== null && (
+                    <NotificationAckActions
+                      communicationId={communicationIdOf(notice)!}
+                      title={notice.title}
+                      requiresAck={notificationRequiresAck(notice)}
+                      onAnswered={() => {
+                        if (notice.readAt === null) markOne.mutate(notice.id);
+                      }}
+                    />
+                  )}
                   {isTransferNotification(notice.type) && (
                     <Link
                       to="/transferencias"

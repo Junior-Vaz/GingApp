@@ -17,13 +17,16 @@ import { Route as PrivacidadeRouteImport } from './routes/privacidade'
 import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as TermosRouteImport } from './routes/termos'
 import { Route as AppAlunosRouteImport } from './routes/_app.alunos'
+import { Route as AppAniversariantesRouteImport } from './routes/_app.aniversariantes'
 import { Route as AppAtividadeRouteImport } from './routes/_app.atividade'
 import { Route as AppAulasRouteImport } from './routes/_app.aulas'
 import { Route as AppCertificadosRouteImport } from './routes/_app.certificados'
 import { Route as AppComunicadosRouteImport } from './routes/_app.comunicados'
+import { Route as AppComunicarRouteImport } from './routes/_app.comunicar'
 import { Route as AppConfiguracoesRouteImport } from './routes/_app.configuracoes'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as AppEventosRouteImport } from './routes/_app.eventos'
+import { Route as AppFeedModeracaoRouteImport } from './routes/_app.feed-moderacao'
 import { Route as AppFinanceiroRouteImport } from './routes/_app.financeiro'
 import { Route as AppFormulariosRouteImport } from './routes/_app.formularios'
 import { Route as AppFrequenciaRouteImport } from './routes/_app.frequencia'
@@ -79,6 +82,11 @@ const AppAlunosRoute = AppAlunosRouteImport.update({
   path: '/alunos',
   getParentRoute: () => AppRoute,
 } as any)
+const AppAniversariantesRoute = AppAniversariantesRouteImport.update({
+  id: '/aniversariantes',
+  path: '/aniversariantes',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAtividadeRoute = AppAtividadeRouteImport.update({
   id: '/atividade',
   path: '/atividade',
@@ -99,6 +107,11 @@ const AppComunicadosRoute = AppComunicadosRouteImport.update({
   path: '/comunicados',
   getParentRoute: () => AppRoute,
 } as any)
+const AppComunicarRoute = AppComunicarRouteImport.update({
+  id: '/comunicar',
+  path: '/comunicar',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppConfiguracoesRoute = AppConfiguracoesRouteImport.update({
   id: '/configuracoes',
   path: '/configuracoes',
@@ -112,6 +125,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
 const AppEventosRoute = AppEventosRouteImport.update({
   id: '/eventos',
   path: '/eventos',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFeedModeracaoRoute = AppFeedModeracaoRouteImport.update({
+  id: '/feed-moderacao',
+  path: '/feed-moderacao',
   getParentRoute: () => AppRoute,
 } as any)
 const AppFinanceiroRoute = AppFinanceiroRouteImport.update({
@@ -198,13 +216,16 @@ export interface FileRoutesByFullPath {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
   '/alunos': typeof AppAlunosRoute
+  '/aniversariantes': typeof AppAniversariantesRoute
   '/atividade': typeof AppAtividadeRoute
   '/aulas': typeof AppAulasRoute
   '/certificados': typeof AppCertificadosRoute
   '/comunicados': typeof AppComunicadosRoute
+  '/comunicar': typeof AppComunicarRoute
   '/configuracoes': typeof AppConfiguracoesRoute
   '/dashboard': typeof AppDashboardRoute
   '/eventos': typeof AppEventosRoute
+  '/feed-moderacao': typeof AppFeedModeracaoRoute
   '/financeiro': typeof AppFinanceiroRoute
   '/formularios': typeof AppFormulariosRoute
   '/frequencia': typeof AppFrequenciaRoute
@@ -229,13 +250,16 @@ export interface FileRoutesByTo {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
   '/alunos': typeof AppAlunosRoute
+  '/aniversariantes': typeof AppAniversariantesRoute
   '/atividade': typeof AppAtividadeRoute
   '/aulas': typeof AppAulasRoute
   '/certificados': typeof AppCertificadosRoute
   '/comunicados': typeof AppComunicadosRoute
+  '/comunicar': typeof AppComunicarRoute
   '/configuracoes': typeof AppConfiguracoesRoute
   '/dashboard': typeof AppDashboardRoute
   '/eventos': typeof AppEventosRoute
+  '/feed-moderacao': typeof AppFeedModeracaoRoute
   '/financeiro': typeof AppFinanceiroRoute
   '/formularios': typeof AppFormulariosRoute
   '/frequencia': typeof AppFrequenciaRoute
@@ -262,13 +286,16 @@ export interface FileRoutesById {
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
   '/_app/alunos': typeof AppAlunosRoute
+  '/_app/aniversariantes': typeof AppAniversariantesRoute
   '/_app/atividade': typeof AppAtividadeRoute
   '/_app/aulas': typeof AppAulasRoute
   '/_app/certificados': typeof AppCertificadosRoute
   '/_app/comunicados': typeof AppComunicadosRoute
+  '/_app/comunicar': typeof AppComunicarRoute
   '/_app/configuracoes': typeof AppConfiguracoesRoute
   '/_app/dashboard': typeof AppDashboardRoute
   '/_app/eventos': typeof AppEventosRoute
+  '/_app/feed-moderacao': typeof AppFeedModeracaoRoute
   '/_app/financeiro': typeof AppFinanceiroRoute
   '/_app/formularios': typeof AppFormulariosRoute
   '/_app/frequencia': typeof AppFrequenciaRoute
@@ -295,13 +322,16 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/termos'
     | '/alunos'
+    | '/aniversariantes'
     | '/atividade'
     | '/aulas'
     | '/certificados'
     | '/comunicados'
+    | '/comunicar'
     | '/configuracoes'
     | '/dashboard'
     | '/eventos'
+    | '/feed-moderacao'
     | '/financeiro'
     | '/formularios'
     | '/frequencia'
@@ -326,13 +356,16 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/termos'
     | '/alunos'
+    | '/aniversariantes'
     | '/atividade'
     | '/aulas'
     | '/certificados'
     | '/comunicados'
+    | '/comunicar'
     | '/configuracoes'
     | '/dashboard'
     | '/eventos'
+    | '/feed-moderacao'
     | '/financeiro'
     | '/formularios'
     | '/frequencia'
@@ -358,13 +391,16 @@ export interface FileRouteTypes {
     | '/redefinir-senha'
     | '/termos'
     | '/_app/alunos'
+    | '/_app/aniversariantes'
     | '/_app/atividade'
     | '/_app/aulas'
     | '/_app/certificados'
     | '/_app/comunicados'
+    | '/_app/comunicar'
     | '/_app/configuracoes'
     | '/_app/dashboard'
     | '/_app/eventos'
+    | '/_app/feed-moderacao'
     | '/_app/financeiro'
     | '/_app/formularios'
     | '/_app/frequencia'
@@ -450,6 +486,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAlunosRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/aniversariantes': {
+      id: '/_app/aniversariantes'
+      path: '/aniversariantes'
+      fullPath: '/aniversariantes'
+      preLoaderRoute: typeof AppAniversariantesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/atividade': {
       id: '/_app/atividade'
       path: '/atividade'
@@ -478,6 +521,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppComunicadosRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/comunicar': {
+      id: '/_app/comunicar'
+      path: '/comunicar'
+      fullPath: '/comunicar'
+      preLoaderRoute: typeof AppComunicarRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/configuracoes': {
       id: '/_app/configuracoes'
       path: '/configuracoes'
@@ -497,6 +547,13 @@ declare module '@tanstack/react-router' {
       path: '/eventos'
       fullPath: '/eventos'
       preLoaderRoute: typeof AppEventosRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/feed-moderacao': {
+      id: '/_app/feed-moderacao'
+      path: '/feed-moderacao'
+      fullPath: '/feed-moderacao'
+      preLoaderRoute: typeof AppFeedModeracaoRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/financeiro': {
@@ -609,13 +666,16 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAlunosRoute: typeof AppAlunosRoute
+  AppAniversariantesRoute: typeof AppAniversariantesRoute
   AppAtividadeRoute: typeof AppAtividadeRoute
   AppAulasRoute: typeof AppAulasRoute
   AppCertificadosRoute: typeof AppCertificadosRoute
   AppComunicadosRoute: typeof AppComunicadosRoute
+  AppComunicarRoute: typeof AppComunicarRoute
   AppConfiguracoesRoute: typeof AppConfiguracoesRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppEventosRoute: typeof AppEventosRoute
+  AppFeedModeracaoRoute: typeof AppFeedModeracaoRoute
   AppFinanceiroRoute: typeof AppFinanceiroRoute
   AppFormulariosRoute: typeof AppFormulariosRoute
   AppFrequenciaRoute: typeof AppFrequenciaRoute
@@ -635,13 +695,16 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAlunosRoute: AppAlunosRoute,
+  AppAniversariantesRoute: AppAniversariantesRoute,
   AppAtividadeRoute: AppAtividadeRoute,
   AppAulasRoute: AppAulasRoute,
   AppCertificadosRoute: AppCertificadosRoute,
   AppComunicadosRoute: AppComunicadosRoute,
+  AppComunicarRoute: AppComunicarRoute,
   AppConfiguracoesRoute: AppConfiguracoesRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppEventosRoute: AppEventosRoute,
+  AppFeedModeracaoRoute: AppFeedModeracaoRoute,
   AppFinanceiroRoute: AppFinanceiroRoute,
   AppFormulariosRoute: AppFormulariosRoute,
   AppFrequenciaRoute: AppFrequenciaRoute,

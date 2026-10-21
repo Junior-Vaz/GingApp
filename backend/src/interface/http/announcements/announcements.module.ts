@@ -12,6 +12,7 @@ import { AnnouncementsService } from './announcements.service';
   imports: [StudentsModule, NotificationsModule],
   controllers: [AnnouncementsController, QuickSendController, QuickTemplatesController],
   providers: [AnnouncementsService, QuickSendService, QuickTemplatesService],
-  exports: [AnnouncementsService],
+  // QuickSendService: o Comunicar (communications) reaproveita `activeOnly` (nunca enviar a quem foi desativado).
+  exports: [AnnouncementsService, QuickSendService],
 })
 export class AnnouncementsModule {}

@@ -21,6 +21,7 @@ import { Route as AppAulasRouteImport } from './routes/_app.aulas'
 import { Route as AppCheckinRouteImport } from './routes/_app.checkin'
 import { Route as AppComunidadeRouteImport } from './routes/_app.comunidade'
 import { Route as AppEventosRouteImport } from './routes/_app.eventos'
+import { Route as AppFeedRouteImport } from './routes/_app.feed'
 import { Route as AppFinanceiroRouteImport } from './routes/_app.financeiro'
 import { Route as AppFrequenciaRouteImport } from './routes/_app.frequencia'
 import { Route as AppJornadaRouteImport } from './routes/_app.jornada'
@@ -91,6 +92,11 @@ const AppComunidadeRoute = AppComunidadeRouteImport.update({
 const AppEventosRoute = AppEventosRouteImport.update({
   id: '/eventos',
   path: '/eventos',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFeedRoute = AppFeedRouteImport.update({
+  id: '/feed',
+  path: '/feed',
   getParentRoute: () => AppRoute,
 } as any)
 const AppFinanceiroRoute = AppFinanceiroRouteImport.update({
@@ -166,6 +172,7 @@ export interface FileRoutesByFullPath {
   '/checkin': typeof AppCheckinRoute
   '/comunidade': typeof AppComunidadeRoute
   '/eventos': typeof AppEventosRoute
+  '/feed': typeof AppFeedRoute
   '/financeiro': typeof AppFinanceiroRoute
   '/frequencia': typeof AppFrequenciaRoute
   '/jornada': typeof AppJornadaRoute
@@ -190,6 +197,7 @@ export interface FileRoutesByTo {
   '/checkin': typeof AppCheckinRoute
   '/comunidade': typeof AppComunidadeRoute
   '/eventos': typeof AppEventosRoute
+  '/feed': typeof AppFeedRoute
   '/financeiro': typeof AppFinanceiroRoute
   '/frequencia': typeof AppFrequenciaRoute
   '/jornada': typeof AppJornadaRoute
@@ -217,6 +225,7 @@ export interface FileRoutesById {
   '/_app/checkin': typeof AppCheckinRoute
   '/_app/comunidade': typeof AppComunidadeRoute
   '/_app/eventos': typeof AppEventosRoute
+  '/_app/feed': typeof AppFeedRoute
   '/_app/financeiro': typeof AppFinanceiroRoute
   '/_app/frequencia': typeof AppFrequenciaRoute
   '/_app/jornada': typeof AppJornadaRoute
@@ -245,6 +254,7 @@ export interface FileRouteTypes {
     | '/checkin'
     | '/comunidade'
     | '/eventos'
+    | '/feed'
     | '/financeiro'
     | '/frequencia'
     | '/jornada'
@@ -269,6 +279,7 @@ export interface FileRouteTypes {
     | '/checkin'
     | '/comunidade'
     | '/eventos'
+    | '/feed'
     | '/financeiro'
     | '/frequencia'
     | '/jornada'
@@ -295,6 +306,7 @@ export interface FileRouteTypes {
     | '/_app/checkin'
     | '/_app/comunidade'
     | '/_app/eventos'
+    | '/_app/feed'
     | '/_app/financeiro'
     | '/_app/frequencia'
     | '/_app/jornada'
@@ -409,6 +421,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppEventosRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/feed': {
+      id: '/_app/feed'
+      path: '/feed'
+      fullPath: '/feed'
+      preLoaderRoute: typeof AppFeedRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/financeiro': {
       id: '/_app/financeiro'
       path: '/financeiro'
@@ -501,6 +520,7 @@ interface AppRouteChildren {
   AppCheckinRoute: typeof AppCheckinRoute
   AppComunidadeRoute: typeof AppComunidadeRoute
   AppEventosRoute: typeof AppEventosRoute
+  AppFeedRoute: typeof AppFeedRoute
   AppFinanceiroRoute: typeof AppFinanceiroRoute
   AppFrequenciaRoute: typeof AppFrequenciaRoute
   AppJornadaRoute: typeof AppJornadaRoute
@@ -518,6 +538,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppCheckinRoute: AppCheckinRoute,
   AppComunidadeRoute: AppComunidadeRoute,
   AppEventosRoute: AppEventosRoute,
+  AppFeedRoute: AppFeedRoute,
   AppFinanceiroRoute: AppFinanceiroRoute,
   AppFrequenciaRoute: AppFrequenciaRoute,
   AppJornadaRoute: AppJornadaRoute,

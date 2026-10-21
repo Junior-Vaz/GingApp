@@ -9,6 +9,10 @@ export interface NotificationPayload {
   title: string;
   body: string;
   type: string;
+  /** Carga extra para o app (ex.: `{ communicationId }`, `{ postId }`); `Notification.data`. */
+  data?: Prisma.InputJsonValue;
+  /** Liga a notificação a um comunicado (estatística de "lidos"); `Notification.announcementId`. */
+  announcementId?: number;
 }
 
 /** Teto de destinatários de gatilhos de BROADCAST (evento/roda novo no grupo): evita uma rajada
@@ -80,6 +84,30 @@ export class NotificationsService {
     if (maxRecipients !== undefined) unique = unique.slice(0, maxRecipients);
     if (unique.length === 0) return 0;
     return this.createMany(unique.map((userId) => ({ organizationId, userId, ...payload })));
+  }
+
+  /**
+   * Notificação AGRUPÁVEL (feed: "Fulano e mais N reagiram"): cria UMA linha e devolve o id (para o chamador guardar
+   * e atualizar depois com `refreshGrouped`). Push disparado como em `createMany`. Lança em caso de erro do banco.
+   */
+  async createGrouped(organizationId: number, userId: number, payload: NotificationPayload): Promise<number> {
+    const item: Prisma.NotificationCreateManyInput = { organizationId, userId, ...payload };
+    const created = await this.prisma.notification.create({ data: item, select: { id: true } });
+    this.pushAfterCommit([item]);
+    return created.id;
+  }
+
+  /**
+   * Atualiza o texto de uma notificação agrupada do PRÓPRIO usuário (id + userId: nunca a de outro) e a marca como
+   * não lida de novo. Sem push (o agrupamento existe para não repetir aviso). Devolve false se ela não existe mais
+   * (apagada/lida e limpa): o chamador abre uma nova com `createGrouped`.
+   */
+  async refreshGrouped(id: number, userId: number, content: Pick<NotificationPayload, 'title' | 'body' | 'data'>): Promise<boolean> {
+    const updated = await this.prisma.notification.updateMany({
+      where: { id, userId },
+      data: { title: content.title, body: content.body, readAt: null, ...(content.data !== undefined ? { data: content.data } : {}) },
+    });
+    return updated.count === 1;
   }
 
   /**

@@ -10,6 +10,8 @@ import { revocationCutoff } from '../../../shared/security/token-revocation';
 import { generateGingappCode } from '../people/gingapp-code';
 import { deletePrivateFile } from '../registration-forms/private-storage';
 import { anonymizeSubmissions } from '../registration-forms/submission-purge';
+import { deleteFeedFiles } from '../feed/feed-media-storage';
+import { anonymizeFeedForUser, FeedAnonymizationResult } from '../feed/feed-purge';
 import { normalizeEmail } from '../../../shared/security/password-policy';
 import { OPEN_DELETION_STATUSES } from './deletion-request-status';
 
@@ -74,11 +76,14 @@ export class AnonymizationService {
     // Inscricoes de formularios publicos do titular (mesmo e-mail ou CPF): anonimizadas na MESMA transacao; os anexos
     // saem do disco depois do commit.
     const registrations = { count: 0, storageKeys: [] as string[] };
-    const result = await this.prisma.$transaction((tx) => this.run(tx, request.id, user.id, passwordHash, now, registrations), {
+    // Feed do grupo: posts/comentarios do titular perdem autor e texto; as fotos saem do disco depois do commit.
+    const feed: FeedAnonymizationResult = { posts: 0, comments: 0, reactions: 0, media: 0, storageKeys: [] };
+    const result = await this.prisma.$transaction((tx) => this.run(tx, request.id, user.id, passwordHash, now, registrations, feed), {
       timeout: 60_000,
       maxWait: 10_000,
     });
     for (const key of registrations.storageKeys) await deletePrivateFile(key).catch(() => undefined);
+    await deleteFeedFiles(feed.storageKeys);
 
     await this.audit.record({
       organizationId: request.organizationId,
@@ -87,7 +92,15 @@ export class AnonymizationService {
       entityId: result.personId ?? user.id,
       action: AuditAction.PERSON_ANONYMIZE,
       // Nunca nome, e-mail ou documento: so contagens e ids.
-      meta: { requestId, targetUserId: user.id, ...result, registrationSubmissionsAnonymized: registrations.count },
+      meta: {
+        requestId,
+        targetUserId: user.id,
+        ...result,
+        registrationSubmissionsAnonymized: registrations.count,
+        feedPostsAnonymized: feed.posts,
+        feedCommentsAnonymized: feed.comments,
+        feedMediaDeleted: feed.media,
+      },
     });
     return result;
   }
@@ -119,6 +132,7 @@ export class AnonymizationService {
     passwordHash: string,
     now: Date,
     registrations: { count: number; storageKeys: string[] } = { count: 0, storageKeys: [] },
+    feed?: FeedAnonymizationResult,
   ): Promise<AnonymizationResult> {
     // Fichas do login e as mescladas nelas (cadeia).
     const personIds = new Set<number>((await tx.person.findMany({ where: { userId }, select: { id: true } })).map((p) => p.id));
@@ -155,6 +169,9 @@ export class AnonymizationService {
       registrations.count = purged.count;
       registrations.storageKeys = purged.storageKeys;
     }
+    // Feed (contrato secao 4, LGPD): antes de soltar o vinculo Person.userId (os posts tambem casam pela ficha).
+    const feedResult = await anonymizeFeedForUser(tx, userId, ids, now);
+    if (feed) Object.assign(feed, feedResult);
 
     for (const personId of ids) {
       await tx.person.update({

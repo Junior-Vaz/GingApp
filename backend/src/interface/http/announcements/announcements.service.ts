@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { CommunicationScope, CommunicationStatus, OrgRole, Prisma } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PermissionsService } from '../../../shared/access/permissions.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
@@ -105,6 +105,21 @@ export class AnnouncementsService {
           { OR: [{ classId: null }, { classId: { in: classIds } }] },
           { OR: [{ stateUf: null }, { stateUf: { in: ufs } }] },
           { OR: [{ audienceRole: null }, ...(requester.role ? [{ audienceRole: requester.role }] : [])] },
+          // Comunicar (communications): GROUP/UNIT/CLASS seguem as regras acima; ROLE so para o papel do membro
+          // (ALUNO/RESPONSAVEL; EQUIPE nunca) e BIRTHDAY_MONTH nunca aparece aqui (chega so por notificacao).
+          {
+            OR: [
+              { scopeType: null },
+              { scopeType: CommunicationScope.GROUP },
+              // UNIT/CLASS sem unidade/turma (alcance que se perdeu) nunca vira "visivel a todos".
+              { scopeType: CommunicationScope.UNIT, unitId: { not: null } },
+              { scopeType: CommunicationScope.CLASS, classId: { not: null } },
+              {
+                scopeType: CommunicationScope.ROLE,
+                scopeRole: requester.role === OrgRole.ALUNO || requester.role === OrgRole.RESPONSAVEL ? requester.role : '-',
+              },
+            ],
+          },
         ],
       },
       member: true,
@@ -130,6 +145,8 @@ export class AnnouncementsService {
     }
     const where: Prisma.AnnouncementWhereInput = {
       organizationId,
+      // Comunicar: agendado (SCHEDULED) e cancelado nao existem para o mural legado; so o ja enviado.
+      status: CommunicationStatus.SENT,
       ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
       ...(query.unitId !== undefined ? { unitId: query.unitId } : {}),
       ...(query.classId !== undefined ? { classId: query.classId } : {}),
@@ -147,7 +164,7 @@ export class AnnouncementsService {
   async findOne(organizationId: number, id: number, requester: AuthenticatedUser) {
     const { where: scope, member } = await this.memberScope(organizationId, requester);
     const announcement = await this.prisma.announcement.findFirst({
-      where: { id, organizationId, ...(scope ? { AND: [scope] } : {}) },
+      where: { id, organizationId, status: CommunicationStatus.SENT, ...(scope ? { AND: [scope] } : {}) },
       omit: member ? { createdByUserId: true } : undefined,
     });
     if (!announcement) {
@@ -162,12 +179,28 @@ export class AnnouncementsService {
   private async findOneOrFail(organizationId: number, id: number, requester?: AuthenticatedUser) {
     const scope = await this.unitScope.resolve(requester, organizationId);
     const announcement = await this.prisma.announcement.findFirst({
-      where: { id, organizationId, AND: [groupWideOrUnitFilter(scope)] },
+      where: { id, organizationId, status: CommunicationStatus.SENT, AND: [groupWideOrUnitFilter(scope)] },
     });
     if (!announcement) {
       throw new NotFoundException('Comunicado não encontrado.');
     }
     return announcement;
+  }
+
+  /**
+   * Comunicado criado pelo Comunicar (`scopeType` preenchido) so se edita/encerra pelas rotas /communications (alcance,
+   * cotas e papeis proprios: GROUP/UNIT/ROLE/BIRTHDAY_MONTH so o MESTRE). As rotas legadas recusam (409), senao um
+   * professor alargaria o alcance ou driblaria as cotas editando o comunicado pelo mural antigo.
+   */
+  private assertNotManagedByCommunications(row: { scopeType: CommunicationScope | null }): void {
+    if (row.scopeType !== null) {
+      throw new ConflictException({
+        statusCode: 409,
+        error: 'Conflict',
+        code: 'MANAGED_BY_COMMUNICATIONS',
+        message: 'Este comunicado foi criado em Comunicar e só pode ser alterado por lá.',
+      });
+    }
   }
 
   /** `options.notify = false`: o chamador (envio rapido, POST /notifications/send) notifica por conta propria, uma vez por
@@ -229,6 +262,7 @@ export class AnnouncementsService {
 
   async update(organizationId: number, id: number, dto: UpdateAnnouncementDto, requester?: AuthenticatedUser) {
     const current = await this.findOneOrFail(organizationId, id, requester);
+    this.assertNotManagedByCommunications(current);
     const scope = await this.unitScope.resolve(requester, organizationId);
     assertUnitOwned(scope, current.unitId);
     assertUnitUpdate(scope, dto.unitId);
@@ -272,6 +306,7 @@ export class AnnouncementsService {
    * isActive = false, mesmo espírito de soft-delete dos outros módulos. */
   async remove(organizationId: number, id: number, requester?: AuthenticatedUser) {
     const current = await this.findOneOrFail(organizationId, id, requester);
+    this.assertNotManagedByCommunications(current);
     assertUnitOwned(await this.unitScope.resolve(requester, organizationId), current.unitId);
     const updated = await this.prisma.announcement.update({ where: { id }, data: { isActive: false } });
     await this.audit.record({

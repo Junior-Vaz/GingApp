@@ -80,6 +80,14 @@ process.env.PIX_READ_THROTTLE_LIMIT = '1000';
 // Formularios de inscricao publicos: sem o job de retencao (o spec chama FormsRetentionCronService direto) e limites
 // por IP altos (registration-forms.e2e-spec.ts prova o 429 rebaixando um deles; os limites sao lidos a cada pedido).
 process.env.FORMS_RETENTION_PURGE = 'false';
+// Comunicar: sem o agendador por minuto nos testes (CommunicationsSchedulerService.run/CommunicationsService.sendDueScheduled sao
+// chamados direto, com `now` injetado); e cotas altas por padrao (communications.e2e-spec.ts rebaixa as cotas por conta propria).
+process.env.COMM_SCHEDULER = 'false';
+process.env.COMM_DAILY_LIMIT_ORG = '1000';
+process.env.COMM_DAILY_LIMIT_AUTHOR = '1000';
+// Aniversariantes: sem os jobs (resumo 07:30 + varredura horaria) nos testes; birthdays.e2e-spec.ts chama
+// BirthdayAutomationService/BirthdaysCronService direto, com `now` injetado (o flag so desliga o agendador, nao o servico).
+process.env.BIRTHDAY_CRON = 'false';
 process.env.FORMS_READ_THROTTLE_LIMIT = '1000';
 process.env.FORMS_SHARE_THROTTLE_LIMIT = '1000';
 process.env.FORMS_UPLOAD_THROTTLE_LIMIT = '1000';
@@ -89,3 +97,10 @@ process.env.FORMS_LOOKUP_THROTTLE_LIMIT = '1000';
 // prova o 429 rebaixando o limite (lido a cada envio).
 process.env.FORMS_SUBMISSIONS_PER_IP_HOUR = '1000';
 process.env.FORMS_SUBMISSIONS_PER_IP_DAY = '1000';
+// Feed do grupo: sem a limpeza agendada das fotos (feed.e2e-spec.ts chama FeedMediaCleanupCronService.run direto) e
+// throttles de escrita/envio altos (o spec prova o 429 rebaixando um deles; os limites sao lidos a cada pedido).
+process.env.FEED_MEDIA_CLEANUP = 'false';
+process.env.FEED_WRITE_THROTTLE_LIMIT = '1000';
+process.env.FEED_WRITE_IP_THROTTLE_LIMIT = '5000';
+process.env.FEED_UPLOAD_THROTTLE_LIMIT = '1000';
+process.env.FEED_UPLOAD_IP_THROTTLE_LIMIT = '5000';

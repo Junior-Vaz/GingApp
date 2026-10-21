@@ -16,6 +16,7 @@ import {
   Download,
   Heart,
   Menu,
+  MessagesSquare,
   LogOut,
   QrCode,
   Trophy,
@@ -24,6 +25,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { logout } from "@/lib/auth";
 import { useSessionUser } from "@/lib/session";
+import { useFeedSettings } from "@/lib/feed";
 import { useMyIdentity, useMyStudent, useMyUnit, usePassport, usePendingTransferCount, useUnreadCount } from "@/lib/queries";
 import { Avatar } from "./avatar";
 
@@ -40,6 +42,8 @@ const communityNav = [
   { to: "/eventos", label: "Eventos", icon: CalendarDays },
   { to: "/rodas", label: "Rodas de capoeira", icon: CircleDot },
   { to: "/ranking", label: "Ranking", icon: Trophy },
+  // Última da lista de propósito: a barra inferior referencia communityNav[0] e [3] por posição.
+  { to: "/feed", label: "Grupo", icon: MessagesSquare },
 ] as const;
 const personalNav = [
   { to: "/notificacoes", label: "Notificações", icon: Bell },
@@ -101,6 +105,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const groupName = passport.data?.organization.name ?? user?.organizationSlug ?? "Seu grupo";
   const myUnit = useMyUnit();
   const unitName = myUnit?.name ?? passport.data?.unit?.name ?? "";
+  // "Grupo" (feed) só aparece com o feed LIGADO no grupo: carregando, desligado ou erro = oculto (a rota /feed segue
+  // existindo e explica "feed desligado" a quem chegar por link).
+  const feedEnabled = useFeedSettings().data?.enabled === true;
+  const communityItems = communityNav.filter((item) => item.to !== "/feed" || feedEnabled);
   const current = [...mainNav, ...communityNav, ...personalNav].find((item) => item.to === pathname)?.label ?? (pathname === "/transferencias" ? "Pedidos de transferência" : pathname === "/ocorrencias" ? "Minhas ocorrências" : "GingApp");
 
   function handleLogout() {
@@ -138,7 +146,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <nav aria-label="Menu principal">
           {navigation(mainNav)}
           <div className="nav-caption">Na roda, juntos</div>
-          {navigation(communityNav)}
+          {navigation(communityItems)}
           <div className="nav-caption">Sua conta</div>
           {navigation(personalNav)}
         </nav>
@@ -241,7 +249,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <Avatar name={me.name || user?.name} src={me.photo} size={44} groupName={me.groupName} groupLogoUrl={me.groupLogoUrl} />
             <strong className="truncate">{user?.name}</strong>
           </Link>
-          <nav>{navigation([...mainNav, ...communityNav, ...personalNav])}</nav>
+          <nav>{navigation([...mainNav, ...communityItems, ...personalNav])}</nav>
           <Button
             variant="soft"
             onClick={() => {

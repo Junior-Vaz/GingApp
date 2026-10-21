@@ -12,6 +12,7 @@ import {
   CircleDot,
   BadgeCheck,
   Megaphone,
+  MessagesSquare,
   BarChart3,
   Building2,
   Settings,
@@ -19,6 +20,8 @@ import {
   Trophy,
   ArrowRightLeft,
   UserRound,
+  Cake,
+  MessageSquarePlus,
   type LucideIcon,
 } from "lucide-react";
 import { PANEL_ROLES, type OrgRole } from "@/lib/session";
@@ -59,9 +62,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
   // Formulários de inscrição (/event-forms): quem gerencia eventos (events:edit = MESTRE, PROFESSOR, INSTRUTOR); o MONITOR é só leitura.
   { to: "/formularios", label: "Formulários", icon: ClipboardList, roles: WITHOUT_MONITOR },
   { to: "/rodas", label: "Rodas", icon: CircleDot },
+  // Aniversariantes (GET /birthdays) e Comunicar (POST /communications): quem cria comunicados (announcements:create = MESTRE,
+  // PROFESSOR, INSTRUTOR); o MONITOR é só leitura.
+  { to: "/aniversariantes", label: "Aniversariantes", icon: Cake, roles: WITHOUT_MONITOR },
+  { to: "/comunicar", label: "Comunicar", icon: MessageSquarePlus, roles: WITHOUT_MONITOR },
   // Certificados (certificates:view): o MONITOR não tem (backend: nada); o INSTRUTOR só lê.
   { to: "/certificados", label: "Certificados", icon: BadgeCheck, roles: WITHOUT_MONITOR },
   { to: "/comunicados", label: "Comunicados", icon: Megaphone },
+  // Feed do grupo (/feed/moderation): moderação por MESTRE, PROFESSOR e INSTRUTOR (o MONITOR é só membro); as configurações do feed são só do MESTRE.
+  { to: "/feed-moderacao", label: "Feed do grupo", icon: MessagesSquare, roles: WITHOUT_MONITOR },
   { to: "/relatorios", label: "Relatórios", icon: BarChart3 },
   // Unidades (backend: recurso `units`, CRUD só do MESTRE) e Configurações (PATCH /organizations/me, só MESTRE):
   // ficam só para o MESTRE no menu.

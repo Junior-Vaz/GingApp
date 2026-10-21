@@ -32,6 +32,25 @@ describe("guard de rotas", () => {
     expect(router.state.location.pathname).toBe("/jornada");
   });
 
+  it("sem sessão, /feed (Grupo) redireciona para /login com redirect de volta", async () => {
+    const router = makeRouter("/feed");
+    await router.load();
+    expect(router.state.location.pathname).toBe("/login");
+    expect(router.state.location.search).toMatchObject({ redirect: "/feed" });
+  });
+
+  it("com sessão, /feed (Grupo) é aceita e a rota traz o título da página", async () => {
+    saveSession("t", {
+      id: 1, name: "A", email: "a@b.c", userType: "MEMBER", isSuperAdmin: false,
+      organizationId: 1, organizationSlug: "g", role: "ALUNO",
+    });
+    const router = makeRouter("/feed");
+    await router.load();
+    expect(router.state.location.pathname).toBe("/feed");
+    const titles = router.state.matches.flatMap((match) => (match.meta ?? []).map((meta) => (meta as { title?: string } | undefined)?.title));
+    expect(titles).toContain("Grupo — GingApp");
+  });
+
   it("páginas públicas de verificação não exigem login", async () => {
     for (const path of ["/verificar/ABC", "/verificar-passaporte/XYZ", "/esqueci-senha"]) {
       const router = makeRouter(path);

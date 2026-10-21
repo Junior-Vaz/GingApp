@@ -379,3 +379,39 @@ curl -s -A "WhatsApp/2.23.20.0 A" https://app.gingapp.com.br/i/<slug> | grep -i 
 curl -s -A "Mozilla/5.0" https://app.gingapp.com.br/i/<slug> | head -c 300
 ```
 Depois, cole o link numa conversa do WhatsApp para ver o cartão (o WhatsApp guarda o preview em cache; para testar de novo, use outro formulário ou acrescente `?v=2` ao link).
+
+## 27. Feed do grupo (fotos privadas, moderação)
+
+Linha do tempo **só do grupo** (app: `/feed`; moderação no painel: `/feed-moderacao`). Contrato: `docs/CONTRATO_FEED_ANIVERSARIOS_COMUNICACAO.md` seção 4; detalhes técnicos: `PLANO_PROJETO.md` (subseção "Feed do grupo (backend)").
+
+**Fotos privadas (obrigatório no deploy).** As fotos do feed (podem ser de **menores**) ficam em `FEED_MEDIA_DIR` = `/app/private-uploads/feed` (padrão no compose), **dentro do volume persistente `gingapp_private_uploads`** (o mesmo dos anexos dos formulários; sobrevive a redeploy). Sem volume persistente as fotos somem a cada deploy. Esse diretório **nunca** é servido por `/api/uploads/*`: a foto só sai por `GET /api/feed/media/:id?e=&s=` com **URL assinada** (HMAC derivado do `JWT_SECRET`, presa ao grupo, à foto e à variante, validade `FEED_MEDIA_URL_TTL_HOURS`, padrão 6 h; foto ainda **não aprovada** só com URL de revisão de 30 min). Trocar o `JWT_SECRET` invalida as URLs já entregues (o app só recarrega o feed). O backend **não sobe** se `FEED_MEDIA_DIR` estiver dentro de `UPLOADS_DIR` ou for igual a `PRIVATE_UPLOADS_DIR`. Envio: só JPEG/PNG/WEBP pelos magic bytes, até 5 MB, **regravada pelo sharp** (sem EXIF/GPS, lado maior 1600 px + miniatura 480 px, imagens acima de ~25 MP recusadas). **Sem o binário do sharp a plataforma recusa fotos do feed (503)** em vez de gravar com EXIF.
+
+**Variáveis (todas opcionais):** `FEED_MEDIA_DIR`, `FEED_MEDIA_URL_TTL_HOURS` (6), `FEED_POSTS_PER_DAY` (10 por usuário/dia civil SP), `FEED_COMMENTS_PER_DAY` (60), `FEED_MEDIA_CLEANUP` (true; `false` desliga a limpeza a cada 15 min das fotos pendentes vencidas em 24 h e de posts removidos, e a varredura diária 05:30 disco x banco). Tetos avançados no `backend/.env.example`.
+
+**Backup (pendente, decisão do dono).** O serviço `backup` copia só `gingapp_uploads` (imagens públicas): as **fotos do feed não entram no backup automático**, assim como os comprovantes dos formulários. Perder o volume `gingapp_private_uploads` = perder as fotos do feed (os posts continuam, sem foto). Para copiar manualmente: `docker run --rm -v gingapp_private_uploads:/data -v "$PWD":/out alpine tar czf /out/gingapp-private-uploads-$(date +%F).tgz -C /data .` (guarde o arquivo cifrado: contém fotos de menores).
+
+**O feed nasce DESLIGADO em todos os grupos (migration `20261031000000_feed_default_off`).** A migration também **desliga o feed dos grupos que já existem** (`UPDATE ... SET feedEnabled = false`): ninguém posta nem vê o feed, e o atalho/aba "Grupo" some do app, até o **Mestre ligar** em *Configurações do feed* no painel (`/feed-moderacao`) ou por `PUT /api/feed/settings`. Antes de ligar: confira o **modo de postagem** (padrão: alunos com aprovação; menores sempre com aprovação) e **avise os responsáveis sobre fotos de menores**. Quem chegar por link em `/feed` com o feed desligado vê "O feed deste grupo está desligado". Rode `prisma migrate deploy` antes de subir a versão nova.
+
+**Moderação.** Modo padrão `MODERATED` (post de aluno/responsável/monitor espera aprovação; equipe publica direto); **menor de 18 anos sempre passa por aprovação**; 3 denúncias distintas ocultam o post até a decisão (um post **fixado** ocultado por denúncias volta ainda fixado se as denúncias forem arquivadas). O Mestre configura em `PUT /api/feed/settings` (ligado, modo, comentários, palavras bloqueadas).
+
+**Hierarquia da moderação.** Professor/Instrutor (dentro do escopo de unidade) **não desfaz o que o Mestre ocultou ou recusou** (restaurar volta 403 `MODERATION_NOT_ALLOWED`; o arquivamento de denúncias do professor não republica o post) e **não apaga de vez** (remoção é irreversível) post cujo autor é Mestre nem post que um Mestre ocultou. Arquivar (`DISMISS`) denúncias de um **comentário** só o republica se ele foi ocultado **pelas denúncias** e ainda tem denúncia aberta. As colunas `FeedPost.hiddenById`/`FeedComment.hiddenById` guardam quem ocultou (nulo = ocultação automática).
+
+**Denunciante protegido.** A trilha de auditoria (`GET /api/audit-logs/me-group`, vista pelo Mestre) grava `FEED_POST_REPORT` **sem usuário e sem IP** de quem denunciou.
+
+## 28. Aniversariantes e Comunicar (comunicação com todo o grupo)
+
+Contrato: `docs/CONTRATO_FEED_ANIVERSARIOS_COMUNICACAO.md` seções 2 e 3; detalhes técnicos no `PLANO_PROJETO.md` (subseções "Aniversariantes (backend)" e "Comunicar (backend)"). Painel: `/aniversariantes` e `/comunicar`; app: faixa de aniversariantes e comunicados fixados na Home e no `/feed`.
+
+**Sem infraestrutura nova.** As duas funções usam as tabelas já migradas (`prisma migrate deploy`, migration `20261030000000_feed_birthdays_communications`), as notificações (sino e push) que já existem e o agendador de jobs. Nenhuma credencial, volume ou serviço externo.
+
+**Variáveis (todas opcionais):**
+- `BIRTHDAY_CRON` (true): `false` desliga o **resumo diário às 07:30 (America/Sao_Paulo)** aos gestores e a **varredura de hora em hora dos parabéns automáticos** (que só enviam para grupos que ligaram a opção na tela do painel).
+- `COMM_SCHEDULER` (true): `false` desliga o envio dos **comunicados agendados** (o agendador roda a cada minuto e é idempotente, inclusive com mais de uma réplica).
+- `COMM_DAILY_LIMIT_ORG` (30) e `COMM_DAILY_LIMIT_AUTHOR` (15): cotas de comunicados por **dia civil de São Paulo**, por grupo e por autor (cancelados não contam). Acima do limite o envio responde 429 `COMM_QUOTA_EXCEEDED`.
+- Os jobs só rodam se algum cron do grupo de jobs estiver ligado (`BIRTHDAY_CRON`, `COMM_SCHEDULER`, `OVERDUE_CRON`, `FEED_MEDIA_CLEANUP` etc.): desligando **todos** o agendador nem é carregado.
+
+**Privacidade (LGPD).** O aniversário é dado pessoal: para alunos o app mostra só **dia e mês** de **adultos** que não desligaram "Mostrar meu aniversário ao grupo"; a **idade é só da equipe**; **menores só aparecem para a equipe** (quem faz 18 anos amanhã ainda é tratado como menor). O alcance "Aniversariantes do mês" do Comunicar nunca notifica menores.
+
+**Parabéns automáticos.** Desligados por padrão; o Mestre liga em `/aniversariantes` (Configurações), escolhe o horário (padrão 8 h) e a mensagem (`{nome}` e `{grupo}`). Se a opção for ligada **depois** do horário, o parabéns do dia ainda é enviado naquele dia.
+
+**Comunicados fixados e confirmação.** Um comunicado com "Fixar no feed" aparece no topo do feed e da Home de quem está no alcance, com botões "Li e entendi" ou "Vou / Não vou". O mural antigo (`/announcements`) continua funcionando e passa a listar só os **enviados** (os agendados não aparecem até o envio).

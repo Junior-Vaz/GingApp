@@ -271,6 +271,8 @@ export interface NotificationDto {
   title: string;
   body: string;
   type: string | null;
+  /** Dados extras da notificação (ex.: `communicationId` de COMMUNICATION, `postId` de FEED_*). Ausente em backend antigo. */
+  data?: Record<string, unknown> | null;
   readAt: string | null;
   createdAt: string;
 }
@@ -606,7 +608,11 @@ export interface Ficha {
     photo: string | null;
     documentMasked: string | null;
     documentKind: string | null;
+    /** Opt-in/out do aniversário na faixa do grupo (default true). O contrato diz só "a ficha ganha birthdayVisible": lemos aqui OU na raiz. */
+    birthdayVisible?: boolean;
   };
+  /** Mesma preferência, caso o backend a devolva na raiz da ficha (ver `fichaBirthdayVisible`). */
+  birthdayVisible?: boolean;
   enrollments: FichaEnrollment[];
   /** Cargos da pessoa em todos os grupos (Fase 3). Ausente em backend antigo. */
   roles?: StaffRoleInfo[];
@@ -671,6 +677,45 @@ export const isTransferNotification = (type: string | null | undefined): boolean
 
 /** Avisos de cargo (ROLE_GRANTED/ROLE_REVOKED/ROLE_SUGGESTION): tocar leva ao Perfil. */
 export const isRoleNotification = (type: string | null | undefined): boolean => !!type && type.startsWith("ROLE_");
+
+/** Atividade do feed (FEED_ACTIVITY/FEED_APPROVED/FEED_HIDDEN): tocar leva ao feed do grupo (/feed). */
+export const isFeedNotification = (type: string | null | undefined): boolean => !!type && type.startsWith("FEED_");
+
+/** Aniversários (BIRTHDAY_GREETING/BIRTHDAY_CONGRATS/BIRTHDAY_DIGEST). */
+export const isBirthdayNotification = (type: string | null | undefined): boolean => !!type && type.startsWith("BIRTHDAY_");
+
+/** Comunicado do grupo (COMMUNICATION): pode pedir confirmação ("Li e entendi", "Vou"/"Não vou"). */
+export const isCommunicationNotification = (type: string | null | undefined): boolean => type === "COMMUNICATION";
+
+/** Rótulo (no lugar do genérico "GingApp") e família de ícone de cada tipo novo de notificação. */
+export type NotificationIconKind = "birthday" | "congrats" | "communication" | "feed" | "approved" | "hidden" | "default";
+
+const NOTIFICATION_KINDS: Record<string, { label: string; icon: NotificationIconKind }> = {
+  BIRTHDAY_GREETING: { label: "Parabéns", icon: "birthday" },
+  BIRTHDAY_CONGRATS: { label: "Parabéns do grupo", icon: "congrats" },
+  BIRTHDAY_DIGEST: { label: "Aniversariantes", icon: "birthday" },
+  COMMUNICATION: { label: "Comunicado", icon: "communication" },
+  FEED_ACTIVITY: { label: "Feed do grupo", icon: "feed" },
+  FEED_APPROVED: { label: "Feed do grupo", icon: "approved" },
+  FEED_HIDDEN: { label: "Feed do grupo", icon: "hidden" },
+};
+
+/** Tipos sem mapeamento (ou nulos) mantêm o visual de sempre: sino + "GingApp". */
+export const notificationKind = (type: string | null | undefined): { label: string; icon: NotificationIconKind } =>
+  (type ? NOTIFICATION_KINDS[type] : undefined) ?? { label: "GingApp", icon: "default" };
+
+/** Rota de destino ao tocar na notificação (null = só marca como lida / sem destino próprio). */
+export type NotificationDestination = "/transferencias" | "/perfil" | "/ocorrencias" | "/feed" | "/notificacoes" | null;
+
+export function notificationDestination(type: string | null | undefined): NotificationDestination {
+  if (isTransferNotification(type)) return "/transferencias";
+  if (isRoleNotification(type)) return "/perfil";
+  if (isOccurrenceNotification(type)) return "/ocorrencias";
+  if (isFeedNotification(type)) return "/feed";
+  // Comunicado: a confirmação acontece na própria notificação (esta tela).
+  if (isCommunicationNotification(type)) return "/notificacoes";
+  return null;
+}
 
 /**
  * Pedidos de transferência da própria pessoa e dos dependentes do responsável (sem filtro de aluno
@@ -755,6 +800,8 @@ export interface FichaPatch {
   photo?: string | null;
   phone?: string;
   email?: string;
+  /** "Mostrar meu aniversário ao grupo" (default true no servidor). */
+  birthdayVisible?: boolean;
 }
 
 /* ---------- Listagens paginadas (limit/offset + X-Total-Count) ----------

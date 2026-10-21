@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { OrgRole } from '@prisma/client';
+import { OrgRole, UserType } from '@prisma/client';
 import {
   assertUnitOwned,
   assertUnitTarget,
@@ -161,8 +161,10 @@ export class QuickSendService {
   }
 
   /** Opções de alcance respeitando o escopo de unidade (professor restrito só vê as unidades/turmas dele). */
-  async audiences(organizationId: number, user: AuthenticatedUser) {
+  async audiences(organizationId: number, user: AuthenticatedUser, options: { ownClasses?: boolean } = {}) {
     const scope = await this.unitScope.resolve(user, organizationId);
+    // Comunicar: PROFESSOR/INSTRUTOR so envia as turmas em que leciona (turma ou aula); MESTRE/plataforma, todas.
+    const onlyOwn = options.ownClasses === true && user.role !== OrgRole.MESTRE && !user.isSuperAdmin && user.userType !== UserType.PLATFORM;
     const [units, classes] = await Promise.all([
       this.prisma.unit.findMany({
         where: { organizationId, status: 'ACTIVE', ...(isRestricted(scope) ? { id: { in: scope } } : {}) },
@@ -170,7 +172,12 @@ export class QuickSendService {
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
       }),
       this.prisma.class.findMany({
-        where: { organizationId, status: 'ACTIVE', AND: [unitScopeFilter(scope)] },
+        where: {
+          organizationId,
+          status: 'ACTIVE',
+          AND: [unitScopeFilter(scope)],
+          ...(onlyOwn ? { OR: [{ teacherUserId: user.id }, { lessons: { some: { teacherUserId: user.id } } }] } : {}),
+        },
         select: { id: true, name: true, unitId: true },
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
       }),
@@ -204,7 +211,7 @@ export class QuickSendService {
   }
 
   /** Remove usuário inativo ou com vínculo INACTIVE neste grupo ("nunca enviar para quem desativou"). */
-  private async activeOnly(organizationId: number, userIds: Set<number>): Promise<Set<number>> {
+  async activeOnly(organizationId: number, userIds: Set<number>): Promise<Set<number>> {
     if (userIds.size === 0) return userIds;
     const rows = await this.prisma.user.findMany({
       where: {

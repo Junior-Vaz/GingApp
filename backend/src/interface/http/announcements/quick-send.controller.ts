@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
@@ -30,7 +30,8 @@ export class QuickSendController {
 
   @Get('audiences')
   @CanAccess('announcements', 'create')
-  audiences(@CurrentOrganization() organizationId: number, @CurrentUser() user: AuthenticatedUser) {
-    return this.quickSend.audiences(organizationId, user);
+  audiences(@CurrentOrganization() organizationId: number, @CurrentUser() user: AuthenticatedUser, @Query('own') own?: string) {
+    // ?own=1 (Comunicar): para quem nao e Mestre, as turmas sao so as que ele leciona (as outras dariam 403 ao enviar).
+    return this.quickSend.audiences(organizationId, user, { ownClasses: own === '1' || own === 'true' });
   }
 }

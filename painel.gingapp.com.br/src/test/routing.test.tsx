@@ -156,7 +156,7 @@ describe("guard de rotas", () => {
       await router.load();
       expect(router.state.location.pathname).toBe("/alunos");
     }
-    for (const path of ["/dashboard", "/professores", "/certificados", "/financeiro"]) {
+    for (const path of ["/dashboard", "/professores", "/certificados", "/financeiro", "/aniversariantes", "/comunicar"]) {
       vi.mocked(toast.error).mockClear();
       const router = makeRouter(path);
       await router.load();
@@ -230,8 +230,8 @@ describe("guard de rotas", () => {
     }
   });
 
-  it("todas as 19 rotas do menu existem na árvore", async () => {
-    expect(NAV_ITEMS).toHaveLength(19);
+  it("todas as 22 rotas do menu existem na árvore", async () => {
+    expect(NAV_ITEMS).toHaveLength(22);
     saveSession("t", makeUser("MESTRE"));
     for (const item of NAV_ITEMS) {
       const router = makeRouter(item.to);
@@ -242,16 +242,22 @@ describe("guard de rotas", () => {
 });
 
 describe("menu por papel", () => {
-  it("MESTRE vê 19 itens (com Financeiro, Transferências, Ranking, Formulários e Atividade do grupo); PROFESSOR não vê Financeiro/Transferências/Unidades/Configurações/Atividade", () => {
+  it("MESTRE vê 22 itens (com Financeiro, Transferências, Ranking, Formulários, Aniversariantes, Comunicar, Feed do grupo e Atividade do grupo); PROFESSOR não vê Financeiro/Transferências/Unidades/Configurações/Atividade", () => {
     const mestre = navItemsFor("MESTRE").map((i) => i.label);
-    expect(mestre).toHaveLength(19);
+    expect(mestre).toHaveLength(22);
+    expect(mestre).toContain("Feed do grupo");
+    expect(mestre).toContain("Aniversariantes");
+    expect(mestre).toContain("Comunicar");
     expect(mestre).toContain("Formulários");
     expect(mestre).toContain("Transferências");
     expect(mestre).toContain("Financeiro");
     expect(mestre).toContain("Atividade do grupo");
     const labels = navItemsFor("PROFESSOR").map((i) => i.label);
-    expect(labels).toHaveLength(14);
+    expect(labels).toHaveLength(17);
+    expect(labels).toContain("Aniversariantes");
+    expect(labels).toContain("Comunicar");
     expect(labels).toContain("Formulários");
+    expect(labels).toContain("Feed do grupo");
     expect(labels).not.toContain("Financeiro");
     expect(labels).not.toContain("Transferências");
     expect(labels).not.toContain("Unidades");
@@ -263,11 +269,11 @@ describe("menu por papel", () => {
     expect(navItemsFor(undefined).map((i) => i.label)).not.toContain("Financeiro");
   });
 
-  it("INSTRUTOR vê o mesmo menu do PROFESSOR (14); MONITOR vê 10 (sem Dashboard, Equipe, Certificados, Formulários, Financeiro etc.)", () => {
+  it("INSTRUTOR vê o mesmo menu do PROFESSOR (17); MONITOR vê 10 (sem Dashboard, Equipe, Certificados, Formulários, Aniversariantes, Comunicar, Feed do grupo, Financeiro etc.)", () => {
     const professor = navItemsFor("PROFESSOR").map((i) => i.label);
     const instrutor = navItemsFor("INSTRUTOR").map((i) => i.label);
     expect(instrutor).toEqual(professor);
-    expect(instrutor).toHaveLength(14);
+    expect(instrutor).toHaveLength(17);
     expect(instrutor).toContain("Equipe");
     expect(instrutor).not.toContain("Financeiro");
     const monitor = navItemsFor("MONITOR").map((i) => i.label);

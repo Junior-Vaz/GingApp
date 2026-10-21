@@ -1,6 +1,6 @@
 import { TransferContestReason } from '@prisma/client';
 import { Type } from 'class-transformer';
-import { IsEmail, IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEmail, IsEnum, IsIn, IsInt, IsOptional, IsString, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
 import { IsImageRef } from '../../../../shared/uploads/image-ref';
 import { IsNewPassword } from '../../../../shared/security/new-password.decorator';
 
@@ -82,6 +82,11 @@ export class UpdateMyPersonDto {
   @IsOptional()
   @IsEmail()
   email?: string | null;
+
+  /** "Mostrar meu aniversario ao grupo" (contrato de aniversariantes): false = nunca aparece em /birthdays/week. */
+  @IsOptional()
+  @IsBoolean()
+  birthdayVisible?: boolean;
 }
 
 /** POST /public/transfer-approval/:token/approve: senha do login novo (politica @IsNewPassword) e e-mail (se a ficha nao tem). */

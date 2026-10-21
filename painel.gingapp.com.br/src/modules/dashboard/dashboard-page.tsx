@@ -1,5 +1,6 @@
 import { plural } from "@/lib/plural";
 import { Award, CalendarCheck, CalendarDays, Layers, Percent, Users, Wallet } from "lucide-react";
+import { BirthdaysCard } from "@/components/painel/birthdays-card";
 import { PageHeader } from "@/components/painel/page-header";
 import { StatCard } from "@/components/painel/stat-card";
 import { Button } from "@/components/ui/button";
@@ -74,27 +75,30 @@ export function DashboardPage() {
             <StatCard icon={Award} label="Graduações (30d)" value={data.graduations.last30d} />
           </div>
 
-          <Card className="gap-3 p-5">
-            <div className="flex items-center gap-2">
-              <CalendarCheck className="size-4 text-primary" />
-              <h2 className="text-sm font-bold">Próximos eventos</h2>
-            </div>
-            {data.upcomingEvents.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum evento futuro cadastrado.</p>
-            ) : (
-              <ul className="divide-y">
-                {data.upcomingEvents.map((event) => (
-                  <li key={event.id} className="flex items-center justify-between gap-3 py-2 text-sm">
-                    <span className="font-semibold">{event.title}</span>
-                    <span className="text-muted-foreground">
-                      {fmt(dayOnly(event.date), "dd/MM")}
-                      {event.location ? ` · ${event.location}` : ""}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Card className="gap-3 p-5">
+              <div className="flex items-center gap-2">
+                <CalendarCheck className="size-4 text-primary" />
+                <h2 className="text-sm font-bold">Próximos eventos</h2>
+              </div>
+              {data.upcomingEvents.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhum evento futuro cadastrado.</p>
+              ) : (
+                <ul className="divide-y">
+                  {data.upcomingEvents.map((event) => (
+                    <li key={event.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                      <span className="font-semibold">{event.title}</span>
+                      <span className="text-muted-foreground">
+                        {fmt(dayOnly(event.date), "dd/MM")}
+                        {event.location ? ` · ${event.location}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+            <BirthdaysCard />
+          </div>
 
           <p className="text-xs text-muted-foreground">
             Alunos inativos: {data.students.inactive}

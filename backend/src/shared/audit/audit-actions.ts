@@ -96,6 +96,11 @@ export const AuditAction = {
   CERTIFICATE_DOWNLOAD: 'CERTIFICATE_DOWNLOAD',
   ANNOUNCEMENT_CREATE: 'ANNOUNCEMENT_CREATE',
   ANNOUNCEMENT_UPDATE: 'ANNOUNCEMENT_UPDATE',
+  // Comunicar (contrato secao 3): so alcance/contagens, NUNCA o titulo/texto da mensagem
+  COMMUNICATION_CREATE: 'COMMUNICATION_CREATE',
+  COMMUNICATION_SEND: 'COMMUNICATION_SEND',
+  COMMUNICATION_CANCEL: 'COMMUNICATION_CANCEL',
+  COMMUNICATION_RESEND: 'COMMUNICATION_RESEND',
   // Envio rapido de aviso (POST /notifications/send): so contagem/alcance, nunca o texto
   NOTIFICATION_SEND: 'NOTIFICATION_SEND',
   // Modelos de aviso rapido (CRUD do MESTRE): so id/ordem, o texto vai em meta apenas no tamanho
@@ -187,6 +192,23 @@ export const AuditAction = {
   REGISTRATION_SUBMISSION_VIEW: 'REGISTRATION_SUBMISSION_VIEW',
   REGISTRATION_FILE_VIEW: 'REGISTRATION_FILE_VIEW',
   REGISTRATION_EXPORT: 'REGISTRATION_EXPORT',
+  // Aniversariantes (contrato secao 2): parabens da equipe (manual/automatico) e configuracao do grupo.
+  // NUNCA data de nascimento nem texto da mensagem no meta (so ids, origem e contagens).
+  BIRTHDAY_GREET: 'BIRTHDAY_GREET',
+  BIRTHDAY_SETTINGS_UPDATE: 'BIRTHDAY_SETTINGS_UPDATE',
+  // Feed do grupo (contrato secao 4). NUNCA o texto, nota da denuncia ou foto no meta (so ids, status, motivo e contagens).
+  FEED_POST_CREATE: 'FEED_POST_CREATE',
+  FEED_POST_DELETE: 'FEED_POST_DELETE',
+  FEED_POST_APPROVE: 'FEED_POST_APPROVE',
+  FEED_POST_HIDE: 'FEED_POST_HIDE',
+  FEED_POST_RESTORE: 'FEED_POST_RESTORE',
+  // Fixar e desafixar (meta.pinned)
+  FEED_POST_PIN: 'FEED_POST_PIN',
+  // Denuncia de post OU comentario (meta.target; entidade feed_post/feed_comment)
+  FEED_POST_REPORT: 'FEED_POST_REPORT',
+  // Comentario removido por MODERADOR (o autor apagando o proprio nao audita)
+  FEED_COMMENT_DELETE: 'FEED_COMMENT_DELETE',
+  FEED_SETTINGS_UPDATE: 'FEED_SETTINGS_UPDATE',
 } as const;
 
 export type AuditActionCode = (typeof AuditAction)[keyof typeof AuditAction];
@@ -234,4 +256,7 @@ export const AuditEntity = {
   REGISTRATION_FORM: 'registration_form',
   REGISTRATION_SUBMISSION: 'registration_submission',
   REGISTRATION_FILE: 'registration_file',
+  BIRTHDAY: 'birthday',
+  FEED_POST: 'feed_post',
+  FEED_COMMENT: 'feed_comment',
 } as const;

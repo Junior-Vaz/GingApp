@@ -404,7 +404,15 @@ export class ClassesService {
         await tx.attendance.deleteMany({ where: { organizationId, lesson: { classId: id } } });
         await tx.lesson.deleteMany({ where: { organizationId, classId: id } });
         await tx.classStudent.deleteMany({ where: { organizationId, classId: id } });
-        await tx.announcement.updateMany({ where: { organizationId, classId: id }, data: { classId: null } });
+        // Comunicado dirigido a esta turma NAO vira do grupo/unidade (zerar o classId alargaria o alcance no mural): fica
+        // inativo (escopo CLASS ou legado). Os agendados sao cancelados pelo agendador (alcance invalido).
+        await tx.announcement.updateMany({ where: { organizationId, classId: id }, data: { classId: null, isActive: false } });
+        // Posts do feed so para a turma NAO viram do grupo (seria ampliar o publico de fotos de alunos): saem do feed
+        // (REMOVED, sem texto); as fotos param de ser servidas na hora e a limpeza agendada (FEED_MEDIA_CLEANUP) as apaga.
+        await tx.feedPost.updateMany({
+          where: { organizationId, classId: id },
+          data: { classId: null, status: 'REMOVED', deletedAt: new Date(), pinned: false, body: null, hiddenReason: 'CLASS_DELETED' },
+        });
         await tx.class.delete({ where: { id } });
       },
       { timeout: 30_000 },

@@ -70,10 +70,15 @@ export interface Audiences {
 
 export const AUDIENCES_KEY = ["notifications", "audiences"] as const;
 
-export function useAudiences(enabled = true) {
+/**
+ * `ownClasses` (Comunicar): para Professor/Instrutor o servidor devolve só as turmas que ele leciona (as outras dariam 403
+ * ao enviar). O Mestre recebe todas do mesmo jeito. Chave de cache própria para não misturar com o aviso rápido.
+ */
+export function useAudiences(enabled = true, options: { ownClasses?: boolean } = {}) {
+  const own = options.ownClasses === true;
   return useQuery({
-    queryKey: AUDIENCES_KEY,
-    queryFn: () => api.get<Audiences>("/notifications/audiences"),
+    queryKey: own ? ([...AUDIENCES_KEY, "own"] as const) : AUDIENCES_KEY,
+    queryFn: () => api.get<Audiences>(own ? "/notifications/audiences?own=1" : "/notifications/audiences"),
     enabled,
     staleTime: 60_000,
   });

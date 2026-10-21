@@ -43,7 +43,11 @@ export interface Ficha {
     /** `***.***.***-XX` ou null: o CPF NUNCA sai inteiro. */
     documentMasked: string | null;
     documentKind: PersonDocumentKind | null;
+    /** Preferencia "mostrar meu aniversario ao grupo" (contrato de aniversariantes, secao 2); padrao true. */
+    birthdayVisible: boolean;
   };
+  /** Mesma preferencia, na raiz da ficha (o app le na raiz OU em `person`). */
+  birthdayVisible: boolean;
   enrollments: {
     studentId: number;
     organization: OrgRef & { logoUrl: string | null };
@@ -199,7 +203,9 @@ export class PersonFichaService {
         photo: person.photo,
         documentMasked: maskPersonDocument(person.documentLast4),
         documentKind: person.documentKind,
+        birthdayVisible: person.birthdayVisible,
       },
+      birthdayVisible: person.birthdayVisible,
       enrollments: students.map((s) => ({
         studentId: s.id,
         organization: { id: s.organization.id, name: s.organization.name, logoUrl: s.organization.logo ?? null },
@@ -329,7 +335,7 @@ export class PersonFichaService {
   /** PATCH /people/me: a propria pessoa (login ligado a ficha) edita a identidade; nome/foto/contato vao as matriculas. */
   async updateMyPerson(
     userId: number,
-    dto: { name?: string; nickname?: string | null; photo?: string | null; phone?: string | null; email?: string | null },
+    dto: { name?: string; nickname?: string | null; photo?: string | null; phone?: string | null; email?: string | null; birthdayVisible?: boolean },
   ) {
     const person = await findPersonByUser(this.prisma, userId);
     if (!person) throw personNotFound();
@@ -341,7 +347,8 @@ export class PersonFichaService {
       email: dto.email === undefined ? undefined : dto.email?.trim().toLowerCase() || null,
     };
     const updated = await this.prisma.$transaction(async (tx) => {
-      const p = await tx.person.update({ where: { id: person.id }, data });
+      // birthdayVisible so existe na Person (preferencia de privacidade do aniversario): nao vai para as matriculas.
+      const p = await tx.person.update({ where: { id: person.id }, data: { ...data, birthdayVisible: dto.birthdayVisible } });
       await tx.student.updateMany({
         where: { personId: person.id },
         data: { name: data.name, photo: data.photo, phone: data.phone, email: data.email },
@@ -372,7 +379,9 @@ export class PersonFichaService {
         photo: updated.photo,
         documentMasked: maskPersonDocument(updated.documentLast4),
         documentKind: updated.documentKind,
+        birthdayVisible: updated.birthdayVisible,
       },
+      birthdayVisible: updated.birthdayVisible,
     };
   }
 }
