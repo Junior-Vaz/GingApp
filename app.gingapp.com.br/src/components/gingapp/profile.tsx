@@ -92,7 +92,7 @@ const SOCIAL_FIELDS: { key: keyof SocialLinks; label: string; icon: typeof Insta
 function UrlField({ id, label, value, onChange, placeholder }: { id: string; label: string; value: string; onChange: (value: string) => void; placeholder: string }) {
   return (
     <div className="flex items-center gap-2">
-      <input className="profile-input min-w-0 flex-1" id={id} type="url" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+      <input className="profile-input min-w-0 flex-1" id={id} type="text" inputMode="url" autoComplete="off" autoCapitalize="none" spellCheck={false} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
       {value.trim() !== "" && (
         <Button type="button" variant="ghost" size="sm" aria-label={`Remover ${label}`} onClick={() => onChange("")}>
           <X />

@@ -255,6 +255,10 @@ describe("Perfil: dependentes e edição", () => {
     expect(sheet.textContent).toContain("Editar perfil");
     expect(sheet.querySelector("#photo")).not.toBeNull();
     expect(sheet.querySelector("#coverPhoto")).not.toBeNull();
+    // o upload devolve um caminho relativo (/api/uploads/...): o campo NAO pode ser type="url" (o navegador recusaria: "Insira uma URL.")
+    for (const id of ["photo", "coverPhoto", "instagram"]) {
+      expect(sheet.querySelector<HTMLInputElement>(`#${id}`)!.type).toBe("text");
+    }
     expect(sheet.querySelector("#instagram")).not.toBeNull();
     expect(sheet.querySelector("[data-testid=ficha-edit]")).not.toBeNull();
   });

@@ -315,8 +315,9 @@ export function buildLayout(h: Hierarchy, maxCols = columnsFor(typeof window ===
 
   const staffOf = (level: HierarchyLevel): StaffEntry[] => placement.byLevel.get(level.id) ?? [];
   const mineIndex = h.levels.findIndex((l) => l.isMine);
-  const shown = mineIndex < 0 ? h.levels : h.levels.filter((l, i) => i <= mineIndex || staffOf(l).length > 0);
-  const belowLevels = mineIndex < 0 ? [] : h.levels.slice(mineIndex + 1).filter((l) => !shown.includes(l));
+  // Todas as graduações do sistema aparecem (inclusive as abaixo do aluno): a hierarquia completa, do topo à base.
+  const shown = h.levels;
+  const belowLevels: HierarchyLevel[] = [];
   shown.forEach((level, i) => {
     const staff = staffOf(level);
     const size = groupSize(level, maxCols, staff.length);

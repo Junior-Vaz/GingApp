@@ -222,7 +222,8 @@ describe("lógica pura da hierarquia", () => {
     const layout = buildLayout(h);
     const kinds = layout.nodes.map((n) => n.kind);
     // equipe DENTRO do nível da sua corda (mestre em azul, Prof Ana em mista); só o Prof Beto (sem corda) vira cartão "Equipe"
-    expect(kinds).toEqual(["root", "team", "level", "level", "below"]);
+    // todas as graduações do sistema aparecem (inclusive as abaixo do aluno), sem o bloco "abaixo de você"
+    expect(kinds).toEqual(["root", "team", ...h.levels.map(() => "level")]);
     const ys = layout.nodes.map((n) => n.y);
     expect([...ys].sort((a, b) => a - b)).toEqual(ys);
     expect(layout.mine).not.toBeNull();
@@ -255,7 +256,7 @@ describe("Hierarquia (canvas)", () => {
     expect(text()).toContain("Corda azul");
     expect(q("[data-testid='hier-me']")!.textContent).toContain("Você está aqui");
     expect(q("[data-testid='hier-me']")!.textContent).toContain("Camila Souza Lima");
-    expect(q("[data-testid='hier-below']")!.textContent).toContain("7 alunos abaixo de você");
+    expect(q("[data-testid='hier-below']")).toBeNull();
     expect(q("[data-testid='hier-summary']")!.textContent).toContain("9 pessoas acima de você");
     expect(q("[data-testid='hier-summary']")!.textContent).toContain("Próximo nível: Corda azul");
     // nível mais alto antes do meu na ordem do DOM
@@ -347,10 +348,10 @@ describe("Hierarquia (canvas)", () => {
     state.hierarchy = { data: sample(), isLoading: false, error: null };
     render(<HierarchyCanvas viewToggle={null} />);
     const cards = [...container!.querySelectorAll<HTMLElement>(".hier-person:not(.hier-more-card)")];
-    // equipe (3) + alunos listados até o meu nível (9 + 2); o nível abaixo do meu vira o bloco "abaixo de você"
-    expect(cards).toHaveLength(3 + 9 + 2);
+    // equipe (3) + todos os alunos de todos os níveis (18): a hierarquia completa, sem bloco "abaixo de você"
+    expect(cards).toHaveLength(3 + 18);
     expect(container!.querySelectorAll(".hier-person.is-staff")).toHaveLength(3);
-    expect(container!.querySelectorAll(".hier-person.is-student")).toHaveLength(11);
+    expect(container!.querySelectorAll(".hier-person.is-student")).toHaveLength(18);
     for (const card of cards) {
       expect(card.querySelector<HTMLElement>(".gx-av")!.style.getPropertyValue("--av")).toBe(`${PERSON_AVATAR}px`);
       expect(card.querySelector("[data-testid='avatar-group-badge']")).not.toBeNull();
@@ -615,14 +616,15 @@ describe("Hierarquia: a equipe fica DENTRO do nível da sua corda (um único flu
     expect(container!.querySelectorAll("[data-testid='hier-me']")).toHaveLength(1);
     expect(q("[data-testid='hier-me']")!.textContent).toContain("Você está aqui");
     expect(q(".hier-group.is-mine")!.getAttribute("aria-label")).toBe("Nível Marrom");
-    // níveis abaixo do meu, SEM equipe, viram o bloco esmaecido; o Instrutor (Azul e verde) mantém o cartão para não sumir
+    // TODAS as graduações aparecem como cartão (inclusive as abaixo do meu nível, mesmo vazias), na ordem do sistema
     const names = [...container!.querySelectorAll("[data-testid='hier-level']")].map((s) => s.getAttribute("aria-label"));
-    expect(names).toEqual(["Nível Branca - Mestre", "Nível Marrom", "Nível Azul e verde"]);
+    expect(names).toHaveLength(6);
+    expect(names.slice(0, 3)).toEqual(["Nível Branca - Mestre", "Nível Marrom", "Nível Azul e verde"]);
     expect(peopleByLevel()["Azul e verde"]).toEqual(["Instrutor Mysterio"]);
-    expect(q("[data-testid='hier-below']")!.textContent).toContain("3 alunos abaixo de você"); // Verde (3) + Azul e Crua (0); Azul e verde é cartão
+    expect(q("[data-testid='hier-below']")).toBeNull();
     const layout = buildLayout(h, 3);
-    expect(layout.belowLevels.map((l) => l.name)).toEqual(["Azul", "Verde", "Crua"]);
-    expect(layout.nodes.at(-1)!.kind).toBe("below");
+    expect(layout.belowLevels).toEqual([]);
+    expect(layout.nodes.some((n) => n.kind === "below")).toBe(false);
     // o meu cartão (aluno) fica depois da equipe na grade do nível Marrom: 3ª posição (índice 2) com 3 colunas
     const marrom = layout.nodes.find((n) => n.level?.name === "Marrom")!;
     expect(layout.meCard!.y).toBeGreaterThanOrEqual(marrom.y);
