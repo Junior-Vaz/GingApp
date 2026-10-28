@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Camera, Clock, ImagePlus, Loader2, RotateCw, X } from "lucide-react";
 import { toast } from "sonner";
@@ -17,9 +17,9 @@ import {
   type CreatePostInput,
   type FeedMediaUpload,
   type FeedSettings,
-  type FeedVisibility,
 } from "@/lib/feed";
-import { useClasses, useMyIdentity, useMyStudent, usePassport } from "@/lib/queries";
+import { useVisibilityOptions } from "@/lib/feed-visibility";
+import { useMyIdentity } from "@/lib/queries";
 import { UPLOAD_ACCEPT } from "@/lib/uploads";
 import { Avatar } from "../avatar";
 import { FeedSheet } from "./feed-sheet";
@@ -34,14 +34,6 @@ interface Attachment {
   error?: string;
 }
 
-interface VisibilityOption {
-  value: string;
-  label: string;
-  visibility: FeedVisibility;
-  unitId?: number;
-  classId?: number;
-}
-
 const makePreview = (file: File): string | null =>
   typeof URL !== "undefined" && typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : null;
 const revoke = (preview: string | null) => {
@@ -49,35 +41,6 @@ const revoke = (preview: string | null) => {
 };
 
 let attachmentSeq = 0;
-
-/**
- * Opções de visibilidade do usuário: "Todo o grupo" sempre; "Minha unidade"/"Minha turma" a partir das turmas
- * (/classes/me), do aluno ativo e do passaporte. Só 1 opção = o seletor vira texto fixo.
- */
-function useVisibilityOptions(): VisibilityOption[] {
-  const classes = useClasses();
-  const { student } = useMyStudent();
-  const passport = usePassport();
-  const classList = classes.data;
-  const studentUnitId = student?.unitId ?? null;
-  const passportUnit = passport.data?.unit ?? null;
-  return useMemo(() => {
-    const options: VisibilityOption[] = [{ value: "GROUP", label: "Todo o grupo", visibility: "GROUP" }];
-    const units = new Map<number, string>();
-    for (const item of classList ?? []) {
-      if (item.unit) units.set(item.unit.id, item.unit.name);
-    }
-    if (passportUnit?.id !== undefined) units.set(passportUnit.id, passportUnit.name);
-    if (studentUnitId !== null && !units.has(studentUnitId)) units.set(studentUnitId, passportUnit?.name ?? "Minha unidade");
-    for (const [id, name] of units) {
-      options.push({ value: `UNIT:${id}`, label: units.size > 1 ? `Minha unidade: ${name}` : `Minha unidade (${name})`, visibility: "UNIT", unitId: id });
-    }
-    for (const item of classList ?? []) {
-      options.push({ value: `CLASS:${item.id}`, label: `Minha turma: ${item.name}`, visibility: "CLASS", classId: item.id });
-    }
-    return options;
-  }, [classList, studentUnitId, passportUnit]);
-}
 
 /** Explicação discreta quando o usuário não pode publicar. */
 export function CannotPostNote({ settings }: { settings: FeedSettings }) {

@@ -63,6 +63,8 @@ export function feedThrottle(userEnv: string, userFallback: number, ipEnv: strin
 }
 
 export const FEED_WRITE_THROTTLE = feedThrottle('FEED_WRITE_THROTTLE_LIMIT', 30, 'FEED_WRITE_IP_THROTTLE_LIMIT', 300);
+/** Marcar story como visto: a tela chama a cada item exibido (uma rajada ao passar os stories), entao o teto e mais alto. */
+export const FEED_STORY_VIEW_THROTTLE = feedThrottle('FEED_STORY_VIEW_THROTTLE_LIMIT', 120, 'FEED_STORY_VIEW_IP_THROTTLE_LIMIT', 1200);
 export const FEED_UPLOAD_THROTTLE = feedThrottle('FEED_UPLOAD_THROTTLE_LIMIT', 20, 'FEED_UPLOAD_IP_THROTTLE_LIMIT', 120);
 /** Leitura publica das fotos (uma tela carrega dezenas de miniaturas de uma vez): so por IP. */
 export const FEED_MEDIA_READ_THROTTLE = { default: { ttl: 60_000, limit: () => envNumber('FEED_MEDIA_READ_THROTTLE_LIMIT', 3000) } };

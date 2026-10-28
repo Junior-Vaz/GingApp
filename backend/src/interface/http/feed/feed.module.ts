@@ -8,6 +8,7 @@ import { FeedModerationController } from './feed-moderation.controller';
 import { FeedModerationService } from './feed-moderation.service';
 import { FeedNoticesService } from './feed-notices.service';
 import { FeedPresenter } from './feed-presenter';
+import { FeedStoriesService } from './feed-stories.service';
 import { FeedController } from './feed.controller';
 import { FeedService } from './feed.service';
 
@@ -16,6 +17,6 @@ import { FeedService } from './feed.service';
   imports: [NotificationsModule],
   // FeedMediaController antes do FeedController: rotas mais especificas (`feed/media/...`) registradas primeiro.
   controllers: [FeedMediaController, FeedModerationController, FeedController],
-  providers: [FeedAccessService, FeedPresenter, FeedNoticesService, FeedService, FeedInteractionsService, FeedModerationService, FeedMediaService],
+  providers: [FeedAccessService, FeedPresenter, FeedNoticesService, FeedService, FeedInteractionsService, FeedModerationService, FeedMediaService, FeedStoriesService],
 })
 export class FeedModule {}

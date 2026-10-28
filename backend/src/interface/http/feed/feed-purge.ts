@@ -1,4 +1,5 @@
-import { FeedCommentStatus, FeedPostStatus, Prisma } from '@prisma/client';
+import { FeedCommentStatus, FeedPostKind, FeedPostStatus, FeedReportStatus, Prisma } from '@prisma/client';
+import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { deleteFeedFiles } from './feed-media-storage';
 import { FeedNotificationType } from './feed-notices.service';
 
@@ -27,6 +28,50 @@ export async function purgeRemovedPostsMedia(db: Db, organizationId?: number): P
   return keys.length / 2;
 }
 
+/** Folga entre o vencimento do story (`expiresAt`) e a remocao pelo cron: a foto ja deixou de ser servida no vencimento. */
+export const STORY_PURGE_GRACE_MS = 60 * 60 * 1000;
+const STORY_PURGE_BATCH = 200;
+const STORY_PURGE_MAX_BATCHES = 25;
+
+/**
+ * Limpeza de stories vencidos (cron do feed): os que venceram ha mais de 1 h (`expiresAt + 1h <= now`) e ainda nao estao
+ * REMOVED viram REMOVED (sem legenda), perdem as visualizacoes (`FeedStoryView`) e as fotos (linhas na transacao; os
+ * ARQUIVOS so depois do commit). Denuncias abertas viram DISMISSED (o conteudo expirou sozinho). `organizationId` limita
+ * (so para os testes). Devolve quantos stories foram removidos.
+ */
+export async function purgeExpiredStories(prisma: Pick<PrismaService, 'feedPost' | '$transaction'>, now: Date, organizationId?: number): Promise<number> {
+  const cutoff = new Date(now.getTime() - STORY_PURGE_GRACE_MS);
+  let total = 0;
+  for (let round = 0; round < STORY_PURGE_MAX_BATCHES; round++) {
+    const stale = await prisma.feedPost.findMany({
+      where: {
+        ...(organizationId !== undefined ? { organizationId } : {}),
+        kind: FeedPostKind.STORY,
+        status: { not: FeedPostStatus.REMOVED },
+        expiresAt: { lte: cutoff },
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' },
+      take: STORY_PURGE_BATCH,
+    });
+    if (stale.length === 0) break;
+    const ids = stale.map((s) => s.id);
+    const keys = await prisma.$transaction(async (tx) => {
+      await tx.feedPost.updateMany({
+        where: { id: { in: ids }, kind: FeedPostKind.STORY, status: { not: FeedPostStatus.REMOVED } },
+        data: { status: FeedPostStatus.REMOVED, deletedAt: now, pinned: false, body: null, hiddenReason: 'EXPIRED' },
+      });
+      await tx.feedReport.updateMany({ where: { postId: { in: ids }, status: FeedReportStatus.OPEN }, data: { status: FeedReportStatus.DISMISSED, resolvedAt: now } });
+      await tx.feedStoryView.deleteMany({ where: { postId: { in: ids } } });
+      return detachMedia(tx, { postId: { in: ids } });
+    });
+    await deleteFeedFiles(keys); // disco SO depois do commit
+    total += ids.length;
+    if (stale.length < STORY_PURGE_BATCH) break;
+  }
+  return total;
+}
+
 export interface FeedAnonymizationResult {
   posts: number;
   comments: number;
@@ -37,7 +82,7 @@ export interface FeedAnonymizationResult {
 }
 
 /**
- * LGPD (AnonymizationService, pedido de exclusao): dentro da transacao do chamador, os posts e comentarios do titular
+ * LGPD (AnonymizationService, pedido de exclusao): dentro da transacao do chamador, os posts (e stories) e comentarios do titular
  * perdem autor e texto (`author:null`, `body:null`) e saem do feed (REMOVED); as fotos (dos posts dele e as pendentes
  * enviadas por ele) perdem a linha aqui e o ARQUIVO depois do commit; reacoes dele sao apagadas; denuncias feitas por
  * ele perdem o denunciante e a nota; agrupamentos de aviso dele somem. Denuncias/comentarios de OUTRAS pessoas ficam.
@@ -58,6 +103,8 @@ export async function anonymizeFeedForUser(tx: Tx, userId: number, personIds: nu
     data: { authorUserId: null, body: null, status: FeedCommentStatus.REMOVED, deletedAt: now },
   });
   const reactions = await tx.feedReaction.deleteMany({ where: { userId } });
+  // Stories: os do titular ja entraram em `posts` acima (REMOVED, sem legenda, foto apagada); o que ELE viu de outros some.
+  await tx.feedStoryView.deleteMany({ where: { userId } });
   await tx.feedReport.updateMany({ where: { reporterUserId: userId }, data: { reporterUserId: null, note: null } });
   await tx.feedActivityNotice.deleteMany({ where: { authorUserId: userId } });
   await tx.feedActivityNotice.updateMany({ where: { lastActorUserId: userId }, data: { lastActorUserId: null } });

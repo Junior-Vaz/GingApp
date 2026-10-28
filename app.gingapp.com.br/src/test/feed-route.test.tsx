@@ -56,19 +56,22 @@ describe("aba Grupo na navegação", () => {
     expect($$("nav[aria-label='Menu principal'] a.active").map((anchor) => anchor.textContent)).toContain("Grupo");
   });
 
-  it("a Home tem o atalho para o Grupo", async () => {
-    mockFeedApi();
+  it("a Home tem a prévia do Grupo (substitui o atalho antigo) com 'Ver tudo' para /feed", async () => {
+    mockFeedApi({ pages: { "": { items: [makePost({ id: 3 })], nextCursor: null } } });
     await mount(<RouterProvider router={makeRouter("/")} />);
-    await until(() => $("[data-testid=home-feed-shortcut]") !== null, "atalho na Home");
-    expect($("[data-testid=home-feed-shortcut]")?.getAttribute("href")).toBe("/feed");
+    await until(() => $("[data-testid=home-feed-preview]") !== null, "prévia na Home");
+    expect($("[data-testid=home-feed-see-all]")?.getAttribute("href")).toBe("/feed");
+    expect($("[data-testid=home-feed-shortcut]")).toBeNull();
+    await until(() => $$("[data-testid=home-feed-preview] [data-testid=post-card]").length === 1, "post na prévia");
   });
 
-  it("feed DESLIGADO no grupo: sem atalho na Home e sem 'Grupo' no menu; a rota /feed segue explicando", async () => {
+  it("feed DESLIGADO no grupo: sem prévia nem stories na Home e sem 'Grupo' no menu; a rota /feed segue explicando", async () => {
     const state = mockFeedApi({ settings: makeSettings({ enabled: false }) });
     await mount(<RouterProvider router={makeRouter("/")} />);
     await until(() => state.calls.some((call) => call.path === "/feed/settings"), "configuracao do feed pedida");
     await settle();
-    expect($("[data-testid=home-feed-shortcut]")).toBeNull();
+    expect($("[data-testid=home-feed-preview]")).toBeNull();
+    expect($("[data-testid=stories-row]")).toBeNull();
     click(buttonByLabel("Abrir menu"));
     await settle();
     expect($$("[role=dialog] nav a").some((anchor) => anchor.textContent?.includes("Grupo"))).toBe(false);
@@ -79,7 +82,8 @@ describe("aba Grupo na navegação", () => {
     mockFeedApi({ respond: (call) => (call.path === "/feed/settings" ? new Promise<Response>(() => {}) : undefined) });
     await mount(<RouterProvider router={makeRouter("/")} />);
     await settle();
-    expect($("[data-testid=home-feed-shortcut]")).toBeNull();
+    expect($("[data-testid=home-feed-preview]")).toBeNull();
+    expect($("[data-testid=stories-row]")).toBeNull();
     expect($$("nav[aria-label='Menu principal'] a").some((anchor) => anchor.getAttribute("href") === "/feed")).toBe(false);
   });
 

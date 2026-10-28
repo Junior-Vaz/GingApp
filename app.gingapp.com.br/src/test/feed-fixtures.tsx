@@ -30,6 +30,8 @@ export function makePost(over: Partial<FeedPost> = {}): FeedPost {
   return {
     id: 1,
     type: "POST",
+    kind: "POST",
+    expiresAt: null,
     author: { userId: 10, name: "Ana Souza", nickname: "Aninha", photo: null, roleLabel: "Aluna" },
     body: "Treino de hoje foi ótimo",
     media: [],

@@ -92,6 +92,31 @@ export function decodeCursor(raw: string | undefined | null): FeedCursor | null 
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Stories
+// ---------------------------------------------------------------------------------------------------------------
+
+/** FEED_STORY_TTL_HOURS: validade do story em horas. Padrao 24; ausente ou nao numerico = 24; valor numerico e limitado a 1..48. */
+export function storyTtlHours(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.FEED_STORY_TTL_HOURS?.trim();
+  if (!raw) return 24;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 24;
+  return Math.min(48, Math.max(1, n));
+}
+
+/** FEED_STORIES_PER_DAY: cota de stories por usuario por dia civil SP (padrao 5). */
+export function storiesPerDay(env: NodeJS.ProcessEnv = process.env): number {
+  const n = Number(env.FEED_STORIES_PER_DAY);
+  return Number.isInteger(n) && n > 0 ? n : 5;
+}
+
+/** Story vigente = ainda nao venceu (`expiresAt > agora`). POST nao expira (sempre "vigente"). */
+export function isStoryLive(row: { kind: string; expiresAt: Date | null }, now: Date = new Date()): boolean {
+  if (row.kind !== 'STORY') return true;
+  return row.expiresAt !== null && row.expiresAt.getTime() > now.getTime();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // Datas: dia civil e idade em America/Sao_Paulo (UTC-3 fixo, mesma convencao de shared/checkin/checkin-window.ts)
 // ---------------------------------------------------------------------------------------------------------------
 

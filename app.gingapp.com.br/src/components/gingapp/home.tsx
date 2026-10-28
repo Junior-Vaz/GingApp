@@ -7,7 +7,6 @@ import {
   MapPin,
   ChartNoAxesColumnIncreasing,
   CircleDot,
-  MessagesSquare,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import communityImage from "@/assets/capoeira-community.jpg";
@@ -16,7 +15,6 @@ import { capitalize, dayOnly, fmt, relativeTime, startOfToday } from "@/lib/form
 import { useSessionUser } from "@/lib/session";
 import { errorMessage } from "@/lib/api";
 import { plural } from "@/lib/plural";
-import { useFeedSettings } from "@/lib/feed";
 import {
   fromCalendar,
   useAnnouncements,
@@ -32,6 +30,8 @@ import {
 } from "@/lib/queries";
 import { HeroCarousel } from "./hero-carousel";
 import { BirthdaysStrip } from "./birthdays-strip";
+import { HomeFeedPreview } from "./feed/home-feed-preview";
+import { StoriesRow } from "./stories/stories-row";
 import { PinnedCommunications } from "./pinned-communications";
 import { Avatar } from "./avatar";
 import { GraduationCard } from "./graduation-parts";
@@ -52,8 +52,6 @@ export function HomePage() {
   const classes = useClasses();
   const calendar = useCalendar({}, { pageSize: 2 });
   const announcements = useAnnouncements();
-  // Atalho "Grupo" só com o feed ligado (carregando/desligado/erro = oculto).
-  const feedEnabled = useFeedSettings().data?.enabled === true;
 
   const firstName = user?.name.split(" ")[0] ?? "capoeirista";
   const cardLabel = graduationCardLabel(student, user?.id);
@@ -79,7 +77,9 @@ export function HomePage() {
       />
       {studentError && <StateMessage tone="error">{errorMessage(studentError, "Não foi possível carregar seus dados.")}</StateMessage>}
       {!loadingStudent && !studentError && !student && <StateMessage>Nenhum aluno vinculado a esta conta.</StateMessage>}
+      <StoriesRow className="mb-4" />
       <HeroCarousel />
+      <HomeFeedPreview className="mb-5" />
       <Link to="/jornada" className="grad-link" aria-label={`${cardLabel}: ver jornada`}>
         <GraduationCard
           label={cardLabel}
@@ -128,23 +128,6 @@ export function HomePage() {
       </section>
       <PinnedCommunications className="mb-4" />
       <BirthdaysStrip className="mb-4" />
-      {feedEnabled && (
-        <Link
-          to="/feed"
-          className="mb-[29px] flex min-h-14 items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 no-underline"
-          data-testid="home-feed-shortcut"
-          aria-label="Abrir o Grupo: veja o que o pessoal compartilhou"
-        >
-          <span className="flex size-9 flex-none items-center justify-center rounded-md bg-secondary text-primary" aria-hidden="true">
-            <MessagesSquare size={18} />
-          </span>
-          <span className="min-w-0 flex-1">
-            <strong className="block text-sm">Grupo</strong>
-            <span className="block text-xs text-muted-foreground">Fotos, recados e conversas da sua roda</span>
-          </span>
-          <ArrowUpRight size={16} className="flex-none text-muted-foreground" aria-hidden="true" />
-        </Link>
-      )}
       <div className="dashboard-columns">
         <div>
           <SectionHeading title="Bora treinar?" to="/aulas" label="Minhas aulas" />

@@ -45,6 +45,8 @@ function post(id: number, over: Record<string, unknown> = {}): Record<string, un
   return {
     id,
     type: "POST",
+    kind: "POST",
+    expiresAt: null,
     author: AUTHOR,
     body: `Texto da publicação ${String(id)}`,
     media: [],
@@ -265,6 +267,61 @@ describe("fila de moderação: abas", () => {
     renderPage();
     expect(await screen.findByTestId("post-gallery")).toBeInTheDocument();
     expect(screen.queryByText("Publicação sem texto.")).toBeNull();
+  });
+});
+
+describe("fila de moderação: stories (contrato seção 9)", () => {
+  const inHours = (hours: number) => new Date(Date.now() + hours * 3_600_000).toISOString();
+
+  it("story na fila mostra o selo 'Story' e 'Expira em ...'; post comum não mostra nenhum dos dois", async () => {
+    queues.PENDING = [
+      pending(1, { kind: "STORY", expiresAt: inHours(5), body: "Story da roda", media: [media(7)] }),
+      pending(2),
+    ];
+    renderPage();
+    const story = await cardOf("Story da roda");
+    expect(story.getByTestId("story-badge")).toHaveTextContent("Story");
+    expect(story.getByTestId("story-expiry")).toHaveTextContent(/^Expira em (5|4) horas?$/);
+    expect(story.getByText("Aguardando aprovação")).toBeInTheDocument();
+    const comum = await cardOf("Texto da publicação 2");
+    expect(comum.queryByTestId("story-badge")).toBeNull();
+    expect(comum.queryByTestId("story-expiry")).toBeNull();
+  });
+
+  it("story já vencido diz 'Expirou há ...'; sem expiresAt só mostra o selo", async () => {
+    queues.PENDING = [
+      pending(1, { kind: "STORY", expiresAt: inHours(-3), body: "Story vencido" }),
+      pending(2, { kind: "STORY", expiresAt: null, body: "Story sem prazo" }),
+    ];
+    renderPage();
+    const vencido = await cardOf("Story vencido");
+    expect(vencido.getByTestId("story-expiry")).toHaveTextContent(/^Expirou há 3 horas$/);
+    const semPrazo = await cardOf("Story sem prazo");
+    expect(semPrazo.getByTestId("story-badge")).toBeInTheDocument();
+    expect(semPrazo.queryByTestId("story-expiry")).toBeNull();
+  });
+
+  it("backend sem os campos novos (kind ausente) segue como post comum", async () => {
+    const legacy = pending(1);
+    delete legacy.post["kind"];
+    delete legacy.post["expiresAt"];
+    queues.PENDING = [legacy];
+    renderPage();
+    const card = await cardOf("Texto da publicação 1");
+    expect(card.queryByTestId("story-badge")).toBeNull();
+  });
+
+  it("story publicado e denunciado não oferece 'Fixar' (stories não são fixáveis), mas oferece Manter/Ocultar/Remover", async () => {
+    queues.REPORTED = [reported(10, { kind: "STORY", expiresAt: inHours(2), body: "Story denunciado" })];
+    renderPage();
+    await screen.findByText("Texto da publicação 1");
+    openTab("Denunciados");
+    const card = await cardOf("Story denunciado");
+    expect(card.getByTestId("story-badge")).toBeInTheDocument();
+    expect(card.queryByRole("button", { name: /^Fixar publicação/ })).toBeNull();
+    expect(card.getByRole("button", { name: /Manter a publicação/ })).toBeInTheDocument();
+    expect(card.getByRole("button", { name: /Ocultar publicação/ })).toBeInTheDocument();
+    expect(card.getByRole("button", { name: /Remover publicação/ })).toBeInTheDocument();
   });
 });
 

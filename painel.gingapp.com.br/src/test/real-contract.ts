@@ -120,6 +120,10 @@ export const REAL_RESEND: ResendResult = { sent: 54 };
 export const REAL_FEED_POST: FeedPost = {
   id: 320,
   type: "POST",
+  // `kind`/`expiresAt` não existiam na captura de 2026-10-21; a conferência de 2026-10-28 mostrou que o backend manda
+  // `kind:'POST'` e `expiresAt:null` em todo post (fila e feed), então o valor aqui é o real.
+  kind: "POST",
+  expiresAt: null,
   author: { userId: 2422, name: "Mestre Ricardo Menezes", nickname: null, photo: null, roleLabel: "Mestre" },
   body: "Aviso do Mestre para todo o grupo.",
   media: [],
@@ -157,6 +161,43 @@ export const REAL_QUEUE_COMMENT: QueueItem = {
   },
   reports: [{ reason: "OFENSIVO", note: "nao gostei", createdAt: "2026-10-21T04:45:08.772Z" }],
   reportsCount: 1,
+};
+
+/**
+ * Item da fila PENDING para um STORY de aluno adulto (modo MODERATED), capturado do backend REAL em 2026-10-28
+ * (`GET /feed/moderation/queue?kind=PENDING`, grupo demo): mesmo formato do post, com `kind:'STORY'`, `expiresAt`
+ * (criação + 24 h) e UMA foto com a URL de revisão (`&r=1`). O backend manda ainda `reactions`, `canEdit:false` e
+ * `canDelete:true`, que o painel ignora (por isso não aparecem no tipo).
+ */
+export const REAL_QUEUE_STORY: QueueItem = {
+  post: {
+    id: 854,
+    type: "POST",
+    kind: "STORY",
+    expiresAt: "2026-10-29T03:18:21.669Z",
+    author: { userId: 2426, name: "Rafael Oliveira", nickname: null, photo: null, roleLabel: null },
+    body: "Treino de hoje",
+    media: [
+      {
+        id: 368,
+        url: "/api/feed/media/368?e=1793159400&s=wu0gTWKA1xFAR3cpfiLFYDQpNFOvGIg4pFFhVJ1myJM&r=1",
+        thumbUrl: "/api/feed/media/368/thumb?e=1793159400&s=UkmANoTeFDlRNL2Cbqe4vN-6vHV9ZejOEgME3eiy8NI&r=1",
+        width: 320,
+        height: 200,
+      },
+    ],
+    visibility: "GROUP",
+    unitId: null,
+    classId: null,
+    pinned: false,
+    status: "PENDING_APPROVAL",
+    createdAt: "2026-10-28T03:18:21.677Z",
+    edited: false,
+    commentsCount: 0,
+    canModerate: true,
+  },
+  reports: [],
+  reportsCount: 0,
 };
 
 export const REAL_QUEUE_PAGE: QueuePage = { items: [REAL_QUEUE_POST, REAL_QUEUE_COMMENT], nextCursor: null };

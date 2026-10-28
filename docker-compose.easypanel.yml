@@ -184,6 +184,9 @@ services:
       FEED_POSTS_PER_DAY: "${FEED_POSTS_PER_DAY:-10}"
       FEED_COMMENTS_PER_DAY: "${FEED_COMMENTS_PER_DAY:-60}"
       FEED_MEDIA_CLEANUP: "${FEED_MEDIA_CLEANUP:-true}"
+      # Stories do feed: validade em horas (24; limitado a 1..48) e cota de stories por usuario por dia civil SP (5).
+      FEED_STORY_TTL_HOURS: "${FEED_STORY_TTL_HOURS:-24}"
+      FEED_STORIES_PER_DAY: "${FEED_STORIES_PER_DAY:-5}"
       # Aniversariantes e Comunicar (docs/EASYPANEL.md secao 28): BIRTHDAY_CRON=false desliga o resumo diario 07:30 SP e
       # os parabens automaticos; COMM_SCHEDULER=false desliga o envio dos comunicados agendados; cotas por dia civil SP.
       BIRTHDAY_CRON: "${BIRTHDAY_CRON:-true}"

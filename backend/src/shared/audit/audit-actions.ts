@@ -209,6 +209,8 @@ export const AuditAction = {
   // Comentario removido por MODERADOR (o autor apagando o proprio nao audita)
   FEED_COMMENT_DELETE: 'FEED_COMMENT_DELETE',
   FEED_SETTINGS_UPDATE: 'FEED_SETTINGS_UPDATE',
+  // Story criado (entidade feed_post; meta so com visibilidade, alcance, status e validade - NUNCA a legenda nem a foto)
+  FEED_STORY_CREATE: 'FEED_STORY_CREATE',
 } as const;
 
 export type AuditActionCode = (typeof AuditAction)[keyof typeof AuditAction];

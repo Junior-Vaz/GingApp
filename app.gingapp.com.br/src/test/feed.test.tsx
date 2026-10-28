@@ -237,7 +237,7 @@ describe("cartão do post", () => {
 
   it("post pendente: cartão esmaecido, explicação e sem reações/comentários", async () => {
     mockFeedApi({
-      pages: { "": { items: [makePost({ status: "PENDING_APPROVAL", canEdit: true, canDelete: true })], nextCursor: null } },
+      pages: { "": { items: [makePost({ status: "PENDING_APPROVAL", canEdit: false, canDelete: true })], nextCursor: null } },
     });
     await mount(<FeedPage />);
     await until(() => cards().length === 1, "post");
@@ -249,9 +249,9 @@ describe("cartão do post", () => {
     expect(card.querySelector("[data-testid=reaction-bar]")).toBeNull();
   });
 
-  it("post pendente do próprio autor (backend real manda canEdit:true): menu sem 'Editar' (PATCH dá 409 INVALID_STATE) e sem 'Denunciar', só 'Apagar'", async () => {
+  it("post pendente do próprio autor (backend real manda canEdit:false, conferido em 2026-10-28): menu sem 'Editar' (PATCH dá 409 INVALID_STATE) e sem 'Denunciar' o próprio post, só 'Apagar'", async () => {
     mockFeedApi({
-      pages: { "": { items: [makePost({ id: 31, status: "PENDING_APPROVAL", canEdit: true, canDelete: true })], nextCursor: null } },
+      pages: { "": { items: [makePost({ id: 31, status: "PENDING_APPROVAL", canEdit: false, canDelete: true })], nextCursor: null } },
     });
     await mount(<FeedPage />);
     await until(() => cards().length === 1, "post");

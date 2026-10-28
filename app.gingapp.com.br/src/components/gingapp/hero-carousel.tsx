@@ -9,6 +9,7 @@ import { Rope } from "./rope";
 import { ropeLabel, type RopeSpec } from "@/lib/rope";
 import { useGraduations, useHierarchy, useMyStudent } from "@/lib/queries";
 import { formatPoints, leagueColor, readableOn, useRankingMe } from "@/lib/ranking";
+import { useReducedMotion } from "@/lib/use-reduced-motion";
 
 /** Tempo em cada slide antes de avançar sozinho. */
 export const HERO_INTERVAL_MS = 5500;
@@ -31,32 +32,6 @@ export interface HeroSlideSpec {
   /** Desenho decorativo à direita (selo da liga, corda). */
   art?: ReactNode;
   cta: { to: string; label: string };
-}
-
-const reducedMotionQuery = "(prefers-reduced-motion: reduce)";
-
-/** `prefers-reduced-motion: reduce` ao vivo (sem autoplay e sem animação; a navegação segue manual). */
-function useReducedMotion(): boolean {
-  const read = () => {
-    try {
-      return window.matchMedia(reducedMotionQuery).matches;
-    } catch {
-      return false;
-    }
-  };
-  const [reduced, setReduced] = useState(read);
-  useEffect(() => {
-    let mql: MediaQueryList | null = null;
-    try {
-      mql = window.matchMedia(reducedMotionQuery);
-    } catch {
-      return;
-    }
-    const onChange = () => setReduced(mql!.matches);
-    mql.addEventListener?.("change", onChange);
-    return () => mql!.removeEventListener?.("change", onChange);
-  }, []);
-  return reduced;
 }
 
 const isMousePointer = (e: { pointerType?: string }) => e.pointerType !== "touch" && e.pointerType !== "pen";

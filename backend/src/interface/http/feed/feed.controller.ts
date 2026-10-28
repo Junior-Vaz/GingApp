@@ -7,6 +7,7 @@ import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interf
 import {
   CreateFeedCommentDto,
   CreateFeedPostDto,
+  CreateFeedStoryDto,
   FeedCommentsQueryDto,
   FeedListQueryDto,
   ReportDto,
@@ -15,8 +16,9 @@ import {
   UpdateFeedSettingsDto,
 } from './dto/feed.dto';
 import { FeedAccessService } from './feed-access';
-import { FEED_WRITE_THROTTLE, FeedExceptionFilter } from './feed-http';
+import { FEED_STORY_VIEW_THROTTLE, FEED_WRITE_THROTTLE, FeedExceptionFilter } from './feed-http';
 import { FeedInteractionsService } from './feed-interactions.service';
+import { FeedStoriesService } from './feed-stories.service';
 import { FeedService } from './feed.service';
 
 /**
@@ -30,6 +32,7 @@ export class FeedController {
     private readonly access: FeedAccessService,
     private readonly feed: FeedService,
     private readonly interactions: FeedInteractionsService,
+    private readonly storiesService: FeedStoriesService,
   ) {}
 
   @Get('settings')
@@ -62,6 +65,28 @@ export class FeedController {
   @HttpCode(HttpStatus.CREATED)
   async create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateFeedPostDto) {
     return this.feed.create(await this.access.viewer(user), dto);
+  }
+
+  /** Stories vigentes e visiveis a mim, agrupados por autor (contrato secao 9). */
+  @Get('stories')
+  async stories(@CurrentUser() user: AuthenticatedUser) {
+    return this.storiesService.list(await this.access.viewer(user));
+  }
+
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(FEED_WRITE_THROTTLE)
+  @Post('stories')
+  @HttpCode(HttpStatus.CREATED)
+  async createStory(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateFeedStoryDto) {
+    return this.storiesService.create(await this.access.viewer(user), dto);
+  }
+
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(FEED_STORY_VIEW_THROTTLE)
+  @Post('stories/:id/view')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async viewStory(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseIntPipe) id: number): Promise<void> {
+    await this.storiesService.markViewed(await this.access.viewer(user), id);
   }
 
   @UseGuards(UserThrottlerGuard)

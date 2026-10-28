@@ -1,4 +1,5 @@
 import { memo, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { Clock, Flag, MoreHorizontal, Pencil, Pin, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -94,8 +95,16 @@ function MenuAction({ icon, children, destructive = false, ...props }: React.But
   );
 }
 
-/** Cartão de um post do feed. */
-function PostCardBase({ post, allowComments = true }: { post: FeedPost; allowComments?: boolean }) {
+/** Texto que a variante compacta corta em 3 linhas: acima disso (ou com muitas quebras) aparece "ver mais". */
+const COMPACT_BODY_CHARS = 140;
+const COMPACT_BODY_LINES = 3;
+const isLongBody = (body: string) => body.length > COMPACT_BODY_CHARS || body.split("\n").length > COMPACT_BODY_LINES;
+
+/**
+ * Cartão de um post do feed. `compact` = variante da prévia na Home: avatar+nome+tempo, UMA foto grande (as outras viram
+ * "+N fotos" que levam ao feed), texto em até 3 linhas com "ver mais" para /feed, e a mesma barra de reações/comentários.
+ */
+function PostCardBase({ post, allowComments = true, compact = false }: { post: FeedPost; allowComments?: boolean; compact?: boolean }) {
   const remove = useDeletePost();
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -121,6 +130,7 @@ function PostCardBase({ post, allowComments = true }: { post: FeedPost; allowCom
     <article
       className={cn("rounded-lg border border-border bg-card p-3 shadow-[var(--shadow)]", pending && "opacity-75")}
       data-testid="post-card"
+      data-compact={compact || undefined}
       data-post-id={post.id}
       data-status={post.status}
       aria-label={`Publicação de ${name}`}
@@ -163,11 +173,43 @@ function PostCardBase({ post, allowComments = true }: { post: FeedPost; allowCom
         </div>
       )}
 
-      {post.body && <RichText text={post.body} className="mt-3 text-sm leading-relaxed" testId="post-body" />}
-      {post.media.length > 0 && (
-        <div className="mt-3">
-          <MediaGallery media={post.media} />
-        </div>
+      {compact ? (
+        <>
+          {post.media.length > 0 && (
+            <div className="relative mt-3">
+              <MediaGallery media={post.media.slice(0, 1)} />
+              {post.media.length > 1 && (
+                <Link
+                  to="/feed"
+                  className="absolute bottom-0 right-0 inline-flex min-h-11 min-w-11 items-center justify-center no-underline"
+                  aria-label={`Ver mais ${post.media.length - 1} ${post.media.length - 1 === 1 ? "foto" : "fotos"} no Grupo`}
+                  data-testid="post-more-photos"
+                >
+                  <span className="rounded-full bg-black/65 px-2.5 py-1 text-xs font-semibold text-white">+{post.media.length - 1}</span>
+                </Link>
+              )}
+            </div>
+          )}
+          {post.body && (
+            <div className="mt-3">
+              <RichText text={post.body} className="line-clamp-3 text-sm leading-relaxed" testId="post-body" />
+              {isLongBody(post.body) && (
+                <Link to="/feed" className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-primary no-underline" data-testid="post-see-more">
+                  ver mais
+                </Link>
+              )}
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {post.body && <RichText text={post.body} className="mt-3 text-sm leading-relaxed" testId="post-body" />}
+          {post.media.length > 0 && (
+            <div className="mt-3">
+              <MediaGallery media={post.media} />
+            </div>
+          )}
+        </>
       )}
 
       {!pending && (
@@ -185,8 +227,9 @@ function PostCardBase({ post, allowComments = true }: { post: FeedPost; allowCom
 
       <FeedSheet open={menuOpen} onOpenChange={setMenuOpen} title="Opções da publicação" description={`Publicação de ${name}`} testId="post-menu-sheet">
         <div className="grid gap-1 px-2 pb-4">
-          {/* O backend manda canEdit=true também no post pendente, mas PATCH nele dá 409 INVALID_STATE (a aprovação vale para o
-              texto que o moderador leu): só se edita o publicado. */}
+          {/* Só o post PUBLICADO se edita (PATCH no pendente dá 409 INVALID_STATE: a aprovação vale para o texto que o
+              moderador leu). O backend real manda canEdit=false no pendente (conferido em 2026-10-28; antes mandava true),
+              então o pendente - que só o próprio autor vê no feed - nunca oferece "Editar" nem "Denunciar". */}
           {post.canEdit && !pending && (
             <MenuAction
               icon={<Pencil size={18} />}
@@ -212,7 +255,7 @@ function PostCardBase({ post, allowComments = true }: { post: FeedPost; allowCom
               Apagar
             </MenuAction>
           )}
-          {!post.canEdit && (
+          {!post.canEdit && !pending && (
             <MenuAction
               icon={<Flag size={18} />}
               data-testid="menu-report"

@@ -221,6 +221,7 @@ model User {
   feedComments                 FeedComment[]          @relation("FeedCommentAuthor")
   feedReportsMade              FeedReport[]           @relation("FeedReportReporter")
   feedReportsResolved          FeedReport[]           @relation("FeedReportResolver")
+  feedStoryViews               FeedStoryView[]        @relation("FeedStoryViewUser")
 
   @@index([userType])
 }
@@ -1809,6 +1810,12 @@ enum FeedCommentStatus {
   REMOVED
 }
 
+/// POST = publicacao do feed; STORY = foto + legenda curta que expira (FeedPost.expiresAt), sem reacao nem comentario.
+enum FeedPostKind {
+  POST
+  STORY
+}
+
 enum FeedReactionType {
   AXE
   SALVE
@@ -1843,6 +1850,10 @@ model FeedPost {
   unitId         Int?
   classId        Int?
   status         FeedPostStatus @default(PUBLISHED)
+  /// POST (padrao) ou STORY (so foto + legenda curta em `body`; expira em `expiresAt`).
+  kind           FeedPostKind   @default(POST)
+  /// So stories: instante em que deixam de ser exibidos (a limpeza do cron marca REMOVED e apaga a foto 1 h depois).
+  expiresAt      DateTime?
   pinned         Boolean        @default(false)
   edited         Boolean        @default(false)
   /// Motivo curto da ocultacao (ex.: 'REPORTS', 'MODERATOR'); nunca mostrado com culpa ao autor.
@@ -1866,8 +1877,10 @@ model FeedPost {
   comments        FeedComment[]
   reports         FeedReport[]
   activityNotices FeedActivityNotice[]
+  storyViews      FeedStoryView[]
 
   @@index([organizationId, status, pinned, createdAt(sort: Desc)])
+  @@index([organizationId, kind, status, expiresAt])
   @@index([organizationId, unitId])
   @@index([organizationId, classId])
   @@index([authorUserId])
@@ -1909,6 +1922,20 @@ model FeedReaction {
 
   post FeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
   user User     @relation("FeedReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, userId])
+  @@index([userId])
+}
+
+/// Story visto por um usuario (um registro por usuario por story; idempotente). Some com o story (cascade) e com o usuario.
+model FeedStoryView {
+  id        Int      @id @default(autoincrement())
+  postId    Int
+  userId    Int
+  createdAt DateTime @default(now())
+
+  post FeedPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User     @relation("FeedStoryViewUser", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([postId, userId])
   @@index([userId])

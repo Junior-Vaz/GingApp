@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { FeedCommentStatus, FeedPostStatus, FeedReportReason, FeedReportStatus, Prisma } from '@prisma/client';
+import { FeedCommentStatus, FeedPostKind, FeedPostStatus, FeedReportReason, FeedReportStatus, Prisma } from '@prisma/client';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
@@ -10,7 +10,7 @@ import { deleteFeedFiles } from './feed-media-storage';
 import { AUTHOR_SELECT, FEED_POST_SELECT, FeedAuthor, FeedPostRow, FeedPostView, FeedPresenter } from './feed-presenter';
 import { FeedNoticesService } from './feed-notices.service';
 import { FEED_ORDER, feedCursorWhere, FeedService } from './feed.service';
-import { decodeCursor, encodeCursor } from './feed-text';
+import { decodeCursor, encodeCursor, isStoryLive } from './feed-text';
 
 export interface ModerationReport {
   reason: FeedReportReason;
@@ -71,6 +71,8 @@ export class FeedModerationService {
       where: {
         AND: [
           { organizationId: v.organizationId, deletedAt: null, status: kind === 'PENDING' ? FeedPostStatus.PENDING_APPROVAL : FeedPostStatus.HIDDEN },
+          // A fila INCLUI stories (o item traz `kind`/`expiresAt`); story pendente que ja venceu nao ha o que aprovar.
+          ...(kind === 'PENDING' ? [{ OR: [{ kind: FeedPostKind.POST }, { expiresAt: { gt: new Date() } }] }] : []),
           this.access.moderatableWhere(v) ?? { id: -1 },
           feedCursorWhere(cursor),
         ],
@@ -204,6 +206,7 @@ export class FeedModerationService {
   async approve(v: FeedViewer, id: number, now = new Date()): Promise<FeedPostView> {
     const row = await this.target(v, id);
     if (row.status !== FeedPostStatus.PENDING_APPROVAL) throw invalidState('Só um post aguardando aprovação pode ser aprovado.');
+    if (!isStoryLive(row, now)) throw invalidState('Este story já expirou.');
     // Pre-condicao no UPDATE (o autor pode ter apagado no meio).
     const ok = await this.prisma.feedPost.updateMany({
       where: { id, status: FeedPostStatus.PENDING_APPROVAL, deletedAt: null },
@@ -211,7 +214,7 @@ export class FeedModerationService {
     });
     if (ok.count !== 1) throw invalidState('Só um post aguardando aprovação pode ser aprovado.');
     await this.record(v, AuditAction.FEED_POST_APPROVE, id);
-    await this.notices.approved(v.organizationId, id, row.authorUserId);
+    await this.notices.approved(v.organizationId, id, row.authorUserId, row.kind);
     return this.reload(v, id);
   }
 
@@ -223,7 +226,7 @@ export class FeedModerationService {
     await this.prisma.feedPost.update({ where: { id }, data: { status: FeedPostStatus.HIDDEN, hiddenReason: reason, hiddenById: v.userId, pinned: false } });
     await this.closeReports(id, FeedReportStatus.ACTIONED, v.userId, now);
     await this.record(v, AuditAction.FEED_POST_HIDE, id, { from: row.status, reason });
-    await this.notices.hidden(v.organizationId, id, row.authorUserId, v.userId);
+    await this.notices.hidden(v.organizationId, id, row.authorUserId, v.userId, row.kind);
     return this.reload(v, id);
   }
 
@@ -243,6 +246,7 @@ export class FeedModerationService {
 
   async setPinned(v: FeedViewer, id: number, pinned: boolean): Promise<FeedPostView> {
     const row = await this.target(v, id);
+    if (pinned && row.kind === FeedPostKind.STORY) throw invalidState('Stories não podem ser fixados.');
     if (pinned && row.status !== FeedPostStatus.PUBLISHED) throw invalidState('Só um post publicado pode ser fixado.');
     if (row.pinned !== pinned) {
       await this.prisma.feedPost.update({ where: { id }, data: { pinned } });
@@ -268,7 +272,7 @@ export class FeedModerationService {
       const keys = await this.feed.removePost(postId, v.userId, now);
       await deleteFeedFiles(keys);
       await this.record(v, AuditAction.FEED_POST_DELETE, postId, { by: 'MODERATOR', via: 'REPORTS' });
-      await this.notices.hidden(v.organizationId, postId, row.authorUserId, v.userId);
+      await this.notices.hidden(v.organizationId, postId, row.authorUserId, v.userId, row.kind);
       return { ok: true };
     }
     await this.closeReports(postId, FeedReportStatus.DISMISSED, v.userId, now);

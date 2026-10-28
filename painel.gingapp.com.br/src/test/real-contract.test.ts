@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api";
-import { flattenQueue, itemKey } from "@/modules/feed/api";
+import { feedErrorMessage, flattenQueue, itemKey, mediaSrc } from "@/modules/feed/api";
 import { changedCount, commErrorMessage, resendMessage } from "@/modules/comunicar/utils";
 import {
+  REAL_QUEUE_STORY,
   REAL_BIRTHDAY,
   REAL_BIRTHDAY_LIST,
   REAL_BIRTHDAY_SUMMARY,
@@ -86,5 +87,25 @@ describe("contrato real: fila de moderação do Feed", () => {
     expect(itemKey(REAL_QUEUE_POST)).toBe("p-320");
     expect(itemKey(REAL_QUEUE_COMMENT)).toBe("c-52");
     expect(flattenQueue({ pages: [REAL_QUEUE_PAGE] }).map(itemKey)).toEqual(["p-320", "c-52"]);
+  });
+
+  it("posts trazem kind/expiresAt (contrato seção 9); o story é um post com kind STORY, prazo e foto", () => {
+    expect(REAL_QUEUE_POST.post.kind).toBe("POST");
+    expect(REAL_QUEUE_POST.post.expiresAt).toBeNull();
+    expect(REAL_QUEUE_STORY.post.kind).toBe("STORY");
+    expect(typeof REAL_QUEUE_STORY.post.expiresAt).toBe("string");
+    expect(REAL_QUEUE_STORY.post.media).toHaveLength(1);
+    expect(itemKey(REAL_QUEUE_STORY)).toBe("p-854");
+    // 24 h de vida; a foto pendente usa a URL de revisão (&r=1) e abre direto no <img> pela origem da API
+    const hours = (Date.parse(REAL_QUEUE_STORY.post.expiresAt!) - Date.parse(REAL_QUEUE_STORY.post.createdAt)) / 3_600_000;
+    expect(Math.round(hours)).toBe(24);
+    expect(REAL_QUEUE_STORY.post.media[0]?.url).toContain("&r=1");
+    expect(mediaSrc(REAL_QUEUE_STORY.post.media[0]?.thumbUrl)).toMatch(/^https?:\/\/[^/]+\/api\/feed\/media\/368\/thumb\?e=/);
+  });
+
+  it("erros reais dos stories na moderação: pin 409 e aprovar vencido 409 mostram o texto do servidor; 404 explica que a lista foi atualizada", () => {
+    expect(feedErrorMessage(new ApiError("Stories não podem ser fixados.", 409, "INVALID_STATE"))).toBe("Stories não podem ser fixados.");
+    expect(feedErrorMessage(new ApiError("Este story já expirou.", 409, "INVALID_STATE"))).toBe("Este story já expirou.");
+    expect(feedErrorMessage(new ApiError("Post não encontrado.", 404, "NOT_FOUND"))).toMatch(/não existe mais/);
   });
 });

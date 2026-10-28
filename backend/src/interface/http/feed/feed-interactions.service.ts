@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { FeedCommentStatus, FeedPostStatus, FeedReportStatus, OrgRole, Prisma } from '@prisma/client';
+import { FeedCommentStatus, FeedPostKind, FeedPostStatus, FeedReportStatus, OrgRole, Prisma } from '@prisma/client';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { CreateFeedCommentDto, FEED_COMMENT_MAX, FEED_REPORT_NOTE_MAX, FeedCommentsQueryDto, ReportDto } from './dto/feed.dto';
 import { FeedAccessService, FeedViewer, forbidden } from './feed-access';
-import { badRequest, commentNotFound, FeedErrorCode, invalidCursor, postNotFound, tooMany } from './feed-errors';
+import { badRequest, commentNotFound, FeedErrorCode, invalidCursor, invalidState, postNotFound, tooMany } from './feed-errors';
 import { AUTHOR_SELECT, FeedAuthor, FeedPresenter } from './feed-presenter';
 import { FeedNoticesService } from './feed-notices.service';
 import { dailyLimit, FeedService } from './feed.service';
@@ -67,6 +67,7 @@ export class FeedInteractionsService {
     if (!v.isModerator) this.feed.assertEnabled(await this.feed.orgSettings(v.organizationId));
     const row = await this.feed.loadPost(v, postId);
     if (!row || (!this.feed.isVisible(v, row) && !this.access.canModerate(v, row))) throw postNotFound();
+    if (row.kind === FeedPostKind.STORY) throw invalidState('Stories não têm comentários.');
     const limit = query.limit ?? 20;
     const cursor = query.cursor ? decodeCommentCursor(query.cursor) : null;
     if (query.cursor && !cursor) throw invalidCursor();
@@ -169,7 +170,8 @@ export class FeedInteractionsService {
    */
   async reportPost(v: FeedViewer, postId: number, dto: ReportDto): Promise<{ ok: true }> {
     this.feed.assertEnabled(await this.feed.orgSettings(v.organizationId));
-    const post = await this.feed.publishedVisible(v, postId);
+    // Story vigente pode ser denunciado (e some ao 3o aviso, como o post); story vencido = 404.
+    const post = await this.feed.publishedVisible(v, postId, { allowStory: true });
     if (post.authorUserId === v.userId) throw badRequest(FeedErrorCode.VALIDATION, 'Você não pode denunciar o seu próprio post.');
     const created = await this.createReport(v, { postId }, dto);
     if (!created) return { ok: true };

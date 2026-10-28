@@ -29,6 +29,13 @@ export interface FeedMedia {
 export interface FeedPost {
   id: Id;
   type?: "POST" | "ANNOUNCEMENT";
+  /**
+   * Contrato seção 9 (stories): `STORY` = foto + legenda que expira em 24 h. Opcional aqui para não quebrar contra um
+   * backend sem o campo (ausente = `POST`).
+   */
+  kind?: "POST" | "STORY";
+  /** Só stories: quando vencem (`null`/ausente nos posts). */
+  expiresAt?: string | null;
   /** `null` = autor anonimizado (pedido de exclusão LGPD). */
   author: FeedAuthor | null;
   body: string | null;

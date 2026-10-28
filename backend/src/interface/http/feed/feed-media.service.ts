@@ -18,7 +18,7 @@ import {
   verifyMediaSignature,
 } from './feed-media-storage';
 import { FeedService } from './feed.service';
-import { startOfDaySaoPaulo } from './feed-text';
+import { isStoryLive, startOfDaySaoPaulo } from './feed-text';
 
 export interface UploadedFeedFile {
   buffer: Buffer;
@@ -150,7 +150,7 @@ export class FeedMediaService implements OnModuleInit {
     if (!params) return null;
     const media = await this.prisma.feedPostMedia.findUnique({
       where: { id },
-      select: { organizationId: true, storageKey: true, thumbKey: true, postId: true, pendingExpiresAt: true, post: { select: { status: true, deletedAt: true } } },
+      select: { organizationId: true, storageKey: true, thumbKey: true, postId: true, pendingExpiresAt: true, post: { select: { status: true, deletedAt: true, kind: true, expiresAt: true } } },
     });
     if (!media || !verifyMediaSignature(media.organizationId, id, variant, params.expiresAtSec, params.signature, undefined, params.scope)) return null;
     // Foto ainda NAO aprovada (pendente sem post, post pendente ou oculto) so com URL `review` (curta, emitida ao
@@ -160,6 +160,9 @@ export class FeedMediaService implements OnModuleInit {
     } else if (!media.post || media.post.deletedAt || media.post.status === FeedPostStatus.REMOVED) {
       return null;
     } else if (media.post.status !== FeedPostStatus.PUBLISHED && params.scope !== 'review') {
+      return null;
+    } else if (!isStoryLive(media.post, new Date(now))) {
+      // Foto de story vencido deixa de ser servida na hora (a limpeza so apaga o arquivo depois), mesmo com URL valida.
       return null;
     }
     const fullPath = feedFilePath(variant === 'thumb' ? media.thumbKey : media.storageKey);

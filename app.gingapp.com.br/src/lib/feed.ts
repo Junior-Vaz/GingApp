@@ -1,4 +1,4 @@
-import { createContext, useMemo } from "react";
+import { createContext, useCallback, useMemo, useRef } from "react";
 import {
   useInfiniteQuery,
   useMutation,
@@ -68,6 +68,10 @@ export interface ReactionSummary {
 export interface FeedPost {
   id: number;
   type: "POST";
+  /** Contrato seção 9: stories são `FeedPost` com `kind:'STORY'` (só aparecem em /feed/stories e na moderação). */
+  kind: "POST" | "STORY";
+  /** Só stories (vencem em 24 h). */
+  expiresAt: string | null;
   /** `null` quando o autor foi anonimizado (pedido de exclusão LGPD). */
   author: FeedAuthor | null;
   body: string | null;
@@ -130,9 +134,15 @@ export interface CreatePostInput {
   classId?: number;
 }
 
+export const FEED_PREVIEW_SIZE = 3;
+
 export const feedKeys = {
   settings: ["feed", "settings"] as const,
   list: ["feed", "list"] as const,
+  /** Prévia da Home (`GET /feed?limit=3`, uma página só); as mutações do feed também a atualizam. */
+  preview: ["feed", "preview"] as const,
+  /** Linha de stories da Home (`GET /feed/stories`). */
+  stories: ["feed", "stories"] as const,
   comments: (postId: number) => ["feed", "comments", postId] as const,
 };
 
@@ -160,6 +170,8 @@ export function feedErrorMessage(error: unknown, fallback: string): string {
         return "Alguma foto expirou ou não é válida. Envie as fotos de novo.";
       case "MEDIA_LIMIT":
         return "Você enviou muitas fotos hoje. Tente de novo mais tarde.";
+      case "STORY_LIMIT":
+        return "Você atingiu o limite de stories de hoje. Tente de novo amanhã.";
       case "MEDIA_PROCESSING_UNAVAILABLE":
         return "Não foi possível processar a foto agora. Tente de novo em instantes.";
       case "VISIBILITY_NOT_ALLOWED":
@@ -258,36 +270,45 @@ export function authorLabel(author: FeedAuthor | null): string {
 
 type FeedInfinite = InfiniteData<FeedPage, string | null>;
 
-/** Aplica `update` ao post em todas as listas do feed em cache; devolver `null` remove o post. */
+function patchPage(page: FeedPage, postId: number, update: (post: FeedPost) => FeedPost | null): FeedPage {
+  return {
+    ...page,
+    items: page.items.flatMap((post) => {
+      if (post.id !== postId) return [post];
+      const next = update(post);
+      return next ? [next] : [];
+    }),
+  };
+}
+
+function insertIntoPage(page: FeedPage, post: FeedPost): FeedPage {
+  const withoutDuplicate = page.items.filter((item) => item.id !== post.id);
+  let index = 0;
+  while (index < withoutDuplicate.length && withoutDuplicate[index]?.pinned) index += 1;
+  return { ...page, items: [...withoutDuplicate.slice(0, index), post, ...withoutDuplicate.slice(index)] };
+}
+
+/**
+ * Aplica `update` ao post em todas as listas do feed em cache (a lista infinita E a prévia da Home);
+ * devolver `null` remove o post.
+ */
 export function patchPostInCache(queryClient: QueryClient, postId: number, update: (post: FeedPost) => FeedPost | null): void {
   queryClient.setQueriesData<FeedInfinite>({ queryKey: feedKeys.list }, (data) => {
     if (!data) return data;
-    return {
-      ...data,
-      pages: data.pages.map((page) => ({
-        ...page,
-        items: page.items.flatMap((post) => {
-          if (post.id !== postId) return [post];
-          const next = update(post);
-          return next ? [next] : [];
-        }),
-      })),
-    };
+    return { ...data, pages: data.pages.map((page) => patchPage(page, postId, update)) };
   });
+  queryClient.setQueriesData<FeedPage>({ queryKey: feedKeys.preview }, (data) => (data ? patchPage(data, postId, update) : data));
 }
 
-/** Põe um post recém-criado no topo da primeira página (depois dos fixados). */
+/** Põe um post recém-criado no topo da primeira página (depois dos fixados), na lista e na prévia da Home. */
 export function insertPostInCache(queryClient: QueryClient, post: FeedPost): void {
   queryClient.setQueriesData<FeedInfinite>({ queryKey: feedKeys.list }, (data) => {
     if (!data || data.pages.length === 0) return data;
     const [first, ...rest] = data.pages;
     if (!first) return data;
-    const withoutDuplicate = first.items.filter((item) => item.id !== post.id);
-    let index = 0;
-    while (index < withoutDuplicate.length && withoutDuplicate[index]?.pinned) index += 1;
-    const items = [...withoutDuplicate.slice(0, index), post, ...withoutDuplicate.slice(index)];
-    return { ...data, pages: [{ ...first, items }, ...rest] };
+    return { ...data, pages: [insertIntoPage(first, post), ...rest] };
   });
+  queryClient.setQueriesData<FeedPage>({ queryKey: feedKeys.preview }, (data) => (data ? insertIntoPage(data, post) : data));
 }
 
 /**
@@ -333,6 +354,56 @@ export function useFeed(enabled = true) {
   return { ...query, items };
 }
 
+/**
+ * Prévia da Home: os posts mais recentes (`GET /feed?limit=3`, sem cursor) numa query PRÓPRIA (não reaproveita a lista
+ * infinita, que tem 15 por página). `enabled` = só com o feed ligado. Stories nunca entram (o backend já os separa;
+ * o filtro é só defesa).
+ */
+export function useFeedPreview(enabled = true) {
+  const query = useQuery({
+    queryKey: feedKeys.preview,
+    enabled,
+    queryFn: () => api.get<FeedPage>(withQuery("/feed", { limit: FEED_PREVIEW_SIZE })),
+    staleTime: 30_000,
+    retry: false,
+  });
+  const items = useMemo(() => {
+    const seen = new Set<number>();
+    const list: FeedPost[] = [];
+    for (const post of query.data?.items ?? []) {
+      if (post.kind === "STORY" || seen.has(post.id)) continue;
+      seen.add(post.id);
+      list.push(post);
+    }
+    return list.slice(0, FEED_PREVIEW_SIZE);
+  }, [query.data]);
+  return { ...query, items };
+}
+
+/**
+ * `url`/`thumbUrl` assinadas expiram em 6 h: devolve um `onError` por mídia que refaz as queries dadas UMA vez por
+ * mídia (e uma recarga por vez). Mesmo comportamento da página do feed.
+ */
+export function useMediaErrorRefetch(queryKeys: readonly (readonly unknown[])[]): (mediaId: number) => void {
+  const queryClient = useQueryClient();
+  const retried = useRef(new Set<number>());
+  const reloading = useRef(false);
+  const keys = useRef(queryKeys);
+  keys.current = queryKeys;
+  return useCallback(
+    (mediaId: number) => {
+      if (retried.current.has(mediaId)) return;
+      retried.current.add(mediaId);
+      if (reloading.current) return;
+      reloading.current = true;
+      void Promise.all(keys.current.map((queryKey) => queryClient.refetchQueries({ queryKey }))).finally(() => {
+        reloading.current = false;
+      });
+    },
+    [queryClient],
+  );
+}
+
 export function useUploadFeedMedia() {
   return useMutation({
     // Multipart; o fetch não expõe progresso de upload, então a tela mostra estado "enviando" indeterminado.
@@ -375,7 +446,12 @@ export function useDeletePost() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (postId: number) => api.delete<void>(`/feed/posts/${postId}`),
-    onSuccess: (_data, postId) => patchPostInCache(queryClient, postId, () => null),
+    onSuccess: (_data, postId) => {
+      patchPostInCache(queryClient, postId, () => null);
+      // A prévia da Home perdeu um item (volta a ter 3) e, se era um story, a linha de stories também muda.
+      void queryClient.invalidateQueries({ queryKey: feedKeys.preview });
+      void queryClient.invalidateQueries({ queryKey: feedKeys.stories });
+    },
   });
 }
 
@@ -389,6 +465,7 @@ export function useReact() {
       api.put<ReactionSummary>(`/feed/posts/${postId}/reaction`, { type }),
     onMutate: async ({ postId, type }) => {
       await queryClient.cancelQueries({ queryKey: feedKeys.list });
+      await queryClient.cancelQueries({ queryKey: feedKeys.preview });
       const seen: { previous: ReactionSummary | null } = { previous: null };
       patchPostInCache(queryClient, postId, (post) => {
         seen.previous ??= post.reactions;

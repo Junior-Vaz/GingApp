@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { FeedCommentStatus, FeedPostStatus, FeedReactionType, FeedVisibility, OrgRole, Prisma } from '@prisma/client';
+import { FeedCommentStatus, FeedPostKind, FeedPostStatus, FeedReactionType, FeedVisibility, OrgRole, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { FeedAccessService, FeedViewer } from './feed-access';
 import { mediaExpiry, signedMediaUrl } from './feed-media-storage';
@@ -14,6 +14,8 @@ export const FEED_POST_SELECT = {
   unitId: true,
   classId: true,
   status: true,
+  kind: true,
+  expiresAt: true,
   pinned: true,
   edited: true,
   hiddenReason: true,
@@ -61,6 +63,10 @@ export interface FeedMediaView {
 export interface FeedPostView {
   id: number;
   type: 'POST';
+  /** POST (publicacao) ou STORY (foto + legenda em `body`, que expira em `expiresAt`). */
+  kind: FeedPostKind;
+  /** So STORY; nulo em POST. */
+  expiresAt: Date | null;
   author: FeedAuthor | null;
   body: string | null;
   media: FeedMediaView[];
@@ -140,29 +146,21 @@ export class FeedPresenter {
     return out;
   }
 
-  /** Monta os FeedPost (midia assinada, contagens, permissoes calculadas para ESTE usuario). */
-  async present(v: FeedViewer, rows: FeedPostRow[]): Promise<FeedPostView[]> {
-    if (rows.length === 0) return [];
-    const ids = rows.map((r) => r.id);
-    const [media, reactions, comments, roles] = await Promise.all([
-      this.prisma.feedPostMedia.findMany({
-        where: { postId: { in: ids } },
-        orderBy: [{ order: 'asc' }, { id: 'asc' }],
-        select: { id: true, postId: true, width: true, height: true },
-      }),
-      this.reactions(ids, v.userId),
-      this.prisma.feedComment.groupBy({
-        by: ['postId'],
-        where: { postId: { in: ids }, status: FeedCommentStatus.PUBLISHED, deletedAt: null },
-        _count: { _all: true },
-      }),
-      this.roles(v.organizationId, rows.map((r) => r.authorUserId).filter((id): id is number => id !== null)),
-    ]);
+  /**
+   * Fotos assinadas de varios posts/stories (uma consulta). Post ainda nao aprovado / oculto (so o autor ou o moderador o
+   * recebem): URL `review`, curta; publicado: URL de membro. SSOT do feed e dos stories.
+   */
+  async mediaByPost(v: FeedViewer, statusById: Map<number, FeedPostStatus>): Promise<Map<number, FeedMediaView[]>> {
+    const ids = [...statusById.keys()];
+    const mediaByPost = new Map<number, FeedMediaView[]>();
+    if (ids.length === 0) return mediaByPost;
+    const media = await this.prisma.feedPostMedia.findMany({
+      where: { postId: { in: ids } },
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+      select: { id: true, postId: true, width: true, height: true },
+    });
     const expiry = mediaExpiry();
     const reviewExpiry = mediaExpiry(Date.now(), undefined, 'review');
-    // Post ainda nao aprovado / oculto (so o autor ou o moderador o recebem): URL `review`, curta.
-    const statusById = new Map(rows.map((r) => [r.id, r.status]));
-    const mediaByPost = new Map<number, FeedMediaView[]>();
     for (const m of media) {
       if (m.postId === null) continue;
       const list = mediaByPost.get(m.postId) ?? [];
@@ -178,6 +176,23 @@ export class FeedPresenter {
       });
       mediaByPost.set(m.postId, list);
     }
+    return mediaByPost;
+  }
+
+  /** Monta os FeedPost (midia assinada, contagens, permissoes calculadas para ESTE usuario). */
+  async present(v: FeedViewer, rows: FeedPostRow[]): Promise<FeedPostView[]> {
+    if (rows.length === 0) return [];
+    const ids = rows.map((r) => r.id);
+    const [mediaByPost, reactions, comments, roles] = await Promise.all([
+      this.mediaByPost(v, new Map(rows.map((r) => [r.id, r.status]))),
+      this.reactions(ids, v.userId),
+      this.prisma.feedComment.groupBy({
+        by: ['postId'],
+        where: { postId: { in: ids }, status: FeedCommentStatus.PUBLISHED, deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.roles(v.organizationId, rows.map((r) => r.authorUserId).filter((id): id is number => id !== null)),
+    ]);
     const commentCount = new Map(comments.map((c) => [c.postId, c._count._all]));
     return rows.map((r) => {
       const isAuthor = r.authorUserId !== null && r.authorUserId === v.userId;
@@ -186,6 +201,8 @@ export class FeedPresenter {
       return {
         id: r.id,
         type: 'POST' as const,
+        kind: r.kind,
+        expiresAt: r.kind === FeedPostKind.STORY ? r.expiresAt : null,
         author: this.author(r.author, roles),
         body: r.body,
         media: mediaByPost.get(r.id) ?? [],
@@ -198,8 +215,8 @@ export class FeedPresenter {
         edited: r.edited,
         reactions: reactions.get(r.id) ?? { counts: emptyCounts(), total: 0, mine: null },
         commentsCount: commentCount.get(r.id) ?? 0,
-        // So PUBLISHED edita (o PATCH de um post pendente devolve 409).
-        canEdit: isAuthor && r.status === FeedPostStatus.PUBLISHED,
+        // So POST PUBLISHED edita (o PATCH de um post pendente devolve 409; story nao se edita: apaga e publica de novo).
+        canEdit: isAuthor && r.status === FeedPostStatus.PUBLISHED && r.kind === FeedPostKind.POST,
         canDelete: alive && (isAuthor || canModerate),
         canModerate,
       };

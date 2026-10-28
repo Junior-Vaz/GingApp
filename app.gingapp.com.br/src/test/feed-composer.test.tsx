@@ -221,7 +221,7 @@ describe("publicar", () => {
     await openComposer({
       respond: (call) =>
         call.method === "POST" && call.path === "/feed/posts"
-          ? json(201, makePost({ id: 778, body: "aguarde", status: "PENDING_APPROVAL", canEdit: true, canDelete: true }))
+          ? json(201, makePost({ id: 778, body: "aguarde", status: "PENDING_APPROVAL", canEdit: false, canDelete: true }))
           : undefined,
     });
     typeInto(bodyField(), "aguarde");

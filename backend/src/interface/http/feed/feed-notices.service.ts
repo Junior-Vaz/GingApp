@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { FeedPostKind } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 
@@ -86,27 +87,31 @@ export class FeedNoticesService {
     return { title: 'Atividade no seu post', body };
   }
 
-  /** Post aprovado pelo moderador. */
-  async approved(organizationId: number, postId: number, authorUserId: number | null): Promise<void> {
+  /** Post (ou story) aprovado pelo moderador. */
+  async approved(organizationId: number, postId: number, authorUserId: number | null, kind: FeedPostKind = FeedPostKind.POST): Promise<void> {
     if (authorUserId === null) return;
+    const story = kind === FeedPostKind.STORY;
     await this.notifications.safely('feed.approved', () =>
       this.notifications.notifyUsers(organizationId, [authorUserId], {
         type: FeedNotificationType.APPROVED,
-        title: 'Seu post foi publicado',
-        body: 'Seu post foi aprovado e já aparece no feed do grupo.',
+        title: story ? 'Seu story foi publicado' : 'Seu post foi publicado',
+        body: story ? 'Seu story foi aprovado e já aparece para o grupo.' : 'Seu post foi aprovado e já aparece no feed do grupo.',
         data: { postId },
       }),
     );
   }
 
-  /** Post ocultado/removido/recusado por um moderador (texto neutro, sem culpar). */
-  async hidden(organizationId: number, postId: number, authorUserId: number | null, actorUserId: number): Promise<void> {
+  /** Post (ou story) ocultado/removido/recusado por um moderador (texto neutro, sem culpar). */
+  async hidden(organizationId: number, postId: number, authorUserId: number | null, actorUserId: number, kind: FeedPostKind = FeedPostKind.POST): Promise<void> {
     if (authorUserId === null || authorUserId === actorUserId) return;
+    const story = kind === FeedPostKind.STORY;
     await this.notifications.safely('feed.hidden', () =>
       this.notifications.notifyUsers(organizationId, [authorUserId], {
         type: FeedNotificationType.HIDDEN,
-        title: 'Seu post não está visível no feed',
-        body: 'A moderação do grupo revisou o seu post e ele não aparece mais no feed.',
+        title: story ? 'Seu story não está visível' : 'Seu post não está visível no feed',
+        body: story
+          ? 'A moderação do grupo revisou o seu story e ele não aparece mais.'
+          : 'A moderação do grupo revisou o seu post e ele não aparece mais no feed.',
         data: { postId },
       }),
     );

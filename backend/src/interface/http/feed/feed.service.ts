@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { FeedPostingMode, FeedPostStatus, FeedReactionType, FeedReportStatus, FeedVisibility, OrgRole, Prisma, RecordStatus } from '@prisma/client';
+import { FeedPostingMode, FeedPostKind, FeedPostStatus, FeedReactionType, FeedReportStatus, FeedVisibility, OrgRole, Prisma, RecordStatus } from '@prisma/client';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
@@ -10,7 +10,7 @@ import { deleteFeedFiles } from './feed-media-storage';
 import { FEED_POST_SELECT, FeedPostRow, FeedPostView, FeedPresenter, ReactionSummary } from './feed-presenter';
 import { detachMedia } from './feed-purge';
 import { FeedNoticesService } from './feed-notices.service';
-import { ageOn, cleanBlockedWords, containsBlockedWord, decodeCursor, encodeCursor, FeedCursor, normalizeUserText, startOfDaySaoPaulo } from './feed-text';
+import { ageOn, cleanBlockedWords, containsBlockedWord, decodeCursor, encodeCursor, FeedCursor, isStoryLive, normalizeUserText, startOfDaySaoPaulo } from './feed-text';
 
 export interface FeedSettingsView {
   enabled: boolean;
@@ -110,6 +110,11 @@ export class FeedService {
     return s.feedPostingMode === FeedPostingMode.MODERATED && !v.isStaff;
   }
 
+  /** Vai para aprovacao: regra do autor (menor, modo moderado) OU palavra bloqueada no texto/legenda. SSOT de post e story. */
+  async needsApproval(v: FeedViewer, s: OrgFeedSettings, text: string | null): Promise<boolean> {
+    return (await this.requiresApproval(v, s)) || containsBlockedWord(text, s.feedBlockedWords);
+  }
+
   async getSettings(v: FeedViewer): Promise<FeedSettingsView> {
     const s = await this.orgSettings(v.organizationId);
     return this.settingsView(v, s);
@@ -166,7 +171,8 @@ export class FeedService {
     const rows = await this.prisma.feedPost.findMany({
       where: {
         AND: [
-          { organizationId: v.organizationId, deletedAt: null },
+          // Stories tem a propria rota (GET /feed/stories): a linha do tempo e so de POST.
+          { organizationId: v.organizationId, deletedAt: null, kind: FeedPostKind.POST },
           this.access.visibleWhere(v),
           // So PUBLISHED; o PENDING_APPROVAL so para o proprio autor. HIDDEN/REMOVED nunca aparecem aqui.
           { OR: [{ status: FeedPostStatus.PUBLISHED }, { status: FeedPostStatus.PENDING_APPROVAL, authorUserId: v.userId }] },
@@ -203,10 +209,18 @@ export class FeedService {
     return row.status === FeedPostStatus.PENDING_APPROVAL && row.authorUserId === v.userId;
   }
 
-  /** Post PUBLICADO visivel (reagir, comentar, denunciar) ou 404. */
-  async publishedVisible(v: FeedViewer, id: number): Promise<FeedPostRow> {
+  /**
+   * Post PUBLICADO visivel (reagir, comentar, denunciar) ou 404. Story vencido = 404 (como o inexistente); story
+   * vigente so passa com `allowStory` (denunciar): reagir/comentar em story = 409 INVALID_STATE (stories nao tem
+   * reacao nem comentario). A ordem evita enumeracao: quem nao ve o story recebe o mesmo 404 de qualquer id.
+   */
+  async publishedVisible(v: FeedViewer, id: number, options: { allowStory?: boolean; now?: Date } = {}): Promise<FeedPostRow> {
     const row = await this.loadPost(v, id);
     if (!row || row.status !== FeedPostStatus.PUBLISHED || !this.access.canSee(v, row)) throw postNotFound();
+    if (row.kind === FeedPostKind.STORY) {
+      if (!isStoryLive(row, options.now)) throw postNotFound();
+      if (!options.allowStory) throw invalidState('Stories não recebem reações nem comentários.');
+    }
     return row;
   }
 
@@ -219,7 +233,10 @@ export class FeedService {
   // ---------------------------------------------------------------------------------------------------------------
 
   /** Valida a visibilidade escolhida contra o que o AUTOR pertence (IDOR): unidade/turma de outro grupo/inativa/alheia = 403. */
-  private async resolveTarget(v: FeedViewer, dto: CreateFeedPostDto): Promise<{ visibility: FeedVisibility; unitId: number | null; classId: number | null }> {
+  async resolveTarget(
+    v: FeedViewer,
+    dto: Pick<CreateFeedPostDto, 'visibility' | 'unitId' | 'classId'>,
+  ): Promise<{ visibility: FeedVisibility; unitId: number | null; classId: number | null }> {
     const denied = () => forbidden(FeedErrorCode.VISIBILITY_NOT_ALLOWED, 'Você não pode publicar para esse público.');
     if (dto.visibility === FeedVisibility.GROUP) {
       if (dto.unitId !== undefined || dto.classId !== undefined) throw badRequest(FeedErrorCode.VALIDATION, 'Post para todo o grupo não leva unidade nem turma.');
@@ -252,11 +269,14 @@ export class FeedService {
     if (!body && mediaIds.length === 0) throw badRequest(FeedErrorCode.VALIDATION, 'Escreva um texto ou envie uma foto.');
     const target = await this.resolveTarget(v, dto);
 
-    const today = await this.prisma.feedPost.count({ where: { organizationId: v.organizationId, authorUserId: v.userId, createdAt: { gte: startOfDaySaoPaulo(now) } } });
+    // A cota de posts nao conta stories (eles tem a propria: FEED_STORIES_PER_DAY).
+    const today = await this.prisma.feedPost.count({
+      where: { organizationId: v.organizationId, authorUserId: v.userId, kind: FeedPostKind.POST, createdAt: { gte: startOfDaySaoPaulo(now) } },
+    });
     if (today >= dailyLimit('FEED_POSTS_PER_DAY', 10)) throw tooMany(FeedErrorCode.POST_LIMIT, 'Você chegou ao limite de posts de hoje. Tente amanhã.');
 
     // Palavra bloqueada: vai para aprovacao SEM dizer o motivo (o autor so ve "aguardando aprovacao").
-    const pending = (await this.requiresApproval(v, s)) || containsBlockedWord(body, s.feedBlockedWords);
+    const pending = await this.needsApproval(v, s, body);
     const person = await this.prisma.person.findUnique({ where: { userId: v.userId }, select: { id: true } });
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -303,6 +323,7 @@ export class FeedService {
     if (row.authorUserId !== v.userId || (row.status !== FeedPostStatus.PUBLISHED && row.status !== FeedPostStatus.PENDING_APPROVAL)) {
       throw forbidden(FeedErrorCode.FORBIDDEN, 'Só o autor pode editar o post.');
     }
+    if (row.kind === FeedPostKind.STORY) throw invalidState('Stories não se editam: apague e publique de novo.');
     // Pendente NAO se edita: a aprovacao tem de valer para o texto que o moderador leu (sem trocar entre a fila e o
     // "aprovar"). O autor apaga e publica de novo.
     if (row.status === FeedPostStatus.PENDING_APPROVAL) throw invalidState('O post está aguardando aprovação e não pode ser editado agora.');
@@ -313,7 +334,7 @@ export class FeedService {
     if (!body && (await this.prisma.feedPostMedia.count({ where: { postId: id } })) === 0) {
       throw badRequest(FeedErrorCode.VALIDATION, 'Escreva um texto ou mantenha uma foto.');
     }
-    const pending = (await this.requiresApproval(v, s)) || containsBlockedWord(body, s.feedBlockedWords);
+    const pending = await this.needsApproval(v, s, body);
     // Pre-condicao no proprio UPDATE: se um moderador ocultou/removeu no meio, a edicao nao grava (409).
     const changed = await this.prisma.feedPost.updateMany({
       where: { id, status: FeedPostStatus.PUBLISHED, deletedAt: null },
@@ -343,7 +364,7 @@ export class FeedService {
       entityId: id,
       meta: { by: isAuthor ? 'AUTHOR' : 'MODERATOR' },
     });
-    if (!isAuthor) await this.notices.hidden(v.organizationId, id, row.authorUserId, v.userId);
+    if (!isAuthor) await this.notices.hidden(v.organizationId, id, row.authorUserId, v.userId, row.kind);
   }
 
   /** Algum desses usuarios e MESTRE (papel ATUAL no grupo)? */
@@ -368,6 +389,8 @@ export class FeedService {
   async removePost(id: number, actorUserId: number, now: Date): Promise<string[]> {
     return this.prisma.$transaction(async (tx) => {
       await tx.feedPost.update({ where: { id }, data: { status: FeedPostStatus.REMOVED, deletedAt: now, pinned: false, body: null } });
+      // Story: quem viu nao precisa mais ser lembrado (no post a tabela fica vazia).
+      await tx.feedStoryView.deleteMany({ where: { postId: id } });
       await tx.feedReport.updateMany({
         where: { OR: [{ postId: id }, { comment: { postId: id } }], status: FeedReportStatus.OPEN },
         data: { status: FeedReportStatus.ACTIONED, resolvedById: actorUserId, resolvedAt: now },

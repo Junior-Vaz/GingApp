@@ -4,7 +4,7 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { deleteFeedFiles, resolveFeedMediaDir } from '../interface/http/feed/feed-media-storage';
-import { purgeRemovedPostsMedia } from '../interface/http/feed/feed-purge';
+import { purgeExpiredStories, purgeRemovedPostsMedia } from '../interface/http/feed/feed-purge';
 import { STORAGE_KEY_REGEX } from '../interface/http/registration-forms/private-storage';
 
 /** FEED_MEDIA_CLEANUP=false desliga a limpeza das fotos do feed (padrao: ligada). */
@@ -24,12 +24,15 @@ const MAX_BATCHES = 20;
 export interface FeedMediaCleanupResult {
   pendingDeleted: number;
   removedPostsMedia: number;
+  /** Stories vencidos (expiresAt + 1 h) marcados REMOVED nesta rodada. */
+  expiredStories: number;
 }
 
 /**
  * A cada 15 min: (1) fotos PENDENTES vencidas (enviadas e nunca usadas num post em 24 h) saem do banco e do disco;
- * (2) rede de seguranca: fotos que ainda restarem de posts REMOVED (o fluxo de remocao ja apaga na hora). A linha sai
- * primeiro e de forma condicional (um post criado no mesmo instante que ligou a foto vence), o arquivo depois.
+ * (2) stories vencidos ha mais de 1 h viram REMOVED e perdem a foto; (3) rede de seguranca: fotos que ainda restarem de
+ * posts REMOVED (o fluxo de remocao ja apaga na hora). A linha sai primeiro e de forma condicional (um post criado no
+ * mesmo instante que ligou a foto vence), o arquivo depois.
  */
 @Injectable()
 export class FeedMediaCleanupCronService {
@@ -113,11 +116,16 @@ export class FeedMediaCleanupCronService {
         }
         if (stale.length < BATCH) break;
       }
+      // Stories vencidos (expiresAt + 1 h): viram REMOVED e perdem a foto (arquivo depois do commit). Antes da rede de
+      // seguranca abaixo, que pega qualquer resto de post REMOVED.
+      const expiredStories = await purgeExpiredStories(this.prisma, now, options.organizationId);
       const removedPostsMedia = await purgeRemovedPostsMedia(this.prisma, options.organizationId);
-      if (pendingDeleted + removedPostsMedia > 0) {
-        this.logger.log(`Fotos do feed limpas: ${pendingDeleted} pendente(s) vencida(s), ${removedPostsMedia} de post(s) removido(s).`);
+      if (pendingDeleted + removedPostsMedia + expiredStories > 0) {
+        this.logger.log(
+          `Fotos do feed limpas: ${pendingDeleted} pendente(s) vencida(s), ${expiredStories} story(ies) vencido(s), ${removedPostsMedia} de post(s) removido(s).`,
+        );
       }
-      return { pendingDeleted, removedPostsMedia };
+      return { pendingDeleted, removedPostsMedia, expiredStories };
     } catch (error) {
       this.logger.error('Falha na limpeza das fotos do feed.', error instanceof Error ? error.stack : String(error));
       return null;

@@ -14,8 +14,11 @@ import {
   decodeCursor,
   encodeCursor,
   foldForMatch,
+  isStoryLive,
   normalizeUserText,
   startOfDaySaoPaulo,
+  storiesPerDay,
+  storyTtlHours,
 } from '../src/interface/http/feed/feed-text';
 
 /** Feed do grupo: funcoes puras (URL assinada, texto puro, palavras bloqueadas, cursor, idade). */
@@ -111,5 +114,27 @@ describe('feed (unidade)', () => {
     const leap = new Date('2008-02-29T00:00:00Z');
     assert.equal(ageOn(leap, new Date('2026-02-28T15:00:00Z')), 17, '29/02 em ano nao bissexto: conservador (so em 01/03)');
     assert.equal(ageOn(leap, new Date('2026-03-01T15:00:00Z')), 18);
+  });
+
+  it('stories: FEED_STORY_TTL_HOURS (padrao 24, limitado a 1..48), FEED_STORIES_PER_DAY (padrao 5) e vigencia', () => {
+    assert.equal(storyTtlHours({}), 24, 'ausente');
+    assert.equal(storyTtlHours({ FEED_STORY_TTL_HOURS: '' }), 24, 'vazio');
+    assert.equal(storyTtlHours({ FEED_STORY_TTL_HOURS: 'abc' }), 24, 'nao numerico');
+    assert.equal(storyTtlHours({ FEED_STORY_TTL_HOURS: '12' }), 12);
+    assert.equal(storyTtlHours({ FEED_STORY_TTL_HOURS: '0' }), 1, 'clamp minimo');
+    assert.equal(storyTtlHours({ FEED_STORY_TTL_HOURS: '-5' }), 1);
+    assert.equal(storyTtlHours({ FEED_STORY_TTL_HOURS: '48' }), 48);
+    assert.equal(storyTtlHours({ FEED_STORY_TTL_HOURS: '500' }), 48, 'clamp maximo');
+    assert.equal(storiesPerDay({}), 5);
+    assert.equal(storiesPerDay({ FEED_STORIES_PER_DAY: '3' }), 3);
+    assert.equal(storiesPerDay({ FEED_STORIES_PER_DAY: '0' }), 5, 'zero/negativo/nao inteiro = padrao');
+    assert.equal(storiesPerDay({ FEED_STORIES_PER_DAY: '2.5' }), 5);
+    const at = new Date('2026-11-01T12:00:00Z');
+    assert.equal(isStoryLive({ kind: 'STORY', expiresAt: new Date('2026-11-01T12:00:01Z') }, at), true);
+    assert.equal(isStoryLive({ kind: 'STORY', expiresAt: at }, at), false, 'vence no instante exato');
+    assert.equal(isStoryLive({ kind: 'STORY', expiresAt: null }, at), false, 'story sem validade nao e vigente');
+    assert.equal(isStoryLive({ kind: 'POST', expiresAt: null }, at), true, 'post nao expira');
+    // legenda de story: texto puro numa linha so
+    assert.equal(normalizeUserText('  oi\n\n <b>treino</b>  ', false), 'oi <b>treino</b>');
   });
 });

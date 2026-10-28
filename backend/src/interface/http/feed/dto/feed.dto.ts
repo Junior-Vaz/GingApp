@@ -19,6 +19,7 @@ import {
 
 export const FEED_BODY_MAX = 2000;
 export const FEED_COMMENT_MAX = 500;
+export const FEED_STORY_CAPTION_MAX = 140;
 export const FEED_REPORT_NOTE_MAX = 300;
 export const FEED_MAX_MEDIA_PER_POST = 6;
 export const FEED_BLOCKED_WORDS_MAX = 50;
@@ -76,6 +77,34 @@ export class CreateFeedPostDto {
   @Min(1, { each: true })
   @Max(2_147_483_647, { each: true })
   mediaIds?: number[];
+
+  @IsEnum(FeedVisibility)
+  visibility!: FeedVisibility;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(2_147_483_647)
+  unitId?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(2_147_483_647)
+  classId?: number;
+}
+
+/** POST /feed/stories: UMA foto (a mesma de POST /feed/media) + legenda curta. */
+export class CreateFeedStoryDto {
+  @IsInt()
+  @Min(1)
+  @Max(2_147_483_647)
+  mediaId!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(FEED_STORY_CAPTION_MAX)
+  caption?: string;
 
   @IsEnum(FeedVisibility)
   visibility!: FeedVisibility;

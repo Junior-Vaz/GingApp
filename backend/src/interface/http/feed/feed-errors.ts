@@ -5,6 +5,7 @@ export const FeedErrorCode = {
   FEED_DISABLED: 'FEED_DISABLED',
   POSTING_NOT_ALLOWED: 'POSTING_NOT_ALLOWED',
   POST_LIMIT: 'POST_LIMIT',
+  STORY_LIMIT: 'STORY_LIMIT',
   COMMENT_LIMIT: 'COMMENT_LIMIT',
   COMMENTS_DISABLED: 'COMMENTS_DISABLED',
   VISIBILITY_NOT_ALLOWED: 'VISIBILITY_NOT_ALLOWED',
@@ -25,6 +26,11 @@ export const FeedErrorCode = {
 /** 404 IDENTICO para inexistente, de outro grupo, fora da visibilidade, oculto ou removido (nao enumeravel). */
 export function postNotFound(): NotFoundException {
   return new NotFoundException({ statusCode: 404, error: 'Not Found', code: FeedErrorCode.NOT_FOUND, message: 'Post não encontrado.' });
+}
+
+/** 404 IDENTICO do story: inexistente, de outro grupo, fora do alcance, vencido, oculto/removido ou que nem e story. */
+export function storyNotFound(): NotFoundException {
+  return new NotFoundException({ statusCode: 404, error: 'Not Found', code: FeedErrorCode.NOT_FOUND, message: 'Story não encontrado.' });
 }
 
 export function commentNotFound(): NotFoundException {

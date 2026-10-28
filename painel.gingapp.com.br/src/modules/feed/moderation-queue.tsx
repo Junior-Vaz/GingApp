@@ -5,7 +5,7 @@ import { EntityAvatar } from "@/components/painel/entity-avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { fmt, toDate } from "@/lib/format";
+import { fmt, relativeTime, toDate } from "@/lib/format";
 import { plural } from "@/lib/plural";
 import { cn } from "@/lib/utils";
 import { feedErrorMessage, flattenQueue, itemKey, useModerate, useQueue, type ModAction } from "./api";
@@ -21,6 +21,11 @@ import {
 
 const formatDate = (iso: string) => fmt(toDate(iso), "dd/MM/yyyy 'às' HH:mm");
 const MAX_NOTES = 5;
+
+/** "Expira em 5 horas" (story vigente) ou "Expirou há 2 horas" (já venceu, ainda na fila até o servidor limpar). */
+function expiryLabel(iso: string): string {
+  return `${toDate(iso).getTime() > Date.now() ? "Expira" : "Expirou"} ${relativeTime(iso)}`;
+}
 
 interface ActionDef {
   action: ModAction;
@@ -77,8 +82,8 @@ function actionsFor(item: QueueItem, kind: QueueKind, who: string): ActionDef[] 
   } else {
     list.push({ action: "restore", label: "Restaurar", ariaLabel: `Restaurar publicação de ${who}`, icon: RotateCcw });
   }
-  // Fixar só faz sentido numa publicação visível no feed.
-  if (post.status === "PUBLISHED")
+  // Fixar só faz sentido numa publicação visível no feed (stories não são fixáveis: o servidor responde 409).
+  if (post.status === "PUBLISHED" && post.kind !== "STORY")
     list.push(
       post.pinned
         ? { action: "unpin", label: "Desafixar", ariaLabel: `Desafixar publicação de ${who}`, icon: PinOff, variant: "outline" }
@@ -182,6 +187,16 @@ function QueueCard({
       </header>
 
       <div className="flex flex-wrap gap-1.5">
+        {!comment && post.kind === "STORY" && (
+          <Badge variant="outline" data-testid="story-badge">
+            Story
+          </Badge>
+        )}
+        {!comment && post.kind === "STORY" && post.expiresAt && (
+          <Badge variant="outline" data-testid="story-expiry">
+            {expiryLabel(post.expiresAt)}
+          </Badge>
+        )}
         {comment && <Badge variant="destructive">Comentário denunciado</Badge>}
         {comment?.status === "HIDDEN" && <Badge variant="secondary">Comentário oculto</Badge>}
         <Badge variant={post.status === "PENDING_APPROVAL" ? "default" : "secondary"}>{STATUS_LABEL[post.status]}</Badge>

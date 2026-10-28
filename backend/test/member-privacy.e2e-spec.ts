@@ -75,6 +75,7 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/birthdays/week', 'aniversariantes dos próximos 7 dias do PRÓPRIO grupo: só adultos que não optaram por ocultar, apenas nome/apelido/foto e dia+mês (nunca idade, ano de nascimento, telefone ou menor)'],
   ['/api/communications/pinned', 'Comunicar: só os comunicados FIXADOS vigentes dentro do alcance do PRÓPRIO usuário (notificação recebida ou alcance GROUP) do PRÓPRIO grupo; título, texto, imagem, exigência de confirmação e a resposta do próprio usuário; sem autor, sem contagens e sem dado de terceiros'],
   ['/api/feed', 'Feed do grupo: só posts PUBLICADOS do PRÓPRIO grupo dentro da visibilidade do usuário (GROUP; UNIT/CLASS só de unidade/turma a que ele pertence) + os pendentes DELE; autor só nome/apelido/foto/cargo da equipe (nunca contato, nascimento ou idade)'],
+  ['/api/feed/stories', 'Feed: stories VIGENTES (expiram em 24 h) do PRÓPRIO grupo dentro da visibilidade do usuário (GROUP; UNIT/CLASS só de unidade/turma a que ele pertence) + os pendentes DELE; autor só nome/apelido/foto/cargo da equipe (nunca contato, nascimento ou idade); foto por URL assinada'],
   ['/api/feed/settings', 'Feed: configuração do PRÓPRIO grupo (ligado, modo, comentários) e se o post DELE vai para aprovação; sem palavras bloqueadas'],
   ['/api/feed/posts/:id/comments', 'Feed: comentários de um post VISÍVEL ao usuário (fora do alcance/outro grupo = 404 igual ao inexistente); autor só nome/apelido/foto'],
   ['/api/notifications', 'notificações do próprio usuário'],
