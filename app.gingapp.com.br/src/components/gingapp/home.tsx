@@ -77,7 +77,8 @@ export function HomePage() {
       />
       {studentError && <StateMessage tone="error">{errorMessage(studentError, "Não foi possível carregar seus dados.")}</StateMessage>}
       {!loadingStudent && !studentError && !student && <StateMessage>Nenhum aluno vinculado a esta conta.</StateMessage>}
-      <StoriesRow className="mb-4" />
+      {/* A faixa de stories fica COLADA no banner (sem margem entre os dois); o arredondamento de cima é da faixa. */}
+      <StoriesRow />
       <HeroCarousel />
       <HomeFeedPreview className="mb-5" />
       <Link to="/jornada" className="grad-link" aria-label={`${cardLabel}: ver jornada`}>

@@ -158,3 +158,11 @@ Pedido do dono: na Home do app, **stories em cima do banner** (cartões verticai
 *Painel:* a fila de moderação mostra o selo "Story" (e a validade) nos itens `kind==='STORY'`.
 
 *Tipos TS/hooks do app:* `useStories()`, `useCreateStory()`, `useMarkStoryViewed()`, `useDeleteStory()` (reusa `useDeletePost`) em `src/lib/feed.ts` (ou `src/lib/stories.ts`).
+
+### 9.1 Comentários recentes em cada cartão do feed (acréscimo de 2026-10-28)
+
+Todo objeto `FeedPost` (em `GET /feed`, `POST /feed/posts`, `PATCH /feed/posts/:id`, rotas de moderação e `post` da fila) ganha **`recentComments: [{id:number, parentId:null, author:{userId,name,nickname|null,photo|null,roleLabel|null}|null, body:string, createdAt:string}]`** (mesmo formato de `GET /feed/posts/:id/comments`, sem `canDelete`; `body` nunca é nulo nem truncado, no máximo 500 caracteres).
+- No máximo **2** comentários de 1º nível (`parentId` nulo; respostas nunca entram), `PUBLISHED`, os mais recentes, em ordem **cronológica** (o mais antigo dos dois primeiro). HIDDEN/REMOVED/sem texto nunca aparecem; autor anonimizado = `author:null`.
+- `[]` quando: o post não tem comentários, os comentários estão desligados no grupo (`allowComments=false`), o item é story, ou o post não está `PUBLISHED` (pendente/oculto na fila de moderação). Aparece só para quem já enxerga o post (mesma regra de visibilidade do post e de `GET /feed/posts/:id/comments`).
+- `commentsCount` não muda: conta todos os comentários `PUBLISHED` do post, **incluindo respostas**; é o N do "Ver todos os N comentários" (que abre `GET /feed/posts/:id/comments`).
+- Custo: uma consulta (`ROW_NUMBER() ... <= 2`) para a página inteira + autores em lote; sem N+1.

@@ -8,7 +8,8 @@ const MEDIA_KEYS = [feedKeys.preview] as const;
 
 /**
  * Prévia do Grupo na Home (entre o banner e "Minha graduação"): título, "Ver tudo →" e até 3 posts recentes com o
- * `PostCard` do feed na variante compacta (reações e comentários funcionam como no feed). Vazio com `canPost`: convite
+ * `PostCard` estilo Instagram na variante compacta (sem container, sangrando até a borda da tela; reações e comentários
+ * funcionam como no feed). Vazio com `canPost`: convite
  * "Seja o primeiro a postar!" que leva ao feed. Só aparece com o feed LIGADO e já carregado: carregando, erro, desligado
  * ou vazio sem permissão de postar = a seção inteira some, sem mensagem de erro. Substitui o atalho "Grupo" antigo.
  */
@@ -26,8 +27,8 @@ export function HomeFeedPreview({ className = "" }: { className?: string }) {
   return (
     <MediaErrorContext.Provider value={onMediaError}>
       <Reveal className={className}>
-        <section className="min-w-0 max-w-full px-px pb-px" aria-labelledby="home-feed-title" data-testid="home-feed-preview">
-          <div className="mb-3 flex items-center justify-between gap-3">
+        <section className="min-w-0 max-w-full pb-px" aria-labelledby="home-feed-title" data-testid="home-feed-preview">
+          <div className="mb-1 flex items-center justify-between gap-3 px-px">
             <h2 id="home-feed-title" className="text-base font-bold">
               Grupo
             </h2>
@@ -41,7 +42,9 @@ export function HomeFeedPreview({ className = "" }: { className?: string }) {
             </Link>
           </div>
           {items.length > 0 ? (
-            <div className="grid grid-cols-1 gap-3" data-testid="home-feed-list">
+            // Estilo Instagram: os posts sangram até a borda da tela (margem negativa = padding lateral da página, 18 px no
+            // celular); a seção inteira (título, "Ver tudo") segue com o padding normal.
+            <div className="grid grid-cols-1 border-t border-border max-md:-mx-[18px]" data-testid="home-feed-list">
               {items.map((post) => (
                 <PostCard key={post.id} post={post} allowComments={allowComments} compact />
               ))}

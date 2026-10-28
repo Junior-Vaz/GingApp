@@ -9,6 +9,8 @@ import {
   authorLabel,
   feedErrorMessage,
   feedTime,
+  recentCommentsOf,
+  shortAuthorName,
   useDeletePost,
   useEditPost,
   type FeedPost,
@@ -95,14 +97,18 @@ function MenuAction({ icon, children, destructive = false, ...props }: React.But
   );
 }
 
-/** Texto que a variante compacta corta em 3 linhas: acima disso (ou com muitas quebras) aparece "ver mais". */
-const COMPACT_BODY_CHARS = 140;
-const COMPACT_BODY_LINES = 3;
-const isLongBody = (body: string) => body.length > COMPACT_BODY_CHARS || body.split("\n").length > COMPACT_BODY_LINES;
+/** A legenda ("nome + texto") é cortada em 3 linhas: acima disso (ou com muitas quebras) aparece "mais". */
+const CAPTION_CHARS = 110;
+const CAPTION_LINES = 3;
+const isLongCaption = (body: string) => body.length > CAPTION_CHARS || body.split("\n").length > CAPTION_LINES;
 
 /**
- * Cartão de um post do feed. `compact` = variante da prévia na Home: avatar+nome+tempo, UMA foto grande (as outras viram
- * "+N fotos" que levam ao feed), texto em até 3 linhas com "ver mais" para /feed, e a mesma barra de reações/comentários.
+ * Cartão de um post do feed, ESTILO INSTAGRAM: sem container (sem fundo, borda, sombra ou cantos), só um filete embaixo
+ * para separar do próximo; a foto vai de ponta a ponta (quem usa o cartão o faz sangrar até a borda da tela no celular) e
+ * só o cabeçalho, as ações e os textos têm 12 px de respiro lateral. Ordem: cabeçalho (avatar, nome, tempo, menu) ->
+ * foto -> reações/comentar -> contagem -> "nome + legenda" -> "Ver todos os N comentários" -> 2 comentários recentes ->
+ * "Adicionar comentário…". `compact` = variante da prévia na Home: UMA foto (as outras viram "+N" que levam ao feed) e o
+ * "mais" da legenda leva ao feed (no feed ele expande ali mesmo).
  */
 function PostCardBase({ post, allowComments = true, compact = false }: { post: FeedPost; allowComments?: boolean; compact?: boolean }) {
   const remove = useDeletePost();
@@ -115,6 +121,16 @@ function PostCardBase({ post, allowComments = true, compact = false }: { post: F
   const name = authorLabel(post.author);
   // A folha de comentários só monta depois da 1ª abertura (não são 15 folhas montadas ao abrir o feed).
   const [commentsMounted, setCommentsMounted] = useState(false);
+  const [captionOpen, setCaptionOpen] = useState(false);
+  const recent = recentCommentsOf(post);
+  // "Ver todos" aparece quando há mais comentários do que os 2 recentes que o post trouxe (campo ausente = 0 recentes).
+  const hasMoreComments = post.commentsCount > recent.length;
+  const longCaption = post.body ? isLongCaption(post.body) : false;
+
+  function openComments() {
+    setCommentsMounted(true);
+    setCommentsOpen(true);
+  }
 
   function confirmDelete() {
     remove.mutate(post.id, {
@@ -128,35 +144,35 @@ function PostCardBase({ post, allowComments = true, compact = false }: { post: F
 
   return (
     <article
-      className={cn("rounded-lg border border-border bg-card p-3 shadow-[var(--shadow)]", pending && "opacity-75")}
+      className={cn("border-b border-border pb-2 pt-3", pending && "opacity-75")}
       data-testid="post-card"
       data-compact={compact || undefined}
       data-post-id={post.id}
       data-status={post.status}
       aria-label={`Publicação de ${name}`}
     >
-      <header className="flex items-start gap-3">
-        <Avatar decorative name={post.author?.name ?? "?"} src={post.author?.photo ?? null} size={40} />
+      <header className="flex items-center gap-2.5 pl-3 pr-1">
+        <Avatar decorative name={post.author?.name ?? "?"} src={post.author?.photo ?? null} size={32} />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold" data-testid="post-author">
+          <p className="truncate text-sm font-bold leading-tight" data-testid="post-author">
             {name}
           </p>
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+          <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs leading-tight text-muted-foreground">
             {post.author?.roleLabel && <span data-testid="post-role">{post.author.roleLabel}</span>}
             <time dateTime={post.createdAt}>{feedTime(post.createdAt)}</time>
             {post.edited && <span data-testid="post-edited">editado</span>}
+            {post.pinned && (
+              <span className="inline-flex items-center gap-1 font-semibold text-primary" data-testid="post-pinned">
+                <Pin size={11} aria-hidden="true" /> Fixado
+              </span>
+            )}
           </p>
-          {post.pinned && (
-            <span className="mt-1 inline-flex items-center gap-1 rounded bg-secondary px-2 py-0.5 text-[11px] font-semibold text-primary" data-testid="post-pinned">
-              <Pin size={11} aria-hidden="true" /> Fixado
-            </span>
-          )}
         </div>
         <button
           type="button"
           aria-label="Mais opções da publicação"
           data-testid="post-menu"
-          className="-mr-1 -mt-1 flex size-11 flex-none items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex size-11 flex-none items-center justify-center rounded-full text-muted-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={() => setMenuOpen(true)}
         >
           <MoreHorizontal size={20} />
@@ -164,7 +180,7 @@ function PostCardBase({ post, allowComments = true, compact = false }: { post: F
       </header>
 
       {pending && (
-        <div className="mt-3 flex items-start gap-2 rounded-md border border-[color:var(--warning)]/40 bg-[color-mix(in_oklch,var(--warning)_12%,var(--card))] p-3 text-sm" role="status" data-testid="pending-banner">
+        <div className="mx-3 mt-1 flex items-start gap-2 rounded-md border border-[color:var(--warning)]/40 bg-[color-mix(in_oklch,var(--warning)_12%,var(--card))] p-3 text-sm" role="status" data-testid="pending-banner">
           <Clock size={16} className="mt-0.5 flex-none text-[color:var(--warning)]" aria-hidden="true" />
           <div>
             <p className="font-semibold">Aguardando aprovação</p>
@@ -173,55 +189,98 @@ function PostCardBase({ post, allowComments = true, compact = false }: { post: F
         </div>
       )}
 
-      {compact ? (
-        <>
-          {post.media.length > 0 && (
-            <div className="relative mt-3">
-              <MediaGallery media={post.media.slice(0, 1)} />
-              {post.media.length > 1 && (
-                <Link
-                  to="/feed"
-                  className="absolute bottom-0 right-0 inline-flex min-h-11 min-w-11 items-center justify-center no-underline"
-                  aria-label={`Ver mais ${post.media.length - 1} ${post.media.length - 1 === 1 ? "foto" : "fotos"} no Grupo`}
-                  data-testid="post-more-photos"
-                >
-                  <span className="rounded-full bg-black/65 px-2.5 py-1 text-xs font-semibold text-white">+{post.media.length - 1}</span>
-                </Link>
-              )}
-            </div>
+      {/* Mídia de ponta a ponta (sem padding lateral, sem cantos). */}
+      {post.media.length > 0 && (
+        <div className="relative mt-2" data-testid="post-media">
+          <MediaGallery media={compact ? post.media.slice(0, 1) : post.media} />
+          {compact && post.media.length > 1 && (
+            <Link
+              to="/feed"
+              className="absolute bottom-0 right-0 inline-flex min-h-11 min-w-11 items-center justify-center no-underline"
+              aria-label={`Ver mais ${post.media.length - 1} ${post.media.length - 1 === 1 ? "foto" : "fotos"} no Grupo`}
+              data-testid="post-more-photos"
+            >
+              <span className="rounded-full bg-black/65 px-2.5 py-1 text-xs font-semibold text-white">+{post.media.length - 1}</span>
+            </Link>
           )}
-          {post.body && (
-            <div className="mt-3">
-              <RichText text={post.body} className="line-clamp-3 text-sm leading-relaxed" testId="post-body" />
-              {isLongBody(post.body) && (
-                <Link to="/feed" className="mt-1 inline-flex min-h-11 items-center text-sm font-semibold text-primary no-underline" data-testid="post-see-more">
-                  ver mais
-                </Link>
-              )}
-            </div>
-          )}
-        </>
-      ) : (
-        <>
-          {post.body && <RichText text={post.body} className="mt-3 text-sm leading-relaxed" testId="post-body" />}
-          {post.media.length > 0 && (
-            <div className="mt-3">
-              <MediaGallery media={post.media} />
-            </div>
-          )}
-        </>
+        </div>
       )}
 
       {!pending && (
-        <div className="mt-3">
-          <ReactionBar
-            post={post}
-            allowComments={allowComments}
-            onOpenComments={() => {
-              setCommentsMounted(true);
-              setCommentsOpen(true);
-            }}
+        <div className="mt-1">
+          <ReactionBar post={post} allowComments={allowComments} onOpenComments={openComments} />
+        </div>
+      )}
+
+      {post.body && (
+        <div className="px-3 pt-1">
+          <RichText
+            text={post.body}
+            className={cn("text-sm leading-snug", longCaption && !captionOpen && "line-clamp-3")}
+            testId="post-body"
+            prefix={
+              <>
+                <span className="font-bold" data-testid="post-caption-author">
+                  {shortAuthorName(post.author)}
+                </span>{" "}
+              </>
+            }
           />
+          {longCaption && !captionOpen && (compact ? (
+            <Link to="/feed" className="inline-flex min-h-11 items-center text-sm font-semibold text-muted-foreground no-underline" data-testid="post-see-more">
+              mais
+            </Link>
+          ) : (
+            <button
+              type="button"
+              className="inline-flex min-h-11 items-center text-sm font-semibold text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="post-see-more"
+              aria-expanded={false}
+              onClick={() => setCaptionOpen(true)}
+            >
+              mais
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!pending && allowComments && (
+        <div className="px-3" data-testid="post-comments-preview">
+          {hasMoreComments && (
+            <button
+              type="button"
+              className="flex min-h-11 items-center text-left text-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="comments-see-all"
+              onClick={openComments}
+            >
+              {post.commentsCount === 1 ? "Ver 1 comentário" : `Ver todos os ${post.commentsCount} comentários`}
+            </button>
+          )}
+          {recent.length > 0 && (
+            <ul className="grid gap-0.5" data-testid="recent-comments">
+              {recent.map((comment) => (
+                <li key={comment.id} data-testid="recent-comment" data-comment-id={comment.id}>
+                  <RichText
+                    text={comment.body}
+                    className="line-clamp-2 text-sm leading-snug"
+                    prefix={
+                      <>
+                        <span className="font-bold">{shortAuthorName(comment.author)}</span>{" "}
+                      </>
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+          )}
+          <button
+            type="button"
+            className="flex min-h-11 w-full items-center text-left text-sm text-muted-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid="add-comment-line"
+            onClick={openComments}
+          >
+            Adicionar comentário…
+          </button>
         </div>
       )}
 

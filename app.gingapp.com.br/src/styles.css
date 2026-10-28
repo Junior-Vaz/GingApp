@@ -810,6 +810,14 @@ button.hier-card:focus-visible,button.hier-card.is-selected { outline:2px solid 
 @keyframes pf-rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
 /* Stories: barra de progresso da foto atual (5 s). Com prefers-reduced-motion o visualizador nem usa esta animação. */
 @keyframes story-progress { from { transform:scaleX(0); } to { transform:scaleX(1); } }
+/* Faixa de stories da Home, colada no banner: 5 cartões de 20% da largura, cantos retos, SEM gap/margem/divisória entre
+   eles. --story-aspect = largura/altura do cartão (.78 = um pouco mais alto que largo; 1 = quadrado perfeito). */
+.stories-strip { --story-aspect:.78; }
+.story-tile { aspect-ratio:var(--story-aspect); }
+/* Faixa colada no banner: o arredondamento de cima é da faixa, o banner perde o dele. */
+.stories-attached + .welcome-banner { border-top-left-radius:0; border-top-right-radius:0; }
+/* Telas largas: 5 cartões de 20% da faixa ficariam gigantes; a altura é limitada e o cartão fica mais largo. */
+@media(min-width:768px) { .story-tile { aspect-ratio:auto; height:168px; } }
 .pf-hero,.pf-card,.pf-hl-item,.passport { animation:pf-rise .35s ease-out both; }
 .pf-hl-item:nth-child(2) { animation-delay:.04s; } .pf-hl-item:nth-child(3) { animation-delay:.08s; } .pf-hl-item:nth-child(4) { animation-delay:.12s; }
 @media(min-width:768px) {

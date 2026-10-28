@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,11 +26,13 @@ import {
   json,
   makeMedia,
   makePost,
+  makeRecentComment,
   makeSettings,
   mockFeedApi,
   mount,
   reactions,
   settle,
+  typeInto,
   until,
   type MockState,
 } from "./feed-fixtures";
@@ -127,6 +131,20 @@ describe("ordem das seções na Home", () => {
     expect(kids[at - 1]?.contains(storiesRow())).toBe(true);
     expect(kids[at + 1]?.contains(preview())).toBe(true);
     expect(kids[at + 2]).toBe(graduation);
+  });
+
+  it("a faixa de stories fica COLADA no banner: irmãos diretos, sem margem entre eles, e a faixa leva a marca que tira o canto de cima do banner", async () => {
+    const state = setupHome({ posts: [], groups: [storyGroup] });
+    await mountHome(state, () => storiesRow() !== null);
+    const banner = $("[data-testid=hero-carousel]")!;
+    const wrapper = banner.previousElementSibling!;
+    expect(wrapper.contains(storiesRow())).toBe(true);
+    expect(wrapper.className).toContain("stories-attached");
+    expect(wrapper.className.split(/\s+/).some((token) => /^(m|mt|mb|my)-/.test(token))).toBe(false);
+    expect(banner.className).toContain("welcome-banner");
+    // o CSS do conjunto está no styles.css: banner perde os cantos de cima só quando vem logo depois da faixa
+    const css = readFileSync(resolve(__dirname, "../styles.css"), "utf8");
+    expect(css).toMatch(/\.stories-attached\s*\+\s*\.welcome-banner\s*\{[^}]*border-top-left-radius:\s*0[^}]*border-top-right-radius:\s*0/);
   });
 
   it("o atalho antigo 'Grupo' foi substituído pela prévia", async () => {
@@ -262,25 +280,47 @@ describe("variante compacta do PostCard", () => {
     expect(card.querySelector("[data-testid=reaction-bar]")).not.toBeNull();
   });
 
-  it("texto longo é cortado em 3 linhas com 'ver mais' que abre o feed", async () => {
+  it("legenda longa é cortada em 3 linhas com 'mais' que abre o feed (na Home o 'mais' é um link)", async () => {
     const state = setupHome({ posts: [makePost({ id: 1, body: "Muito texto. ".repeat(30) }), makePost({ id: 2, body: "a\nb\nc\nd\ne" })] });
     await mountHome(state);
     await until(() => cards().length === 2, "posts");
     for (const card of cards()) {
       expect(card.querySelector("[data-testid=post-body]")?.className).toContain("line-clamp-3");
       expect(card.querySelector("[data-testid=post-see-more]")?.getAttribute("href")).toBe("/feed");
+      expect(card.querySelector("[data-testid=post-see-more]")?.textContent).toBe("mais");
     }
   });
 
-  it("o PostCard normal (feed) continua igual: sem compacto, sem 'ver mais'", async () => {
+  it("o PostCard normal (feed) mostra todas as fotos; a legenda longa corta em 3 linhas e o 'mais' expande ali mesmo (sem link)", async () => {
     const { PostCard } = await import("@/components/gingapp/feed/post-card");
     mockFeedApi();
     await mount(<PostCard post={makePost({ id: 1, body: "x".repeat(400), media: [makeMedia(11), makeMedia(12)] })} />);
     const card = $("[data-testid=post-card]")!;
     expect(card.getAttribute("data-compact")).toBeNull();
+    expect(card.querySelector("[data-testid=post-see-more]")?.tagName).toBe("BUTTON");
+    expect(card.querySelector("[data-testid=post-body]")?.className).toContain("line-clamp-3");
+    click(card.querySelector("[data-testid=post-see-more]"));
+    await settle();
     expect(card.querySelector("[data-testid=post-see-more]")).toBeNull();
     expect(card.querySelector("[data-testid=post-body]")?.className).not.toContain("line-clamp");
     expect(card.querySelectorAll("img").length).toBe(2);
+  });
+
+  it("estilo Instagram na Home: posts sem container, a lista sangra até a borda (margem negativa) e o título mantém o padding", async () => {
+    const state = setupHome({ posts: [makePost({ id: 1, body: "oi", commentsCount: 4, recentComments: [makeRecentComment({ id: 1 }), makeRecentComment({ id: 2, body: "Segundo" })] })] });
+    await mountHome(state);
+    await until(() => cards().length === 1, "post");
+    const list = $("[data-testid=home-feed-list]")!;
+    expect(list.className).toContain("max-md:-mx-[18px]");
+    expect(list.className).not.toMatch(/\bgap-/);
+    const section = $("[data-testid=home-feed-preview]")!;
+    expect(section.className).not.toContain("-mx-");
+    expect(section.querySelector("h2")?.parentElement?.className).not.toContain("-mx-");
+    const tokens = cards()[0]!.className.split(/\s+/);
+    expect(tokens.some((token) => /^(bg-|shadow|rounded)/.test(token))).toBe(false);
+    // "Ver todos os 4 comentários" (4 > 2 recentes) e os 2 recentes aparecem na prévia
+    expect(cards()[0]!.querySelector("[data-testid=comments-see-all]")?.textContent).toBe("Ver todos os 4 comentários");
+    expect(cards()[0]!.querySelectorAll("[data-testid=recent-comment]")).toHaveLength(2);
   });
 
   it("post meu pendente aparece com o aviso e sem barra de reações", async () => {
@@ -323,6 +363,21 @@ describe("interações na prévia", () => {
     await until(() => cards().length === 1, "post");
     click(cards()[0]!.querySelector("[data-testid=open-comments]"));
     await until(() => callsOf(state, "GET", /^\/feed\/posts\/1\/comments$/).length === 1, "comentários pedidos");
+  });
+
+  it("comentar pela prévia: o comentário novo vira o último dos recentes e a contagem sobe (cache da prévia)", async () => {
+    const state = setupHome({ posts: [makePost({ id: 1, commentsCount: 1, recentComments: [makeRecentComment({ id: 50, body: "Antigo" })] })] });
+    await mount(<HomePage />);
+    await until(() => cards().length === 1, "post");
+    click(cards()[0]!.querySelector("[data-testid=add-comment-line]"));
+    await until(() => $("#comment-field-1") !== null, "campo de comentário");
+    typeInto($("#comment-field-1") as HTMLTextAreaElement, "Da Home");
+    click($("[data-testid=comment-send]"));
+    await until(() => callsOf(state, "POST", /^\/feed\/posts\/1\/comments$/).length === 1, "POST");
+    await until(() => cards()[0]!.querySelectorAll("[data-testid=recent-comment]").length === 2, "recentes atualizados");
+    const ids = [...cards()[0]!.querySelectorAll("[data-testid=recent-comment]")].map((node) => node.getAttribute("data-comment-id"));
+    expect(ids).toEqual(["50", "900"]);
+    expect(cards()[0]!.querySelector("[data-testid=comments-count]")?.textContent).toBe("2");
   });
 
   it("apagar meu post pela prévia: remove da tela e a prévia é recarregada (volta a ter 3)", async () => {

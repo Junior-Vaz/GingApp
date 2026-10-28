@@ -109,6 +109,9 @@ export const REAL_POST_PENDING: FeedPost = {
   edited: false,
   reactions: NO_REACTIONS,
   commentsCount: 0,
+  // `recentComments` entrou no contrato de 2026-10-28 (cartão estilo Instagram): do CONTRATO, não de uma captura do backend
+  // (que estava sendo ajustado em paralelo). Post sem comentário = `[]`; o campo pode faltar num backend antigo (app trata como `[]`).
+  recentComments: [],
   // Conferido em 2026-10-28: o pendente do autor volta com `canEdit:false` (em 2026-10-21 vinha `true`; o PATCH sempre foi 409).
   canEdit: false,
   canDelete: true,
@@ -122,6 +125,12 @@ export const REAL_POST_PUBLISHED: FeedPost = {
   body: "Aviso do Mestre",
   media: [],
   status: "PUBLISHED",
+  commentsCount: 3,
+  // Forma do contrato: até 2 comentários de 1º nível, em ordem cronológica (o último é o mais novo); `parentId` sempre null.
+  recentComments: [
+    { id: 410, parentId: null, author: { userId: 2426, name: "Rafael Oliveira", nickname: null, photo: null, roleLabel: null }, body: "Axé, Mestre!", createdAt: "2026-10-21T05:10:00.000Z" },
+    { id: 411, parentId: null, author: null, body: "Salve!", createdAt: "2026-10-21T05:12:00.000Z" },
+  ],
   canEdit: true,
   canModerate: true,
 };
@@ -155,6 +164,7 @@ export const REAL_STORY_POST: FeedPost = {
   edited: false,
   reactions: NO_REACTIONS,
   commentsCount: 0,
+  recentComments: [],
   canEdit: false,
   canDelete: true,
   canModerate: false,

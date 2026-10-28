@@ -23,6 +23,7 @@ export const FEED_MAX_PHOTOS = 6;
 export const COMMENT_MAX = 500;
 export const REPORT_NOTE_MAX = 300;
 export const COMMENTS_PAGE_SIZE = 20;
+export const RECENT_COMMENTS_MAX = 2;
 
 export type ReactionType = "AXE" | "SALVE" | "GINGA" | "PARABENS" | "CORACAO";
 
@@ -85,9 +86,23 @@ export interface FeedPost {
   edited: boolean;
   reactions: ReactionSummary;
   commentsCount: number;
+  /**
+   * Até 2 comentários de 1º nível mais recentes, em ordem cronológica (o último é o mais novo), para o cartão estilo
+   * Instagram. AUSENTE no backend antigo: quem lê trata como `[]` (`recentCommentsOf`). `commentsCount` continua valendo.
+   */
+  recentComments?: FeedRecentComment[];
   canEdit: boolean;
   canDelete: boolean;
   canModerate: boolean;
+}
+
+/** Comentário resumido embutido no post (`FeedPost.recentComments`): igual ao `FeedComment`, sem `canDelete`. */
+export interface FeedRecentComment {
+  id: number;
+  parentId: null;
+  author: FeedAuthor | null;
+  body: string;
+  createdAt: string;
 }
 
 export interface FeedPage {
@@ -264,6 +279,27 @@ export function applyReaction(summary: ReactionSummary, type: ReactionType | nul
 export function authorLabel(author: FeedAuthor | null): string {
   if (!author) return "Ex-integrante";
   return author.nickname && author.nickname !== author.name ? `${author.name} (${author.nickname})` : author.name;
+}
+
+/** Nome curto (apelido, senão o nome) para "nome + legenda" e para os comentários recentes. */
+export function shortAuthorName(author: FeedAuthor | null): string {
+  if (!author) return "Ex-integrante";
+  return author.nickname?.trim() || author.name;
+}
+
+/** Comentários recentes do post; campo ausente (backend antigo) ou inválido = `[]`. No máximo 2, nunca respostas. */
+export function recentCommentsOf(post: FeedPost | { recentComments?: FeedRecentComment[] | undefined; [key: string]: unknown }): FeedRecentComment[] {
+  const list = post.recentComments;
+  if (!Array.isArray(list)) return [];
+  return list.filter((comment) => comment && typeof comment.id === "number" && comment.parentId == null).slice(-RECENT_COMMENTS_MAX);
+}
+
+/** Acrescenta um comentário novo ao FIM dos recentes (mantém só os 2 últimos). Resposta (parentId) não entra. */
+export function appendRecentComment(post: FeedPost, comment: Pick<FeedComment, "id" | "parentId" | "author" | "body" | "createdAt">): FeedRecentComment[] {
+  const current = recentCommentsOf(post);
+  if (comment.parentId !== null) return current;
+  const next: FeedRecentComment = { id: comment.id, parentId: null, author: comment.author, body: comment.body, createdAt: comment.createdAt };
+  return [...current.filter((item) => item.id !== comment.id), next].slice(-RECENT_COMMENTS_MAX);
 }
 
 /* ---------- Cache helpers ---------- */
@@ -519,8 +555,14 @@ export function useAddComment(postId: number) {
   return useMutation({
     mutationFn: (input: { body: string; parentId?: number }) =>
       api.post<FeedComment>(`/feed/posts/${postId}/comments`, input),
-    onSuccess: async () => {
-      patchPostInCache(queryClient, postId, (post) => ({ ...post, commentsCount: post.commentsCount + 1 }));
+    onSuccess: async (created) => {
+      // O comentário novo passa a ser o ÚLTIMO dos recentes do post (lista e prévia da Home); respostas só contam no total.
+      const valid = created && typeof created === "object" && typeof created.id === "number";
+      patchPostInCache(queryClient, postId, (post) => ({
+        ...post,
+        commentsCount: post.commentsCount + 1,
+        ...(valid ? { recentComments: appendRecentComment(post, created) } : {}),
+      }));
       await queryClient.invalidateQueries({ queryKey: feedKeys.comments(postId) });
     },
   });
@@ -532,8 +574,15 @@ export function useDeleteComment(postId: number) {
   return useMutation({
     mutationFn: ({ commentId }: { commentId: number; removedCount: number }) =>
       api.delete<void>(`/feed/comments/${commentId}`),
-    onSuccess: async (_data, { removedCount }) => {
-      patchPostInCache(queryClient, postId, (post) => ({ ...post, commentsCount: Math.max(0, post.commentsCount - removedCount) }));
+    onSuccess: async (_data, { commentId, removedCount }) => {
+      patchPostInCache(queryClient, postId, (post) => ({
+        ...post,
+        commentsCount: Math.max(0, post.commentsCount - removedCount),
+        ...(post.recentComments ? { recentComments: recentCommentsOf(post).filter((item) => item.id !== commentId) } : {}),
+      }));
+      // Os recentes podem ter ficado com menos de 2: a prévia (pequena) busca de novo; a lista só fica marcada como velha.
+      void queryClient.invalidateQueries({ queryKey: feedKeys.preview });
+      void queryClient.invalidateQueries({ queryKey: feedKeys.list, refetchType: "none" });
       await queryClient.invalidateQueries({ queryKey: feedKeys.comments(postId) });
     },
   });

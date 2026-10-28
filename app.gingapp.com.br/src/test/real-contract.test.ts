@@ -2,7 +2,7 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api";
 import { communicationIdOf, notificationRequiresAck } from "@/lib/communications";
-import { applyReaction, feedErrorMessage, feedKeys, feedMediaSrc } from "@/lib/feed";
+import { applyReaction, feedErrorMessage, feedKeys, feedMediaSrc, recentCommentsOf } from "@/lib/feed";
 import { allPending, firstUnseenIndex, markStorySeenInCache, orderStoryGroups, removeStoryFromCache, storyGroupKey, type StoriesResponse } from "@/lib/stories";
 import {
   REAL_COMMENTS,
@@ -76,6 +76,16 @@ describe("contrato real: Feed", () => {
     expect(REAL_COMMENTS.map((c) => c.id)).toEqual([61, 62, 63]);
     expect(REAL_COMMENTS[1]?.parentId).toBe(61);
     expect(REAL_COMMENTS[1]?.canDelete).toBe(false);
+  });
+
+  it("recentComments (contrato 2026-10-28): até 2, cronológicos, parentId null; o app lê o campo ausente como []", () => {
+    expect(REAL_POST_PUBLISHED.recentComments).toHaveLength(2);
+    expect(REAL_POST_PUBLISHED.recentComments?.every((c) => c.parentId === null)).toBe(true);
+    expect(recentCommentsOf(REAL_POST_PUBLISHED).map((c) => c.id)).toEqual([410, 411]);
+    expect(recentCommentsOf(REAL_POST_PENDING)).toEqual([]);
+    const { recentComments: _omitted, ...legacy } = REAL_POST_PUBLISHED; // backend antigo: sem o campo
+    void _omitted;
+    expect(recentCommentsOf(legacy)).toEqual([]);
   });
 
   it("aniversário: o próprio usuário aparece na semana sem poder se parabenizar", () => {

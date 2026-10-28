@@ -5,7 +5,7 @@ const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn(), info: vi
 vi.mock("sonner", () => ({ toast: toastMock }));
 
 import { FeedPage } from "@/components/gingapp/feed/feed-page";
-import { applyReaction, authorLabel, feedMediaSrc, linkify } from "@/lib/feed";
+import { appendRecentComment, applyReaction, authorLabel, feedMediaSrc, linkify, recentCommentsOf, shortAuthorName } from "@/lib/feed";
 import {
   $,
   $$,
@@ -18,6 +18,7 @@ import {
   makeComment,
   makeMedia,
   makePost,
+  makeRecentComment,
   makeSettings,
   mockFeedApi,
   mount,
@@ -201,7 +202,9 @@ describe("cartão do post", () => {
     expect(card.querySelector("[data-testid=post-pinned]")?.textContent).toContain("Fixado");
     expect(card.querySelector("[data-testid=post-edited]")?.textContent).toBe("editado");
     const body = card.querySelector("[data-testid=post-body]") as HTMLElement;
-    expect(body.textContent).toBe("linha 1\nlinha 2");
+    // estilo Instagram: "nome (apelido) + legenda" na mesma linha de texto
+    expect(body.textContent).toBe("Aninha linha 1\nlinha 2");
+    expect(card.querySelector("[data-testid=post-caption-author]")?.textContent).toBe("Aninha");
     expect(body.className).toContain("whitespace-pre-wrap");
   });
 
@@ -244,6 +247,8 @@ describe("cartão do post", () => {
     const card = cards()[0]!;
     expect(card.getAttribute("data-status")).toBe("PENDING_APPROVAL");
     expect(card.className).toContain("opacity-75");
+    // sem container: o selo/estado pendente continua, mas não há "Adicionar comentário" nem "Ver todos"
+    expect(card.querySelector("[data-testid=post-comments-preview]")).toBeNull();
     expect(card.querySelector("[data-testid=pending-banner]")?.textContent).toContain("Aguardando aprovação");
     expect(card.querySelector("[data-testid=pending-banner]")?.textContent).toContain("Seu post será publicado depois que um professor aprovar.");
     expect(card.querySelector("[data-testid=reaction-bar]")).toBeNull();
@@ -266,6 +271,8 @@ describe("cartão do post", () => {
     await mount(<FeedPage />);
     await until(() => cards().length === 1, "post");
     expect($("[data-testid=open-comments]")).toBeNull();
+    expect($("[data-testid=add-comment-line]")).toBeNull();
+    expect($("[data-testid=comments-see-all]")).toBeNull();
     expect($("[data-testid=react-main]")).not.toBeNull();
   });
 });
@@ -646,6 +653,239 @@ describe("menu do post: denunciar, apagar e editar", () => {
     await until(() => callsOf(state, "PATCH", /posts\/8$/).length === 1, "PATCH");
     expect(callsOf(state, "PATCH", /posts\/8$/)[0]?.body).toEqual({ body: "texto novo" });
     await until(() => $("[data-testid=post-edited]") !== null, "marcado editado");
-    expect($("[data-testid=post-body]")?.textContent).toBe("texto novo");
+    expect($("[data-testid=post-body]")?.textContent).toBe("Aninha texto novo");
+  });
+});
+
+describe("post estilo Instagram", () => {
+  const classesOf = (element: Element | null) => (element?.className ?? "").toString().split(/\s+/).filter(Boolean);
+  const recentOf = (card: Element) => [...card.querySelectorAll("[data-testid=recent-comment]")];
+  const mountPost = async (post = makePost({ id: 4 }), settings = makeSettings()) => {
+    const state = mockFeedApi({ settings, pages: { "": { items: [post], nextCursor: null } } });
+    await mount(<FeedPage />);
+    await until(() => cards().length === 1, "post");
+    return state;
+  };
+
+  it("funções puras: recentCommentsOf (campo ausente, lixo, mais de 2, resposta) e appendRecentComment (o novo vira o último)", () => {
+    expect(recentCommentsOf({})).toEqual([]);
+    expect(recentCommentsOf({ recentComments: undefined })).toEqual([]);
+    expect(recentCommentsOf({ recentComments: null as never })).toEqual([]);
+    const a = makeRecentComment({ id: 1 });
+    const b = makeRecentComment({ id: 2 });
+    const c = makeRecentComment({ id: 3 });
+    expect(recentCommentsOf({ recentComments: [a, b, c] }).map((x) => x.id)).toEqual([2, 3]);
+    const post = makePost({ recentComments: [a, b] });
+    const novo = makeComment({ id: 9, body: "novo" });
+    expect(appendRecentComment(post, novo).map((x) => x.id)).toEqual([2, 9]);
+    expect(appendRecentComment(makePost(), novo).map((x) => x.id)).toEqual([9]);
+    // resposta (parentId) só conta no total: não entra nos recentes
+    expect(appendRecentComment(post, makeComment({ id: 10, parentId: 1 })).map((x) => x.id)).toEqual([1, 2]);
+    expect(shortAuthorName(null)).toBe("Ex-integrante");
+    expect(shortAuthorName({ userId: 1, name: "Ana Souza", nickname: " Aninha ", photo: null, roleLabel: null })).toBe("Aninha");
+    expect(shortAuthorName({ userId: 1, name: "Ana Souza", nickname: null, photo: null, roleLabel: null })).toBe("Ana Souza");
+  });
+
+  it("SEM container: nada de fundo, borda lateral, sombra, padding ou cantos no cartão; só o filete de baixo", async () => {
+    await mountPost();
+    const tokens = classesOf(cards()[0]!);
+    expect(tokens.some((token) => /^(bg-|shadow|rounded|p-|px-|mx-|border$|border-[^b]|border-b-)/.test(token))).toBe(false);
+    expect(tokens).toContain("border-b");
+  });
+
+  it("a lista sangra até a borda no celular (margem negativa = padding lateral da página) e sem espaço entre posts", async () => {
+    await mountPost();
+    const list = classesOf($("[data-testid=feed-list]"));
+    expect(list).toContain("max-md:-mx-[18px]");
+    expect(list.some((token) => token.startsWith("gap-"))).toBe(false);
+  });
+
+  it("foto única de ponta a ponta: sem cantos, sem padding lateral, altura máxima 75vh e proporção do contrato", async () => {
+    await mountPost(makePost({ id: 4, media: [makeMedia(1, 1600, 1200)] }));
+    const wrapper = $("[data-testid=post-media]")!;
+    expect(classesOf(wrapper).some((token) => /^(p|px|pl|pr|m|mx|ml|mr)-/.test(token))).toBe(false);
+    const gallery = $("[data-testid=media-gallery]") as HTMLElement;
+    const tokens = classesOf(gallery);
+    expect(tokens).toContain("w-full");
+    expect(tokens).toContain("max-h-[75vh]");
+    expect(tokens.some((token) => token.startsWith("rounded"))).toBe(false);
+    expect(Number(gallery.style.aspectRatio)).toBeCloseTo(4 / 3, 5);
+    expect($("[data-testid=media-gallery] img")?.getAttribute("width")).toBe("1600");
+  });
+
+  it("3 fotos: grade de ponta a ponta, sem cantos", async () => {
+    await mountPost(makePost({ id: 4, media: [makeMedia(1), makeMedia(2), makeMedia(3)] }));
+    const gallery = $("[data-testid=media-gallery]")!;
+    expect(classesOf(gallery).some((token) => token.startsWith("rounded"))).toBe(false);
+    expect(gallery.querySelectorAll("img")).toHaveLength(3);
+  });
+
+  it("cabeçalho com avatar pequeno + nome em negrito + tempo + menu; só o texto tem respiro lateral (12 px)", async () => {
+    await mountPost();
+    const card = cards()[0]!;
+    const header = card.querySelector("header")!;
+    expect(classesOf(header)).toContain("pl-3");
+    expect(card.querySelector("[data-testid=post-author]")?.className).toContain("font-bold");
+    expect(card.querySelector("[data-testid=avatar]")).not.toBeNull();
+    expect(card.querySelector("time")?.textContent).toBe("há 5 minutos");
+    expect(card.querySelector("[data-testid=post-menu]")?.className).toContain("size-11");
+  });
+
+  it("'nome + legenda': o nome em negrito vem ANTES do texto, na mesma linha", async () => {
+    await mountPost(makePost({ id: 4, body: "Roda linda hoje" }));
+    const body = $("[data-testid=post-body]")!;
+    const name = body.querySelector("[data-testid=post-caption-author]")!;
+    expect(name.textContent).toBe("Aninha");
+    expect(name.className).toContain("font-bold");
+    expect(body.firstElementChild).toBe(name);
+    expect(body.textContent).toBe("Aninha Roda linda hoje");
+  });
+
+  it("texto longo: corta em 3 linhas com 'mais' que expande ali mesmo; texto curto não tem 'mais'", async () => {
+    await mountPost(makePost({ id: 4, body: "Muito texto. ".repeat(30) }));
+    const body = () => $("[data-testid=post-body]")!;
+    expect(body().className).toContain("line-clamp-3");
+    click($("[data-testid=post-see-more]"));
+    await settle();
+    expect(body().className).not.toContain("line-clamp");
+    expect($("[data-testid=post-see-more]")).toBeNull();
+    cleanup();
+    await mountPost(makePost({ id: 5, body: "Curto" }));
+    expect($("[data-testid=post-see-more]")).toBeNull();
+    expect($("[data-testid=post-body]")?.className).not.toContain("line-clamp");
+  });
+
+  it("2 comentários recentes: nome em negrito + texto, até 2 linhas cada, em ordem cronológica", async () => {
+    await mountPost(
+      makePost({
+        id: 4,
+        commentsCount: 2,
+        recentComments: [
+          makeRecentComment({ id: 1, body: "Primeiro" }),
+          makeRecentComment({ id: 2, body: "Segundo ".repeat(40), author: { userId: 12, name: "Carla Dias", nickname: "Cacá", photo: null, roleLabel: null } }),
+        ],
+      }),
+    );
+    const items = recentOf(cards()[0]!);
+    expect(items).toHaveLength(2);
+    expect(items[0]?.textContent).toBe("Bruno Lima Primeiro");
+    expect(items[0]?.querySelector("span.font-bold")?.textContent).toBe("Bruno Lima");
+    expect(items[1]?.querySelector("span.font-bold")?.textContent).toBe("Cacá");
+    expect(items[1]?.querySelector("p")?.className).toContain("line-clamp-2");
+    // 2 comentários no total e 2 recentes: não há "Ver todos"
+    expect($("[data-testid=comments-see-all]")).toBeNull();
+    expect($("[data-testid=add-comment-line]")?.textContent).toBe("Adicionar comentário…");
+  });
+
+  it("'Ver todos os N comentários' só aparece quando N > comentários recentes trazidos", async () => {
+    const recent2 = [makeRecentComment({ id: 1 }), makeRecentComment({ id: 2 })];
+    const cases: { count: number; recent: ReturnType<typeof makeRecentComment>[] | undefined; label: string | null }[] = [
+      { count: 0, recent: [], label: null },
+      { count: 1, recent: recent2.slice(0, 1), label: null },
+      { count: 2, recent: recent2, label: null },
+      { count: 5, recent: recent2, label: "Ver todos os 5 comentários" },
+      { count: 3, recent: recent2.slice(0, 1), label: "Ver todos os 3 comentários" },
+      { count: 2, recent: undefined, label: "Ver todos os 2 comentários" }, // backend antigo: sem o campo
+      { count: 1, recent: undefined, label: "Ver 1 comentário" },
+    ];
+    for (const item of cases) {
+      await mountPost(makePost({ id: 4, commentsCount: item.count, ...(item.recent ? { recentComments: item.recent } : {}) }));
+      expect($("[data-testid=comments-see-all]")?.textContent ?? null, `${item.count} comentários / ${item.recent?.length ?? "campo ausente"} recentes`).toBe(item.label);
+      cleanup();
+    }
+  });
+
+  it("campo recentComments AUSENTE (backend antigo): não quebra, sem lista de recentes, e o resto do cartão funciona", async () => {
+    await mountPost(makePost({ id: 4, commentsCount: 0 }));
+    expect(cards()[0]!.hasAttribute("data-post-id")).toBe(true);
+    expect($("[data-testid=recent-comments]")).toBeNull();
+    expect($("[data-testid=react-main]")).not.toBeNull();
+    expect($("[data-testid=add-comment-line]")).not.toBeNull();
+  });
+
+  it("'Ver todos' e 'Adicionar comentário…' abrem a folha de comentários existente", async () => {
+    const state = await mountPost(makePost({ id: 4, commentsCount: 5, recentComments: [makeRecentComment({ id: 1 }), makeRecentComment({ id: 2 })] }));
+    click($("[data-testid=comments-see-all]"));
+    await until(() => callsOf(state, "GET", /posts\/4\/comments$/).length === 1, "folha aberta");
+    expect($("[data-testid=comments-sheet]")).not.toBeNull();
+    cleanup();
+    const state2 = await mountPost(makePost({ id: 4 }));
+    click($("[data-testid=add-comment-line]"));
+    await until(() => callsOf(state2, "GET", /posts\/4\/comments$/).length === 1, "folha aberta pela linha fraca");
+    expect($("[data-testid=comments-sheet]")).not.toBeNull();
+  });
+
+  it("comentar pela folha: a lista e a contagem do cartão atualizam e o novo comentário vira o ÚLTIMO dos recentes", async () => {
+    const state = mockFeedApi({
+      pages: {
+        "": {
+          items: [
+            makePost({ id: 4, commentsCount: 2, recentComments: [makeRecentComment({ id: 100, body: "Primeiro!" }), makeRecentComment({ id: 101, body: "Segundo" })] }),
+          ],
+          nextCursor: null,
+        },
+      },
+      comments: { 4: { "": { items: [makeComment({ id: 100, body: "Primeiro!" }), makeComment({ id: 101, body: "Segundo" })], nextCursor: null } } },
+    });
+    await mount(<FeedPage />);
+    await until(() => cards().length === 1, "post");
+    expect(recentOf(cards()[0]!).map((node) => node.getAttribute("data-comment-id"))).toEqual(["100", "101"]);
+    click($("[data-testid=open-comments]"));
+    await until(() => $$("[data-testid=comment]").length === 2, "comentários");
+    typeInto($("#comment-field-4") as HTMLTextAreaElement, "Que treino!");
+    click(buttonByLabel("Enviar comentário"));
+    await until(() => callsOf(state, "POST", /comments$/).length === 1, "POST");
+    await until(() => $$("[data-testid=comment]").length === 3, "novo comentário na folha");
+    const card = cards()[0]!;
+    expect(card.querySelector("[data-testid=comments-count]")?.textContent).toBe("3");
+    expect(recentOf(card).map((node) => node.getAttribute("data-comment-id"))).toEqual(["101", "900"]);
+    expect(recentOf(card)[1]?.textContent).toContain("Que treino!");
+    expect(card.querySelector("[data-testid=comments-see-all]")?.textContent).toBe("Ver todos os 3 comentários");
+  });
+
+  it("apagar um comentário: sai dos recentes e a contagem desce", async () => {
+    const state = mockFeedApi({
+      pages: {
+        "": {
+          items: [makePost({ id: 4, commentsCount: 2, recentComments: [makeRecentComment({ id: 100, body: "Meu" }), makeRecentComment({ id: 101, body: "Do outro" })] })],
+          nextCursor: null,
+        },
+      },
+      comments: { 4: { "": { items: [makeComment({ id: 100, body: "Meu", canDelete: true }), makeComment({ id: 101, body: "Do outro" })], nextCursor: null } } },
+    });
+    await mount(<FeedPage />);
+    await until(() => cards().length === 1, "post");
+    click($("[data-testid=open-comments]"));
+    await until(() => $$("[data-testid=comment]").length === 2, "comentários");
+    click([...$("[data-comment-id='100'][data-testid=comment]")!.querySelectorAll("button")].find((b) => b.textContent === "Apagar"));
+    await settle();
+    state.comments[4] = { "": { items: [makeComment({ id: 101, body: "Do outro" })], nextCursor: null } };
+    click([...document.body.querySelectorAll("[role=alertdialog] button")].find((b) => b.textContent === "Apagar"));
+    await until(() => callsOf(state, "DELETE", /comments\/100$/).length === 1, "DELETE");
+    await until(() => recentOf(cards()[0]!).length === 1, "recente removido");
+    expect(recentOf(cards()[0]!)[0]?.getAttribute("data-comment-id")).toBe("101");
+    expect(cards()[0]!.querySelector("[data-testid=comments-count]")?.textContent).toBe("1");
+    expect(cards()[0]!.querySelector("[data-testid=comments-see-all]")).toBeNull();
+  });
+
+  it("comentários desligados: sem recentes, sem 'Ver todos' e sem 'Adicionar comentário…'", async () => {
+    await mountPost(makePost({ id: 4, commentsCount: 5, recentComments: [makeRecentComment({ id: 1 })] }), makeSettings({ allowComments: false }));
+    expect($("[data-testid=post-comments-preview]")).toBeNull();
+  });
+
+  it("post pendente: visual sem card, selo 'Aguardando aprovação' mantido, sem ações nem comentários", async () => {
+    await mountPost(makePost({ id: 4, status: "PENDING_APPROVAL", canDelete: true, body: "Aguarde" }));
+    const card = cards()[0]!;
+    expect(classesOf(card).some((token) => /^(bg-|shadow|rounded)/.test(token))).toBe(false);
+    expect(card.querySelector("[data-testid=pending-banner]")?.textContent).toContain("Aguardando aprovação");
+    expect(card.querySelector("[data-testid=reaction-bar]")).toBeNull();
+    expect(card.querySelector("[data-testid=post-body]")?.textContent).toBe("Aninha Aguarde");
+  });
+
+  it("fixado e editado continuam no cabeçalho", async () => {
+    await mountPost(makePost({ id: 4, pinned: true, edited: true }));
+    const header = cards()[0]!.querySelector("header")!;
+    expect(header.querySelector("[data-testid=post-pinned]")?.textContent).toContain("Fixado");
+    expect(header.querySelector("[data-testid=post-edited]")?.textContent).toBe("editado");
   });
 });

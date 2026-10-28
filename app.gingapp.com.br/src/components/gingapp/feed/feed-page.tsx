@@ -16,19 +16,18 @@ const PULL_MAX = 84;
 
 function FeedSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-3" aria-busy="true" aria-label="Carregando publicações" data-testid="feed-loading">
+    <div className="grid grid-cols-1 border-t border-border max-md:-mx-[18px]" aria-busy="true" aria-label="Carregando publicações" data-testid="feed-loading">
       {[0, 1, 2].map((key) => (
-        <div key={key} className="rounded-lg border border-border bg-card p-3">
-          <div className="flex items-center gap-3">
-            <Skeleton className="size-10 rounded-full" />
+        <div key={key} className="border-b border-border pb-3 pt-3">
+          <div className="flex items-center gap-2.5 px-3">
+            <Skeleton className="size-8 rounded-full" />
             <div className="grid flex-1 gap-2">
               <Skeleton className="h-3 w-1/2" />
               <Skeleton className="h-3 w-1/4" />
             </div>
           </div>
-          <Skeleton className="mt-3 h-3 w-full" />
-          <Skeleton className="mt-2 h-3 w-4/5" />
-          <Skeleton className="mt-3 aspect-[4/3] w-full" />
+          <Skeleton className="mt-3 aspect-[4/3] w-full rounded-none" />
+          <Skeleton className="mx-3 mt-3 h-3 w-4/5" />
         </div>
       ))}
     </div>
@@ -186,7 +185,8 @@ export function FeedPage() {
                     Não foi possível atualizar agora. Mostrando o que já estava carregado.
                   </p>
                 )}
-                <div className="grid grid-cols-1 gap-4" data-testid="feed-list">
+                {/* Estilo Instagram: posts sem container e sangrando até a borda da tela no celular (margem negativa = padding lateral da página). */}
+                <div className="grid grid-cols-1 border-t border-border max-md:-mx-[18px]" data-testid="feed-list">
                   {items.map((post) => (
                     <PostCard key={post.id} post={post} allowComments={data.allowComments} />
                   ))}

@@ -260,8 +260,9 @@ describe('Stories do feed (e2e)', () => {
     assert.equal(res.body, `<b>oi</b> ${SECRET}`, 'legenda como texto puro (HTML literal), numa linha, espacos normalizados');
     assert.deepEqual(Object.keys(res).sort(), [
       'author', 'body', 'canDelete', 'canEdit', 'canModerate', 'classId', 'commentsCount', 'createdAt', 'edited', 'expiresAt', 'id', 'kind', 'media', 'pinned',
-      'reactions', 'status', 'type', 'unitId', 'visibility',
+      'reactions', 'recentComments', 'status', 'type', 'unitId', 'visibility',
     ]);
+    assert.deepEqual(res.recentComments, [], 'story nao tem comentarios');
     assert.equal(res.kind, 'STORY');
     assert.equal(res.type, 'POST');
     assert.equal(res.status, 'PUBLISHED', 'equipe publica direto');

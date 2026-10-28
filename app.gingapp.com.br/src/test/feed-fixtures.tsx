@@ -8,6 +8,7 @@ import type {
   FeedComment,
   FeedPage,
   FeedPost,
+  FeedRecentComment,
   FeedSettings,
   ReactionSummary,
   ReactionType,
@@ -71,7 +72,19 @@ export function makeComment(over: Partial<FeedComment> = {}): FeedComment {
   };
 }
 
-export const makeSettings = (over: Partial<FeedSettings> = {}): FeedSettings => ({
+/** Comentário resumido de `FeedPost.recentComments` (contrato: parentId sempre null, sem canDelete). */
+export function makeRecentComment(over: Partial<FeedRecentComment> = {}): FeedRecentComment {
+  return {
+    id: 100,
+    parentId: null,
+    author: { userId: 11, name: "Bruno Lima", nickname: null, photo: null, roleLabel: null },
+    body: "Axé!",
+    createdAt: new Date(Date.now() - 2 * 60_000).toISOString(),
+    ...over,
+  };
+}
+
+export const makeSettings =(over: Partial<FeedSettings> = {}): FeedSettings => ({
   enabled: true,
   postingMode: "MODERATED",
   canPost: true,

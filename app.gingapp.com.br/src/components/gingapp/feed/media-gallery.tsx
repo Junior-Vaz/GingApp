@@ -112,7 +112,11 @@ function PhotoViewer({ media, index, onIndex, onClose }: { media: FeedMedia[]; i
   );
 }
 
-/** Galeria do post: 1 foto grande; 2-6 em grade. Toque abre o visualizador. A proporção é reservada (sem salto de layout). */
+/**
+ * Galeria do post, estilo Instagram: SEM cantos arredondados e em largura total (quem usa a põe sangrando até a borda);
+ * 1 foto grande (altura máxima 75vh, o excesso é cortado com object-cover); 2-6 em grade. Toque abre o visualizador.
+ * A proporção é reservada (sem salto de layout).
+ */
 export function MediaGallery({ media }: { media: FeedMedia[] }) {
   const [viewer, setViewer] = useState<number | null>(null);
   // Quando a lista é recarregada (URLs novas) o visualizador aberto acompanha; se a foto sumiu, fecha.
@@ -131,7 +135,7 @@ export function MediaGallery({ media }: { media: FeedMedia[] }) {
           data-testid="media-gallery"
           aria-label="Abrir foto"
           onClick={() => setViewer(0)}
-          className="block w-full overflow-hidden rounded-lg bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="block max-h-[75vh] w-full overflow-hidden bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           style={{ aspectRatio: String(clampRatio(single)) }}
         >
           <Photo media={single} src={single.url} className="h-full w-full object-cover" />
@@ -139,7 +143,7 @@ export function MediaGallery({ media }: { media: FeedMedia[] }) {
       ) : (
         <div
           data-testid="media-gallery"
-          className={cn("grid gap-1 overflow-hidden rounded-lg", media.length >= 5 ? "grid-cols-3" : "grid-cols-2")}
+          className={cn("grid gap-0.5 overflow-hidden", media.length >= 5 ? "grid-cols-3" : "grid-cols-2")}
         >
           {media.map((item, index) => (
             <button

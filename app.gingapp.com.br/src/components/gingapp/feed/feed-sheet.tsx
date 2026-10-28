@@ -110,9 +110,10 @@ export function ConfirmDialog({
  * Texto de post/comentário: SEMPRE texto puro (o React escapa tudo; sem HTML bruto). Só URLs http(s) viram link,
  * com rel="noopener noreferrer nofollow". Quebras de linha preservadas.
  */
-export function RichText({ text, className, testId }: { text: string; className?: string; testId?: string }) {
+export function RichText({ text, className, testId, prefix }: { text: string; className?: string; testId?: string; prefix?: ReactNode }) {
   return (
     <p className={cn("whitespace-pre-wrap break-words [overflow-wrap:anywhere]", className)} data-testid={testId}>
+      {prefix}
       {linkify(text).map((part, index) =>
         part.type === "link" ? (
           <a

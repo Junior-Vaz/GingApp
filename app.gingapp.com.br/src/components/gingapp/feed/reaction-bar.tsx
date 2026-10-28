@@ -55,28 +55,8 @@ export function ReactionBar({
   }
 
   return (
-    <div className="border-t border-border pt-2" data-testid="reaction-bar">
-      {counts.length > 0 && (
-        <p
-          className="mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 px-1 text-xs text-muted-foreground"
-          data-testid="reaction-summary"
-        >
-          <span className="sr-only">
-            {`${post.reactions.total} ${post.reactions.total === 1 ? "reação" : "reações"}: ${counts
-              .map((item) => `${item.label} ${post.reactions.counts[item.type]}`)
-              .join(", ")}`}
-          </span>
-          {counts.map((item) => (
-            <span key={item.type} aria-hidden="true" className="inline-flex items-center gap-1">
-              <span>{item.emoji}</span>
-              <span className="font-semibold text-foreground" data-testid={`count-${item.type}`}>
-                {post.reactions.counts[item.type]}
-              </span>
-            </span>
-          ))}
-        </p>
-      )}
-      <div className="flex flex-wrap items-center gap-1">
+    <div data-testid="reaction-bar">
+      <div className="flex flex-wrap items-center gap-1 px-1.5">
         <button
           type="button"
           data-testid="react-main"
@@ -131,12 +111,32 @@ export function ReactionBar({
           </button>
         )}
       </div>
+      {counts.length > 0 && (
+        <p
+          className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 pb-1 pt-0.5 text-xs text-muted-foreground"
+          data-testid="reaction-summary"
+        >
+          <span className="sr-only">
+            {`${post.reactions.total} ${post.reactions.total === 1 ? "reação" : "reações"}: ${counts
+              .map((item) => `${item.label} ${post.reactions.counts[item.type]}`)
+              .join(", ")}`}
+          </span>
+          {counts.map((item) => (
+            <span key={item.type} aria-hidden="true" className="inline-flex items-center gap-1">
+              <span>{item.emoji}</span>
+              <span className="font-semibold text-foreground" data-testid={`count-${item.type}`}>
+                {post.reactions.counts[item.type]}
+              </span>
+            </span>
+          ))}
+        </p>
+      )}
       {pickerOpen && (
         <div
           role="group"
           aria-label="Escolha uma reação"
           data-testid="reaction-picker"
-          className="mt-1 flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1 shadow-sm"
+          className="mx-3 mt-1 flex flex-wrap gap-1 rounded-lg border border-border bg-card p-1 shadow-sm"
         >
           {REACTIONS.map((item) => (
             <button

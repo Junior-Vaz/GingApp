@@ -9,7 +9,9 @@ import { after, before, describe, it } from 'node:test';
 import sharp from 'sharp';
 import request from 'supertest';
 import { AnonymizationService } from '../src/interface/http/data-deletion-requests/anonymization.service';
+import { FeedViewer } from '../src/interface/http/feed/feed-access';
 import { mediaSignature, resolveFeedMediaDir } from '../src/interface/http/feed/feed-media-storage';
+import { FEED_POST_SELECT, FeedPresenter } from '../src/interface/http/feed/feed-presenter';
 import { FeedMediaCleanupCronService } from '../src/jobs/feed-media-cleanup-cron.service';
 import { PrismaService } from '../src/shared/prisma/prisma.service';
 import { DEV_PASSWORD } from './utils/list-helpers';
@@ -484,7 +486,7 @@ describe('Feed do grupo (e2e)', () => {
     await http().get('/api/feed').query({ limit: 31 }).set(auth(m.mestre.token)).expect(400);
     // formato do FeedPost
     const one = (await http().get('/api/feed').query({ limit: 1 }).set(auth(m.adult.token)).expect(200)).body.items[0];
-    for (const k of ['id', 'type', 'author', 'body', 'media', 'visibility', 'unitId', 'classId', 'pinned', 'status', 'createdAt', 'edited', 'reactions', 'commentsCount', 'canEdit', 'canDelete', 'canModerate']) {
+    for (const k of ['id', 'type', 'author', 'body', 'media', 'visibility', 'unitId', 'classId', 'pinned', 'status', 'createdAt', 'edited', 'reactions', 'commentsCount', 'recentComments', 'canEdit', 'canDelete', 'canModerate']) {
       assert.ok(k in one, k);
     }
     assert.equal(one.type, 'POST');
@@ -556,6 +558,146 @@ describe('Feed do grupo (e2e)', () => {
     const pend = await created(m.adult, { body: `pendente sem comentario ${SECRET}`, visibility: 'GROUP' });
     await http().post(`/api/feed/posts/${pend.id}/comments`).set(auth(m.extra.token)).send({ body: 'x' }).expect(404);
     await settings({ postingMode: 'ALL' });
+  });
+
+  it('recentComments: 2 ultimos de 1o nivel em ordem cronologica; resposta/oculto/removido/sem texto fora; autor anonimo; desligado, visibilidade e story', async () => {
+    type Recent = { id: number; parentId: null; author: { userId: number; name: string; nickname: string | null; photo: string | null; roleLabel: string | null } | null; body: string; createdAt: string };
+    const comment = async (who: Member, postId: number, body: string, parentId?: number) =>
+      (await http().post(`/api/feed/posts/${postId}/comments`).set(auth(who.token)).send({ body, ...(parentId ? { parentId } : {}) }).expect(201)).body as { id: number };
+    const recent = async (who: Member, postId: number): Promise<Recent[]> => ((await seen(who)).get(postId)?.recentComments ?? null) as Recent[];
+    const ids = (list: Recent[]) => list.map((c) => c.id);
+
+    const p = await created(m.mestre, { body: `recentes ${SECRET}`, visibility: 'GROUP' });
+    assert.deepEqual(await recent(m.adult, p.id), [], '0 comentarios');
+    const c1 = await comment(m.adult, p.id, `primeiro ${SECRET}`);
+    assert.deepEqual(ids(await recent(m.adult, p.id)), [c1.id], '1 comentario');
+    const c2 = await comment(m.extra, p.id, 'segundo');
+    assert.deepEqual(ids(await recent(m.adult, p.id)), [c1.id, c2.id], '2 comentarios: cronologica');
+    const c3 = await comment(m.mestre, p.id, 'terceiro');
+    const three = await recent(m.adult, p.id);
+    assert.deepEqual(ids(three), [c2.id, c3.id], '3 comentarios: so os 2 ultimos, o mais antigo dos dois primeiro');
+    assert.deepEqual(Object.keys(three[1]).sort(), ['author', 'body', 'createdAt', 'id', 'parentId']);
+    assert.equal(three[1].parentId, null);
+    assert.equal(three[1].body, 'terceiro');
+    assert.deepEqual(Object.keys(three[1].author as object).sort(), ['name', 'nickname', 'photo', 'roleLabel', 'userId']);
+    assert.equal(three[1].author?.userId, m.mestre.id);
+    assert.equal(three[1].author?.roleLabel, 'Mestre');
+    assert.equal(three[0].author?.roleLabel, null, 'aluno sem rotulo');
+    assert.ok(new Date(three[0].createdAt).getTime() <= new Date(three[1].createdAt).getTime());
+    // resposta (parentId) nao entra; commentsCount segue a regra atual (publicados, incluindo respostas)
+    await comment(m.u2, p.id, 'resposta', c3.id);
+    const withReply = (await seen(m.adult)).get(p.id) as Post;
+    assert.deepEqual(ids(withReply.recentComments as Recent[]), [c2.id, c3.id], 'resposta fora');
+    assert.equal(withReply.commentsCount, 4);
+    assert.deepEqual(ids(await recent(m.mestre, p.id)), [c2.id, c3.id], 'moderador ve o mesmo');
+    // a rota completa tambem devolve o campo (criar / editar)
+    const fresh = await created(m.adult, { body: `nova ${SECRET}`, visibility: 'GROUP' });
+    assert.deepEqual(fresh.recentComments, []);
+    assert.deepEqual(((await http().patch(`/api/feed/posts/${fresh.id}`).set(auth(m.adult.token)).send({ body: `editada ${SECRET}` }).expect(200)).body as Post).recentComments, []);
+
+    // oculto (HIDDEN) e removido (REMOVED) nunca entram: a janela recua para os anteriores
+    await prisma.feedComment.update({ where: { id: c3.id }, data: { status: 'HIDDEN' } });
+    assert.deepEqual(ids(await recent(m.adult, p.id)), [c1.id, c2.id], 'HIDDEN fora');
+    await http().delete(`/api/feed/comments/${c2.id}`).set(auth(m.extra.token)).expect(204);
+    assert.deepEqual(ids(await recent(m.adult, p.id)), [c1.id], 'REMOVED fora');
+    const c4 = await comment(m.adult, p.id, 'quarto');
+    const c5 = await comment(m.extra, p.id, 'quinto');
+    assert.deepEqual(ids(await recent(m.adult, p.id)), [c4.id, c5.id]);
+    // comentario PUBLISHED sem texto e omitido (nao ocupa vaga); autor anonimizado = author:null com o texto mantido
+    await prisma.feedComment.update({ where: { id: c5.id }, data: { body: null } });
+    assert.deepEqual(ids(await recent(m.adult, p.id)), [c1.id, c4.id], 'body nulo omitido');
+    await prisma.feedComment.update({ where: { id: c4.id }, data: { authorUserId: null } });
+    const anon = await recent(m.adult, p.id);
+    assert.equal(anon[1].id, c4.id);
+    assert.equal(anon[1].author, null, 'autor anonimizado');
+    assert.equal(anon[1].body, 'quarto');
+    assert.equal(JSON.stringify(anon[1]).includes('[e2e-feed]'), false, 'nada do autor anonimizado');
+
+    // comentarios desligados: lista vazia (a contagem segue)
+    const before = ((await seen(m.adult)).get(p.id) as Post).commentsCount;
+    await settings({ allowComments: false });
+    const off = (await seen(m.adult)).get(p.id) as Post;
+    assert.deepEqual(off.recentComments, [], 'comentarios desligados');
+    assert.equal(off.commentsCount, before);
+    await settings({ allowComments: true });
+    assert.equal((await recent(m.adult, p.id)).length, 2);
+
+    // visibilidade: quem nao ve o post nao ve os comentarios (nem pelo feed nem pela rota)
+    const pu2 = await created(m.mestre, { body: `recentes U2 ${SECRET}`, visibility: 'UNIT', unitId: u2 });
+    // (`c1` aqui dentro e o comentario; a turma 1 do before() volta pelo nome)
+    const turma1 = (await prisma.class.findFirstOrThrow({ where: { organizationId: orgA, name: 'Turma 1' }, select: { id: true } })).id;
+    const pc1 = await created(m.mestre, { body: `recentes C1 ${SECRET}`, visibility: 'CLASS', classId: turma1 });
+    const cu2 = await comment(m.u2, pu2.id, 'da unidade 2');
+    const cc1 = await comment(m.adult, pc1.id, 'da turma 1');
+    assert.deepEqual(ids(await recent(m.u2, pu2.id)), [cu2.id]);
+    assert.deepEqual(ids(await recent(m.mestre, pu2.id)), [cu2.id]);
+    assert.deepEqual(ids(await recent(m.adult, pc1.id)), [cc1.id]);
+    assert.deepEqual(ids(await recent(m.resp, pc1.id)), [cc1.id], 'responsavel da turma ve');
+    for (const [who, postId, label] of [[m.adult, pu2.id, 'aluno U1 x post U2'], [m.extra, pc1.id, 'aluno sem turma x post da turma'], [m.alunoB, p.id, 'outro grupo']] as const) {
+      assert.equal((await seen(who)).has(postId), false, `${label}: nao ve o post`);
+      await http().get(`/api/feed/posts/${postId}/comments`).set(auth(who.token)).expect(404);
+      assert.equal(JSON.stringify([...(await seen(who)).values()]).includes('da unidade 2'), false, `${label}: sem vazar texto no feed`);
+    }
+
+    // story nunca traz comentarios (mesmo que o banco tenha algum): o filtro e por kind
+    const story = await prisma.feedPost.create({
+      data: { organizationId: orgA, authorUserId: m.mestre.id, kind: 'STORY', status: 'PUBLISHED', visibility: 'GROUP', expiresAt: new Date(Date.now() + 3_600_000) },
+    });
+    await prisma.feedComment.create({ data: { organizationId: orgA, postId: story.id, authorUserId: m.adult.id, body: 'em story' } });
+    const presenter = app.get(FeedPresenter);
+    const viewer = { organizationId: orgA, userId: m.adult.id } as FeedViewer;
+    const rowOf = (id: number) => prisma.feedPost.findUniqueOrThrow({ where: { id }, select: FEED_POST_SELECT });
+    const map = await presenter.recentComments(viewer, [await rowOf(story.id), await rowOf(p.id)]);
+    assert.equal(map.has(story.id), false, 'story: sem comentarios');
+    assert.equal(map.get(p.id)?.length, 2, 'controle: o post comum no mesmo lote traz os dele');
+    await prisma.feedComment.deleteMany({ where: { postId: story.id } });
+    await prisma.feedPost.delete({ where: { id: story.id } });
+
+    // desempenho: pagina cheia (15 posts x 3 comentarios) = UMA consulta de comentarios + autores em lote (nada de N+1)
+    const batch: number[] = [];
+    for (let i = 0; i < 15; i++) batch.push((await created(m.mestre, { body: `lote ${i} ${SECRET}`, visibility: 'GROUP' })).id);
+    const authors = [m.adult.id, m.extra.id, m.u2.id];
+    const base = Date.now() - 600_000;
+    await prisma.feedComment.createMany({
+      data: batch.flatMap((postId, pi) =>
+        authors.map((a, k) => ({ organizationId: orgA, postId, authorUserId: a, body: `lote ${pi}.${k}`, createdAt: new Date(base + (pi * 3 + k) * 1000) })),
+      ),
+    });
+    const ps = app.get(PrismaService);
+    const raw = { n: 0, users: 0 };
+    const origRaw = ps.$queryRaw.bind(ps);
+    const origUsers = ps.user.findMany.bind(ps.user);
+    (ps as unknown as { $queryRaw: unknown }).$queryRaw = (...args: unknown[]) => {
+      raw.n++;
+      return (origRaw as (...a: unknown[]) => unknown)(...args);
+    };
+    (ps.user as unknown as { findMany: unknown }).findMany = (...args: unknown[]) => {
+      raw.users++;
+      return (origUsers as (...a: unknown[]) => unknown)(...args);
+    };
+    try {
+      const t0 = Date.now();
+      const page = (await http().get('/api/feed').query({ limit: 30 }).set(auth(m.adult.token)).expect(200)).body.items as Post[];
+      const ms = Date.now() - t0;
+      const mine = page.filter((x) => batch.includes(x.id));
+      assert.equal(mine.length, 15, 'os 15 posts do lote estao na pagina');
+      for (const x of mine) {
+        const pi = batch.indexOf(x.id);
+        assert.deepEqual((x.recentComments as Recent[]).map((c) => c.body), [`lote ${pi}.1`, `lote ${pi}.2`], 'os 2 ultimos, cronologica');
+        assert.equal(x.commentsCount, 3);
+      }
+      assert.equal(raw.n, 1, 'UMA consulta de comentarios recentes para a pagina inteira');
+      assert.ok(raw.users <= 1, `autores em lote (no maximo 1 findMany de usuarios; deu ${raw.users})`);
+      assert.ok(ms < 5000, `pagina cheia em ${ms} ms`);
+      // pagina pequena: o mesmo numero de consultas (nao cresce com o tamanho da pagina)
+      raw.n = 0;
+      raw.users = 0;
+      await http().get('/api/feed').query({ limit: 2 }).set(auth(m.adult.token)).expect(200);
+      assert.equal(raw.n, 1);
+    } finally {
+      (ps as unknown as { $queryRaw: unknown }).$queryRaw = origRaw;
+      (ps.user as unknown as { findMany: unknown }).findMany = origUsers;
+    }
   });
 
   it('denuncias: uma por usuario e alvo; 3 distintas ocultam; fila REPORTED sem denunciante; resolve DISMISS/HIDE/REMOVE', async () => {

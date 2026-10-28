@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -174,6 +176,121 @@ describe("funções puras de stories", () => {
   });
 });
 
+describe("faixa de stories compacta (5 cartões de 20%, colada no banner)", () => {
+  const tokensOf = (element: Element | null) => (element?.className ?? "").toString().split(/\s+/).filter(Boolean);
+  const tiles = () => $$("[data-testid=stories-list] > li");
+  const many = (count: number) => Array.from({ length: count }, (_, index) => group(index + 1, `Pessoa ${index + 1}`, [item((index + 1) * 10)]));
+  const css = () => readFileSync(resolve(__dirname, "../styles.css"), "utf8");
+
+  it("cada cartão ocupa 20% da faixa (w-1/5) e a proporção vem de UMA constante CSS (--story-aspect)", async () => {
+    const ctx = setup(many(4)); // "Seu story" + 4 = 5 cartões
+    await mountRow(ctx);
+    await until(() => row() !== null, "linha");
+    expect(tiles()).toHaveLength(5);
+    for (const tile of tiles()) {
+      expect(tokensOf(tile)).toContain("w-1/5");
+      expect(tokensOf(tile)).toContain("flex-none");
+      expect(tokensOf(tile)).toContain("story-tile");
+    }
+    const source = css();
+    expect(source.match(/--story-aspect\s*:/g)).toHaveLength(1);
+    const aspect = Number(/--story-aspect\s*:\s*([\d.]+)/.exec(source)?.[1]);
+    expect(aspect).toBeGreaterThanOrEqual(0.75);
+    expect(aspect).toBeLessThanOrEqual(0.8);
+    expect(source).toMatch(/\.story-tile\s*\{[^}]*aspect-ratio:\s*var\(--story-aspect\)/);
+  });
+
+  it("SEM espaço entre cartões: sem gap, sem divisória, sem margem/padding/borda e cantos RETOS (cartão e botão)", async () => {
+    const ctx = setup(many(5));
+    await mountRow(ctx);
+    await until(() => row() !== null, "linha");
+    const listTokens = tokensOf($("[data-testid=stories-list]"));
+    expect(listTokens).toContain("flex");
+    expect(listTokens.some((token) => /^(gap|space-x|divide|border)/.test(token))).toBe(false);
+    expect(listTokens).toContain("p-0");
+    const forbidden = /^(gap|m|mx|my|ml|mr|p|px|py|pl|pr|border|divide|ring|shadow|rounded)(-|$)/;
+    for (const tile of tiles()) {
+      expect(tokensOf(tile).filter((token) => forbidden.test(token)), "classes do cartão").toEqual([]);
+      const button = tile.querySelector("button")!;
+      expect(tokensOf(button).some((token) => token.startsWith("rounded"))).toBe(false);
+    }
+    expect(css()).not.toMatch(/\.(stories-strip|story-tile)[^{]*\{[^}]*\b(gap|margin|border)\b/);
+  });
+
+  it("os cantos de cima arredondados são do CONJUNTO: a faixa arredonda (md+), o cartão não, e a faixa vai até a borda no celular", async () => {
+    const ctx = setup(many(2));
+    await mountRow(ctx);
+    await until(() => row() !== null, "linha");
+    const listTokens = tokensOf($("[data-testid=stories-list]"));
+    expect(listTokens).toContain("md:rounded-t-lg");
+    expect(listTokens).toContain("max-md:-mx-[18px]");
+    expect(tokensOf(row()!.parentElement!.parentElement)).toContain("stories-attached");
+  });
+
+  it("avatar PEQUENO no canto SUPERIOR ESQUERDO com anel (verde->âmbar se há novidade, cinza se já visto) e nome na base", async () => {
+    const ctx = setup([group(1, "Ana Souza", [item(11, { seen: true })]), group(2, "Bruno Lima", [item(21)])]);
+    await mountRow(ctx);
+    await until(() => row() !== null, "linha");
+    for (const [userId, unseen] of [[2, "true"], [1, "false"]] as const) {
+      const card = $(`[data-testid=story-card][data-author-id="${userId}"]`)!;
+      const ring = card.querySelector("[data-testid=story-ring]") as HTMLElement;
+      expect(ring.getAttribute("data-unseen")).toBe(unseen);
+      expect(tokensOf(ring)).toEqual(expect.arrayContaining(["absolute", "left-1.5", "top-1.5", "rounded-full"]));
+      expect(tokensOf(ring)).not.toContain("bottom-0");
+      expect(tokensOf(ring)).not.toContain("right-0");
+      // (o jsdom descarta gradiente/oklch do style inline, então a cor do anel é conferida pelo atributo data-ring)
+      expect(ring.getAttribute("data-ring")).toBe(unseen === "true" ? "brand" : "gray");
+      expect(ring.querySelector("[data-testid=avatar]")?.getAttribute("style")).toContain("--av: 26px");
+      const name = card.querySelector("[data-testid=story-name]")!;
+      expect(tokensOf(name)).toEqual(expect.arrayContaining(["absolute", "bottom-0", "truncate", "text-[11px]", "text-white"]));
+    }
+    // o degradê escuro só cobre a base do cartão
+    expect($("[data-testid=story-card] .bg-gradient-to-t")?.className).toContain("bottom-0");
+  });
+
+  it("'Seu story' é sempre o PRIMEIRO cartão (mesmo com story meu e de vários autores)", async () => {
+    const ctx = setup([...many(3), group(9, "Eu Mesmo", [item(91, { seen: true })], { isMine: true })]);
+    await mountRow(ctx);
+    await until(() => row() !== null, "linha");
+    expect(tiles()[0]?.getAttribute("data-testid")).toBe("my-story-card");
+    expect(cardIds()).toEqual(["mine", "1", "2", "3"]);
+  });
+
+  it("menos de 5 cartões NÃO esticam: continuam com 20% e o resto da faixa fica no fundo neutro da marca", async () => {
+    const ctx = setup(many(1)); // "Seu story" + 1
+    await mountRow(ctx);
+    await until(() => row() !== null, "linha");
+    expect(tiles()).toHaveLength(2);
+    for (const tile of tiles()) {
+      expect(tokensOf(tile)).toContain("w-1/5");
+      expect(tokensOf(tile).some((token) => /^(flex-1|flex-auto|grow|flex-grow|w-full)/.test(token))).toBe(false);
+    }
+    expect(tokensOf($("[data-testid=stories-list]"))).toContain("bg-secondary");
+  });
+
+  it("mais de 5 cartões rolam na horizontal com scroll-snap, DENTRO da faixa (a página não estoura)", async () => {
+    const ctx = setup(many(8)); // 9 cartões
+    await mountRow(ctx);
+    await until(() => row() !== null, "linha");
+    expect(tiles()).toHaveLength(9);
+    const listTokens = tokensOf($("[data-testid=stories-list]"));
+    expect(listTokens).toEqual(expect.arrayContaining(["overflow-x-auto", "snap-x", "snap-mandatory", "overflow-y-hidden"]));
+    for (const tile of tiles()) expect(tokensOf(tile)).toEqual(expect.arrayContaining(["snap-start", "flex-none", "w-1/5"]));
+    expect(tokensOf(row())).toContain("max-w-full");
+    expect(tokensOf(row())).toContain("min-w-0");
+  });
+
+  it("tocar no cartão abre o visualizador NO GRUPO CERTO", async () => {
+    const ctx = setup(many(7));
+    await mountRow(ctx);
+    await until(() => row() !== null, "linha");
+    await openViewer(6);
+    expect(viewer()).not.toBeNull();
+    expect(imageSrc()).toContain("/media/60");
+    expect($("[data-testid=story-viewer]")?.textContent).toContain("Pessoa 6");
+  });
+});
+
 describe("linha de stories", () => {
   it("ordem: meu primeiro, depois não vistos, depois vistos (mesmo se o servidor mandar fora de ordem)", async () => {
     const ctx = setup([
@@ -217,7 +334,7 @@ describe("linha de stories", () => {
     expect(list.className).toContain("overflow-x-auto");
     expect(list.className).toContain("snap-x");
     expect(row()!.className).toContain("max-w-full");
-    expect($("[data-testid=story-card]")!.className).toContain("w-[104px]");
+    expect($("[data-testid=story-card]")!.className).toContain("w-1/5");
   });
 
   it("'Seu story' sem story meu e com permissão: cartão com + que abre o criador", async () => {

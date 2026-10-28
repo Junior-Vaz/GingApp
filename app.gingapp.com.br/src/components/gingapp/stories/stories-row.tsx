@@ -21,56 +21,73 @@ function shortName(group: StoryGroup): string {
 const latestOf = (group: StoryGroup) => group.items[group.items.length - 1]!;
 
 const RING_UNSEEN = "linear-gradient(135deg, var(--primary), var(--warning))";
+const RING_SEEN = "oklch(0.72 0.01 150)";
 
-const cardBase =
-  "flex w-full flex-col items-center rounded-2xl text-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+/** Avatar do cartão em px (anel de 2 px + 1 px de respiro ao redor = ~32 px no total). */
+const AVATAR_SIZE = 26;
 
-/** Moldura do cartão: anel de marca (verde -> âmbar) para não visto, cinza para já visto. 104x148 px. */
-function CardFrame({ unseen, children }: { unseen: boolean; children: React.ReactNode }) {
+/**
+ * Cada cartão (`li.story-tile`) tem cantos RETOS e 20% da faixa (`w-1/5`); a proporção largura/altura vem da constante CSS
+ * única `--story-aspect` (styles.css; .78 = um pouco mais alto que largo, 1 = quadrado). O botão preenche o cartão
+ * inteiro; nada de margem, gap, borda ou divisória entre cartões.
+ */
+const tileButton =
+  "absolute inset-0 block h-full w-full overflow-hidden bg-muted p-0 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
+
+/** Gradiente escuro só na base do cartão (legibilidade do nome). */
+function BaseShade() {
+  return <span className="absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/75 to-transparent" aria-hidden="true" />;
+}
+
+/** Nome na base do cartão: branco, 11 px, truncado. */
+function TileName({ children, testId }: { children: React.ReactNode; testId?: string }) {
   return (
-    <span className="block h-[148px] w-full rounded-[18px] p-0.5" style={{ background: unseen ? RING_UNSEEN : "var(--border)" }} data-testid="story-ring" data-unseen={unseen}>
-      <span className="block h-full w-full rounded-2xl bg-background p-0.5">
-        <span className="relative block h-full w-full overflow-hidden rounded-[14px] bg-muted">{children}</span>
-      </span>
+    <span
+      className="absolute inset-x-0 bottom-0 block truncate px-1.5 pb-1.5 text-[11px] font-semibold leading-tight text-white"
+      data-testid={testId}
+    >
+      {children}
     </span>
   );
 }
 
-function AvatarOnEdge({ children }: { children: React.ReactNode }) {
-  return <span className="relative z-10 -mt-5 block rounded-full ring-[3px] ring-background">{children}</span>;
+/** Avatar pequeno no canto SUPERIOR ESQUERDO, com anel verde->âmbar (não visto) ou cinza (visto). */
+function CornerAvatar({ unseen, children }: { unseen: boolean; children: React.ReactNode }) {
+  return (
+    <span
+      className="absolute left-1.5 top-1.5 z-10 block rounded-full p-0.5"
+      style={{ background: unseen ? RING_UNSEEN : RING_SEEN }}
+      data-testid="story-ring"
+      data-unseen={unseen}
+      data-ring={unseen ? "brand" : "gray"}
+    >
+      <span className="block rounded-full bg-background p-px">{children}</span>
+    </span>
+  );
 }
 
 function StoryCard({ group, onOpen, onMediaError }: { group: StoryGroup; onOpen: () => void; onMediaError: (mediaId: number) => void }) {
   const latest = latestOf(group);
   const name = authorLabel(group.author);
   return (
-    <li className="w-[104px] flex-none snap-start" data-testid="story-card" data-author-id={group.author?.userId ?? ""} data-unseen={group.hasUnseen}>
-      <button
-        type="button"
-        className={cardBase}
-        onClick={onOpen}
-        aria-label={`Ver story de ${name}${group.hasUnseen ? " (novo)" : ""}`}
-      >
-        <CardFrame unseen={group.hasUnseen}>
-          <img
-            src={feedMediaSrc(latest.media.thumbUrl)}
-            alt=""
-            width={latest.media.width}
-            height={latest.media.height}
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            onError={() => onMediaError(latest.media.id)}
-            className="absolute inset-0 h-full w-full object-cover"
-          />
-          <span className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" aria-hidden="true" />
-        </CardFrame>
-        <AvatarOnEdge>
-          <Avatar decorative name={group.author?.name ?? "?"} src={group.author?.photo ?? null} size={40} />
-        </AvatarOnEdge>
-        <span className="mt-1 block w-full truncate px-0.5 text-xs font-semibold" data-testid="story-name">
-          {shortName(group)}
-        </span>
+    <li className="story-tile relative w-1/5 flex-none snap-start" data-testid="story-card" data-author-id={group.author?.userId ?? ""} data-unseen={group.hasUnseen}>
+      <button type="button" className={tileButton} onClick={onOpen} aria-label={`Ver story de ${name}${group.hasUnseen ? " (novo)" : ""}`}>
+        <img
+          src={feedMediaSrc(latest.media.thumbUrl)}
+          alt=""
+          width={latest.media.width}
+          height={latest.media.height}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onError={() => onMediaError(latest.media.id)}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+        <BaseShade />
+        <CornerAvatar unseen={group.hasUnseen}>
+          <Avatar decorative name={group.author?.name ?? "?"} src={group.author?.photo ?? null} size={AVATAR_SIZE} />
+        </CornerAvatar>
+        <TileName testId="story-name">{shortName(group)}</TileName>
       </button>
     </li>
   );
@@ -94,21 +111,19 @@ function MyStoryCard({
 }) {
   if (!mine) {
     return (
-      <li className="w-[104px] flex-none snap-start" data-testid="my-story-card" data-state="empty">
-        <button type="button" className={cardBase} onClick={onCreate} aria-label="Criar seu story">
-          <CardFrame unseen={false}>
-            <span className="flex h-full w-full items-center justify-center bg-secondary">
-              <Avatar decorative name={me.name} src={me.photo} size={64} />
-            </span>
-          </CardFrame>
+      <li className="story-tile relative w-1/5 flex-none snap-start" data-testid="my-story-card" data-state="empty">
+        <button type="button" className={`${tileButton} bg-primary`} onClick={onCreate} aria-label="Criar seu story">
+          <CornerAvatar unseen={false}>
+            <Avatar decorative name={me.name} src={me.photo} size={AVATAR_SIZE} />
+          </CornerAvatar>
           <span
-            className="relative z-10 -mt-5 flex size-10 items-center justify-center rounded-full bg-primary text-primary-foreground ring-[3px] ring-background"
+            className="absolute left-1/2 top-[44%] flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-primary-foreground text-primary"
             aria-hidden="true"
             data-testid="my-story-plus"
           >
             <Plus size={20} strokeWidth={2.5} />
           </span>
-          <span className="mt-1 block w-full truncate px-0.5 text-xs font-semibold">Seu story</span>
+          <TileName>Seu story</TileName>
         </button>
       </li>
     );
@@ -117,40 +132,38 @@ function MyStoryCard({
   const latest = latestOf(mine);
   const pending = allPending(mine);
   return (
-    <li className="relative w-[104px] flex-none snap-start" data-testid="my-story-card" data-state={pending ? "pending" : "active"}>
+    <li className="story-tile relative w-1/5 flex-none snap-start" data-testid="my-story-card" data-state={pending ? "pending" : "active"}>
       <button
         type="button"
-        className={cardBase}
+        className={tileButton}
         onClick={onOpen}
         aria-label={pending ? "Ver seu story (aguardando aprovação)" : "Ver seu story"}
       >
-        <CardFrame unseen={false}>
-          <img
-            src={feedMediaSrc(latest.media.thumbUrl)}
-            alt=""
-            width={latest.media.width}
-            height={latest.media.height}
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            onError={() => onMediaError(latest.media.id)}
-            className={`absolute inset-0 h-full w-full object-cover ${pending ? "opacity-60" : ""}`}
-          />
-          <span className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" aria-hidden="true" />
-          {pending && (
-            <span
-              className="absolute inset-x-1 top-1/2 flex -translate-y-1/2 flex-col items-center gap-1 rounded-md bg-black/60 px-1 py-1.5 text-[10px] font-semibold leading-tight text-white"
-              data-testid="my-story-pending"
-            >
-              <Clock size={14} aria-hidden="true" />
-              Aguardando aprovação
-            </span>
-          )}
-        </CardFrame>
-        <AvatarOnEdge>
-          <Avatar decorative name={me.name} src={mine.author?.photo ?? me.photo} size={40} />
-        </AvatarOnEdge>
-        <span className="mt-1 block w-full truncate px-0.5 text-xs font-semibold">Seu story</span>
+        <img
+          src={feedMediaSrc(latest.media.thumbUrl)}
+          alt=""
+          width={latest.media.width}
+          height={latest.media.height}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          onError={() => onMediaError(latest.media.id)}
+          className={`absolute inset-0 h-full w-full object-cover ${pending ? "opacity-60" : ""}`}
+        />
+        <BaseShade />
+        {pending && (
+          <span
+            className="absolute inset-x-1 top-1/2 flex -translate-y-1/2 flex-col items-center gap-0.5 rounded-md bg-black/60 px-1 py-1 text-[10px] font-semibold leading-tight text-white"
+            data-testid="my-story-pending"
+          >
+            <Clock size={12} aria-hidden="true" />
+            Aguardando aprovação
+          </span>
+        )}
+        <CornerAvatar unseen={false}>
+          <Avatar decorative name={me.name} src={mine.author?.photo ?? me.photo} size={AVATAR_SIZE} />
+        </CornerAvatar>
+        <TileName>Seu story</TileName>
       </button>
       {canPost && (
         <button
@@ -158,10 +171,11 @@ function MyStoryCard({
           aria-label="Criar outro story"
           data-testid="my-story-add"
           onClick={onCreate}
-          className="absolute right-0 top-[118px] z-20 flex h-11 w-9 items-center justify-center focus-visible:outline-none"
+          className="absolute right-0 top-0 z-20 flex size-11 items-start justify-end pr-1 pt-1.5 focus-visible:outline-none"
         >
-          <span className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-background">
-            <Plus size={14} strokeWidth={3} aria-hidden="true" />
+          {/* O círculo visível é de 20 px, encostado no canto superior direito (não encosta no avatar nem a 320 px); a área de toque é 44x44. */}
+          <span className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-white">
+            <Plus size={12} strokeWidth={3} aria-hidden="true" />
           </span>
         </button>
       )}
@@ -170,9 +184,12 @@ function MyStoryCard({
 }
 
 /**
- * Linha de stories do topo da Home. Só existe com o feed LIGADO (`useFeedSettings().data?.enabled`): carregando, erro ou
- * desligado = nada na tela e nenhuma mensagem. Sem nenhum story e sem permissão de postar = também some. A rolagem
- * horizontal fica DENTRO da linha (a página não estoura) com snap; o primeiro cartão é o "Seu story".
+ * Faixa de stories do topo da Home, COLADA no banner (mesma largura, sem espaço entre os dois; o arredondamento externo
+ * é do conjunto: cantos de cima da faixa, e o banner perde os de cima via `.stories-attached + .welcome-banner`).
+ * 5 cartões quadrados de 20% da largura, um colado no outro (gap 0, sem divisória); com mais de 5 a faixa rola na
+ * horizontal com scroll-snap; com menos de 5 os cartões NÃO esticam (o resto fica no fundo neutro da faixa). O primeiro
+ * cartão é o "Seu story". Só existe com o feed LIGADO (`useFeedSettings().data?.enabled`): carregando, erro ou desligado
+ * = nada na tela e nenhuma mensagem. Sem nenhum story e sem permissão de postar = também some.
  */
 export function StoriesRow({ className = "" }: { className?: string }) {
   const settings = useFeedSettings();
@@ -193,11 +210,11 @@ export function StoriesRow({ className = "" }: { className?: string }) {
 
   return (
     <>
-      <Reveal className={className}>
+      <Reveal className={`stories-attached ${className}`.trim()}>
         <section className="min-w-0 max-w-full" aria-label="Stories do grupo" data-testid="stories-row">
-          {/* No celular a linha vai até a borda da tela (como o banner): o cartão cortado na ponta mostra que dá para rolar. */}
+          {/* Sem gap, sem padding e sem borda entre cartões; no celular a faixa vai até a borda da tela (como o banner). */}
           <ul
-            className="flex snap-x snap-mandatory scroll-px-[18px] gap-3 overflow-x-auto px-1 pb-1 pt-1 [scrollbar-width:thin] max-md:-mx-[18px] max-md:px-[18px] max-md:[scrollbar-width:none]"
+            className="stories-strip m-0 flex list-none snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain bg-secondary p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-md:-mx-[18px] md:rounded-t-lg"
             data-testid="stories-list"
           >
             {(canPost || mine) && (
