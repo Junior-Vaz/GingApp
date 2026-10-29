@@ -442,7 +442,9 @@ model Organization {
   feedPostingMode         FeedPostingMode  @default(MODERATED)
   feedAllowComments       Boolean          @default(true)
   feedBlockedWords        String[]         @default([])
-  createdAt               DateTime         @default(now())
+  /// Opcao do MESTRE: menor de 18 anos publica direto (sem a aprovacao obrigatoria de menor). Padrao false.
+  feedMinorsPostDirectly  Boolean          @default(false)
+  createdAt              DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
 
   birthdayGreetings       BirthdayGreeting[]

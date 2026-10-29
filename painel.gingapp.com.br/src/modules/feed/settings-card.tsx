@@ -22,6 +22,7 @@ const sameSettings = (a: FeedSettings, b: FeedSettings) =>
   a.enabled === b.enabled &&
   a.postingMode === b.postingMode &&
   a.allowComments === b.allowComments &&
+  a.minorsPostDirectly === b.minorsPostDirectly &&
   a.blockedWords.length === b.blockedWords.length &&
   a.blockedWords.every((w, i) => w === b.blockedWords[i]);
 
@@ -107,10 +108,30 @@ function SettingsForm({ saved }: { saved: FeedSettings }) {
             </label>
           ))}
         </RadioGroup>
-        <p className="text-sm text-muted-foreground">
-          Menores de 18 anos sempre passam por aprovação, em qualquer modo.
+        <p className="text-sm text-muted-foreground" data-testid="feed-minors-note">
+          {value.minorsPostDirectly
+            ? "Menores de 18 anos publicam direto, sem aprovação. No modo “Alunos com aprovação” os alunos continuam aguardando."
+            : "Menores de 18 anos sempre passam por aprovação, em qualquer modo."}
         </p>
       </fieldset>
+
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <Label htmlFor="feed-minors" className="text-sm font-semibold">
+            Menores de 18 anos publicam direto
+          </Label>
+          <p className="text-sm text-muted-foreground">
+            Desligado (recomendado): posts e stories de menores esperam a sua aprovação. Ligado: eles publicam na hora, como os
+            adultos. Palavras bloqueadas continuam valendo. Confirme a autorização dos responsáveis para fotos de menores.
+          </p>
+        </div>
+        <Switch
+          id="feed-minors"
+          checked={value.minorsPostDirectly}
+          onCheckedChange={(minorsPostDirectly) => change({ minorsPostDirectly })}
+          className="mt-1"
+        />
+      </div>
 
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

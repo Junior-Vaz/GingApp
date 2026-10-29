@@ -182,6 +182,7 @@ export function useFeedSettings(enabled: boolean) {
         enabled: data.enabled ?? true,
         postingMode: data.postingMode ?? "MODERATED",
         allowComments: data.allowComments ?? true,
+        minorsPostDirectly: data.minorsPostDirectly ?? false,
         blockedWords: Array.isArray(data.blockedWords) ? data.blockedWords : [],
       };
     },

@@ -257,7 +257,17 @@ describe('Feed do grupo (e2e)', () => {
     const minor = await created(m.minor, { body: `menor ${SECRET}`, visibility: 'GROUP' });
     assert.equal(minor.status, 'PENDING_APPROVAL', 'menor de 18 SEMPRE pendente');
     assert.equal((await http().get('/api/feed/settings').set(auth(m.minor.token)).expect(200)).body.requiresApproval, true);
-    const blocked = await created(m.adult, { body: `que PALAVRÃO, hein ${SECRET}`, visibility: 'GROUP' });
+    // Opcao do Mestre "menores publicam direto": desligada por padrao; ligada, o menor publica na hora (modo ALL),
+    // palavra bloqueada continua pendente e so o MESTRE grava.
+    assert.equal((await http().get('/api/feed/settings/admin').set(auth(m.mestre.token)).expect(200)).body.minorsPostDirectly, false);
+    await http().put('/api/feed/settings').set(auth(m.prof1.token)).send({ minorsPostDirectly: true }).expect(403);
+    await http().put('/api/feed/settings').set(auth(m.mestre.token)).send({ minorsPostDirectly: 'sim' }).expect(400);
+    assert.equal((await settings({ minorsPostDirectly: true })).body.minorsPostDirectly, true);
+    assert.equal((await created(m.minor, { body: `menor livre ${SECRET}`, visibility: 'GROUP' })).status, 'PUBLISHED', 'menor publica direto quando o Mestre liga');
+    assert.equal((await http().get('/api/feed/settings').set(auth(m.minor.token)).expect(200)).body.requiresApproval, false);
+    assert.equal((await created(m.minor, { body: `menor PALAVRÃO ${SECRET}`, visibility: 'GROUP' })).status, 'PENDING_APPROVAL', 'palavra bloqueada continua valendo');
+    await settings({ minorsPostDirectly: false });
+    const blocked =await created(m.adult, { body: `que PALAVRÃO, hein ${SECRET}`, visibility: 'GROUP' });
     assert.equal(blocked.status, 'PENDING_APPROVAL', 'palavra bloqueada (sem acento/caixa) vai para aprovacao');
     assert.equal(Object.keys(blocked).some((k) => /reason|blocked/i.test(k)), false, 'sem dizer o motivo');
     // texto puro: HTML guardado como texto, espacos normalizados

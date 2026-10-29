@@ -23,6 +23,8 @@ export interface FeedSettingsView {
 
 export interface FeedSettingsAdminView extends FeedSettingsView {
   blockedWords: string[];
+  /** Menor de 18 publica direto (o Mestre dispensa a aprovacao obrigatoria de menor). */
+  minorsPostDirectly: boolean;
 }
 
 export interface OrgFeedSettings {
@@ -30,6 +32,7 @@ export interface OrgFeedSettings {
   feedPostingMode: FeedPostingMode;
   feedAllowComments: boolean;
   feedBlockedWords: string[];
+  feedMinorsPostDirectly: boolean;
 }
 
 /** Limite diario (dia civil SP) lido a cada chamada: FEED_POSTS_PER_DAY (10) / FEED_COMMENTS_PER_DAY (60). */
@@ -74,7 +77,7 @@ export class FeedService {
   async orgSettings(organizationId: number): Promise<OrgFeedSettings> {
     return this.prisma.organization.findUniqueOrThrow({
       where: { id: organizationId },
-      select: { feedEnabled: true, feedPostingMode: true, feedAllowComments: true, feedBlockedWords: true },
+      select: { feedEnabled: true, feedPostingMode: true, feedAllowComments: true, feedBlockedWords: true, feedMinorsPostDirectly: true },
     });
   }
 
@@ -104,9 +107,12 @@ export class FeedService {
     return ageOn(birthDate, now) < 18;
   }
 
-  /** O post deste usuario vai para aprovacao (sem contar palavra bloqueada)? */
+  /**
+   * O post deste usuario vai para aprovacao (sem contar palavra bloqueada)? Menor de 18 sempre, a menos que o MESTRE tenha
+   * ligado "menores publicam direto"; o modo moderado para nao-equipe continua valendo em qualquer caso.
+   */
   async requiresApproval(v: FeedViewer, s: OrgFeedSettings): Promise<boolean> {
-    if (await this.isMinor(v)) return true;
+    if (!s.feedMinorsPostDirectly && (await this.isMinor(v))) return true;
     return s.feedPostingMode === FeedPostingMode.MODERATED && !v.isStaff;
   }
 
@@ -132,7 +138,7 @@ export class FeedService {
 
   async getAdminSettings(v: FeedViewer): Promise<FeedSettingsAdminView> {
     const s = await this.orgSettings(v.organizationId);
-    return { ...(await this.settingsView(v, s)), blockedWords: s.feedBlockedWords };
+    return { ...(await this.settingsView(v, s)), blockedWords: s.feedBlockedWords, minorsPostDirectly: s.feedMinorsPostDirectly };
   }
 
   async updateSettings(v: FeedViewer, dto: UpdateFeedSettingsDto): Promise<FeedSettingsAdminView> {
@@ -140,6 +146,7 @@ export class FeedService {
     if (dto.enabled !== undefined) data.feedEnabled = dto.enabled;
     if (dto.postingMode !== undefined) data.feedPostingMode = dto.postingMode;
     if (dto.allowComments !== undefined) data.feedAllowComments = dto.allowComments;
+    if (dto.minorsPostDirectly !== undefined) data.feedMinorsPostDirectly = dto.minorsPostDirectly;
     if (dto.blockedWords !== undefined) data.feedBlockedWords = cleanBlockedWords(dto.blockedWords);
     await this.prisma.organization.update({ where: { id: v.organizationId }, data });
     await this.audit.record({
@@ -153,6 +160,7 @@ export class FeedService {
         enabled: dto.enabled,
         postingMode: dto.postingMode,
         allowComments: dto.allowComments,
+        minorsPostDirectly: dto.minorsPostDirectly,
         blockedWordsCount: Array.isArray(data.feedBlockedWords) ? data.feedBlockedWords.length : undefined,
       },
     });

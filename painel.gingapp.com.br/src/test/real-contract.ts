@@ -208,6 +208,7 @@ export const REAL_FEED_SETTINGS_ADMIN: FeedSettings & { canPost: boolean; requir
   postingMode: "MODERATED",
   canPost: true,
   allowComments: true,
+  minorsPostDirectly: false,
   requiresApproval: false,
   blockedWords: ["ctpalavra"],
 };

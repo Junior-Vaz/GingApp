@@ -193,6 +193,7 @@ beforeEach(() => {
     postingMode: "MODERATED",
     canPost: true,
     allowComments: true,
+    minorsPostDirectly: false,
     requiresApproval: false,
     blockedWords: ["palavrao"],
   };
@@ -701,6 +702,7 @@ describe("configurações do feed", () => {
       enabled: false,
       postingMode: "STAFF_ONLY",
       allowComments: false,
+      minorsPostDirectly: false,
       blockedWords: ["palavrao"],
     });
     expect(toast.success).toHaveBeenCalledWith("Configurações do feed salvas.");
@@ -708,6 +710,19 @@ describe("configurações do feed", () => {
     expect(within(section).getByRole("switch", { name: "Feed ativo" })).not.toBeChecked();
     expect(within(section).getByRole("radio", { name: /Só equipe/ })).toBeChecked();
     expect(within(section).getByRole("button", { name: "Salvar" })).toBeDisabled();
+  });
+
+  it("'Menores de 18 anos publicam direto' começa desligado, troca a nota e vai no PUT", async () => {
+    renderPage();
+    const section = await screen.findByRole("region", { name: "Configurações do feed" });
+    const minors = await within(section).findByRole("switch", { name: "Menores de 18 anos publicam direto" });
+    expect(minors).not.toBeChecked();
+    expect(within(section).getByTestId("feed-minors-note")).toHaveTextContent("sempre passam por aprovação, em qualquer modo");
+    fireEvent.click(minors);
+    expect(within(section).getByTestId("feed-minors-note")).toHaveTextContent("publicam direto, sem aprovação");
+    fireEvent.click(within(section).getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent("PUT", "/feed/settings")).toHaveLength(1));
+    expect(sent("PUT", "/feed/settings")[0]!.body).toMatchObject({ minorsPostDirectly: true });
   });
 
   it("Descartar desfaz as alterações; voltar ao valor salvo também limpa o aviso", async () => {

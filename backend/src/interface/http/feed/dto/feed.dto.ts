@@ -42,6 +42,10 @@ export class UpdateFeedSettingsDto {
   allowComments?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  minorsPostDirectly?: boolean;
+
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(FEED_BLOCKED_WORDS_MAX)
   @IsString({ each: true })

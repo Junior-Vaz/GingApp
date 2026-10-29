@@ -93,6 +93,8 @@ export interface FeedSettings {
   enabled: boolean;
   postingMode: PostingMode;
   allowComments: boolean;
+  /** Menor de 18 anos publica direto, sem a aprovação obrigatória (padrão: desligado). */
+  minorsPostDirectly: boolean;
   blockedWords: string[];
 }
 

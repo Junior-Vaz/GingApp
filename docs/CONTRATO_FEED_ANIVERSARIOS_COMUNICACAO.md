@@ -8,7 +8,7 @@ Se algo aqui estiver errado ou ambíguo, o agente **reporta a divergência com o
 
 1. Feed: `postingMode` ∈ `ALL | STAFF_ONLY | MODERATED`. **Padrão MODERATED** (post de aluno/responsável/monitor fica `PENDING_APPROVAL`
    até um moderador aprovar; post de equipe [MESTRE/PROFESSOR/INSTRUTOR] publica direto). Com `ALL` publica direto, exceto menores.
-2. **Menor de 18 anos** (idade pela `birthDate` da Pessoa autora): o post vai SEMPRE para `PENDING_APPROVAL`, em qualquer modo.
+2. **Menor de 18 anos** (idade pela `birthDate` da Pessoa autora): o post vai SEMPRE para `PENDING_APPROVAL`, em qualquer modo — EXCETO se o Mestre ligar `Organization.feedMinorsPostDirectly` (`minorsPostDirectly` em `PUT /feed/settings`, padrão `false`, migration `20261102000000`): aí a regra de menor é dispensada para posts e stories; o modo moderado para não-equipe e as palavras bloqueadas continuam valendo.
    (Autorização de imagem por campo fica para uma fase seguinte; a aprovação do professor é o controle nesta fase.)
 3. Moderação pós-publicação por denúncia + fila no painel. 4. Vídeo: **fora** (só fotos). 5. Parabéns automáticos: **opcional**, desligado por padrão.
 6. Aniversário: alunos veem só **dia e mês** de **adultos** que não deram opt-out; **idade só para a equipe**; **menores só para a equipe**.
