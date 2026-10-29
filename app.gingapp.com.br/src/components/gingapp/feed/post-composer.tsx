@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Camera, Clock, ImagePlus, Loader2, RotateCw, X } from "lucide-react";
+import { Camera, Clock, ImagePlus, Loader2, Plus, RotateCw, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,7 +57,7 @@ export function CannotPostNote({ settings }: { settings: FeedSettings }) {
  * Barra "No que você está pensando?" + folha de criação: texto (2000), até 6 fotos enviadas assim que escolhidas,
  * visibilidade e Publicar. O rascunho vive só em memória (nunca em localStorage) e sobrevive a erros de rede.
  */
-export function PostComposer({ settings }: { settings: FeedSettings }) {
+export function PostComposer({ settings, variant = "bar" }: { settings: FeedSettings; variant?: "bar" | "fab" }) {
   const queryClient = useQueryClient();
   const me = useMyIdentity();
   const options = useVisibilityOptions();
@@ -174,19 +174,25 @@ export function PostComposer({ settings }: { settings: FeedSettings }) {
 
   return (
     <section aria-label="Criar publicação" data-testid="composer">
-      <button
-        type="button"
-        data-testid="composer-open"
-        className="flex min-h-14 w-full items-center gap-3 rounded-lg border border-border bg-card px-3 text-left shadow-[var(--shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={() => setOpen(true)}
-      >
-        <Avatar decorative name={me.name} src={me.photo} size={36} />
-        <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-          {body.trim() || attachments.length > 0 ? "Continuar rascunho…" : "No que você está pensando?"}
-        </span>
-        <ImagePlus size={20} className="flex-none text-primary" aria-hidden="true" />
-      </button>
-      {pendingNotice && (
+      {variant === "fab" ? (
+        <button type="button" data-testid="post-fab" className="post-fab" aria-label="Nova publicação" onClick={() => setOpen(true)}>
+          <Plus aria-hidden="true" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          data-testid="composer-open"
+          className="flex min-h-14 w-full items-center gap-3 rounded-lg border border-border bg-card px-3 text-left shadow-[var(--shadow)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={() => setOpen(true)}
+        >
+          <Avatar decorative name={me.name} src={me.photo} size={36} />
+          <span className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+            {body.trim() || attachments.length > 0 ? "Continuar rascunho…" : "No que você está pensando?"}
+          </span>
+          <ImagePlus size={20} className="flex-none text-primary" aria-hidden="true" />
+        </button>
+      )}
+      {variant === "bar" && pendingNotice && (
         <p className="mt-2 flex items-start gap-2 rounded-md bg-secondary px-3 py-2 text-xs" role="status" data-testid="composer-pending-notice">
           <Clock size={14} className="mt-0.5 flex-none" aria-hidden="true" />
           Seu post foi enviado para aprovação. Ele aparece para você aqui no topo e será publicado para o grupo depois que um professor aprovar.

@@ -114,13 +114,13 @@ afterEach(() => {
 });
 
 describe("ordem das seções na Home", () => {
-  it("stories -> banner -> prévia do Grupo -> Minha graduação -> resto", async () => {
+  it("stories -> banner -> Minha graduação (colada) -> prévia do Grupo -> resto", async () => {
     const state = setupHome({ posts: [makePost({ id: 1 })], groups: [storyGroup] });
     await mountHome(state, () => preview() !== null && storiesRow() !== null);
     const banner = $("[data-testid=hero-carousel]")!;
     const graduation = $(".grad-link")!;
     const stats = $("[aria-label='Minha evolução']")!;
-    const order = [storiesRow()!, banner, preview()!, graduation, stats];
+    const order = [storiesRow()!, banner, graduation, preview()!, stats];
     for (let i = 0; i < order.length - 1; i += 1) {
       const relation = order[i]!.compareDocumentPosition(order[i + 1]!);
       expect(relation & Node.DOCUMENT_POSITION_FOLLOWING, `posição ${i} -> ${i + 1}`).toBeTruthy();
@@ -129,8 +129,8 @@ describe("ordem das seções na Home", () => {
     const kids = [...banner.parentElement!.children];
     const at = kids.indexOf(banner);
     expect(kids[at - 1]?.contains(storiesRow())).toBe(true);
-    expect(kids[at + 1]?.contains(preview())).toBe(true);
-    expect(kids[at + 2]).toBe(graduation);
+    expect(kids[at + 1]).toBe(graduation);
+    expect(kids[at + 2]?.contains(preview())).toBe(true);
   });
 
   it("a faixa de stories fica COLADA no banner: irmãos diretos, sem margem entre eles, e a faixa leva a marca que tira o canto de cima do banner", async () => {

@@ -28,6 +28,7 @@ import { useSessionUser } from "@/lib/session";
 import { useFeedSettings } from "@/lib/feed";
 import { useMyIdentity, useMyStudent, useMyUnit, usePassport, usePendingTransferCount, useUnreadCount } from "@/lib/queries";
 import { Avatar } from "./avatar";
+import { QuickPostFab } from "./feed/quick-post-fab";
 
 const mainNav = [
   { to: "/", label: "Início", icon: House },
@@ -210,6 +211,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </footer>
         </main>
       </div>
+      <QuickPostFab />
       <nav className="bottom-nav" aria-label="Navegação inferior">
         {bottomNav.map((item) => (
           <Link key={item.to} to={item.to} className={pathname === item.to ? "active" : ""}>

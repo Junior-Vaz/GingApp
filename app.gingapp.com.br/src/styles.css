@@ -575,6 +575,25 @@
 .grad-text h2 { font-family:var(--font-display); font-size:24px; line-height:1.12; font-weight:800; margin:4px 0 5px; color:var(--primary); overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; }
 .grad-text p { font-size:12px; color:var(--muted-foreground); overflow:hidden; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; overflow-wrap:anywhere; word-break:break-word; }
 .grad-rope { margin-left:auto; }
+/* Home: o cartão "Minha graduação" cola embaixo do banner (mesma largura, sem margem/borda entre os dois). No celular
+   vai até a borda da tela como o banner (margem negativa = padding lateral da página). O banner perde o raio e a margem
+   de baixo quando vem seguido do cartão; o arredondamento externo é do conjunto. */
+.grad-attached { border-radius:8px; margin-bottom:20px; }
+.grad-attached .grad-card { border-radius:8px; box-shadow:none; }
+.welcome-banner:has(+ .grad-attached) { margin-bottom:0; border-bottom-left-radius:0; border-bottom-right-radius:0; }
+.welcome-banner + .grad-attached, .welcome-banner + .grad-attached .grad-card { border-top-left-radius:0; border-top-right-radius:0; }
+.welcome-banner + .grad-attached .grad-card { border-top-width:0; }
+@media(max-width:767px) {
+  .grad-attached { margin-left:-18px; margin-right:-18px; border-radius:0; }
+  .grad-attached .grad-card { border-radius:0; border-left-width:0; border-right-width:0; }
+}
+/* Botão flutuante "Nova publicação" (canto inferior direito): acima da barra inferior no celular. */
+.post-fab { position:fixed; z-index:35; right:16px; bottom:calc(var(--bottom-nav-h) + 16px); width:56px; height:56px; border:0; border-radius:50%; display:grid; place-items:center; background:var(--primary); color:var(--primary-foreground); box-shadow:0 6px 18px oklch(.2 .03 155 / .35); cursor:pointer; transition:transform .15s ease; }
+.post-fab svg { width:26px; height:26px; }
+.post-fab:active { transform:scale(.94); }
+.post-fab:focus-visible { outline:3px solid var(--ring); outline-offset:3px; }
+@media(min-width:768px) { .post-fab { right:28px; bottom:28px; } }
+.app-shell:has(.map-fullscreen) .post-fab { display:none; }
 .stats-grid-2 { grid-template-columns:repeat(2,1fr); }
 .timeline-rope { display:flex; align-items:center; gap:10px; margin:8px 0; } .timeline-rope h3 { margin:0!important; }
 .rope-ruler { display:flex; gap:6px; overflow-x:auto; list-style:none; margin:16px 0 6px; padding:10px 4px 12px; scrollbar-width:thin; }

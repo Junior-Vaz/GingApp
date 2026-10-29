@@ -80,8 +80,8 @@ export function HomePage() {
       {/* A faixa de stories fica COLADA no banner (sem margem entre os dois); o arredondamento de cima é da faixa. */}
       <StoriesRow />
       <HeroCarousel />
-      <HomeFeedPreview className="mb-5" />
-      <Link to="/jornada" className="grad-link" aria-label={`${cardLabel}: ver jornada`}>
+      {/* "Minha graduação" fica COLADA embaixo do banner (mesma largura, sem margem); a prévia do Grupo vem depois. */}
+      <Link to="/jornada" className="grad-link grad-attached" aria-label={`${cardLabel}: ver jornada`}>
         <GraduationCard
           label={cardLabel}
           name={current ? current.graduationLevel.name : null}
@@ -93,6 +93,7 @@ export function HomePage() {
           }
         />
       </Link>
+      <HomeFeedPreview className="mb-5" />
       <section className="stats-grid stats-grid-2" aria-label="Minha evolução">
         <Link to="/frequencia" className="stat no-underline">
           <div>
