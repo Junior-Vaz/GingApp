@@ -94,6 +94,12 @@ export const AuditAction = {
   // Certificados / comunicados / imagens
   CERTIFICATE_ISSUE: 'CERTIFICATE_ISSUE',
   CERTIFICATE_DOWNLOAD: 'CERTIFICATE_DOWNLOAD',
+  // Modelos de certificado (docs/CONTRATO_CERTIFICADOS_MODELOS.md secao 8): so id/nome/uso/orientacao/contagens, NUNCA o
+  // conteudo dos textos do desenho. Duplicar grava CREATE com meta.duplicatedFrom; "definir padrao" grava DEFAULT.
+  CERTIFICATE_TEMPLATE_CREATE: 'CERTIFICATE_TEMPLATE_CREATE',
+  CERTIFICATE_TEMPLATE_UPDATE: 'CERTIFICATE_TEMPLATE_UPDATE',
+  CERTIFICATE_TEMPLATE_DELETE: 'CERTIFICATE_TEMPLATE_DELETE',
+  CERTIFICATE_TEMPLATE_DEFAULT: 'CERTIFICATE_TEMPLATE_DEFAULT',
   ANNOUNCEMENT_CREATE: 'ANNOUNCEMENT_CREATE',
   ANNOUNCEMENT_UPDATE: 'ANNOUNCEMENT_UPDATE',
   // Comunicar (contrato secao 3): so alcance/contagens, NUNCA o titulo/texto da mensagem
@@ -239,6 +245,7 @@ export const AuditEntity = {
   GRADUATION_LEVEL: 'graduation_level',
   STUDENT_GRADUATION: 'student_graduation',
   CERTIFICATE: 'certificate',
+  CERTIFICATE_TEMPLATE: 'certificate_template',
   ANNOUNCEMENT: 'announcement',
   NOTIFICATION: 'notification',
   QUICK_NOTICE_TEMPLATE: 'quick_notice_template',

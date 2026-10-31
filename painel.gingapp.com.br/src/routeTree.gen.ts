@@ -39,8 +39,10 @@ import { Route as AppRodasRouteImport } from './routes/_app.rodas'
 import { Route as AppTransferenciasRouteImport } from './routes/_app.transferencias'
 import { Route as AppTurmasRouteImport } from './routes/_app.turmas'
 import { Route as AppUnidadesRouteImport } from './routes/_app.unidades'
+import { Route as AppCertificadosModelosRouteImport } from './routes/_app.certificados_.modelos'
 import { Route as AppFormulariosFormIdRouteImport } from './routes/_app.formularios_.$formId'
 import { Route as AppTurmasClassIdRouteImport } from './routes/_app.turmas_.$classId'
+import { Route as AppCertificadosModelosIdRouteImport } from './routes/_app.certificados_.modelos_.$id'
 import { Route as AppCheckinKindIdRouteImport } from './routes/_app.checkin.$kind.$id'
 
 const IndexRoute = IndexRouteImport.update({
@@ -192,6 +194,11 @@ const AppUnidadesRoute = AppUnidadesRouteImport.update({
   path: '/unidades',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCertificadosModelosRoute = AppCertificadosModelosRouteImport.update({
+  id: '/certificados_/modelos',
+  path: '/certificados/modelos',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppFormulariosFormIdRoute = AppFormulariosFormIdRouteImport.update({
   id: '/formularios_/$formId',
   path: '/formularios/$formId',
@@ -202,6 +209,12 @@ const AppTurmasClassIdRoute = AppTurmasClassIdRouteImport.update({
   path: '/turmas/$classId',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCertificadosModelosIdRoute =
+  AppCertificadosModelosIdRouteImport.update({
+    id: '/certificados_/modelos_/$id',
+    path: '/certificados/modelos/$id',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppCheckinKindIdRoute = AppCheckinKindIdRouteImport.update({
   id: '/checkin/$kind/$id',
   path: '/checkin/$kind/$id',
@@ -238,8 +251,10 @@ export interface FileRoutesByFullPath {
   '/transferencias': typeof AppTransferenciasRoute
   '/turmas': typeof AppTurmasRoute
   '/unidades': typeof AppUnidadesRoute
+  '/certificados/modelos': typeof AppCertificadosModelosRoute
   '/formularios/$formId': typeof AppFormulariosFormIdRoute
   '/turmas/$classId': typeof AppTurmasClassIdRoute
+  '/certificados/modelos/$id': typeof AppCertificadosModelosIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
 export interface FileRoutesByTo {
@@ -272,8 +287,10 @@ export interface FileRoutesByTo {
   '/transferencias': typeof AppTransferenciasRoute
   '/turmas': typeof AppTurmasRoute
   '/unidades': typeof AppUnidadesRoute
+  '/certificados/modelos': typeof AppCertificadosModelosRoute
   '/formularios/$formId': typeof AppFormulariosFormIdRoute
   '/turmas/$classId': typeof AppTurmasClassIdRoute
+  '/certificados/modelos/$id': typeof AppCertificadosModelosIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
 export interface FileRoutesById {
@@ -308,8 +325,10 @@ export interface FileRoutesById {
   '/_app/transferencias': typeof AppTransferenciasRoute
   '/_app/turmas': typeof AppTurmasRoute
   '/_app/unidades': typeof AppUnidadesRoute
+  '/_app/certificados_/modelos': typeof AppCertificadosModelosRoute
   '/_app/formularios_/$formId': typeof AppFormulariosFormIdRoute
   '/_app/turmas_/$classId': typeof AppTurmasClassIdRoute
+  '/_app/certificados_/modelos_/$id': typeof AppCertificadosModelosIdRoute
   '/_app/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
 export interface FileRouteTypes {
@@ -344,8 +363,10 @@ export interface FileRouteTypes {
     | '/transferencias'
     | '/turmas'
     | '/unidades'
+    | '/certificados/modelos'
     | '/formularios/$formId'
     | '/turmas/$classId'
+    | '/certificados/modelos/$id'
     | '/checkin/$kind/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -378,8 +399,10 @@ export interface FileRouteTypes {
     | '/transferencias'
     | '/turmas'
     | '/unidades'
+    | '/certificados/modelos'
     | '/formularios/$formId'
     | '/turmas/$classId'
+    | '/certificados/modelos/$id'
     | '/checkin/$kind/$id'
   id:
     | '__root__'
@@ -413,8 +436,10 @@ export interface FileRouteTypes {
     | '/_app/transferencias'
     | '/_app/turmas'
     | '/_app/unidades'
+    | '/_app/certificados_/modelos'
     | '/_app/formularios_/$formId'
     | '/_app/turmas_/$classId'
+    | '/_app/certificados_/modelos_/$id'
     | '/_app/checkin/$kind/$id'
   fileRoutesById: FileRoutesById
 }
@@ -640,6 +665,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppUnidadesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/certificados_/modelos': {
+      id: '/_app/certificados_/modelos'
+      path: '/certificados/modelos'
+      fullPath: '/certificados/modelos'
+      preLoaderRoute: typeof AppCertificadosModelosRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/formularios_/$formId': {
       id: '/_app/formularios_/$formId'
       path: '/formularios/$formId'
@@ -652,6 +684,13 @@ declare module '@tanstack/react-router' {
       path: '/turmas/$classId'
       fullPath: '/turmas/$classId'
       preLoaderRoute: typeof AppTurmasClassIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/certificados_/modelos_/$id': {
+      id: '/_app/certificados_/modelos_/$id'
+      path: '/certificados/modelos/$id'
+      fullPath: '/certificados/modelos/$id'
+      preLoaderRoute: typeof AppCertificadosModelosIdRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/checkin/$kind/$id': {
@@ -688,8 +727,10 @@ interface AppRouteChildren {
   AppTransferenciasRoute: typeof AppTransferenciasRoute
   AppTurmasRoute: typeof AppTurmasRoute
   AppUnidadesRoute: typeof AppUnidadesRoute
+  AppCertificadosModelosRoute: typeof AppCertificadosModelosRoute
   AppFormulariosFormIdRoute: typeof AppFormulariosFormIdRoute
   AppTurmasClassIdRoute: typeof AppTurmasClassIdRoute
+  AppCertificadosModelosIdRoute: typeof AppCertificadosModelosIdRoute
   AppCheckinKindIdRoute: typeof AppCheckinKindIdRoute
 }
 
@@ -717,8 +758,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppTransferenciasRoute: AppTransferenciasRoute,
   AppTurmasRoute: AppTurmasRoute,
   AppUnidadesRoute: AppUnidadesRoute,
+  AppCertificadosModelosRoute: AppCertificadosModelosRoute,
   AppFormulariosFormIdRoute: AppFormulariosFormIdRoute,
   AppTurmasClassIdRoute: AppTurmasClassIdRoute,
+  AppCertificadosModelosIdRoute: AppCertificadosModelosIdRoute,
   AppCheckinKindIdRoute: AppCheckinKindIdRoute,
 }
 

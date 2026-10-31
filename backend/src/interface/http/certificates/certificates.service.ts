@@ -1,5 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { CertificatePurpose, Prisma } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
@@ -7,6 +7,8 @@ import { UnitScopeService, unitScopeFilter } from '../../../shared/access/unit-s
 import { PermissionsService } from '../../../shared/access/permissions.service';
 import { frontendBaseUrl } from '../../../shared/mail/mail.config';
 import { renderCertificatePdf } from './certificate-pdf';
+import { CertificateLayout, validateCertificateLayout } from './certificate-layout';
+import { CertificateTemplatesService } from './certificate-templates.service';
 import { ListCertificatesQueryDto } from './dto/list-certificates-query.dto';
 import { StudentsService } from '../students/students.service';
 import { CreateCertificateDto } from './dto/create-certificate.dto';
@@ -30,6 +32,9 @@ const LIST_INCLUDE = {
   studentGraduation: { select: { id: true, graduatedAt: true, graduationLevel: { select: LEVEL_SELECT } } },
 } satisfies Prisma.CertificateInclude;
 
+/** A cópia do desenho (até 64 KB) só serve ao PDF: nunca vai nas respostas de leitura (que trazem `templateId`). */
+const OMIT_SNAPSHOT = { layoutSnapshot: true } satisfies Prisma.CertificateOmit;
+
 /** studentGraduation.graduationLevel sempre com {id, name, order, color, style, colors}; sem graduação = null. */
 function withGraduationRope<C extends { studentGraduation: { graduationLevel: Parameters<typeof withRope>[0] } | null }>(certificate: C) {
   return {
@@ -52,6 +57,8 @@ function withGraduationRope<C extends { studentGraduation: { graduationLevel: Pa
  */
 @Injectable()
 export class CertificatesService {
+  private readonly logger = new Logger(CertificatesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
@@ -59,6 +66,7 @@ export class CertificatesService {
     private readonly permissions: PermissionsService,
     private readonly audit: AuditService,
     private readonly ranking: RankingService,
+    private readonly templates: CertificateTemplatesService,
   ) {}
 
   /** Antes SEM limite; agora paginado (padrão 50, igual aos demais módulos) — `limit`/`offset` e
@@ -94,6 +102,7 @@ export class CertificatesService {
       this.prisma.certificate.findMany({
         where,
         include: LIST_INCLUDE,
+        omit: OMIT_SNAPSHOT,
         orderBy: { id: 'desc' },
         ...pageArgs(query),
       }),
@@ -107,6 +116,7 @@ export class CertificatesService {
     const certificate = await this.prisma.certificate.findFirst({
       where: { id, organizationId, student: unitScopeFilter(scope) },
       include: LIST_INCLUDE,
+      omit: OMIT_SNAPSHOT,
     });
     if (!certificate) {
       throw new NotFoundException('Certificado não encontrado.');
@@ -124,6 +134,7 @@ export class CertificatesService {
     const rows = await this.prisma.certificate.findMany({
       where: { organizationId, studentId: { in: studentIds } },
       include: LIST_INCLUDE,
+      omit: OMIT_SNAPSHOT,
       orderBy: { id: 'desc' },
     });
     return rows.map(withGraduationRope);
@@ -173,16 +184,33 @@ export class CertificatesService {
     withGraduation: boolean,
   ): Promise<{ filename: string; buffer: Buffer }> {
     const appUrl = frontendBaseUrl('APP');
-    const buffer = await renderCertificatePdf({
-      organizationName: certificate.organization.name,
-      studentName: certificate.student.name,
-      title: certificate.title,
-      graduationName: withGraduation ? (certificate.studentGraduation?.graduationLevel.name ?? null) : null,
-      issuedAt: certificate.issuedAt ?? certificate.createdAt,
-      verificationCode: certificate.verificationCode,
-      verificationUrl: appUrl ? `${appUrl}/verificar/${certificate.verificationCode}` : null,
-    });
+    const buffer = await renderCertificatePdf(
+      {
+        organizationName: certificate.organization.name,
+        studentName: certificate.student.name,
+        title: certificate.title,
+        graduationName: withGraduation ? (certificate.studentGraduation?.graduationLevel.name ?? null) : null,
+        issuedAt: certificate.issuedAt ?? certificate.createdAt,
+        verificationCode: certificate.verificationCode,
+        verificationUrl: appUrl ? `${appUrl}/verificar/${certificate.verificationCode}` : null,
+      },
+      this.snapshotOf(certificate),
+    );
     return { filename: `certificado-${certificate.verificationCode}.pdf`, buffer };
+  }
+
+  /**
+   * Desenho gravado na emissão (contrato secao 7, item 4). Sem snapshot (certificado antigo) = null -> clássico embutido.
+   * Revalidado por defesa: snapshot corrompido também cai no clássico (o PDF nunca deixa de sair).
+   */
+  private snapshotOf(certificate: { id: number; layoutSnapshot: Prisma.JsonValue | null }): CertificateLayout | null {
+    if (certificate.layoutSnapshot === null || certificate.layoutSnapshot === undefined) return null;
+    try {
+      return validateCertificateLayout(certificate.layoutSnapshot);
+    } catch (error) {
+      this.logger.warn(`Certificado ${certificate.id}: layoutSnapshot inválido (${(error as Error).message}); usando o clássico.`);
+      return null;
+    }
   }
 
   /** Verificação pública (sem autenticação) pelo código do QR Code — retorna só o mínimo
@@ -223,6 +251,14 @@ export class CertificatesService {
       }
     }
 
+    // Modelo (contrato secao 7): informado -> padrão do uso (GRADUACAO com graduação vinculada, senão OUTRO) -> clássico.
+    // O certificado guarda a CÓPIA do desenho: editar/excluir o modelo depois não muda este certificado.
+    const { templateId, layoutSnapshot } = await this.templates.resolveForIssue(
+      organizationId,
+      dto.templateId,
+      dto.studentGraduationId ? CertificatePurpose.GRADUACAO : CertificatePurpose.OUTRO,
+    );
+
     const created = await this.prisma.certificate.create({
       data: {
         organizationId,
@@ -231,15 +267,18 @@ export class CertificatesService {
         title: dto.title,
         issuedAt: dto.issuedAt ? new Date(dto.issuedAt) : new Date(),
         fileUrl: dto.fileUrl,
+        templateId,
+        layoutSnapshot: layoutSnapshot as unknown as Prisma.InputJsonValue,
       },
       include: { student: { select: { id: true, name: true } } },
+      omit: OMIT_SNAPSHOT,
     });
     await this.audit.record({
       organizationId,
       action: AuditAction.CERTIFICATE_ISSUE,
       entity: AuditEntity.CERTIFICATE,
       entityId: created.id,
-      meta: { studentId: dto.studentId, studentGraduationId: dto.studentGraduationId ?? null },
+      meta: { studentId: dto.studentId, studentGraduationId: dto.studentGraduationId ?? null, templateId },
     });
     this.ranking.queueSync(dto.studentId); // Ginga Rank (fire-and-forget): +20 por certificado
     return created;
@@ -254,8 +293,10 @@ export class CertificatesService {
         title: dto.title,
         issuedAt: dto.issuedAt ? new Date(dto.issuedAt) : undefined,
         fileUrl: dto.fileUrl,
+        // templateId/layoutSnapshot NUNCA mudam aqui (contrato secao 7, item 3).
       },
       include: { student: { select: { id: true, name: true } } },
+      omit: OMIT_SNAPSHOT,
     });
   }
 

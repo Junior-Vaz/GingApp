@@ -481,6 +481,7 @@ model Organization {
   platformAnnouncements   PlatformAnnouncement[]
   publicProfiles          PublicProfile[]
   certificates            Certificate[]
+  certificateTemplates    CertificateTemplate[]
   rodas                   Roda[]
   uploads                 Upload[]
   pointEvents             PointEvent[]
@@ -2246,13 +2247,51 @@ model Certificate {
   fileUrl             String?
   verificationCode    String    @unique @default(cuid())
   createdAt           DateTime  @default(now())
+  /// Modelo usado na emissao (docs/CONTRATO_CERTIFICADOS_MODELOS.md secao 7); null = classico embutido ou modelo excluido.
+  templateId          Int?
+  /// COPIA do desenho (CertificateLayout) no momento da emissao, com o logo do grupo ja resolvido. Editar/excluir o
+  /// modelo NAO muda o certificado emitido. null = certificado antigo (renderiza o classico embutido).
+  layoutSnapshot      Json?
 
-  organization      Organization       @relation(fields: [organizationId], references: [id])
-  student           Student            @relation(fields: [studentId], references: [id])
-  studentGraduation StudentGraduation? @relation(fields: [studentGraduationId], references: [id])
+  organization      Organization         @relation(fields: [organizationId], references: [id])
+  student           Student              @relation(fields: [studentId], references: [id])
+  studentGraduation StudentGraduation?   @relation(fields: [studentGraduationId], references: [id])
+  template          CertificateTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([studentId])
+  @@index([templateId])
+}
+
+/// Uso do modelo de certificado (contrato secao 5): define o padrao por (grupo, uso).
+enum CertificatePurpose {
+  GRADUACAO
+  BATIZADO
+  EVENTO
+  PARTICIPACAO
+  OUTRO
+}
+
+/// Modelo de certificado do GRUPO (docs/CONTRATO_CERTIFICADOS_MODELOS.md): desenho em JSON (CertificateLayout v1, validado
+/// em src/interface/http/certificates/certificate-layout.ts). No maximo 1 padrao por (grupo, uso): indice unico PARCIAL
+/// ("organizationId", "purpose") WHERE "isDefault", criado na migration 20261103000000_certificate_templates (o Prisma nao
+/// declara indice parcial no schema). Exclusao REAL; os certificados emitidos seguem pelo layoutSnapshot.
+model CertificateTemplate {
+  id              Int                @id @default(autoincrement())
+  organizationId  Int
+  name            String
+  purpose         CertificatePurpose
+  isDefault       Boolean            @default(false)
+  layout          Json
+  /// So informativo (sem FK), como QuickNoticeTemplate.createdById.
+  createdByUserId Int?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  certificates Certificate[]
+
+  @@index([organizationId, purpose])
 }
 
 // =========================================================================

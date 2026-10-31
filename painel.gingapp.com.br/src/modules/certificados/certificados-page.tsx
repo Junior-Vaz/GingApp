@@ -38,6 +38,7 @@ import {
   type EditValues,
   type IssueValues,
 } from "./certificate-utils";
+import { TemplateSelect } from "./modelos/template-select";
 
 type CertificateInput = Record<string, unknown>;
 
@@ -242,6 +243,19 @@ export function CertificadosPage() {
                   <FormLabel>Data de emissão (opcional)</FormLabel>
                   <FormControl>
                     <Input type="date" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="templateId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Modelo do certificado</FormLabel>
+                  <FormControl>
+                    <TemplateSelect value={field.value ?? ""} onChange={field.onChange} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

@@ -148,6 +148,17 @@ export const api = {
     if (!response.ok) await throwApiError(response, path, token, options);
     return response.blob();
   },
+  /** POST com corpo JSON cuja resposta é um arquivo binário (ex.: pré-visualização em PDF). Erros seguem o contrato de `ApiError`. */
+  postBlob: async (path: string, body?: unknown, options: RequestOptions = {}): Promise<Blob> => {
+    const token = getToken();
+    const response = await fetch(`${API_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      ...jsonBody(body),
+    });
+    if (!response.ok) await throwApiError(response, path, token, options);
+    return response.blob();
+  },
   /** POST multipart (upload de arquivo): sem Content-Type manual - o navegador define o boundary. */
   postForm: async <T>(path: string, form: FormData, options: RequestOptions = {}): Promise<T> => {
     const token = getToken();

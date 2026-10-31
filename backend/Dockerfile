@@ -25,6 +25,9 @@ COPY package.json package-lock.json ./
 COPY prisma ./prisma
 COPY tsconfig.json tsconfig.build.json nest-cli.json ./
 COPY src ./src
+# Fontes OFL dos certificados (docs/CONTRATO_CERTIFICADOS_MODELOS.md secao 4): o `nest build` as copia para dist/assets/fonts
+# (nest-cli.json "assets"), entao chegam ao runner (COPY dist) e ao server (FROM build) sem COPY extra.
+COPY assets ./assets
 RUN npx prisma generate
 RUN npm run build
 

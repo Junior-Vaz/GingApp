@@ -11,6 +11,8 @@ export interface Certificate {
   issuedAt: string | null;
   verificationCode: string;
   fileUrl: string | null;
+  /** Modelo usado na emissão (contrato §7); null/ausente = modelo padrão/clássico ou modelo já excluído. */
+  templateId?: number | null | undefined;
   student: { id: number; name: string; /** Foto (ainda não enviada pelo backend): cai nas iniciais. */ photo?: string | null | undefined };
 }
 
@@ -44,6 +46,8 @@ export const issueSchema = z.object({
   title: z.string().trim().min(2, "Informe o título (mínimo 2 caracteres)."),
   issuedAt: z.string(),
   fileUrl: optionalUrl,
+  /** id do modelo ("" = o padrão do grupo, escolhido pelo servidor). */
+  templateId: z.string().optional(),
 });
 export type IssueValues = z.infer<typeof issueSchema>;
 
@@ -55,7 +59,7 @@ export const editSchema = z.object({
 });
 export type EditValues = z.infer<typeof editSchema>;
 
-export const emptyIssue = (): IssueValues => ({ studentId: "", title: "", issuedAt: "", fileUrl: "" });
+export const emptyIssue = (): IssueValues => ({ studentId: "", title: "", issuedAt: "", fileUrl: "", templateId: "" });
 
 export const certificateToEdit = (c: Certificate): EditValues => ({
   title: c.title,
@@ -63,13 +67,14 @@ export const certificateToEdit = (c: Certificate): EditValues => ({
   fileUrl: c.fileUrl ?? "",
 });
 
-/** Corpo do POST /certificates. */
+/** Corpo do POST /certificates. `templateId` só vai quando o usuário escolheu um modelo (senão o servidor usa o padrão). */
 export function toIssuePayload(v: IssueValues) {
   return {
     studentId: Number(v.studentId),
     title: v.title.trim(),
     ...(v.issuedAt ? { issuedAt: v.issuedAt } : {}),
     ...(v.fileUrl.trim() ? { fileUrl: v.fileUrl.trim() } : {}),
+    ...(v.templateId && Number.isInteger(Number(v.templateId)) ? { templateId: Number(v.templateId) } : {}),
   };
 }
 

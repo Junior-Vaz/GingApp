@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { canAccessRoute, homeFor, ROUTE_FORBIDDEN_MESSAGE } from "@/lib/nav";
 import { getUser } from "@/lib/session";
 import { CertificadosPage } from "@/modules/certificados/certificados-page";
+import { CertificadosTabs } from "@/modules/certificados/certificados-tabs";
 
 export const Route = createFileRoute("/_app/certificados")({
   // Certificados: o MONITOR não tem certificates:view (mesma regra do menu, `roles` em NAV_ITEMS); é levado à tela inicial dele com aviso, sem perder a sessão.
@@ -13,5 +14,14 @@ export const Route = createFileRoute("/_app/certificados")({
     }
   },
   head: () => ({ meta: [{ title: "Certificados — Painel GingApp" }] }),
-  component: CertificadosPage,
+  component: CertificadosRoute,
 });
+
+function CertificadosRoute() {
+  return (
+    <>
+      <CertificadosTabs active="certificados" />
+      <CertificadosPage />
+    </>
+  );
+}

@@ -8,6 +8,22 @@ export const UPLOAD_FILENAME_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a
 
 const UPLOAD_PATH_REGEX = /^\/api\/uploads\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(webp|jpg|png)$/;
 
+/** true SO para o caminho relativo devolvido por POST /uploads (`/api/uploads/<uuid>.<ext>`): sem URL externa, sem `..`. */
+export function isUploadPath(value: unknown): value is string {
+  return typeof value === 'string' && UPLOAD_PATH_REGEX.test(value);
+}
+
+/**
+ * Nome do arquivo (`<uuid>.<ext>`) de uma referencia de imagem do proprio backend: o caminho `/api/uploads/...` OU uma URL
+ * absoluta que termina nele (ex.: Organization.logo gravado como `https://api.../api/uploads/<uuid>.webp`). Outra URL = null.
+ */
+export function uploadFilenameOf(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  if (UPLOAD_PATH_REGEX.test(value)) return value.slice(UPLOAD_URL_PREFIX.length);
+  const match = /\/api\/uploads\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:webp|jpg|png))$/.exec(value);
+  return match && isURL(value, { protocols: ['http', 'https'], require_protocol: true }) ? match[1] : null;
+}
+
 /** true se for um caminho de upload do proprio backend OU uma URL http(s) absoluta valida. */
 export function isImageRef(value: unknown): boolean {
   if (typeof value !== 'string') return false;

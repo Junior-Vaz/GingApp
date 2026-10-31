@@ -4,6 +4,9 @@
   "sourceRoot": "src",
   "compilerOptions": {
     "deleteOutDir": true,
-    "assets": []
+    "assets": [
+      { "include": "../assets/fonts/*.woff", "outDir": "dist/assets" },
+      { "include": "../assets/fonts/*.txt", "outDir": "dist/assets" }
+    ]
   }
 }

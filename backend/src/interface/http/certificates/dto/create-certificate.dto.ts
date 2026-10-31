@@ -1,4 +1,4 @@
-import { IsDateString, IsInt, IsOptional, IsString, IsUrl, MinLength } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString, IsUrl, Min, MinLength } from 'class-validator';
 
 export class CreateCertificateDto {
   @IsInt()
@@ -19,4 +19,10 @@ export class CreateCertificateDto {
   @IsOptional()
   @IsUrl()
   fileUrl?: string;
+
+  /** Modelo de certificado do grupo (docs/CONTRATO_CERTIFICADOS_MODELOS.md secao 7). Omitido = padrão do uso ou o clássico. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  templateId?: number;
 }
