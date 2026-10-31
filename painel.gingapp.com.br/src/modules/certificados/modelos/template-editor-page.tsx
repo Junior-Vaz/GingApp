@@ -9,7 +9,9 @@ import {
   Eye,
   ImageIcon,
   Loader2,
+  Minus,
   Monitor,
+  PenLine,
   Redo2,
   Save,
   SendToBack,
@@ -32,6 +34,7 @@ import { CertificateCanvas } from "./certificate-canvas";
 import { canRedo, canUndo, createHistory, pushHistory, redo, undo, type History } from "./history";
 import {
   addDefaultElement,
+  addSignatureBlock,
   canReorder,
   duplicateElement,
   getElement,
@@ -44,6 +47,7 @@ import {
   validateLayout,
   validateName,
   whyCannotAdd,
+  whyCannotAddSignatureBlock,
   type LayoutIssue,
   type OrderAction,
 } from "./layout-utils";
@@ -217,6 +221,17 @@ function Editor({
     }
     commit(result.layout);
     setSelectedId(result.id);
+  }
+
+  /** "Bloco de assinatura": linha + texto de uma vez, UMA ação no histórico (desfazer remove os dois). Seleciona o texto. */
+  function addSignature() {
+    const result = addSignatureBlock(layout);
+    if (!result) {
+      toast.error(whyCannotAddSignatureBlock(layout) ?? "Não foi possível adicionar o bloco de assinatura.");
+      return;
+    }
+    commit(result.layout);
+    setSelectedId(result.textId);
   }
 
   function duplicate() {
@@ -407,6 +422,8 @@ function Editor({
         <ToolButton icon={Type} text="Texto" label="Adicionar texto" onClick={() => add("text")} />
         <ToolButton icon={ImageIcon} text="Imagem" label="Adicionar imagem" onClick={() => add("image")} />
         <ToolButton icon={Square} text="Retângulo" label="Adicionar retângulo" onClick={() => add("rect")} />
+        <ToolButton icon={Minus} text="Linha" label="Adicionar linha" onClick={() => add("line")} />
+        <ToolButton icon={PenLine} text="Bloco de assinatura" label="Adicionar bloco de assinatura" onClick={addSignature} />
         <span className="mx-1 hidden h-6 w-px bg-border sm:block" aria-hidden />
         <ToolButton icon={Undo2} label="Desfazer" onClick={doUndo} disabled={!canUndo(history)} />
         <ToolButton icon={Redo2} label="Refazer" onClick={doRedo} disabled={!canRedo(history)} />

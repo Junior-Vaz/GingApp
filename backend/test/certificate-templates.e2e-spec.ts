@@ -149,7 +149,13 @@ describe('Modelos de certificado (e2e)', () => {
     const res = await get(mestre.token, '/certificate-templates/presets').expect(200);
     assert.deepEqual(res.body.map((p: { key: string }) => p.key), ['classico', 'moderno', 'batizado', 'evento', 'minimalista']);
     assert.deepEqual(Object.keys(res.body[0]).sort(), ['key', 'layout', 'name', 'purpose']);
-    assert.deepEqual(res.body[0].layout, JSON.parse(JSON.stringify(CLASSIC_LAYOUT)));
+    assert.deepEqual(res.body[0].layout, JSON.parse(JSON.stringify(CERTIFICATE_PRESETS[0].layout)));
+    // o preset clássico (cópia editável) tem a assinatura; o CLASSIC_LAYOUT embutido (certificados sem snapshot) NÃO
+    for (const preset of res.body as Array<{ key: string; layout: { elements: Array<{ id: string; type: string }> } }>) {
+      assert.ok(preset.layout.elements.some((e) => e.id === 'assinatura-linha' && e.type === 'line'), `${preset.key}: linha de assinatura`);
+      assert.ok(preset.layout.elements.some((e) => e.id === 'assinatura-texto' && e.type === 'text'), `${preset.key}: texto da assinatura`);
+    }
+    assert.equal(CLASSIC_LAYOUT.elements.some((e) => e.type === 'line'), false);
     await get(instrutor.token, '/certificate-templates/presets').expect(200);
     for (const u of [monitor, aluno, responsavel]) await get(u.token, '/certificate-templates/presets').expect(403);
     await http().get('/api/certificate-templates/presets').expect(401);
@@ -354,6 +360,36 @@ describe('Modelos de certificado (e2e)', () => {
     const err = await post(mestre.token, '/certificate-templates/preview', { layout: bad }).expect(400);
     assert.match(err.body.message, /exatamente 1 QR Code/);
     await post(mestre.token, '/certificate-templates/preview', { layout: design('X'), extra: 1 }).expect(400);
+  });
+
+  it('elemento LINHA: POST (201) normaliza e GET devolve a linha; preview com linha devolve PDF; linha inválida = 400 LAYOUT_INVALID; PATCH aceita', async () => {
+    const line = { id: 'assinatura', type: 'line', x: 35, y: 70, length: 30, orientation: 'horizontal', color: '#1f2933', thickness: 1, lineStyle: 'dashed' };
+    const created = await createTemplate(mestre.token, { name: 'Com linha', purpose: 'OUTRO', layout: design('LINHA', [line]) });
+    const expected = { ...line, color: '#1F2933' };
+    const createdLayout = created.layout as { elements: Array<Record<string, unknown>> };
+    assert.deepEqual(createdLayout.elements.find((e) => e.id === 'assinatura'), expected);
+    const got = (await get(mestre.token, `/certificate-templates/${created.id}`).expect(200)).body;
+    assert.deepEqual(got.layout.elements.find((e: { id: string }) => e.id === 'assinatura'), expected);
+    const row = await prisma.certificateTemplate.findUniqueOrThrow({ where: { id: created.id } });
+    assert.deepEqual((row.layout as unknown as { elements: Array<Record<string, unknown>> }).elements.find((e) => e.id === 'assinatura'), expected, '2ª via: Prisma');
+
+    const preview = await pdf(mestre.token, '/certificate-templates/preview', { layout: design('PREVIA-LINHA', [line, { ...line, id: 'vertical', orientation: 'vertical', x: 10, y: 10, lineStyle: 'dotted' }]) }).expect(200);
+    assert.match(preview.headers['content-type'], /application\/pdf/);
+    const body = preview.body as Buffer;
+    assert.equal(body.subarray(0, 5).toString('latin1'), '%PDF-');
+    assert.ok(body.subarray(-16).toString('latin1').includes('%%EOF'));
+    assert.ok(pdfText(body).includes('PREVIA-LINHA'));
+
+    const patched = await patch(mestre.token, `/certificate-templates/${created.id}`, { layout: design('LINHA2', [{ ...line, orientation: 'vertical', x: 5, y: 60, length: 40 }]) }).expect(200);
+    assert.equal(patched.body.layout.elements.find((e: { id: string }) => e.id === 'assinatura').orientation, 'vertical');
+
+    const tooLong = await post(mestre.token, '/certificate-templates/preview', { layout: design('X', [{ ...line, x: 80, length: 30 }]) }).expect(400);
+    assert.equal(tooLong.body.code, 'LAYOUT_INVALID');
+    assert.match(tooLong.body.message, /Elemento "assinatura" \(linha\): x \+ length passa da largura da página/);
+    const extra = await post(mestre.token, '/certificate-templates', { name: 'Ruim', purpose: 'OUTRO', layout: design('X', [{ ...line, w: 10 }]) }).expect(400);
+    assert.equal(extra.body.code, 'LAYOUT_INVALID');
+    assert.match(extra.body.message, /Elemento "assinatura" \(linha\): campo desconhecido "w"/);
+    await del(mestre.token, `/certificate-templates/${created.id}`).expect(204);
   });
 
   it('pré-visualização tem limite POR USUÁRIO (429 acima do teto; outro usuário segue)', async () => {

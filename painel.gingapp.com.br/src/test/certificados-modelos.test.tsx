@@ -9,7 +9,8 @@ import { CertificadosPage } from "@/modules/certificados/certificados-page";
 import { CertificadosTabs } from "@/modules/certificados/certificados-tabs";
 import { TemplateEditorPage, TemplatesPage } from "@/modules/certificados/modelos";
 import { LeaveGuard } from "@/modules/formularios";
-import { blankLayout, toWireLayout } from "@/modules/certificados/modelos/layout-utils";
+import { addDefaultElement, blankLayout, defaultElement, toWireLayout } from "@/modules/certificados/modelos/layout-utils";
+import { LayoutThumb } from "@/modules/certificados/modelos/template-thumb";
 import type {
   CertificatePreset,
   CertificateTemplate,
@@ -597,6 +598,194 @@ describe("TemplateEditorPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Adicionar texto" }));
     expect(toast.error).toHaveBeenCalledWith("O modelo já tem o máximo de 40 elementos.");
     expect(screen.getAllByTestId(/^el-/)).toHaveLength(40);
+    // 37 cliques re-renderizam o editor inteiro: sob a carga do gate completo passa dos 20 s do teto padrão.
+  }, 90_000);
+
+  // ---------------------------------------------------------------- linha e bloco de assinatura (contrato §8.1)
+
+  const addLine = () => fireEvent.click(screen.getByRole("button", { name: "Adicionar linha" }));
+  const addSignature = () => fireEvent.click(screen.getByRole("button", { name: "Adicionar bloco de assinatura" }));
+  const lastElement = () => screen.getAllByTestId(/^el-/).at(-1)!;
+
+  it("Linha: adicionar pela barra seleciona a linha, mostra só as alças das pontas e o painel da linha", async () => {
+    await renderEditor();
+    addLine();
+    expect(screen.getByRole("heading", { name: "Linha 4" })).toBeInTheDocument();
+    const node = lastElement();
+    expect(node).toHaveAttribute("data-element-type", "line");
+    expect(node).toHaveAttribute("aria-label", "Linha 4");
+    expect(node).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("unsaved-indicator")).toBeInTheDocument();
+    // só as pontas (horizontal: esquerda/direita)
+    expect(screen.getByTestId("handle-w")).toBeInTheDocument();
+    expect(screen.getByTestId("handle-e")).toBeInTheDocument();
+    for (const handle of ["n", "s", "ne", "nw", "se", "sw"]) expect(screen.queryByTestId(`handle-${handle}`)).toBeNull();
+    // desenhada em SVG: cor, espessura em pt e sem tracejado
+    const stroke = within(node).getByTestId(/^line-/);
+    expect(stroke).toHaveAttribute("data-orientation", "horizontal");
+    expect(stroke).toHaveAttribute("stroke", "#1F2937");
+    expect(stroke).toHaveAttribute("stroke-width", "1");
+    expect(stroke).not.toHaveAttribute("stroke-dasharray");
+    // painel: comprimento (sem largura/altura), orientação e estilo
+    expect(screen.getByLabelText("Comprimento (%)")).toHaveValue(30);
+    expect(screen.queryByLabelText("Largura (%)")).toBeNull();
+    expect(screen.queryByLabelText("Altura (%)")).toBeNull();
+    expect(screen.getByRole("button", { name: "Horizontal" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Sólida" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("Linha: editar espessura, cor, estilo, comprimento e orientação (ao virar vertical reencaixa na página)", async () => {
+    await renderEditor();
+    addLine();
+    const node = lastElement();
+    const stroke = within(node).getByTestId(/^line-/);
+    fireEvent.change(screen.getByLabelText("Espessura da linha (pt)"), { target: { value: "3" } });
+    fireEvent.change(screen.getByLabelText("Cor da linha (código hexadecimal)"), { target: { value: "#aa0000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tracejada" }));
+    expect(stroke).toHaveAttribute("stroke-width", "3");
+    expect(stroke).toHaveAttribute("stroke", "#AA0000");
+    expect(stroke).toHaveAttribute("data-line-style", "dashed");
+    expect(stroke).toHaveAttribute("stroke-dasharray", "12 9");
+    expect(stroke).toHaveAttribute("stroke-linecap", "butt");
+    expect(screen.getByRole("button", { name: "Tracejada" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Pontilhada" }));
+    expect(stroke).toHaveAttribute("stroke-dasharray", "0.01 7.5");
+    expect(stroke).toHaveAttribute("stroke-linecap", "round");
+
+    fireEvent.change(screen.getByLabelText("Posição Y (%)"), { target: { value: "80" } });
+    fireEvent.change(screen.getByLabelText("Comprimento (%)"), { target: { value: "40" } });
+    expect(node.style.width).toBe("40%");
+    fireEvent.click(screen.getByRole("button", { name: "Vertical" }));
+    expect(stroke).toHaveAttribute("data-orientation", "vertical");
+    expect(node.style.height).toBe("40%"); // agora é % da ALTURA
+    expect(screen.getByLabelText("Posição Y (%)")).toHaveValue(60); // 80 + 40 > 100: reencaixou
+    expect(screen.getByLabelText("Comprimento (%)")).toHaveValue(40);
+    expect(screen.getByTestId("handle-n")).toBeInTheDocument();
+    expect(screen.getByTestId("handle-s")).toBeInTheDocument();
+    expect(screen.queryByTestId("handle-e")).toBeNull();
+    expect(screen.getByRole("button", { name: "Vertical" })).toHaveAttribute("aria-pressed", "true");
+    // nada da faixa inválida chega ao desenho: sem pendências
+    expect(screen.queryByTestId("issues")).toBeNull();
+  });
+
+  it("Linha: arrastar a ponta direita muda só o comprimento; teclado move, Alt+setas redimensiona e Delete remove", async () => {
+    await renderEditor();
+    const sheet = screen.getByTestId("certificate-sheet");
+    sheet.getBoundingClientRect = () =>
+      ({ width: 1000, height: 707, left: 0, top: 0, right: 1000, bottom: 707, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    addLine();
+    const handle = screen.getByTestId("handle-e");
+    fireEvent.pointerDown(handle, { pointerId: 1, button: 0, clientX: 650, clientY: 530 });
+    fireEvent.pointerMove(handle, { pointerId: 1, clientX: 700, clientY: 530 }); // +50px de 1000 = +5%
+    fireEvent.pointerUp(handle, { pointerId: 1, clientX: 700, clientY: 530 });
+    expect(screen.getByLabelText("Comprimento (%)")).toHaveValue(35);
+    expect(screen.getByLabelText("Posição X (%)")).toHaveValue(35); // a ponta esquerda não mexeu
+    expect(screen.getByRole("button", { name: "Desfazer" })).toBeEnabled();
+
+    const node = lastElement();
+    fireEvent.keyDown(node, { key: "ArrowRight" });
+    expect(node.style.left).toBe("36%");
+    fireEvent.keyDown(node, { key: "ArrowRight", altKey: true });
+    expect(node.style.width).toBe("36%");
+    fireEvent.keyDown(node, { key: "Delete" });
+    expect(screen.getAllByTestId(/^el-/)).toHaveLength(3);
+  });
+
+  it("Bloco de assinatura: insere linha + texto de uma vez, seleciona o texto, e UM desfazer remove os dois", async () => {
+    await renderEditor();
+    expect(screen.getAllByTestId(/^el-/)).toHaveLength(3);
+    addSignature();
+    const nodes = screen.getAllByTestId(/^el-/);
+    expect(nodes).toHaveLength(5);
+    const [lineNode, textNode] = nodes.slice(-2) as [HTMLElement, HTMLElement];
+    expect(lineNode).toHaveAttribute("data-element-type", "line");
+    expect(textNode).toHaveAttribute("data-element-type", "text");
+    expect(textNode).toHaveAttribute("data-selected", "true"); // o texto fica selecionado
+    expect(lineNode).not.toHaveAttribute("data-selected");
+    expect(within(textNode).getByText("Assinatura")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Texto 5" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Conteúdo do texto" })).toHaveValue("Assinatura");
+    // a linha acima e o texto abaixo, com a mesma largura e o mesmo x
+    expect(textNode.style.left).toBe(lineNode.style.left);
+    expect(textNode.style.width).toBe(lineNode.style.width);
+    expect(Number.parseFloat(textNode.style.top)).toBeGreaterThan(Number.parseFloat(lineNode.style.top));
+    expect(screen.getByTestId("unsaved-indicator")).toBeInTheDocument();
+    expect(screen.queryByTestId("issues")).toBeNull();
+
+    // UMA ação no histórico
+    fireEvent.click(screen.getByRole("button", { name: "Desfazer" }));
+    expect(screen.getAllByTestId(/^el-/)).toHaveLength(3);
+    expect(screen.queryByTestId("unsaved-indicator")).toBeNull();
+    expect(screen.getByRole("button", { name: "Desfazer" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Refazer" }));
+    expect(screen.getAllByTestId(/^el-/)).toHaveLength(5);
+  });
+
+  it("Bloco de assinatura sem espaço (39 de 40): mostra o motivo, não insere nada; uma linha ainda cabe", async () => {
+    let big = blankLayout();
+    while (big.elements.length < 39) big = addDefaultElement(big, "rect")!.layout;
+    await renderEditor({ "GET /certificate-templates/1": () => json(200, detailOf(SUMMARIES[0]!, big)) });
+    expect(screen.getAllByTestId(/^el-/)).toHaveLength(39);
+    addSignature();
+    expect(toast.error).toHaveBeenCalledWith("O bloco de assinatura usa 2 elementos e o modelo já tem 39 de 40.");
+    expect(screen.getAllByTestId(/^el-/)).toHaveLength(39);
+    expect(screen.queryByTestId("unsaved-indicator")).toBeNull();
+    addLine();
+    expect(screen.getAllByTestId(/^el-/)).toHaveLength(40);
+    vi.mocked(toast.error).mockClear();
+    addLine();
+    expect(toast.error).toHaveBeenCalledWith("O modelo já tem o máximo de 40 elementos.");
+    expect(screen.getAllByTestId(/^el-/)).toHaveLength(40);
+  }, 90_000);
+
+  it("salvar com linha e bloco de assinatura envia o PATCH com type 'line' e exatamente as chaves do contrato", async () => {
+    const { calls } = await renderEditor({ "PATCH /certificate-templates/1": () => json(200, detailOf(SUMMARIES[0]!)) });
+    addLine();
+    fireEvent.change(screen.getByLabelText("Espessura da linha (pt)"), { target: { value: "2.5" } });
+    fireEvent.change(screen.getByLabelText("Cor da linha (código hexadecimal)"), { target: { value: "#aa0000" } });
+    fireEvent.click(screen.getByRole("button", { name: "Tracejada" }));
+    fireEvent.change(screen.getByLabelText("Posição Y (%)"), { target: { value: "70" } });
+    addSignature();
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(sent(calls, "PATCH")).toHaveLength(1));
+
+    const body = sent(calls, "PATCH")[0]!.body as { layout: { elements: Record<string, unknown>[] } };
+    expect(Object.keys(body).sort()).toEqual(["layout", "name", "purpose"]);
+    const elements = body.layout.elements;
+    expect(elements).toHaveLength(6);
+    const [drawn, signLine, signText] = elements.slice(-3) as [Record<string, unknown>, Record<string, unknown>, Record<string, unknown>];
+    const id = expect.stringMatching(/^e-[a-z0-9]{6}$/) as unknown;
+
+    // linha editada: só as chaves do contrato (sem w/h da caixa de seleção), cor em maiúsculo
+    expect(Object.keys(drawn).sort()).toEqual(["color", "id", "length", "lineStyle", "orientation", "thickness", "type", "x", "y"]);
+    expect(drawn).toEqual({ id, type: "line", x: 35, y: 70, length: 30, orientation: "horizontal", color: "#AA0000", thickness: 2.5, lineStyle: "dashed" });
+
+    // bloco de assinatura: DOIS elementos independentes (linha + texto), cada um com todas as chaves do contrato
+    expect(signLine).toEqual({ id, type: "line", x: 35, y: 80, length: 30, orientation: "horizontal", color: "#1F2937", thickness: 1, lineStyle: "solid" });
+    expect(Object.keys(signText).sort()).toEqual(
+      ["align", "bold", "color", "fontKey", "h", "id", "italic", "letterSpacing", "lineHeight", "size", "text", "type", "uppercase", "vAlign", "w", "x", "y"].sort(),
+    );
+    expect(signText).toEqual({
+      id,
+      type: "text",
+      x: 35,
+      y: 81,
+      w: 30,
+      h: 5,
+      text: "Assinatura",
+      fontKey: "helvetica",
+      size: 12,
+      color: "#1F2937",
+      align: "center",
+      vAlign: "top",
+      bold: false,
+      italic: false,
+      uppercase: false,
+      letterSpacing: 0,
+      lineHeight: 1.2,
+    });
+    expect(new Set(elements.map((e) => e["id"])).size).toBe(elements.length);
+    await waitFor(() => expect(screen.queryByTestId("unsaved-indicator")).toBeNull());
   });
 
   it("duplicar e ordem frente/trás atuam no elemento selecionado", async () => {
@@ -645,6 +834,29 @@ describe("TemplateEditorPage", () => {
       </QueryClientProvider>,
     );
     expect(await screen.findByTestId("editor-error")).toHaveTextContent("Modelo não encontrado.");
+  });
+});
+
+describe("miniatura de modelo com linha", () => {
+  beforeEach(() => loginAs("MESTRE"));
+  afterEach(() => clearSession());
+
+  it("LayoutThumb desenha a linha em modo leitura (sem botões nem alças)", () => {
+    const base = blankLayout();
+    const layout = { ...base, elements: [...base.elements, { ...defaultElement("line", "landscape", "linha-x"), lineStyle: "dotted", thickness: 2 } as never] };
+    render(
+      <QueryClientProvider client={client()}>
+        <LayoutThumb layout={layout} />
+      </QueryClientProvider>,
+    );
+    const sheet = screen.getByTestId("certificate-sheet");
+    expect(sheet).toHaveAttribute("role", "img");
+    const stroke = within(sheet).getByTestId("line-linha-x");
+    expect(stroke).toHaveAttribute("data-line-style", "dotted");
+    expect(stroke).toHaveAttribute("stroke-width", "2");
+    expect(stroke).toHaveAttribute("stroke-linecap", "round");
+    expect(within(sheet).queryByRole("button")).toBeNull();
+    expect(within(sheet).queryByTestId("handle-e")).toBeNull();
   });
 });
 

@@ -12,8 +12,12 @@ import {
   undo,
 } from "@/modules/certificados/modelos/history";
 import {
+  ADDABLE_TYPES,
+  LINE_HIT_PT,
+  SIGNATURE_BLOCK,
   SNAP_THRESHOLD,
   addDefaultElement,
+  addSignatureBlock,
   analyzeVariables,
   applyVariables,
   blankLayout,
@@ -29,15 +33,22 @@ import {
   insertAtCursor,
   isDarkEnoughForQr,
   layoutBytes,
+  lineDash,
+  lineHandles,
+  lineOffsetPct,
   moveElement,
   relativeLuminance,
   removeElement,
   reorderElement,
   resizeBox,
+  resizeElement,
+  resizeLine,
   resizeQr,
   sampleVariables,
   setBackground,
   setOrientation,
+  snapBox,
+  snapLineResize,
   snapMove,
   snapResize,
   toWireLayout,
@@ -45,9 +56,12 @@ import {
   validateLayout,
   validateName,
   whyCannotAdd,
+  whyCannotAddSignatureBlock,
+  type Box,
 } from "@/modules/certificados/modelos/layout-utils";
 import {
   ELEMENT_ID,
+  ELEMENT_TYPE_LABEL,
   FONTS,
   LIMITS,
   PAGE_PT,
@@ -56,6 +70,7 @@ import {
   type CertificateElement,
   type CertificateLayout,
   type ImageEl,
+  type LineEl,
   type QrEl,
   type TextEl,
 } from "@/modules/certificados/modelos/types";
@@ -561,5 +576,392 @@ describe("formato do fio (toWireLayout)", () => {
     expect(wire.elements.find((e) => e.id === "r-1")).toMatchObject({ fill: "#00FF00" });
     expect(wire.elements.find((e) => e.id === "i-1")).toMatchObject({ ref: null });
     expect(wire.elements.find((e) => e.id === "q-1")).toMatchObject({ fg: "#0A0A0A" });
+  });
+});
+
+// ------------------------------------------------------------------ linha e bloco de assinatura (contrato §2 LineEl e §8.1)
+
+const line = (over: Partial<LineEl> = {}): LineEl => ({
+  ...(defaultElement("line", "landscape", "linha-1") as LineEl),
+  ...over,
+});
+/** Modelo em branco + os elementos dados (a linha vira o "Linha 4"). */
+const withEls = (...els: CertificateElement[]): CertificateLayout => ({
+  ...blankLayout(),
+  elements: [...blankLayout().elements, ...els],
+});
+const overlaps = (a: Box, b: Box): boolean =>
+  Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1e-9 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1e-9;
+
+describe("linha: conformidade com o contrato", () => {
+  it("constantes e rótulo em português", () => {
+    expect(LIMITS.lineLength).toEqual({ min: 1, max: 100 });
+    expect(LIMITS.lineThickness).toEqual({ min: 0.5, max: 10 });
+    expect(ELEMENT_TYPE_LABEL.line).toBe("Linha");
+    expect(ADDABLE_TYPES).toContain("line");
+    expect(ADDABLE_TYPES).not.toContain("qr");
+  });
+
+  const contractPath = resolve(process.cwd(), "..", "docs", "CONTRATO_CERTIFICADOS_MODELOS.md");
+  it.skipIf(!existsSync(contractPath))("LineEl do docs/CONTRATO_CERTIFICADOS_MODELOS.md: chaves, faixas e estilos batem com o painel", () => {
+    const doc = readFileSync(contractPath, "utf8");
+    const block = doc.match(/interface LineEl extends BaseEl \{([\s\S]*?)\n\}/)?.[1] ?? "";
+    expect(block).not.toBe("");
+    const code = block
+      .split("\n")
+      .map((l) => l.split("//")[0]!)
+      .join(" ");
+    const keys = [...code.matchAll(/(\w+)\??:/g)].map((m) => m[1]);
+    const wire = toWireLayout(withEls(line())).elements.at(-1)!;
+    expect([...keys].sort()).toEqual(Object.keys(wire).filter((k) => k !== "id").sort());
+    const length = doc.match(/length: number;\s*\/\/ comprimento em % \((\d+)\.\.(\d+)\)/);
+    expect([Number(length?.[1]), Number(length?.[2])]).toEqual([LIMITS.lineLength.min, LIMITS.lineLength.max]);
+    const thickness = doc.match(/thickness: number;\s*\/\/ pt, ([\d.]+)\.\.(\d+)/);
+    expect([Number(thickness?.[1]), Number(thickness?.[2])]).toEqual([LIMITS.lineThickness.min, LIMITS.lineThickness.max]);
+    expect(code).toContain("'solid' | 'dashed' | 'dotted'");
+    expect(code).toContain("'horizontal' | 'vertical'");
+    expect(doc).toMatch(/CertificateElement = TextEl \| ImageEl \| RectEl \| LineEl \| QrEl/);
+  });
+});
+
+describe("linha: criar, caixa de seleção e guias", () => {
+  it("defaultElement('line'): horizontal, ~30% da largura, 1 pt, escura, sólida, dentro da página", () => {
+    for (const orientation of ["landscape", "portrait"] as const) {
+      const el = defaultElement("line", orientation, "linha-1") as LineEl;
+      expect(el).toMatchObject({ id: "linha-1", type: "line", orientation: "horizontal", length: 30, thickness: 1, lineStyle: "solid" });
+      expect(isDarkEnoughForQr(el.color)).toBe(true);
+      expect(el.x + el.length).toBeLessThanOrEqual(100);
+      const box = elementBox(el, orientation);
+      expect(box.y + box.h).toBeLessThanOrEqual(100);
+    }
+  });
+
+  it("elementBox é a caixa de SELEÇÃO (fina, ~2-3%, centrada na linha) e não altera os dados", () => {
+    const el = line({ x: 35, y: 75, length: 30 });
+    const box = elementBox(el, "landscape");
+    expect(box).toMatchObject({ x: 35, w: 30 });
+    expect(box.h).toBeCloseTo((LINE_HIT_PT / PAGE_PT.landscape.h) * 100, 1);
+    expect(box.h).toBeGreaterThanOrEqual(2);
+    expect(box.h).toBeLessThanOrEqual(3.5);
+    expect(box.y + box.h / 2).toBeCloseTo(75, 1);
+    expect(lineOffsetPct(el, box)).toBeCloseTo(50, 0);
+    const vertical = line({ orientation: "vertical", x: 20, y: 10, length: 40 });
+    const vbox = elementBox(vertical, "landscape");
+    expect(vbox).toMatchObject({ y: 10, h: 40 });
+    expect(vbox.w).toBeGreaterThanOrEqual(1.9);
+    expect(vbox.w).toBeLessThanOrEqual(3.5);
+    expect(vbox.x + vbox.w / 2).toBeCloseTo(20, 1);
+    // nas bordas da página a caixa continua dentro dela e a linha continua dentro da caixa
+    const top = line({ y: 0 });
+    expect(elementBox(top, "landscape").y).toBe(0);
+    expect(lineOffsetPct(top, elementBox(top, "landscape"))).toBe(0);
+    const bottom = line({ y: 100 });
+    const bbox = elementBox(bottom, "landscape");
+    expect(bbox.y + bbox.h).toBeLessThanOrEqual(100);
+    expect(lineOffsetPct(bottom, bbox)).toBeCloseTo(100, 5);
+    expect(el).toEqual(line({ x: 35, y: 75, length: 30 })); // o dado não mudou
+  });
+
+  it("snapBox: espessura zero (a guia é a própria linha); os outros tipos seguem a elementBox", () => {
+    expect(snapBox(line({ x: 10, y: 20, length: 30 }), "landscape")).toEqual({ x: 10, y: 20, w: 30, h: 0 });
+    expect(snapBox(line({ orientation: "vertical", x: 20, y: 10, length: 40 }), "landscape")).toEqual({ x: 20, y: 10, w: 0, h: 40 });
+    const rect = defaultElement("rect", "landscape", "r-1");
+    expect(snapBox(rect, "landscape")).toEqual(elementBox(rect, "landscape"));
+  });
+
+  it("lineDash: sólida sem traço; tracejada e pontilhada proporcionais à espessura", () => {
+    expect(lineDash({ lineStyle: "solid", thickness: 3 })).toEqual({ dasharray: undefined, cap: "butt" });
+    expect(lineDash({ lineStyle: "dashed", thickness: 1 })).toEqual({ dasharray: "4 3", cap: "butt" });
+    expect(lineDash({ lineStyle: "dashed", thickness: 2 })).toEqual({ dasharray: "8 6", cap: "butt" });
+    expect(lineDash({ lineStyle: "dotted", thickness: 1 })).toEqual({ dasharray: "0.01 3", cap: "round" });
+    expect(lineDash({ lineStyle: "dotted", thickness: 4 })).toEqual({ dasharray: "0.01 10", cap: "round" });
+  });
+
+  it("alças só nas duas pontas", () => {
+    expect(lineHandles(line())).toEqual(["w", "e"]);
+    expect(lineHandles(line({ orientation: "vertical" }))).toEqual(["n", "s"]);
+  });
+});
+
+describe("linha: clamp, mover e redimensionar", () => {
+  it("clampElement: horizontal x+length<=100, vertical y+length<=100, comprimento 1..100", () => {
+    expect(clampElement(line({ x: 90, length: 30 }), "landscape")).toMatchObject({ x: 70, length: 30 });
+    expect(clampElement(line({ x: -5, y: 120, length: 30 }), "landscape")).toMatchObject({ x: 0, y: 100 });
+    expect(clampElement(line({ length: 500 }), "landscape")).toMatchObject({ x: 0, length: 100 });
+    expect(clampElement(line({ length: 0 }), "landscape").length).toBe(1);
+    expect(clampElement(line({ orientation: "vertical", x: 50, y: 90, length: 30 }), "portrait")).toMatchObject({ x: 50, y: 70, length: 30 });
+    // y de uma linha horizontal e x de uma vertical só precisam estar em 0..100 (não somam o comprimento)
+    expect(clampElement(line({ y: 99, length: 30 }), "landscape")).toMatchObject({ y: 99, length: 30 });
+    const odd = clampElement(line({ x: 66.667, length: 33.333 }), "landscape");
+    expect(odd.x + odd.length).toBeLessThanOrEqual(100);
+  });
+
+  it("moveElement nunca sai da página (horizontal e vertical)", () => {
+    expect(moveElement(line({ x: 35, y: 75, length: 30 }), 500, 500, "landscape")).toMatchObject({ x: 70, y: 100 });
+    expect(moveElement(line({ x: 35, y: 75, length: 30 }), -500, -500, "landscape")).toMatchObject({ x: 0, y: 0 });
+    const vertical = line({ orientation: "vertical", x: 20, y: 10, length: 40 });
+    expect(moveElement(vertical, 500, 500, "landscape")).toMatchObject({ x: 100, y: 60 });
+    expect(moveElement(vertical, -500, -500, "landscape")).toMatchObject({ x: 0, y: 0 });
+  });
+
+  it("trocar a orientação reencaixa a linha dentro da página", () => {
+    let layout = withEls(line({ id: "l1", x: 70, y: 90, length: 30 }));
+    layout = updateElement(layout, "l1", { orientation: "vertical" });
+    expect(layout.elements.at(-1)).toMatchObject({ orientation: "vertical", x: 70, y: 70, length: 30 });
+    expect(validateLayout(layout)).toEqual([]);
+    layout = updateElement(layout, "l1", { orientation: "horizontal", length: 100 });
+    expect(layout.elements.at(-1)).toMatchObject({ orientation: "horizontal", x: 0, length: 100 });
+    layout = updateElement(layout, "l1", { thickness: 3, color: "#AA0000", lineStyle: "dotted" });
+    expect(layout.elements.at(-1)).toMatchObject({ thickness: 3, color: "#AA0000", lineStyle: "dotted" });
+    expect(validateLayout(layout)).toEqual([]);
+  });
+
+  it("resizeLine horizontal: só as pontas (e/w); a outra ponta fica parada; mínimo e página respeitados", () => {
+    const h = line({ x: 30, y: 50, length: 40 }); // de 30 a 70
+    expect(resizeLine(h, "e", 10, 999)).toMatchObject({ x: 30, y: 50, length: 50 });
+    expect(resizeLine(h, "w", -10, 999)).toMatchObject({ x: 20, y: 50, length: 50 });
+    expect(resizeLine(h, "w", 10, 0)).toMatchObject({ x: 40, length: 30 });
+    expect(resizeLine(h, "e", -500, 0)).toMatchObject({ x: 30, length: 2 });
+    expect(resizeLine(h, "w", 500, 0)).toMatchObject({ x: 68, length: 2 });
+    expect(resizeLine(h, "e", 500, 0)).toMatchObject({ x: 30, length: 70 });
+    expect(resizeLine(h, "w", -500, 0)).toMatchObject({ x: 0, length: 70 });
+    // alça que não é de ponta não faz nada
+    expect(resizeLine(h, "n", 0, 10)).toBe(h);
+    expect(resizeLine(h, "s", 0, 10)).toBe(h);
+    // Alt+setas (teclado) usa "se": numa horizontal é a ponta final
+    expect(resizeElement(h, "se", 1, 1, "landscape")).toMatchObject({ length: 41, y: 50 });
+  });
+
+  it("resizeLine vertical: só as pontas (n/s)", () => {
+    const v = line({ orientation: "vertical", x: 60, y: 10, length: 30 }); // de 10 a 40
+    expect(resizeLine(v, "s", 999, 15)).toMatchObject({ x: 60, y: 10, length: 45 });
+    expect(resizeLine(v, "n", 0, -5)).toMatchObject({ x: 60, y: 5, length: 35 });
+    expect(resizeLine(v, "s", 0, 500)).toMatchObject({ y: 10, length: 90 });
+    expect(resizeLine(v, "n", 0, -500)).toMatchObject({ y: 0, length: 40 });
+    expect(resizeLine(v, "n", 0, 500)).toMatchObject({ y: 38, length: 2 });
+    expect(resizeLine(v, "e", 50, 0)).toBe(v);
+    expect(resizeLine(v, "w", 50, 0)).toBe(v);
+    expect(resizeElement(v, "se", 5, 5, "landscape")).toMatchObject({ y: 10, length: 35 });
+  });
+
+  it("snapLineResize: só a ponta que se move gruda (centro/bordas da página e de outros elementos)", () => {
+    const end = snapLineResize(line({ x: 10, length: 39.4 }), "e", []); // ponta final 49.4 -> 50
+    expect(end.line.length).toBeCloseTo(40, 5);
+    expect(end.line.x).toBe(10);
+    expect(end.guides).toContainEqual({ axis: "x", pos: 50 });
+    const start = snapLineResize(line({ x: 60.6, length: 20 }), "w", [{ x: 40, y: 60, w: 20, h: 10 }]); // 60.6 -> 60
+    expect(start.line.x).toBeCloseTo(60, 5);
+    expect(start.line.x + start.line.length).toBeCloseTo(80.6, 5); // a ponta final não mexeu
+    expect(start.guides).toContainEqual({ axis: "x", pos: 60 });
+    const vertical = snapLineResize(line({ orientation: "vertical", y: 10, length: 39.5 }), "s", []); // 49.5 -> 50
+    expect(vertical.line.length).toBeCloseTo(40, 5);
+    expect(vertical.guides).toContainEqual({ axis: "y", pos: 50 });
+    const same = line();
+    expect(snapLineResize(same, "n", []).line).toBe(same);
+  });
+
+  it("snapMove com a linha: o centro e a posição Y da própria linha grudam (não a caixa de seleção)", () => {
+    const moved = line({ x: 35.4, y: 49.7, length: 30 }); // centro x = 50.4; y = 49.7
+    const snap = snapMove(snapBox(moved, "landscape"), []);
+    expect(snap.dx).toBeCloseTo(-0.4, 5);
+    expect(snap.dy).toBeCloseTo(0.3, 5);
+    expect(snap.guides).toContainEqual({ axis: "x", pos: 50 });
+    expect(snap.guides).toContainEqual({ axis: "y", pos: 50 });
+  });
+});
+
+describe("linha: duplicar, remover, ordem, página e limites", () => {
+  it("duplicar: id novo, logo acima do original, deslocada 2% e dentro da página", () => {
+    const layout = withEls(line({ id: "l1", x: 35, y: 75 }));
+    const dup = duplicateElement(layout, "l1")!;
+    expect(dup.id).not.toBe("l1");
+    const order = dup.layout.elements.map((e) => e.id);
+    expect(order.indexOf(dup.id)).toBe(order.indexOf("l1") + 1);
+    expect(dup.layout.elements.find((e) => e.id === dup.id)).toMatchObject({ type: "line", x: 37, y: 77, length: 30, orientation: "horizontal" });
+    const edge = duplicateElement(withEls(line({ id: "v1", orientation: "vertical", x: 99, y: 80, length: 20 })), "v1")!;
+    expect(edge.layout.elements.find((e) => e.id === edge.id)).toMatchObject({ x: 100, y: 80, length: 20 });
+    expect(validateLayout(edge.layout)).toEqual([]);
+  });
+
+  it("remover e ordenar valem para a linha; trocar a orientação da página mantém tudo válido", () => {
+    const layout = withEls(line({ id: "l1" }));
+    expect(removeElement(layout, "l1").elements.map((e) => e.id)).not.toContain("l1");
+    expect(reorderElement(layout, "l1", "back").elements[0]!.id).toBe("l1");
+    expect(canReorder(layout, "l1", "front")).toBe(false);
+    expect(validateLayout(setOrientation(layout, "portrait"))).toEqual([]);
+  });
+
+  it("addDefaultElement('line') coloca a linha num lugar livre (sem encostar nos outros elementos)", () => {
+    for (const orientation of ["landscape", "portrait"] as const) {
+      const base = blankLayout(orientation);
+      const added = addDefaultElement(base, "line")!;
+      const el = added.layout.elements.at(-1) as LineEl;
+      expect(el.id).toBe(added.id);
+      expect(el).toMatchObject({ x: 35, y: 75, orientation: "horizontal", length: 30, thickness: 1, lineStyle: "solid" });
+      expect(validateLayout(added.layout)).toEqual([]);
+      for (const other of base.elements) expect(overlaps(elementBox(el, orientation), elementBox(other, orientation))).toBe(false);
+    }
+    // faixa ocupada onde ela nasceria: a linha vai para outro ponto livre
+    const strip = { x: 0, y: 70, w: 100, h: 10 };
+    const busy = withEls({ ...defaultElement("rect", "landscape", "faixa"), ...strip } as CertificateElement);
+    const moved = addDefaultElement(busy, "line")!.layout.elements.at(-1) as LineEl;
+    expect(overlaps(elementBox(moved, "landscape"), strip)).toBe(false);
+    // moldura da página inteira é decoração: não bloqueia
+    const framed = withEls({ ...defaultElement("rect", "landscape", "moldura"), x: 2, y: 2, w: 96, h: 96, fill: null, stroke: "#C2410C" } as CertificateElement);
+    expect(addDefaultElement(framed, "line")!.layout.elements.at(-1)).toMatchObject({ x: 35, y: 75 });
+  });
+
+  it("a linha conta nos 40 elementos (adicionar, duplicar e validar)", () => {
+    let layout = blankLayout();
+    while (layout.elements.length < LIMITS.maxElements) {
+      const next = addDefaultElement(layout, "line");
+      expect(next).not.toBeNull();
+      layout = next!.layout;
+    }
+    expect(layout.elements).toHaveLength(40);
+    expect(addDefaultElement(layout, "line")).toBeNull();
+    expect(whyCannotAdd(layout, "line")).toMatch(/40 elementos/);
+    expect(duplicateElement(layout, layout.elements.at(-1)!.id)).toBeNull();
+    expect(validateLayout(layout).map((i) => i.message)).toEqual([]);
+    expect(messages({ ...layout, elements: [...layout.elements, line({ id: "extra" })] })).toContain("O modelo pode ter no máximo 40 elementos.");
+  });
+});
+
+describe("linha: validação (espelho do §2)", () => {
+  it("linha válida, inclusive nos extremos das faixas", () => {
+    expect(validateLayout(withEls(line()))).toEqual([]);
+    expect(validateLayout(withEls(line({ x: 0, length: 100, thickness: 0.5 })))).toEqual([]);
+    expect(validateLayout(withEls(line({ orientation: "vertical", x: 100, y: 0, length: 100, thickness: 10, lineStyle: "dotted" })))).toEqual([]);
+    expect(validateLayout(withEls(line({ lineStyle: "dashed" })))).toEqual([]);
+    // y de horizontal / x de vertical podem ser qualquer valor de 0..100 (só o eixo da linha soma o comprimento)
+    expect(validateLayout(withEls(line({ y: 100, length: 30 })))).toEqual([]);
+    expect(validateLayout(withEls(line({ orientation: "vertical", x: 80, y: 0, length: 30 })))).toEqual([]);
+  });
+
+  it("'não cabe': horizontal x+length>100 e vertical y+length>100 (mensagem indica o elemento)", () => {
+    const horizontal = validateLayout(withEls(line({ id: "l1", x: 80, length: 30 })));
+    expect(horizontal).toHaveLength(1);
+    expect(horizontal[0]).toMatchObject({ elementId: "l1" });
+    expect(horizontal[0]!.message).toBe("Linha 4: a linha precisa caber dentro da página (comprimento de pelo menos 1%).");
+    const vertical = validateLayout(withEls(line({ id: "v1", orientation: "vertical", x: 10, y: 80, length: 30 })));
+    expect(vertical).toHaveLength(1);
+    expect(vertical[0]).toMatchObject({ elementId: "v1" });
+    expect(vertical[0]!.message).toMatch(/^Linha 4: a linha precisa caber dentro da página/);
+    // fora das faixas de posição/comprimento
+    for (const bad of [{ x: -1 }, { y: 101 }, { length: 0.5 }, { length: 101 }, { x: Number.NaN }, { length: Number.NaN }]) {
+      expect(messages(withEls(line(bad))).join(" ")).toMatch(/a linha precisa caber dentro da página/);
+    }
+  });
+
+  it("espessura fora de 0,5..10 pt, cor, estilo e orientação inválidos", () => {
+    for (const thickness of [0.4, 0, 10.5, -1, Number.NaN]) {
+      const issues = validateLayout(withEls(line({ id: "l1", thickness })));
+      expect(issues).toHaveLength(1);
+      expect(issues[0]).toMatchObject({ elementId: "l1" });
+      expect(issues[0]!.message).toBe("Linha 4: a espessura da linha precisa ficar entre 0.5 e 10 pt.");
+    }
+    expect(messages(withEls(line({ color: "#fff" })))[0]).toMatch(/^Linha 4: a cor da linha precisa estar no formato #RRGGBB/);
+    expect(messages(withEls(line({ lineStyle: "wavy" as never })))[0]).toMatch(/estilo da linha inválido/);
+    expect(messages(withEls(line({ orientation: "diagonal" as never })))[0]).toMatch(/orientação da linha inválida/);
+  });
+});
+
+describe("linha: formato do fio (toWireLayout)", () => {
+  it("só as chaves do contrato, cor em maiúsculo, sem sobras da caixa de seleção", () => {
+    const dirty = { ...line({ id: "l-1", color: "#1f2937", thickness: 2.5, lineStyle: "dashed" }), lixo: true, w: 9, h: 9, selecionado: 1 } as unknown as LineEl;
+    const wire = toWireLayout(withEls(dirty));
+    const out = wire.elements.at(-1)!;
+    expect(Object.keys(out).sort()).toEqual(["color", "id", "length", "lineStyle", "orientation", "thickness", "type", "x", "y"]);
+    expect(out).toEqual({
+      id: "l-1",
+      type: "line",
+      x: 35,
+      y: 75,
+      length: 30,
+      orientation: "horizontal",
+      color: "#1F2937",
+      thickness: 2.5,
+      lineStyle: "dashed",
+    });
+    const nan = toWireLayout(withEls(line({ thickness: Number.NaN }))).elements.at(-1) as LineEl;
+    expect(nan.thickness).toBe(1);
+  });
+});
+
+describe("Bloco de assinatura (atalho: linha + texto)", () => {
+  it("insere DOIS elementos independentes de uma vez, com ids novos e únicos, logo abaixo um do outro", () => {
+    for (const orientation of ["landscape", "portrait"] as const) {
+      const base = blankLayout(orientation);
+      const result = addSignatureBlock(base)!;
+      expect(result.layout.elements).toHaveLength(base.elements.length + 2);
+      expect(result.layout.elements.slice(0, base.elements.length)).toEqual(base.elements); // nada do que existia mudou
+      const [ln, tx] = result.layout.elements.slice(-2) as [LineEl, TextEl];
+      expect([ln.id, tx.id]).toEqual([result.lineId, result.textId]);
+      expect(new Set(result.layout.elements.map((e) => e.id)).size).toBe(result.layout.elements.length);
+      expect(ELEMENT_ID.test(ln.id) && ELEMENT_ID.test(tx.id)).toBe(true);
+      expect(ln).toMatchObject({ type: "line", orientation: "horizontal", length: 30, thickness: 1, lineStyle: "solid" });
+      expect(isDarkEnoughForQr(ln.color)).toBe(true);
+      expect(tx).toMatchObject({
+        type: "text",
+        text: "Assinatura",
+        fontKey: "helvetica",
+        size: 12,
+        align: "center",
+        vAlign: "top",
+        h: 5,
+        bold: false,
+        italic: false,
+        uppercase: false,
+      });
+      expect(isDarkEnoughForQr(tx.color)).toBe(true);
+      // mesma largura e mesmo x da linha; a caixa do texto começa logo abaixo dela
+      expect(tx.x).toBe(ln.x);
+      expect(tx.w).toBe(ln.length);
+      expect(tx.y).toBeCloseTo(ln.y + SIGNATURE_BLOCK.gap, 5);
+      expect(tx.y + tx.h).toBeLessThanOrEqual(100);
+      expect(ln.x + ln.length).toBeLessThanOrEqual(100);
+      // válido e sem passar por cima do QR nem dos outros elementos
+      expect(validateLayout(result.layout)).toEqual([]);
+      const blockBox: Box = { x: ln.x, y: ln.y, w: ln.length, h: SIGNATURE_BLOCK.gap + SIGNATURE_BLOCK.textHeight };
+      for (const other of base.elements) expect(overlaps(blockBox, elementBox(other, orientation))).toBe(false);
+      // rodapé (parte de baixo da folha)
+      expect(ln.y).toBeGreaterThanOrEqual(60);
+    }
+    // posição determinística no modelo em branco (acima da linha de verificação, longe do QR)
+    expect(addSignatureBlock(blankLayout())!.layout.elements.at(-2)).toMatchObject({ x: 35, y: 80 });
+  });
+
+  it("vai para outra área livre quando o rodapé está ocupado e nunca falha por falta de espaço", () => {
+    const strip = { x: 0, y: 78, w: 100, h: 20 };
+    const busy = withEls({ ...defaultElement("rect", "landscape", "rodape"), ...strip } as CertificateElement);
+    const placed = addSignatureBlock(busy)!;
+    const [ln, tx] = placed.layout.elements.slice(-2) as [LineEl, TextEl];
+    const blockBox: Box = { x: ln.x, y: ln.y, w: ln.length, h: tx.y + tx.h - ln.y };
+    for (const other of busy.elements) expect(overlaps(blockBox, elementBox(other, "landscape"))).toBe(false);
+    // folha toda coberta por faixas (nenhuma é "decoração"): ainda insere, no ponto de menor sobreposição
+    const strips = [0, 25, 50, 75].map((y, i) => ({ ...defaultElement("rect", "landscape", `faixa-${String(i)}`), x: 0, y, w: 100, h: 25 }) as CertificateElement);
+    const crowded = addSignatureBlock(withEls(...strips))!;
+    expect(crowded.layout.elements).toHaveLength(blankLayout().elements.length + 4 + 2);
+    expect(validateLayout(crowded.layout)).toEqual([]);
+  });
+
+  it("respeita o limite de 40 elementos (usa 2): sem espaço devolve null e o motivo em português", () => {
+    let layout = blankLayout();
+    while (layout.elements.length < 38) layout = addDefaultElement(layout, "rect")!.layout;
+    expect(whyCannotAddSignatureBlock(layout)).toBeNull();
+    const fits = addSignatureBlock(layout)!;
+    expect(fits.layout.elements).toHaveLength(40);
+    expect(validateLayout(fits.layout)).toEqual([]);
+    layout = addDefaultElement(layout, "rect")!.layout; // 39
+    expect(addSignatureBlock(layout)).toBeNull();
+    expect(whyCannotAddSignatureBlock(layout)).toBe("O bloco de assinatura usa 2 elementos e o modelo já tem 39 de 40.");
+    expect(layout.elements).toHaveLength(39);
+  });
+
+  it("ids continuam únicos mesmo com o sorteio devolvendo sempre o mesmo valor", () => {
+    const result = addSignatureBlock(blankLayout(), () => 0.123456)!;
+    expect(result.lineId).not.toBe(result.textId);
+    expect(new Set(result.layout.elements.map((e) => e.id)).size).toBe(result.layout.elements.length);
+    expect(ELEMENT_ID.test(result.textId)).toBe(true);
   });
 });

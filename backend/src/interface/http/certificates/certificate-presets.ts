@@ -1,15 +1,19 @@
 /**
  * Modelos PRONTOS de certificado (docs/CONTRATO_CERTIFICADOS_MODELOS.md secao 5): vivem no CODIGO, sem imagens de upload
  * (o logo entra so por `useGroupLogo`). Todos passam por validateCertificateLayout e ja estao NORMALIZADOS (provado em
- * test/certificate-templates.spec.ts). O `classico` (CLASSIC_LAYOUT) reproduz o PDF fixo anterior e e o desenho usado
- * para certificados antigos (sem layoutSnapshot) e quando o grupo nao tem modelo padrao.
+ * test/certificate-templates.spec.ts). O CLASSIC_LAYOUT reproduz o PDF fixo anterior e e o desenho usado para certificados
+ * antigos (sem layoutSnapshot) e quando o grupo nao tem modelo padrao: NUNCA muda (certificado ja emitido nao pode mudar).
+ * Os 5 modelos prontos (inclusive o preset `classico`, uma COPIA separada do CLASSIC_LAYOUT) trazem o espaco de assinatura
+ * do Mestre no rodape (contrato secao 8.1); o CLASSIC_LAYOUT nao tem linha.
  */
 import {
   A4,
+  CertificateElement,
   CertificateLayout,
   CertificatePurposeKey,
   FontKey,
   ImageElement,
+  LineElement,
   QrElement,
   RectElement,
   TextElement,
@@ -73,6 +77,30 @@ function qr(id: string, x: number, y: number, size: number, fg: string): QrEleme
   return { id, type: 'qr', x, y, size, fg };
 }
 
+function line(id: string, x: number, y: number, length: number, color: string, thickness = 1): LineElement {
+  return { id, type: 'line', x, y, length, orientation: 'horizontal', color, thickness, lineStyle: 'solid' };
+}
+
+/**
+ * Espaco de assinatura do Mestre (contrato secao 8.1): uma linha horizontal (~1 pt) e, logo abaixo, o texto centralizado
+ * "Assinatura do Mestre" com a mesma largura da linha. Sao dois elementos independentes (ids `assinatura-linha` e
+ * `assinatura-texto`); a posicao e escolhida por modelo para nao tocar o QR, o texto de verificacao nem os demais elementos.
+ */
+function signature(
+  pos: { x: number; y: number; length: number; textY: number; textH: number },
+  style: { lineColor: string; textColor: string; fontKey?: FontKey; size?: number },
+): CertificateElement[] {
+  return [
+    line('assinatura-linha', pos.x, pos.y, pos.length, style.lineColor),
+    text(
+      'assinatura-texto',
+      'Assinatura do Mestre',
+      { x: pos.x, y: pos.textY, w: pos.length, h: pos.textH },
+      { fontKey: style.fontKey ?? 'helvetica', size: style.size ?? 11, color: style.textColor },
+    ),
+  ];
+}
+
 function page(orientation: 'landscape' | 'portrait', color: string): CertificateLayout['page'] {
   return { orientation, background: { color, imageRef: null, imageFit: 'cover' } };
 }
@@ -113,6 +141,16 @@ export const CLASSIC_LAYOUT: CertificateLayout = {
   ],
 };
 
+/**
+ * Preset `classico`: COPIA PROFUNDA do CLASSIC_LAYOUT (objeto separado) + assinatura. Centralizada entre o titulo/graduacao
+ * (terminam em ~63%) e o rodape (comeca em ~75%), longe do QR (x >= 81%). O CLASSIC_LAYOUT em si nao ganha a assinatura.
+ */
+const CLASSIC_PRESET_LAYOUT: CertificateLayout = (() => {
+  const copy = JSON.parse(JSON.stringify(CLASSIC_LAYOUT)) as CertificateLayout;
+  copy.elements.push(...signature({ x: 35, y: 68.5, length: 30, textY: 69.4, textH: 3.6 }, { lineColor: INK, textColor: MUTED }));
+  return copy;
+})();
+
 // ---------------------------------------------------------------------------------------------------------------
 // Moderno: faixa lateral escura com logo e QR, tipografia Montserrat/Playfair.
 // ---------------------------------------------------------------------------------------------------------------
@@ -135,6 +173,8 @@ const MODERN_LAYOUT: CertificateLayout = {
     text('graduacao', '{graduacao}', { x: 36, y: 65, w: 60, h: 6 }, { fontKey: 'montserrat', size: 13, color: '#334155', align: 'left' }),
     text('emitido', 'Emitido em {dataExtenso}', { x: 36, y: 83, w: 50, h: 5 }, { fontKey: 'montserrat', size: 11, color: '#475569', align: 'left' }),
     text('link', 'Verifique a autenticidade em {link}', { x: 36, y: 88, w: 60, h: 7 }, { fontKey: 'montserrat', size: 9, color: '#64748B', align: 'left' }),
+    // Assinatura à direita da área de conteúdo, entre a graduação (termina em 71) e "Emitido em" (começa em 83).
+    ...signature({ x: 66, y: 76, length: 30, textY: 76.8, textH: 3.8 }, { lineColor: '#1E293B', textColor: '#64748B', fontKey: 'montserrat' }),
   ],
 };
 
@@ -158,6 +198,8 @@ const BAPTISM_LAYOUT: CertificateLayout = {
     text('emitido', '{dataExtenso}', { x: 8, y: 83, w: 40, h: 4.5 }, { fontKey: 'lora', size: 12, color: '#3E2723', align: 'left' }),
     text('codigo', 'Código de verificação: {codigo}', { x: 8, y: 88, w: 50, h: 4 }, { fontKey: 'lora', size: 10, color: '#6D4C41', align: 'left' }),
     qr('qr', 83, 79, 72, '#1B5E20'),
+    // Assinatura centralizada entre a graduação (termina em 75,5) e "Emitido em" (começa em 83).
+    ...signature({ x: 36, y: 77.5, length: 28, textY: 78.3, textH: 3.6 }, { lineColor: '#1B5E20', textColor: '#6D4C41', fontKey: 'lora' }),
   ],
 };
 
@@ -186,6 +228,8 @@ const EVENT_LAYOUT: CertificateLayout = {
     text('emitido', 'Emitido em {data}', { x: 6, y: 84, w: 40, h: 4.5 }, { fontKey: 'montserrat', size: 11, color: '#44403C', align: 'left' }),
     text('codigo', 'Código de verificação: {codigo}', { x: 6, y: 89, w: 60, h: 4 }, { fontKey: 'montserrat', size: 9, color: '#78716C', align: 'left' }),
     qr('qr', 86, 80, 80, '#7C2D12'),
+    // Assinatura centralizada entre o parágrafo "participou" (termina em 68) e "Emitido em" (começa em 84).
+    ...signature({ x: 35, y: 77.5, length: 30, textY: 78.3, textH: 3.6 }, { lineColor: '#7C2D12', textColor: '#78716C', fontKey: 'montserrat' }),
   ],
 };
 
@@ -208,12 +252,14 @@ const MINIMAL_LAYOUT: CertificateLayout = {
     qr('qr', 41.6, 73, 100, '#111827'),
     text('codigo', 'Código {codigo}', { x: 10, y: 86.5, w: 80, h: 2.5 }, { fontKey: 'lora', size: 9, color: '#6B7280' }),
     text('link', '{link}', { x: 10, y: 89.5, w: 80, h: 4 }, { fontKey: 'lora', size: 8, color: '#9CA3AF' }),
+    // Retrato: o espaço entre a data (termina em 67) e o QR (começa em 73) é curto; a assinatura fica à esquerda do QR (que ocupa 41,6%..58,4%).
+    ...signature({ x: 8, y: 82, length: 30, textY: 82.8, textH: 2.4 }, { lineColor: '#111827', textColor: '#6B7280', fontKey: 'lora' }),
   ],
 };
 
 /** Modelos prontos, na ordem em que o painel os lista. */
 export const CERTIFICATE_PRESETS: readonly CertificatePreset[] = [
-  { key: 'classico', name: 'Clássico', purpose: 'GRADUACAO', layout: CLASSIC_LAYOUT },
+  { key: 'classico', name: 'Clássico', purpose: 'GRADUACAO', layout: CLASSIC_PRESET_LAYOUT },
   { key: 'moderno', name: 'Moderno', purpose: 'PARTICIPACAO', layout: MODERN_LAYOUT },
   { key: 'batizado', name: 'Batizado', purpose: 'BATIZADO', layout: BAPTISM_LAYOUT },
   { key: 'evento', name: 'Evento', purpose: 'EVENTO', layout: EVENT_LAYOUT },

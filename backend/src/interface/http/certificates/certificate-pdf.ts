@@ -14,6 +14,7 @@ import {
   FontKey,
   ImageElement,
   LAYOUT_LIMITS,
+  LineElement,
   QrElement,
   RectElement,
   TextElement,
@@ -255,6 +256,34 @@ function drawRect(doc: PDFKit.PDFDocument, el: RectElement, box: PageBox): void 
   }
 }
 
+/**
+ * Linha reta (contrato secao 2): horizontal = `length`% da LARGURA da pagina; vertical = `length`% da ALTURA. `dashed` = tracos
+ * de 4x a espessura com espaco de 3x; `dotted` = pontos (traco ~0 com ponta arredondada) a cada 2x a espessura. Nunca lanca
+ * (o estado grafico e sempre restaurado).
+ */
+function drawLine(doc: PDFKit.PDFDocument, el: LineElement, W: number, H: number): void {
+  const x1 = (el.x / 100) * W;
+  const y1 = (el.y / 100) * H;
+  const horizontal = el.orientation === 'horizontal';
+  const x2 = horizontal ? x1 + (el.length / 100) * W : x1;
+  const y2 = horizontal ? y1 : y1 + (el.length / 100) * H;
+  const t = el.thickness;
+  doc.save();
+  try {
+    doc.moveTo(x1, y1).lineTo(x2, y2).lineWidth(t).strokeOpacity(1).strokeColor(el.color);
+    if (el.lineStyle === 'dashed') {
+      doc.lineCap('butt').dash(t * 4, { space: t * 3 });
+    } else if (el.lineStyle === 'dotted') {
+      doc.lineCap('round').dash(0.01, { space: t * 2 });
+    } else {
+      doc.lineCap('butt').undash();
+    }
+    doc.stroke();
+  } finally {
+    doc.restore();
+  }
+}
+
 /** O fontkit aceita o objeto { recurso: false } (os tipos do pdfkit só declaram a lista). */
 const NO_LIGATURES = { liga: false } as unknown as PDFKit.Mixins.TextOptions['features'];
 
@@ -395,6 +424,7 @@ export async function renderCertificatePdf(
   for (const el of design.elements) {
     try {
       if (el.type === 'rect') drawRect(doc, el, boxOf(el, W, H));
+      else if (el.type === 'line') drawLine(doc, el, W, H);
       else if (el.type === 'text') drawText(doc, fonts, el, boxOf(el, W, H), vars);
       else if (el.type === 'image') {
         const image = imageOf(el, images);

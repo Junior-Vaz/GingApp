@@ -9,9 +9,14 @@ import {
   QR_HANDLES,
   applyVariables,
   elementBox,
+  lineDash,
+  lineHandles,
+  lineOffsetPct,
   moveElement,
   replaceElement,
   resizeElement,
+  snapBox,
+  snapLineResize,
   snapMove,
   snapResize,
   type Box,
@@ -26,6 +31,7 @@ import {
   type CertificateElement,
   type CertificateLayout,
   type ImageEl,
+  type LineEl,
   type QrEl,
   type RectEl,
   type TextEl,
@@ -53,6 +59,29 @@ const HANDLE_NAME: Record<Handle, string> = {
   w: "borda esquerda",
 };
 
+/** Nome das pontas da linha (as alças dela são só as duas pontas). */
+const LINE_HANDLE_NAME: Partial<Record<Handle, string>> = {
+  e: "ponta direita",
+  w: "ponta esquerda",
+  n: "ponta de cima",
+  s: "ponta de baixo",
+};
+
+/** Alça da linha: na ponta e SOBRE a linha (a caixa de seleção pode estar deslocada nas bordas da página). */
+function lineHandleStyle(handle: Handle, offset: number): CSSProperties {
+  const cross = `${String(offset)}%`;
+  switch (handle) {
+    case "w":
+      return { left: 0, top: cross };
+    case "e":
+      return { left: "100%", top: cross };
+    case "n":
+      return { left: cross, top: 0 };
+    default:
+      return { left: cross, top: "100%" };
+  }
+}
+
 function hexToRgba(hex: string, alpha: number): string {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${String((n >> 16) & 255)}, ${String((n >> 8) & 255)}, ${String(n & 255)}, ${String(alpha)})`;
@@ -79,14 +108,51 @@ function SampleQr({ fg, text }: { fg: string; text: string }) {
   );
 }
 
+/**
+ * Linha desenhada em SVG com o sistema de coordenadas em pt da página (a caixa de seleção tem exatamente a
+ * proporção da página, então a escala é uniforme: espessura e traços em pt escalam como os textos).
+ */
+function LineBody({ el, box, orientation }: { el: LineEl; box: Box; orientation: CertificateLayout["page"]["orientation"] }) {
+  const page = PAGE_PT[orientation];
+  const widthPt = (box.w / 100) * page.w;
+  const heightPt = (box.h / 100) * page.h;
+  const vertical = el.orientation === "vertical";
+  const offset = (lineOffsetPct(el, box) / 100) * (vertical ? widthPt : heightPt);
+  const { dasharray, cap } = lineDash(el);
+  return (
+    <svg
+      viewBox={`0 0 ${String(widthPt)} ${String(heightPt)}`}
+      preserveAspectRatio="none"
+      className="pointer-events-none size-full overflow-visible"
+      aria-hidden
+    >
+      <line
+        data-testid={`line-${el.id}`}
+        data-orientation={el.orientation}
+        data-line-style={el.lineStyle}
+        x1={vertical ? offset : 0}
+        y1={vertical ? 0 : offset}
+        x2={vertical ? offset : widthPt}
+        y2={vertical ? heightPt : offset}
+        stroke={el.color}
+        strokeWidth={el.thickness}
+        strokeLinecap={cap}
+        {...(dasharray ? { strokeDasharray: dasharray } : {})}
+      />
+    </svg>
+  );
+}
+
 function ElementBody({
   el,
+  box,
   orientation,
   data,
   groupLogo,
   edit,
 }: {
   el: CertificateElement;
+  box: Box;
   orientation: CertificateLayout["page"]["orientation"];
   data: VariableData;
   groupLogo: string | null;
@@ -96,6 +162,8 @@ function ElementBody({
   const cqw = (pt: number) => `${String((pt / pageW) * 100)}cqw`;
 
   if (el.type === "text") return <TextBody el={el} data={data} cqw={cqw} />;
+
+  if (el.type === "line") return <LineBody el={el} box={box} orientation={orientation} />;
 
   if (el.type === "rect") {
     const rect: RectEl = el;
@@ -284,13 +352,14 @@ export function CertificateCanvas({
     const el = state.base.elements.find((e) => e.id === state.id);
     if (!el) return;
     const index = state.base.elements.findIndex((e) => e.id === state.id);
-    const others = state.base.elements.map((e) => elementBox(e, orientation)).filter((_, i) => i !== index);
+    // Guias: a linha vale pela própria linha (espessura zero), não pela caixa de seleção.
+    const others = state.base.elements.map((e) => snapBox(e, orientation)).filter((_, i) => i !== index);
 
     let next: CertificateElement;
     let nextGuides: Guide[];
     if (state.mode === "move") {
       const moved = moveElement(el, dx, dy, orientation);
-      const snap = snapMove(elementBox(moved, orientation), others);
+      const snap = snapMove(snapBox(moved, orientation), others);
       next = moveElement(moved, snap.dx, snap.dy, orientation);
       nextGuides = snap.guides;
     } else {
@@ -298,6 +367,10 @@ export function CertificateCanvas({
       if (resized.type === "qr") {
         next = resized;
         nextGuides = [];
+      } else if (resized.type === "line") {
+        const snapped = snapLineResize(resized, state.mode, others);
+        next = snapped.line;
+        nextGuides = snapped.guides;
       } else {
         const snapped = snapResize(elementBox(resized, orientation), state.mode, others);
         next = { ...resized, ...snapped.box };
@@ -387,7 +460,8 @@ export function CertificateCanvas({
       {layout.elements.map((el, index) => {
         const box: Box = boxes[index]!;
         const selected = edit && el.id === selectedId;
-        const handles = el.type === "qr" ? QR_HANDLES : BOX_HANDLES;
+        const handles = el.type === "qr" ? QR_HANDLES : el.type === "line" ? lineHandles(el) : BOX_HANDLES;
+        const offset = el.type === "line" ? lineOffsetPct(el, box) : 50;
         return (
           <div
             key={el.id}
@@ -417,21 +491,25 @@ export function CertificateCanvas({
             onFocus={() => edit && onSelect?.(el.id)}
             onKeyDown={(event) => onKeyDown(event, el)}
           >
-            <ElementBody el={el} orientation={orientation} data={variables} groupLogo={groupLogo} edit={edit} />
+            <ElementBody el={el} box={box} orientation={orientation} data={variables} groupLogo={groupLogo} edit={edit} />
             {selected &&
               handles.map((handle) => (
                 <span
                   key={handle}
                   data-testid={`handle-${handle}`}
                   aria-hidden
-                  title={`Redimensionar pelo ${HANDLE_NAME[handle]}`}
+                  title={
+                    el.type === "line"
+                      ? `Redimensionar pela ${LINE_HANDLE_NAME[handle] ?? HANDLE_NAME[handle]}`
+                      : `Redimensionar pelo ${HANDLE_NAME[handle]}`
+                  }
                   className={cn(
                     "absolute z-10 size-3 -translate-x-1/2 -translate-y-1/2 touch-none rounded-sm border border-primary bg-white",
                     // Área de toque >= 44px sem aumentar o desenho da alça.
                     "before:absolute before:-inset-4 before:content-['']",
                     HANDLE_STYLE[handle].cursor,
                   )}
-                  style={HANDLE_STYLE[handle].style}
+                  style={el.type === "line" ? lineHandleStyle(handle, offset) : HANDLE_STYLE[handle].style}
                   // move/up/cancel sobem (bolha) até o elemento, que já trata o gesto.
                   onPointerDown={(event) => onHandlePointerDown(event, el.id, handle)}
                 />

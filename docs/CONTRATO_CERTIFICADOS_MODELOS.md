@@ -27,7 +27,7 @@ interface CertificateLayout {
   elements: CertificateElement[];                    // ordem = z-order (o último fica por cima); 1..40 itens
 }
 
-type CertificateElement = TextEl | ImageEl | RectEl | QrEl;
+type CertificateElement = TextEl | ImageEl | RectEl | LineEl | QrEl;
 
 interface BaseEl { id: string }                      // 1..40 chars [a-z0-9-], único no desenho
 
@@ -64,6 +64,18 @@ interface RectEl extends BaseEl {
   strokeWidth: number;                               // pt, 0..20
   radius: number;                                    // pt, 0..200 (cantos arredondados)
 }
+
+/** Linha reta (ex.: espaço de assinatura). Conta nos 40 elementos. Adicionada depois da F1 (aditivo: desenhos antigos seguem válidos). */
+interface LineEl extends BaseEl {
+  type: 'line';
+  x: number; y: number;                              // extremidade inicial (esquerda se horizontal, de cima se vertical), % da página (0..100)
+  length: number;                                    // comprimento em % (1..100): horizontal = % da LARGURA da página; vertical = % da ALTURA
+  orientation: 'horizontal' | 'vertical';
+  color: string;                                     // '#RRGGBB'
+  thickness: number;                                 // pt, 0.5..10
+  lineStyle: 'solid' | 'dashed' | 'dotted';
+}
+// Regra de caber: horizontal => x + length <= 100; vertical => y + length <= 100 (y/x entre 0 e 100 nos dois casos).
 
 interface QrEl extends BaseEl {
   type: 'qr';
@@ -205,6 +217,13 @@ A resposta de leitura do certificado passa a incluir `templateId: number | null`
 - Renderização com teto (40 elementos, 8 imagens, texto 500) e arquivo de imagem lido com limite; falha de imagem/fonte nunca derruba o PDF.
 - Auditoria (`AuditService`, sem o conteúdo dos textos): `CERTIFICATE_TEMPLATE_CREATE | UPDATE | DELETE | DEFAULT`.
 - Multi-tenant: toda leitura/escrita filtrada por `organizationId` do token; id de outro grupo = 404.
+
+## 8.1 Linha e bloco de assinatura (adição pós-F1)
+- Elemento `line` (acima). PDF: traço reto com `color`, `thickness`; `dashed`/`dotted` por padrão de traço proporcional à espessura (pontilhado com ponta arredondada).
+- Os 5 modelos prontos passam a incluir um espaço de assinatura no rodapé (linha + texto "Assinatura do Mestre" logo abaixo), sem
+  sobrepor o QR nem o texto de verificação; modelos já salvos pelo grupo NÃO mudam.
+- Editor: ferramenta "Linha" em "Adicionar" e atalho **"Bloco de assinatura"** que insere de uma vez uma linha horizontal + um
+  texto centralizado logo abaixo (dois elementos independentes, ids novos, texto padrão "Assinatura", linha ~30% da largura).
 
 ## 9. Editor (painel) — comportamento esperado
 Rota `/certificados/modelos` (aba "Modelos" dentro de Certificados): lista (cards com miniatura simples, nome, uso, "Padrão",

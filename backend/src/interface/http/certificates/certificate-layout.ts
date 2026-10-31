@@ -84,6 +84,22 @@ export interface RectElement extends Box {
   radius: number;
 }
 
+/**
+ * Linha reta (ex.: espaco de assinatura; contrato secao 2, adicionada depois da F1). `x`/`y` = extremidade inicial (esquerda se
+ * horizontal, de cima se vertical); `length` em % (horizontal = % da LARGURA da pagina; vertical = % da ALTURA).
+ */
+export interface LineElement {
+  id: string;
+  type: 'line';
+  x: number;
+  y: number;
+  length: number;
+  orientation: 'horizontal' | 'vertical';
+  color: string;
+  thickness: number;
+  lineStyle: 'solid' | 'dashed' | 'dotted';
+}
+
 export interface QrElement {
   id: string;
   type: 'qr';
@@ -93,7 +109,7 @@ export interface QrElement {
   fg: string;
 }
 
-export type CertificateElement = TextElement | ImageElement | RectElement | QrElement;
+export type CertificateElement = TextElement | ImageElement | RectElement | LineElement | QrElement;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Limites (contrato secoes 2 e 8)
@@ -142,10 +158,11 @@ const ELEMENT_KEYS: Record<CertificateElement['type'], { required: readonly stri
   },
   image: { required: ['id', 'type', 'x', 'y', 'w', 'h', 'useGroupLogo', 'fit', 'opacity'], optional: ['ref'] },
   rect: { required: ['id', 'type', 'x', 'y', 'w', 'h', 'fill', 'fillOpacity', 'stroke', 'strokeWidth', 'radius'], optional: [] },
+  line: { required: ['id', 'type', 'x', 'y', 'length', 'orientation', 'color', 'thickness', 'lineStyle'], optional: [] },
   qr: { required: ['id', 'type', 'x', 'y', 'size', 'fg'], optional: [] },
 };
 
-const TYPE_LABEL: Record<CertificateElement['type'], string> = { text: 'texto', image: 'imagem', rect: 'retângulo', qr: 'QR Code' };
+const TYPE_LABEL: Record<CertificateElement['type'], string> = { text: 'texto', image: 'imagem', rect: 'retângulo', line: 'linha', qr: 'QR Code' };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -253,8 +270,8 @@ function parseElement(raw: unknown, index: number, orientation: Orientation): Ce
   const at = `Elemento ${index + 1}`;
   if (!isPlainObject(raw)) throw new CertificateLayoutError(`${at}: deve ser um objeto.`);
   const type = raw.type;
-  if (type !== 'text' && type !== 'image' && type !== 'rect' && type !== 'qr') {
-    throw new CertificateLayoutError(`${at}: "type" deve ser um de: text, image, rect, qr.`);
+  if (type !== 'text' && type !== 'image' && type !== 'rect' && type !== 'line' && type !== 'qr') {
+    throw new CertificateLayoutError(`${at}: "type" deve ser um de: text, image, rect, line, qr.`);
   }
   const idRaw = raw.id;
   const where = typeof idRaw === 'string' && ELEMENT_ID.test(idRaw) ? `Elemento "${idRaw}" (${TYPE_LABEL[type]})` : `${at} (${TYPE_LABEL[type]})`;
@@ -303,6 +320,29 @@ function parseElement(raw: unknown, index: number, orientation: Orientation): Ce
         strokeWidth: num(raw, 'strokeWidth', 0, 20, where),
         radius: num(raw, 'radius', 0, 200, where),
       };
+    case 'line': {
+      const x = num(raw, 'x', 0, 100, where);
+      const y = num(raw, 'y', 0, 100, where);
+      const length = num(raw, 'length', 1, 100, where);
+      const orientation = oneOf(raw, 'orientation', ['horizontal', 'vertical'] as const, where);
+      if (orientation === 'horizontal' && x + length > 100 + EPS) {
+        throw new CertificateLayoutError(`${where}: x + length passa da largura da página (máx. 100%).`);
+      }
+      if (orientation === 'vertical' && y + length > 100 + EPS) {
+        throw new CertificateLayoutError(`${where}: y + length passa da altura da página (máx. 100%).`);
+      }
+      return {
+        id,
+        type,
+        x,
+        y,
+        length,
+        orientation,
+        color: color(raw, 'color', where) as string,
+        thickness: num(raw, 'thickness', 0.5, 10, where),
+        lineStyle: oneOf(raw, 'lineStyle', ['solid', 'dashed', 'dotted'] as const, where),
+      };
+    }
     case 'qr': {
       const x = num(raw, 'x', 0, 100, where);
       const y = num(raw, 'y', 0, 100, where);

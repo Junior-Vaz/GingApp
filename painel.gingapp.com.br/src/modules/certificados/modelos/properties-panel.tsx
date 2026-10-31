@@ -11,6 +11,8 @@ import {
   ELEMENT_TYPE_LABEL,
   FONTS,
   LIMITS,
+  LINE_ORIENTATION_LABEL,
+  LINE_STYLE_LABEL,
   ORIENTATION_LABEL,
   VARIABLES,
   fontDef,
@@ -18,6 +20,9 @@ import {
   type CertificateElement,
   type CertificateLayout,
   type ImageEl,
+  type LineEl,
+  type LineOrientation,
+  type LineStyle,
   type Orientation,
   type QrEl,
   type RectEl,
@@ -25,7 +30,7 @@ import {
   type VAlign,
 } from "./types";
 
-export type ElementPatch = Partial<TextEl> | Partial<ImageEl> | Partial<RectEl> | Partial<QrEl>;
+export type ElementPatch = Partial<TextEl> | Partial<ImageEl> | Partial<RectEl> | Partial<LineEl> | Partial<QrEl>;
 
 interface PropertiesPanelProps {
   layout: CertificateLayout;
@@ -51,6 +56,14 @@ const ORIENTATION_OPTIONS = (Object.keys(ORIENTATION_LABEL) as Orientation[]).ma
   value,
   label: ORIENTATION_LABEL[value],
 }));
+const LINE_ORIENTATION_OPTIONS = (Object.keys(LINE_ORIENTATION_LABEL) as LineOrientation[]).map((value) => ({
+  value,
+  label: LINE_ORIENTATION_LABEL[value],
+}));
+const LINE_STYLE_OPTIONS = (Object.keys(LINE_STYLE_LABEL) as LineStyle[]).map((value) => ({
+  value,
+  label: LINE_STYLE_LABEL[value],
+}));
 
 /** Painel lateral: propriedades do elemento selecionado (por tipo) ou da página, se nada estiver selecionado. */
 export function PropertiesPanel({ layout, selected, groupLogo, onUpdate, onLayoutChange }: PropertiesPanelProps) {
@@ -63,6 +76,7 @@ export function PropertiesPanel({ layout, selected, groupLogo, onUpdate, onLayou
       {selected.type === "text" && <TextProps el={selected} onUpdate={onUpdate} />}
       {selected.type === "image" && <ImageProps el={selected} groupLogo={groupLogo} onUpdate={onUpdate} />}
       {selected.type === "rect" && <RectProps el={selected} onUpdate={onUpdate} />}
+      {selected.type === "line" && <LineProps el={selected} onUpdate={onUpdate} />}
       {selected.type === "qr" && <QrProps el={selected} onUpdate={onUpdate} />}
       <GeometryProps el={selected} orientation={layout.page.orientation} onUpdate={onUpdate} />
     </div>
@@ -374,6 +388,52 @@ function RectProps({ el, onUpdate }: { el: RectEl; onUpdate: PropertiesPanelProp
   );
 }
 
+// ------------------------------------------------------------------ linha
+
+function LineProps({ el, onUpdate }: { el: LineEl; onUpdate: PropertiesPanelProps["onUpdate"] }) {
+  const set = (patch: Partial<LineEl>, field: string) => onUpdate(el.id, patch, `${el.id}:${field}`);
+  const vertical = el.orientation === "vertical";
+  return (
+    <Section title="Linha">
+      {/* Ao trocar a orientação, o clamp do updateElement reencaixa a linha dentro da página. */}
+      <ChoiceGroup
+        label="Orientação da linha"
+        value={el.orientation}
+        options={LINE_ORIENTATION_OPTIONS}
+        onChange={(orientation) => set({ orientation }, "orientation")}
+      />
+      <NumberField
+        label="Comprimento"
+        unit="%"
+        min={LIMITS.lineLength.min}
+        max={LIMITS.lineLength.max}
+        step={0.5}
+        value={el.length}
+        onChange={(length) => set({ length }, "length")}
+      />
+      <p className="-mt-1 text-xs text-muted-foreground">
+        Em % da {vertical ? "altura" : "largura"} da página. A posição abaixo é a ponta {vertical ? "de cima" : "da esquerda"}.
+      </p>
+      <NumberField
+        label="Espessura da linha"
+        unit="pt"
+        min={LIMITS.lineThickness.min}
+        max={LIMITS.lineThickness.max}
+        step={0.5}
+        value={el.thickness}
+        onChange={(thickness) => set({ thickness }, "thickness")}
+      />
+      <ColorField label="Cor da linha" value={el.color} onChange={(color) => color && set({ color }, "color")} />
+      <ChoiceGroup
+        label="Estilo da linha"
+        value={el.lineStyle}
+        options={LINE_STYLE_OPTIONS}
+        onChange={(lineStyle) => set({ lineStyle }, "lineStyle")}
+      />
+    </Section>
+  );
+}
+
 // ------------------------------------------------------------------ QR
 
 function QrProps({ el, onUpdate }: { el: QrEl; onUpdate: PropertiesPanelProps["onUpdate"] }) {
@@ -414,14 +474,15 @@ function GeometryProps({
   orientation: Orientation;
   onUpdate: PropertiesPanelProps["onUpdate"];
 }) {
-  const box = elementBox(el, orientation);
+  // A linha tem x,y próprios (a caixa de seleção dela é só para clicar) e o tamanho é o comprimento (seção Linha).
+  const box = el.type === "line" ? { x: el.x, y: el.y } : elementBox(el, orientation);
   const set = (patch: ElementPatch, field: string) => onUpdate(el.id, patch, `${el.id}:${field}`);
   return (
-    <Section title="Posição e tamanho">
+    <Section title={el.type === "line" ? "Posição" : "Posição e tamanho"}>
       <div className="grid grid-cols-2 gap-3">
         <NumberField label="Posição X" unit="%" min={0} max={100} step={0.5} value={box.x} onChange={(x) => set({ x }, "x")} />
         <NumberField label="Posição Y" unit="%" min={0} max={100} step={0.5} value={box.y} onChange={(y) => set({ y }, "y")} />
-        {el.type !== "qr" && (
+        {el.type !== "qr" && el.type !== "line" && (
           <>
             <NumberField label="Largura" unit="%" min={LIMITS.minBox} max={100} step={0.5} value={el.w} onChange={(w) => set({ w }, "w")} />
             <NumberField label="Altura" unit="%" min={LIMITS.minBox} max={100} step={0.5} value={el.h} onChange={(h) => set({ h }, "h")} />

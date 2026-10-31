@@ -138,6 +138,29 @@ export interface RectEl extends BaseEl {
   radius: number;
 }
 
+export type LineOrientation = "horizontal" | "vertical";
+export type LineStyle = "solid" | "dashed" | "dotted";
+
+/**
+ * Linha reta (ex.: espaço de assinatura). Conta nos 40 elementos (contrato §2 e §8.1).
+ * `x`,`y` = extremidade inicial (esquerda se horizontal, de cima se vertical), em % da página.
+ * `length` em %: horizontal = % da LARGURA da página; vertical = % da ALTURA. Regra de caber:
+ * horizontal => x + length <= 100; vertical => y + length <= 100.
+ */
+export interface LineEl extends BaseEl {
+  type: "line";
+  x: number;
+  y: number;
+  /** % (1..100). */
+  length: number;
+  orientation: LineOrientation;
+  /** '#RRGGBB'. */
+  color: string;
+  /** pt (0.5..10). */
+  thickness: number;
+  lineStyle: LineStyle;
+}
+
 export interface QrEl extends BaseEl {
   type: "qr";
   x: number;
@@ -148,14 +171,26 @@ export interface QrEl extends BaseEl {
   fg: string;
 }
 
-export type CertificateElement = TextEl | ImageEl | RectEl | QrEl;
+export type CertificateElement = TextEl | ImageEl | RectEl | LineEl | QrEl;
 export type ElementType = CertificateElement["type"];
 
 export const ELEMENT_TYPE_LABEL: Record<ElementType, string> = {
   text: "Texto",
   image: "Imagem",
   rect: "Retângulo",
+  line: "Linha",
   qr: "QR Code",
+};
+
+export const LINE_ORIENTATION_LABEL: Record<LineOrientation, string> = {
+  horizontal: "Horizontal",
+  vertical: "Vertical",
+};
+
+export const LINE_STYLE_LABEL: Record<LineStyle, string> = {
+  solid: "Sólida",
+  dashed: "Tracejada",
+  dotted: "Pontilhada",
 };
 
 // ------------------------------------------------------------------ modelo salvo (§5)
@@ -224,6 +259,10 @@ export const LIMITS = {
   lineHeight: { min: 0.8, max: 2.5 },
   strokeWidth: { min: 0, max: 20 },
   radius: { min: 0, max: 200 },
+  /** Linha (contrato §2): comprimento em % da página (largura se horizontal, altura se vertical). */
+  lineLength: { min: 1, max: 100 },
+  /** Linha: espessura em pt. */
+  lineThickness: { min: 0.5, max: 10 },
   qrSize: { min: 56, max: 220 },
   /** Luminância relativa máxima da cor do QR (precisa ser escura). */
   qrMaxLuminance: 0.45,
