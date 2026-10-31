@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Camera,
@@ -14,16 +14,17 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { plural } from "@/lib/plural";
 import { formatPoints, leagueColor, useRankingMe } from "@/lib/ranking";
 import { useAttendance, useGraduations, useMyStudent, usePassport, type Student } from "@/lib/queries";
 import { useImage } from "@/lib/use-image";
+import { useInstall } from "@/lib/install";
 import type { Badge } from "@/lib/roles";
 import { Avatar } from "./avatar";
 import { RoleBadges } from "./roles";
 import { Rope } from "./rope";
+import { InstallHelp } from "./onboarding/install-guide";
 
 /* ------------------------------------------------------------------------------------------------
  * Blocos visuais do Perfil (prefixo `pf-` em styles.css). Sem lógica de negócio nova: os dados vêm dos
@@ -301,47 +302,20 @@ export function ProfileHighlights() {
 
 /* ----------------------------------- INSTALAR O APP ----------------------------------- */
 
-interface InstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
-}
-
-const isStandalone = (): boolean =>
-  typeof window !== "undefined" &&
-  ((typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches) ||
-    (navigator as Navigator & { standalone?: boolean }).standalone === true);
-
-/** "Instalar app": some quando o app já roda instalado. Usa o prompt nativo se o navegador ofereceu; senão mostra o passo a passo. */
+/** "Instalar app": some quando o app já roda instalado. Com o prompt nativo guardado (lib/install) instala num toque; senão abre a ajuda (folha guiada no iPhone/iPad, texto nos demais). */
 export function InstallRow() {
-  const [installed, setInstalled] = useState(isStandalone);
-  const [deferred, setDeferred] = useState<InstallPromptEvent | null>(null);
+  const { installed, canPrompt, platform, promptInstall } = useInstall();
   const [help, setHelp] = useState(false);
-
-  useEffect(() => {
-    const onPrompt = (event: Event) => {
-      event.preventDefault();
-      setDeferred(event as InstallPromptEvent);
-    };
-    const onInstalled = () => setInstalled(true);
-    window.addEventListener("beforeinstallprompt", onPrompt);
-    window.addEventListener("appinstalled", onInstalled);
-    return () => {
-      window.removeEventListener("beforeinstallprompt", onPrompt);
-      window.removeEventListener("appinstalled", onInstalled);
-    };
-  }, []);
 
   if (installed) return null;
 
   async function install() {
-    if (!deferred) {
-      setHelp(true);
+    // iPhone/iPad não têm prompt: a folha guiada é o caminho. Nos demais, prompt nativo se o navegador ofereceu.
+    if (platform !== "ios" && canPrompt) {
+      await promptInstall();
       return;
     }
-    try {
-      await deferred.prompt();
-    } finally {
-      setDeferred(null);
-    }
+    setHelp(true);
   }
 
   return (
@@ -353,20 +327,7 @@ export function InstallRow() {
           Instalar o GingApp
         </Button>
       </ProfileCard>
-      <Dialog open={help} onOpenChange={setHelp}>
-        <DialogContent>
-          <DialogTitle>Leve sua capoeira com você</DialogTitle>
-          <DialogDescription>Instale o GingApp na tela inicial do seu celular.</DialogDescription>
-          <div className="space-y-4 text-sm">
-            <p>
-              <strong>No iPhone:</strong> abra no Safari, toque em Compartilhar e selecione “Adicionar à Tela de Início”.
-            </p>
-            <p>
-              <strong>No Android:</strong> abra no Chrome, toque no menu ⋮ e selecione “Instalar aplicativo” ou “Adicionar à tela inicial”.
-            </p>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <InstallHelp open={help} onOpenChange={setHelp} />
     </>
   );
 }

@@ -23,12 +23,14 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { useInstall } from "@/lib/install";
 import { logout } from "@/lib/auth";
 import { useSessionUser } from "@/lib/session";
 import { useFeedSettings } from "@/lib/feed";
 import { useMyIdentity, useMyStudent, useMyUnit, usePassport, usePendingTransferCount, useUnreadCount } from "@/lib/queries";
 import { Avatar } from "./avatar";
 import { QuickPostFab } from "./feed/quick-post-fab";
+import { InstallHelp } from "./onboarding/install-guide";
 
 const mainNav = [
   { to: "/", label: "Início", icon: House },
@@ -95,6 +97,7 @@ export function StudentSwitcher() {
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [installOpen, setInstallOpen] = useState(false);
+  const install = useInstall();
   const [menuOpen, setMenuOpen] = useState(false);
   const user = useSessionUser();
   const queryClient = useQueryClient();
@@ -111,6 +114,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   const feedEnabled = useFeedSettings().data?.enabled === true;
   const communityItems = communityNav.filter((item) => item.to !== "/feed" || feedEnabled);
   const current = [...mainNav, ...communityNav, ...personalNav].find((item) => item.to === pathname)?.label ?? (pathname === "/transferencias" ? "Pedidos de transferência" : pathname === "/ocorrencias" ? "Minhas ocorrências" : "GingApp");
+
+  /** Com o prompt nativo guardado instala num toque; senão abre a ajuda (folha guiada no iPhone/iPad). */
+  function openInstall() {
+    if (install.platform !== "ios" && install.canPrompt) void install.promptInstall();
+    else setInstallOpen(true);
+  }
 
   function handleLogout() {
     logout(queryClient);
@@ -164,9 +173,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
             <ChevronRight size={13} className="ml-auto flex-none text-muted-foreground" />
           </Link>
-          <Button variant="ghost" size="sm" className="w-full text-muted-foreground mt-3 text-xs" onClick={() => setInstallOpen(true)}>
-            <Download size={14} /> Instalar GingApp
-          </Button>
+          {!install.installed && (
+            <Button variant="ghost" size="sm" className="w-full text-muted-foreground mt-3 text-xs" onClick={openInstall}>
+              <Download size={14} /> Instalar GingApp
+            </Button>
+          )}
           <Button variant="ghost" size="sm" className="w-full text-muted-foreground text-xs" onClick={handleLogout}>
             <LogOut size={14} /> Sair
           </Button>
@@ -223,23 +234,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           </Link>
         ))}
       </nav>
-      <Dialog open={installOpen} onOpenChange={setInstallOpen}>
-        <DialogContent>
-          <DialogTitle>Leve sua capoeira com você</DialogTitle>
-          <DialogDescription>Instale o GingApp na tela inicial do seu celular.</DialogDescription>
-          <div className="space-y-4 text-sm">
-            <p>
-              <strong>No iPhone:</strong> abra no Safari, toque em Compartilhar e selecione “Adicionar à Tela de Início”.
-            </p>
-            <p>
-              <strong>No Android:</strong> abra no Chrome, toque no menu ⋮ e selecione “Instalar aplicativo” ou “Adicionar à tela inicial”.
-            </p>
-            <p className="text-muted-foreground">
-              A instalação e o acesso básico sem internet ficam disponíveis na versão publicada. Dados da sua conta sempre são buscados online.
-            </p>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <InstallHelp open={installOpen} onOpenChange={setInstallOpen} />
       <Dialog open={menuOpen} onOpenChange={setMenuOpen}>
         <DialogContent>
           <DialogTitle>Meu GingApp</DialogTitle>
@@ -252,16 +247,18 @@ export function AppShell({ children }: { children: ReactNode }) {
             <strong className="truncate">{user?.name}</strong>
           </Link>
           <nav>{navigation([...mainNav, ...communityItems, ...personalNav])}</nav>
-          <Button
-            variant="soft"
-            onClick={() => {
-              setMenuOpen(false);
-              setInstallOpen(true);
-            }}
-          >
-            <Download />
-            Instalar GingApp
-          </Button>
+          {!install.installed && (
+            <Button
+              variant="soft"
+              onClick={() => {
+                setMenuOpen(false);
+                openInstall();
+              }}
+            >
+              <Download />
+              Instalar GingApp
+            </Button>
+          )}
           <Button variant="outline" onClick={handleLogout}>
             <LogOut />
             Sair

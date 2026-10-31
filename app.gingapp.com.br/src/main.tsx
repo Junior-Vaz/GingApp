@@ -14,6 +14,11 @@ import "@fontsource/manrope/800.css";
 import "./styles.css";
 import { router, queryClient } from "./router";
 import { setUnauthorizedHandler } from "@/lib/api";
+import { startInstallCapture } from "@/lib/install";
+
+// O `beforeinstallprompt` do Chrome dispara uma vez, cedo: o ouvinte global precisa existir ANTES de o React montar
+// (senão o evento se perde e o app não consegue instalar com um toque). Ver lib/install.ts.
+startInstallCapture();
 
 // 401 em qualquer chamada: a sessão já foi limpa pelo api.ts; aqui limpamos o cache e
 // voltamos ao login (com redirect para a página atual).
