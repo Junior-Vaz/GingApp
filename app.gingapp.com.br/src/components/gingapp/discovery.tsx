@@ -202,7 +202,7 @@ export function DiscoveryPage({ mode = "community" }: { mode?: Mode }) {
         ) : error ? (
           <StateMessage tone="error">{errorMessage(error, "Não foi possível carregar os encontros.")}</StateMessage>
         ) : filtered.length > 0 ? (
-          <div className="discovery-grid">
+          <div className="discovery-grid stagger">
             {filtered.map((event) => (
               <EventCard key={event.key} event={event} />
             ))}

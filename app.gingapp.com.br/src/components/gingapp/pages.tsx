@@ -49,6 +49,7 @@ import {
 } from "@/lib/queries";
 import { communicationIdOf, notificationRequiresAck } from "@/lib/communications";
 import { ClassCover, MyClasses, TeacherLine, UnitLine } from "./class-parts";
+import { CountUp } from "./count-up";
 import { NotificationAckActions } from "./pinned-communications";
 import { PushSettings } from "./push-settings";
 import { PixSheet } from "./pix-sheet";
@@ -132,7 +133,7 @@ export function ClassesPage() {
           {upcoming.length > 0 && (
             <>
               <SectionHeading title="Próximas" />
-              <div className="grid lg:grid-cols-2 gap-x-6">{upcoming.map((item, index) => card(item, index === 0 && item.status === "ACTIVE"))}</div>
+              <div className="grid lg:grid-cols-2 gap-x-6 stagger">{upcoming.map((item, index) => card(item, index === 0 && item.status === "ACTIVE"))}</div>
               <LoadMore
                 shown={upcoming.length}
                 total={upcomingQuery.total}
@@ -147,7 +148,7 @@ export function ClassesPage() {
           {past.length > 0 && (
             <>
               <SectionHeading title="Anteriores" />
-              <div className="grid lg:grid-cols-2 gap-x-6">{past.map((item) => card(item, false))}</div>
+              <div className="grid lg:grid-cols-2 gap-x-6 stagger">{past.map((item) => card(item, false))}</div>
               <LoadMore
                 shown={past.length}
                 total={pastQuery.total}
@@ -212,11 +213,11 @@ export function AttendancePage() {
         <StateMessage tone="error">{errorMessage(attendance.error, "Não foi possível carregar sua frequência.")}</StateMessage>
       ) : (
         <>
-          <div className="stats-grid">
+          <div className="stats-grid stagger">
             <div className="stat">
               <div>
                 <p className="stat-label">Frequência</p>
-                <div className="stat-value">{stats.total > 0 ? `${stats.percent}%` : "—"}</div>
+                <div className="stat-value">{stats.total > 0 ? <CountUp id="freq-percent" value={stats.percent} suffix="%" /> : "—"}</div>
                 <p className="stat-sub">
                   {percent != null ? `${Math.round(percent)}% nos últimos 30 dias` : "Sem registros ainda"}
                 </p>
@@ -225,7 +226,7 @@ export function AttendancePage() {
             <div className="stat">
               <div>
                 <p className="stat-label">Aulas frequentadas</p>
-                <div className="stat-value">{stats.present}</div>
+                <div className="stat-value"><CountUp id="freq-presentes" value={stats.present} /></div>
                 <p className="stat-sub">
                   {stats.total > 0 ? `de ${stats.total} registradas no mês` : "Presenças registradas"}
                 </p>
@@ -234,7 +235,7 @@ export function AttendancePage() {
             <div className="stat">
               <div>
                 <p className="stat-label">Sequência atual</p>
-                <div className="stat-value">{streakOf(attendance.data)}</div>
+                <div className="stat-value"><CountUp id="freq-sequencia" value={streakOf(attendance.data)} /></div>
                 <p className="stat-sub">Aulas seguidas</p>
               </div>
             </div>
@@ -539,7 +540,7 @@ export function NotificationsPage() {
             </Button>
           </div>
           {list.length > 0 ? (
-            <div className="notice-list">
+            <div className="notice-list stagger">
               {list.map((notice) => (
                 <article
                   className="notice-item cursor-pointer"
@@ -615,7 +616,7 @@ export function NotificationsPage() {
       {notices.length > 0 && (
         <>
           <SectionHeading title="Recados do grupo" />
-          <div className="notice-list">
+          <div className="notice-list stagger">
             {notices.map((notice) => (
               <article className="notice-item" key={notice.id}>
                 <div className="notice-meta">

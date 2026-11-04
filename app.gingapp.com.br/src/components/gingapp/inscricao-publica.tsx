@@ -284,7 +284,7 @@ function PaymentBlock({ amountCents, pix }: { amountCents: number | null; pix: P
           <dl className="space-y-1.5 text-sm">
             <div>
               <dt className="text-xs text-muted-foreground">{pixKeyTypeLabel(pix.keyType)}</dt>
-              <dd className="break-all rounded-md bg-card px-3 py-2 font-mono text-base font-semibold" data-testid="inscricao-chave-pix">
+              <dd className="break-all rounded-md border border-border bg-card px-3 py-2 font-mono text-base font-semibold" data-testid="inscricao-chave-pix">
                 {pix.key}
               </dd>
             </div>

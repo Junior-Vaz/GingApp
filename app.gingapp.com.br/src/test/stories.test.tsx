@@ -223,7 +223,7 @@ describe("faixa de stories compacta (5 cartões de 20%, colada no banner)", () =
     await until(() => row() !== null, "linha");
     const listTokens = tokensOf($("[data-testid=stories-list]"));
     expect(listTokens).toContain("md:rounded-t-lg");
-    expect(listTokens).toContain("max-md:-mx-[18px]");
+    expect(listTokens).toContain("max-md:-mx-[var(--page-gutter)]");
     expect(tokensOf(row()!.parentElement!.parentElement)).toContain("stories-attached");
   });
 

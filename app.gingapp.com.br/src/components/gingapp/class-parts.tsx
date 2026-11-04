@@ -85,7 +85,7 @@ export function MyClasses() {
   return (
     <section className="content-band" aria-label="Minhas turmas">
       <SectionHeading title="Minhas turmas" to="/aulas" label="Minhas aulas" />
-      <ul className="my-classes">
+      <ul className="my-classes stagger">
         {list.map((item) => {
           const time = [item.startTime, item.endTime].filter(Boolean).join(" – ");
           const when = [item.weekday != null ? weekdayLabel(item.weekday) : "", time].filter(Boolean).join(" · ");

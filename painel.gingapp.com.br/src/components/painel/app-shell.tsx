@@ -119,7 +119,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <SidebarInset className="min-w-0">
         {/* Celular: cabeçalho compacto que respeita o entalhe/status bar (safe-area); a navegação fica na barra inferior. */}
-        <header className="sticky top-0 z-10 flex h-[calc(3rem+env(safe-area-inset-top))] min-w-0 items-center gap-2 border-b bg-card px-3 pt-[env(safe-area-inset-top)] sm:gap-3 sm:px-4 md:h-14 md:pt-0">
+        <header className="sticky top-0 z-10 flex h-[calc(3rem+env(safe-area-inset-top))] min-w-0 items-center gap-2 border-b bg-card px-3 pt-[env(safe-area-inset-top)] sm:gap-3 md:h-14 md:px-5 md:pt-0">
           <SidebarTrigger aria-label="Alternar menu" className="shrink-0 max-md:hidden" />
           {/* Celular/tablet: o menu vira gaveta e a marca some da tela; o logo do grupo (ou o do GingApp) fica no cabeçalho. */}
           <img
@@ -180,7 +180,10 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </div>
         </header>
-        <main className="mx-auto w-full max-w-7xl flex-1 px-4 pt-4 pb-[calc(9rem+env(safe-area-inset-bottom))] md:px-8 md:py-8">
+        <main
+          data-testid="painel-main"
+          className="mx-auto w-full max-w-[90rem] flex-1 px-3 pt-4 pb-[calc(9rem+env(safe-area-inset-bottom))] md:px-5 md:py-8"
+        >
           <OfflineBanner />
           {children}
         </main>

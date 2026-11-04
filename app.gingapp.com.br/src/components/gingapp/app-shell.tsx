@@ -212,7 +212,8 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </header>
         <StudentSwitcher />
-        <main className="main-content">
+        {/* key=pathname: a cada troca de rota o <main> remonta e os blocos da página entram com fade + subida (.page-enter, styles.css). O conteúdo já está no DOM; só a apresentação anima, e prefers-reduced-motion desliga. */}
+        <main key={pathname} className="main-content page-enter">
           {children}
           <footer className="footer">
             <span>

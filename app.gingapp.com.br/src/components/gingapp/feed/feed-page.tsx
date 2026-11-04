@@ -16,7 +16,7 @@ const PULL_MAX = 84;
 
 function FeedSkeleton() {
   return (
-    <div className="grid grid-cols-1 border-t border-border max-md:-mx-[18px]" aria-busy="true" aria-label="Carregando publicações" data-testid="feed-loading">
+    <div className="grid grid-cols-1 border-t border-border max-md:-mx-[var(--page-gutter)]" aria-busy="true" aria-label="Carregando publicações" data-testid="feed-loading">
       {[0, 1, 2].map((key) => (
         <div key={key} className="border-b border-border pb-3 pt-3">
           <div className="flex items-center gap-2.5 px-3">
@@ -181,12 +181,12 @@ export function FeedPage() {
             ) : (
               <>
                 {feed.isError && (
-                  <p className="rounded-md bg-card px-3 py-2 text-xs text-destructive" role="alert">
+                  <p className="rounded-md border border-border bg-card px-3 py-2 text-xs text-destructive" role="alert">
                     Não foi possível atualizar agora. Mostrando o que já estava carregado.
                   </p>
                 )}
                 {/* Estilo Instagram: posts sem container e sangrando até a borda da tela no celular (margem negativa = padding lateral da página). */}
-                <div className="grid grid-cols-1 border-t border-border max-md:-mx-[18px]" data-testid="feed-list">
+                <div className="grid grid-cols-1 border-t border-border max-md:-mx-[var(--page-gutter)] stagger" data-testid="feed-list">
                   {items.map((post) => (
                     <PostCard key={post.id} post={post} allowComments={data.allowComments} />
                   ))}

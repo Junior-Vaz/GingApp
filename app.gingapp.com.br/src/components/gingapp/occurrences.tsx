@@ -204,7 +204,7 @@ export function OccurrencesPage() {
       ) : list.length === 0 ? (
         <StateMessage>Nenhuma ocorrência registrada.</StateMessage>
       ) : (
-        <div className="notice-list" data-testid="occurrences-list">
+        <div className="notice-list stagger" data-testid="occurrences-list">
           {list.map((occurrence) => (
             <OccurrenceCard key={occurrence.id} occurrence={occurrence} />
           ))}

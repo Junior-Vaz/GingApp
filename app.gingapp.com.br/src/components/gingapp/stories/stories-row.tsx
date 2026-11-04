@@ -214,7 +214,7 @@ export function StoriesRow({ className = "" }: { className?: string }) {
         <section className="min-w-0 max-w-full" aria-label="Stories do grupo" data-testid="stories-row">
           {/* Sem gap, sem padding e sem borda entre cartões; no celular a faixa vai até a borda da tela (como o banner). */}
           <ul
-            className="stories-strip m-0 flex list-none snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain bg-secondary p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-md:-mx-[18px] md:rounded-t-lg"
+            className="stories-strip m-0 flex list-none snap-x snap-mandatory overflow-x-auto overflow-y-hidden overscroll-x-contain bg-secondary p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden max-md:-mx-[var(--page-gutter)] md:rounded-t-lg stagger"
             data-testid="stories-list"
           >
             {(canPost || mine) && (

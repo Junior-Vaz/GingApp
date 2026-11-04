@@ -44,7 +44,7 @@ export function HomeFeedPreview({ className = "" }: { className?: string }) {
           {items.length > 0 ? (
             // Estilo Instagram: os posts sangram até a borda da tela (margem negativa = padding lateral da página, 18 px no
             // celular); a seção inteira (título, "Ver tudo") segue com o padding normal.
-            <div className="grid grid-cols-1 border-t border-border max-md:-mx-[18px]" data-testid="home-feed-list">
+            <div className="grid grid-cols-1 border-t border-border max-md:-mx-[var(--page-gutter)] stagger" data-testid="home-feed-list">
               {items.map((post) => (
                 <PostCard key={post.id} post={post} allowComments={allowComments} compact />
               ))}

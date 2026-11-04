@@ -36,6 +36,7 @@ import { HomeOnboarding } from "./onboarding/home-onboarding";
 import { GeoCheckinHomeCard } from "./geo-checkin";
 import { PinnedCommunications } from "./pinned-communications";
 import { Avatar } from "./avatar";
+import { CountUp } from "./count-up";
 import { GraduationCard } from "./graduation-parts";
 import { ClassCover, TeacherLine, UnitLine } from "./class-parts";
 import { graduationCardLabel, monthRange, monthStats, nextLesson, resolveClassInfo, weekdayLabel } from "@/lib/derive";
@@ -100,11 +101,11 @@ export function HomePage() {
         />
       </Link>
       <HomeFeedPreview className="mb-5" />
-      <section className="stats-grid stats-grid-2" aria-label="Minha evolução">
+      <section className="stats-grid stats-grid-2 stagger" aria-label="Minha evolução">
         <Link to="/frequencia" className="stat no-underline">
           <div>
             <p className="stat-label">Frequência no mês</p>
-            <div className="stat-value">{month.total > 0 ? `${month.percent}%` : "—"}</div>
+            <div className="stat-value">{month.total > 0 ? <CountUp id="home-frequencia" value={month.percent} suffix="%" /> : "—"}</div>
             <p className="stat-sub">
               {month.total > 0 ? (
                 <>
@@ -125,7 +126,7 @@ export function HomePage() {
           <div>
             <p className="stat-label">Vivências na roda</p>
             <div className="stat-value">
-              {passport.data?.stats.rodas ?? 0} <span className="text-[11px] font-normal text-muted-foreground">{passport.data?.stats.rodas === 1 ? "roda" : "rodas"}</span>
+              <CountUp id="home-rodas" value={passport.data?.stats.rodas ?? 0} /> <span className="text-[11px] font-normal text-muted-foreground">{passport.data?.stats.rodas === 1 ? "roda" : "rodas"}</span>
             </div>
             <p className="stat-sub">Histórias que ficam com você</p>
           </div>
@@ -184,7 +185,7 @@ export function HomePage() {
           {calendar.isLoading ? (
             <StateMessage>Carregando…</StateMessage>
           ) : events.length > 0 ? (
-            <div className="event-grid">
+            <div className="event-grid stagger">
               {events.map((event) => (
                 <EventCard key={event.key} event={event} />
               ))}
@@ -196,7 +197,7 @@ export function HomePage() {
         <div className="dashboard-right">
           <SectionHeading title="Recados do grupo" to="/notificacoes" label="Ver todos" />
           {notices.length > 0 ? (
-            <div className="notice-list">
+            <div className="notice-list stagger">
               {notices.map((notice) => (
                 <article className="notice-item" key={notice.id}>
                   <div className="notice-meta">

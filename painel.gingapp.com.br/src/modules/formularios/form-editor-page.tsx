@@ -282,7 +282,7 @@ function Editor({
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <div
-        className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-[9] -mx-4 border-b bg-background/95 px-4 py-2 backdrop-blur md:top-14 md:-mx-8 md:px-8"
+        className="sticky top-[calc(3rem+env(safe-area-inset-top))] z-[9] -mx-3 border-b bg-background/95 px-3 py-2 backdrop-blur md:top-14 md:-mx-5 md:px-5"
         data-testid="editor-bar"
       >
         <div className="flex items-center gap-2">

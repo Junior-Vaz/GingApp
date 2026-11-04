@@ -696,7 +696,7 @@ describe("post estilo Instagram", () => {
   it("a lista sangra até a borda no celular (margem negativa = padding lateral da página) e sem espaço entre posts", async () => {
     await mountPost();
     const list = classesOf($("[data-testid=feed-list]"));
-    expect(list).toContain("max-md:-mx-[18px]");
+    expect(list).toContain("max-md:-mx-[var(--page-gutter)]");
     expect(list.some((token) => token.startsWith("gap-"))).toBe(false);
   });
 

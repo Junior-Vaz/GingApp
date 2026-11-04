@@ -21,6 +21,7 @@ import {
   usePassport,
   type Certificate,
 } from "@/lib/queries";
+import { CountUp } from "./count-up";
 import { MyClasses } from "./class-parts";
 import { GraduationCard, RopeRuler } from "./graduation-parts";
 import { HierarchyCanvas } from "./hierarchy";
@@ -183,7 +184,7 @@ export function JourneyPage() {
             <div className="py-4">
               <div className="flex justify-between text-sm">
                 <strong>Sua constância faz a diferença</strong>
-                <span className="text-primary">{percent === null ? "—" : `${Math.round(percent)}%`}</span>
+                <span className="text-primary">{percent === null ? "—" : <CountUp id="jornada-constancia" value={Math.round(percent)} suffix="%" />}</span>
               </div>
               <div className="progress-track">
                 <div className="progress-fill" style={{ width: `${Math.min(100, Math.round(percent ?? 0))}%` }} />
@@ -210,7 +211,7 @@ export function JourneyPage() {
               <RopeRuler levels={hierarchy.data?.levels ?? []} currentOrder={current?.graduationLevel.order ?? null} />
             )}
             {timeline.length > 0 ? (
-              <div className="timeline">
+              <div className="timeline stagger">
                 {timeline.map((item) => {
                   const itemColor = softenColor(item.graduationLevel.color);
                   return (

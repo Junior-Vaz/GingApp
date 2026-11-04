@@ -311,7 +311,7 @@ describe("variante compacta do PostCard", () => {
     await mountHome(state);
     await until(() => cards().length === 1, "post");
     const list = $("[data-testid=home-feed-list]")!;
-    expect(list.className).toContain("max-md:-mx-[18px]");
+    expect(list.className).toContain("max-md:-mx-[var(--page-gutter)]");
     expect(list.className).not.toMatch(/\bgap-/);
     const section = $("[data-testid=home-feed-preview]")!;
     expect(section.className).not.toContain("-mx-");
