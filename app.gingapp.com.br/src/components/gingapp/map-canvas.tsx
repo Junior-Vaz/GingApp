@@ -4,20 +4,21 @@ import { Button } from "@/components/ui/button";
 import type { GoogleMapsApi } from "@/lib/google-maps";
 import { PLACE_META, PLACE_TYPES, type MapPlace, type NearMe } from "@/lib/map";
 import {
-  balloonIcon,
   cachedLogo,
   classicClusterIcon,
   createClusterElement,
   createPinElement,
   loadLogo,
   markerLabel,
+  markerPhotoUrl,
+  photoPinIcon,
 } from "@/lib/map-markers";
 
 /**
  * Tela do mapa: a ÚNICA peça que fala com o Google. Chunk lazy — o SDK (`@googlemaps/js-api-loader`) e o
  * agrupador (`@googlemaps/markerclusterer`) são importados dinamicamente aqui dentro, só depois que a aba
- * Mapa é aberta. Com Map ID usa AdvancedMarkerElement (pins em HTML com o nome); sem ele, marcadores clássicos
- * com ícone SVG em forma de balão (logo + nome + selo do tipo). Estilo: sem Map ID aplica só a paleta verde
+ * Mapa é aberta. Com Map ID usa AdvancedMarkerElement (pins de foto em HTML); sem ele, marcadores clássicos
+ * com o mesmo "pin de foto" em ícone SVG (quadrado arredondado + cauda; a ponta da cauda é a âncora). Estilo: sem Map ID aplica só a paleta verde
  * suave (ícones/POIs/transporte do Google ficam visíveis); com Map ID o estilo é o da nuvem (o Google ignora
  * `styles` quando há mapId).
  */
@@ -98,25 +99,26 @@ const Z_SELECTED = 2000;
 const zFor = (place: MapPlace, selected: boolean) => (selected ? Z_SELECTED : place.isMine ? 10 : 1);
 const LOGO_BATCH = 40;
 
-function toGoogleIcon(icon: ReturnType<typeof balloonIcon>, stack = 0) {
+function toGoogleIcon(icon: ReturnType<typeof photoPinIcon>, stack = 0) {
   return {
     url: icon.url,
     scaledSize: new google.maps.Size(icon.width, icon.height),
-    // Empilhado: o anchor desce `stack` px, então o balão aparece acima do que fica na ponta do local.
+    // Empilhado: o anchor desce `stack` px, então o pin aparece acima do que fica na ponta do local.
     anchor: new google.maps.Point(icon.anchorX, icon.anchorY + stack),
   };
 }
 
-const balloonFor = (place: MapPlace, selected: boolean, stack: number) =>
+const pinFor = (place: MapPlace, selected: boolean, stack: number) =>
   toGoogleIcon(
-    balloonIcon(place, { selected, logo: cachedLogo(place.organization.logoUrl) ?? null }),
+    photoPinIcon(place, { selected, logo: cachedLogo(markerPhotoUrl(place)) ?? null }),
     stack,
   );
 
-const STACK_STEP = 44;
+/** Pin de foto tem 48 px de quadrado + cauda: o passo de empilhamento é a altura útil dele (sem cobrir o de baixo). */
+const STACK_STEP = 54;
 const STACK_MAX = 3;
 /**
- * Locais no MESMO ponto (grupo + turmas + eventos usam o mesmo endereço) empilham os balões para cima em vez de se
+ * Locais no MESMO ponto (grupo + turmas + eventos usam o mesmo endereço) empilham os pins para cima em vez de se
  * esconderem: o de baixo (grupo > treino > roda > evento) fica na ponta do local. Devolve o deslocamento por id.
  */
 function stackOffsets(list: MapPlace[]): Map<string, number> {
@@ -348,7 +350,7 @@ export default function MapCanvas({
           marker = new api.Marker({
             position,
             title: markerLabel(place),
-            icon: balloonFor(place, selected, stack),
+            icon: pinFor(place, selected, stack),
             zIndex: zFor(place, selected),
           });
           marker.addListener("click", click);
@@ -357,7 +359,7 @@ export default function MapCanvas({
           place,
           marker,
           element,
-          logoApplied: typeof cachedLogo(place.organization.logoUrl) === "string",
+          logoApplied: typeof cachedLogo(markerPhotoUrl(place)) === "string",
           selected,
           stack,
         });
@@ -371,7 +373,7 @@ export default function MapCanvas({
     return () => timers.forEach((t) => window.clearTimeout(t));
   }, [places, status, advanced]);
 
-  /* 2b) Logos dos grupos nos balões: baixa cada URL uma vez e troca os ícones em lotes (pins na tela primeiro). */
+  /* 2b) Fotos dos locais nos pins: baixa cada URL uma vez e troca os ícones em lotes (pins na tela primeiro). */
   useEffect(() => {
     if (status !== "ready" || advanced) return;
     let cancelled = false;
@@ -385,13 +387,13 @@ export default function MapCanvas({
         bounds?.contains({ lat: entry.place.latitude, lng: entry.place.longitude }) ? 1 : 0;
       const ready = [...entries.current.values()].filter(
         (entry) =>
-          !entry.logoApplied && typeof cachedLogo(entry.place.organization.logoUrl) === "string",
+          !entry.logoApplied && typeof cachedLogo(markerPhotoUrl(entry.place)) === "string",
       );
       if (ready.length === 0) return;
       ready.sort((a, b) => inView(b) - inView(a));
       for (const entry of ready.slice(0, LOGO_BATCH)) {
         entry.logoApplied = true;
-        if ("setIcon" in entry.marker) entry.marker.setIcon(balloonFor(entry.place, entry.selected, entry.stack));
+        if ("setIcon" in entry.marker) entry.marker.setIcon(pinFor(entry.place, entry.selected, entry.stack));
       }
       if (ready.length > LOGO_BATCH) frame = window.requestAnimationFrame(flush);
     };
@@ -400,7 +402,7 @@ export default function MapCanvas({
     };
     const urls = new Set<string>();
     for (const entry of entries.current.values()) {
-      const url = entry.place.organization.logoUrl;
+      const url = markerPhotoUrl(entry.place);
       if (url && cachedLogo(url) === undefined) urls.add(url);
     }
     for (const url of urls) void loadLogo(url).then(schedule);
@@ -523,7 +525,7 @@ export default function MapCanvas({
       entry.selected = isSelected;
       if (entry.element) entry.element.classList.toggle("is-selected", isSelected);
       if ("setIcon" in entry.marker) {
-        entry.marker.setIcon(balloonFor(entry.place, isSelected, entry.stack));
+        entry.marker.setIcon(pinFor(entry.place, isSelected, entry.stack));
         entry.marker.setZIndex(zFor(entry.place, isSelected));
       } else {
         entry.marker.zIndex = zFor(entry.place, isSelected);
@@ -535,6 +537,25 @@ export default function MapCanvas({
       if ((map.getZoom() ?? 0) < 16) map.setZoom(16);
     }
   }, [selectedId, status, places]);
+
+  /* 5b) O cartão do local ocupa a base e o mapa muda de altura (abrir/fechar o cartão, girar o aparelho): mantém o pin
+     selecionado centralizado na parte visível do mapa. */
+  useEffect(() => {
+    const hostEl = host.current;
+    if (status !== "ready" || !hostEl || typeof ResizeObserver === "undefined") return;
+    let initial = true; // o ResizeObserver avisa uma vez ao começar a observar
+    const observer = new ResizeObserver(() => {
+      if (initial) {
+        initial = false;
+        return;
+      }
+      const map = mapRef.current;
+      const entry = selectedRef.current ? entries.current.get(selectedRef.current) : undefined;
+      if (map && entry) map.setCenter({ lat: entry.place.latitude, lng: entry.place.longitude });
+    });
+    observer.observe(hostEl);
+    return () => observer.disconnect();
+  }, [status]);
 
   /* 6) Foco de volta ao pin (Esc no cartão). */
   useEffect(() => {

@@ -3,9 +3,12 @@ import { PLACE_META, dateBadge, type MapPlace, type PlaceType } from "@/lib/map"
 import { imageSrc } from "@/lib/uploads";
 
 /**
- * Construção dos marcadores (DOM e SVG puros, sem Google): o pin HTML do AdvancedMarkerElement e o
- * ícone SVG do marcador clássico (fallback quando não há Map ID). Todo texto de usuário entra por
- * textContent / escape de XML — nunca por innerHTML.
+ * Construção dos marcadores (DOM e SVG puros, sem Google): o "pin de foto" HTML do AdvancedMarkerElement e o
+ * mesmo desenho em SVG para o marcador clássico (fallback quando não há Map ID). O pin é um quadrado de cantos
+ * arredondados com borda (branca; dourada em "Meu grupo"; da cor do tipo quando selecionado), a foto/logo do local
+ * dentro e uma cauda triangular embaixo — a PONTA da cauda é a âncora (aponta exatamente a coordenada). Sem foto:
+ * o mesmo formato sobre a cor do tipo, com iniciais (grupo), dia/mês (evento) ou o ícone do tipo (treino/roda).
+ * Todo texto de usuário entra por textContent / escape de XML — nunca por innerHTML.
  */
 
 /* Glifos 24x24 (traço branco) — constantes estáticas, sem dados de usuário. */
@@ -13,22 +16,26 @@ const GLYPH_CLOCK = '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.2V12l3.2 2"
 // Berimbau: arco, corda e cabaça.
 const GLYPH_RODA =
   '<path d="M8 3C3.2 9 3.2 15 8 21"/><path d="M8 3v18"/><path d="M8 15.5h3.6"/><circle cx="16" cy="15.5" r="4.3" fill="#fff" stroke="none"/><path d="M13.5 4.5l5 7"/>';
-const GLYPH_PIN =
-  '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>';
-
 const GLYPH_CALENDAR =
   '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>';
-const GLYPH_HOME = '<path d="M3 11.5 12 3.5l9 8"/><path d="M5.5 10v10.5h4.5v-6h4v6h4.5V10"/>';
 
 function glyphSvg(glyph: string, size: number): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${glyph}</svg>`;
 }
 
-const GLYPH_BY_TYPE: Record<Exclude<PlaceType, "EVENT">, string> = {
-  UNIT: GLYPH_PIN,
+const GLYPH_BY_TYPE: Record<Exclude<PlaceType, "EVENT" | "UNIT">, string> = {
   CLASS: GLYPH_CLOCK,
   RODA: GLYPH_RODA,
 };
+
+/** Selo do tipo (mini ícone no canto do pin com foto): o grupo é o pin "puro", sem selo. */
+const GLYPH_SEAL: Record<Exclude<PlaceType, "UNIT">, string> = {
+  CLASS: GLYPH_CLOCK,
+  EVENT: GLYPH_CALENDAR,
+  RODA: GLYPH_RODA,
+};
+
+const GOLD = "#e8b923";
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -41,39 +48,9 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-/** Logo do grupo em círculo; sem logo (ou se a imagem falhar) cai nas iniciais. */
-function logoNode(place: MapPlace, className: string): HTMLElement {
-  const wrap = el("span", className);
-  const fallback = () => {
-    wrap.textContent = initials(place.organization.name);
-    wrap.classList.add("is-initials");
-  };
-  if (place.organization.logoUrl) {
-    const img = document.createElement("img");
-    img.alt = "";
-    img.decoding = "async";
-    img.loading = "lazy";
-    img.src = imageSrc(place.organization.logoUrl);
-    img.addEventListener("error", () => {
-      img.remove();
-      fallback();
-    });
-    wrap.appendChild(img);
-  } else {
-    fallback();
-  }
-  return wrap;
-}
-
-/** Título do balão por tipo: evento/roda/treino = título (nome da turma); grupo/unidade = nome do grupo. */
-export function balloonTitle(place: MapPlace): string {
-  return (place.type === "UNIT" ? place.organization.name : place.title) || place.title;
-}
-
-/** Corta o nome em ~20 caracteres com reticências. */
-export function truncateName(text: string, max = 20): string {
-  const clean = text.trim().replace(/\s+/g, " ");
-  return clean.length > max ? `${clean.slice(0, max - 1).trimEnd()}…` : clean;
+/** Foto do pin: a capa do evento/roda (`imageUrl`) e, na falta, o logo do grupo — a mesma regra do cartão do local. */
+export function markerPhotoUrl(place: MapPlace): string | null {
+  return place.imageUrl || place.organization.logoUrl || null;
 }
 
 /** Texto acessível do pin ("Evento: Batizado 2026 — Grupo X"). */
@@ -81,9 +58,25 @@ export function markerLabel(place: MapPlace): string {
   return `${PLACE_META[place.type].singular}: ${place.title}${place.type === "UNIT" ? "" : ` — ${place.organization.name}`}`;
 }
 
+/** Conteúdo do pin SEM foto: iniciais (grupo), dia/mês (evento) ou ícone do tipo (treino/roda), sobre a cor do tipo. */
+function appendFallback(badge: HTMLElement, place: MapPlace) {
+  if (place.type === "UNIT") {
+    badge.appendChild(el("span", "gm-pin-initials", initials(place.organization.name)));
+  } else if (place.type === "EVENT") {
+    const date = dateBadge(place, toDate);
+    badge.appendChild(el("span", "gm-pin-month", date?.month ?? "EVT"));
+    badge.appendChild(el("strong", "gm-pin-day", date?.day ?? "•"));
+  } else {
+    const icon = el("span", "gm-pin-glyph");
+    icon.innerHTML = glyphSvg(GLYPH_BY_TYPE[place.type], 24);
+    badge.appendChild(icon);
+  }
+}
+
 /**
- * Pin HTML por tipo: grupo = logo em círculo com borda verde; evento = cartão com dia/mês; roda =
- * berimbau; treino = relógio. Eventos/rodas/treinos levam o logo do grupo num selinho no canto.
+ * "Pin de foto" HTML: `.gm-pin` > `.gm-pin-badge` (quadrado arredondado com a foto/fallback) [+ `.gm-pin-seal` do tipo
+ * quando há foto e não é grupo] + `.gm-pin-tail` (cauda; ÚLTIMO filho = base do elemento = âncora do
+ * AdvancedMarkerElement, que apoia o centro da base do conteúdo na coordenada).
  */
 export function createPinElement(
   place: MapPlace,
@@ -99,22 +92,40 @@ export function createPinElement(
   root.title = place.title;
 
   const badge = el("span", "gm-pin-badge");
-  if (place.type === "UNIT") {
-    badge.appendChild(logoNode(place, "gm-pin-logo"));
-  } else if (place.type === "EVENT") {
-    const date = dateBadge(place, toDate);
-    badge.appendChild(el("span", "gm-pin-month", date?.month ?? "EVENTO"));
-    badge.appendChild(el("strong", "gm-pin-day", date?.day ?? "•"));
+  const tail = el("span", "gm-pin-tail");
+  tail.setAttribute("aria-hidden", "true");
+  let seal: HTMLElement | null = null;
+
+  const showFallback = () => {
+    badge.replaceChildren();
+    badge.classList.add("is-fallback");
+    root.classList.remove("has-photo");
+    seal?.remove();
+    seal = null;
+    appendFallback(badge, place);
+  };
+
+  const photo = markerPhotoUrl(place);
+  if (photo) {
+    const img = document.createElement("img");
+    img.alt = "";
+    img.decoding = "async";
+    img.loading = "lazy";
+    img.src = imageSrc(photo);
+    img.addEventListener("error", showFallback);
+    badge.appendChild(img);
+    root.classList.add("has-photo");
+    if (place.type !== "UNIT") {
+      seal = el("span", "gm-pin-seal");
+      seal.innerHTML = glyphSvg(GLYPH_SEAL[place.type], 12);
+    }
   } else {
-    const icon = el("span", "gm-pin-glyph");
-    icon.innerHTML = glyphSvg(GLYPH_BY_TYPE[place.type], 22);
-    badge.appendChild(icon);
+    showFallback();
   }
+
   root.appendChild(badge);
-  if (place.type !== "UNIT") root.appendChild(logoNode(place, "gm-pin-mini"));
-  // Nome em balãozinho sob o pin (mesma regra de título/truncamento do ícone clássico).
-  root.appendChild(el("span", "gm-pin-name", truncateName(balloonTitle(place))));
-  root.appendChild(el("span", "gm-pin-tail"));
+  if (seal) root.appendChild(seal);
+  root.appendChild(tail);
   return root;
 }
 
@@ -151,32 +162,6 @@ export interface ClassicIcon {
   anchorY: number;
 }
 
-/** Ícone SVG do pin clássico: gota colorida + glifo (relógio/berimbau), dia/mês (evento) ou iniciais (grupo). */
-export function classicPinIcon(place: MapPlace, selected = false): ClassicIcon {
-  const color = PLACE_META[place.type].color;
-  const scale = selected ? 1.25 : 1;
-  const width = Math.round(40 * scale);
-  const height = Math.round(52 * scale);
-  let inner: string;
-  if (place.type === "EVENT") {
-    const date = dateBadge(place, toDate);
-    inner =
-      `<text x="20" y="14.5" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" font-weight="700" fill="${color}">${escapeXml(date?.month ?? "EVT")}</text>` +
-      `<text x="20" y="28" text-anchor="middle" font-family="Arial,sans-serif" font-size="14" font-weight="800" fill="#1d2b24">${escapeXml(date?.day ?? "•")}</text>`;
-  } else if (place.type === "UNIT") {
-    inner = `<text x="20" y="25.5" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" font-weight="800" fill="${color}">${escapeXml(initials(place.organization.name))}</text>`;
-  } else {
-    // O glifo é branco; aqui vai sobre um círculo da cor do tipo.
-    inner = `<circle cx="20" cy="19" r="12.5" fill="${color}"/><g transform="translate(8.5 7.5) scale(0.95)" stroke="#fff" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${GLYPH_BY_TYPE[place.type]}</g>`;
-  }
-  const ring = place.isMine ? "#e8b923" : "#ffffff";
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 40 52">` +
-    `<path d="M20 50C20 50 3 33 3 19a17 17 0 0 1 34 0c0 14-17 31-17 31z" fill="${color}" stroke="${ring}" stroke-width="2"/>` +
-    `<circle cx="20" cy="19" r="14" fill="#fff"/>${inner}</svg>`;
-  return { url: dataUrl(svg), width, height, anchorX: width / 2, anchorY: height - 1 };
-}
-
 export function classicClusterIcon(count: number): ClassicIcon {
   const size = Math.min(64, 40 + Math.round(Math.log10(Math.max(1, count)) * 12));
   const svg =
@@ -186,108 +171,103 @@ export function classicClusterIcon(count: number): ClassicIcon {
   return { url: dataUrl(svg), width: size, height: size, anchorX: size / 2, anchorY: size / 2 };
 }
 
-/* ---------- Balão (marcador clássico sem Map ID): logo + nome + selo do tipo, cauda para o local ---------- */
+/* ---------- Pin de foto em SVG (marcador clássico sem Map ID) ---------- */
 
-const GLYPH_SEAL: Record<PlaceType, string> = {
-  UNIT: GLYPH_HOME,
-  CLASS: GLYPH_CLOCK,
-  EVENT: GLYPH_CALENDAR,
-  RODA: GLYPH_RODA,
-};
-// Fonte de sistema: um SVG usado como imagem não enxerga as fontes web da página; medir e desenhar com a mesma pilha.
+// Fonte de sistema: um SVG usado como imagem não enxerga as fontes web da página.
 const SVG_FONT = "'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif";
-const BALLOON_FONT_SIZE = 12.5;
-const GOLD = "#e8b923";
-const AVATAR_COLORS = ["#1b5e43", "#2a6f97", "#b4472f", "#7a4fa3", "#a65e0a", "#0f766e", "#9b2c5b", "#4b5fa8"];
-
-let measureCtx: CanvasRenderingContext2D | null | undefined;
-/** Largura do texto na MESMA fonte do SVG (canvas 2D); sem canvas (SSR/teste) estima por caractere. */
-function textWidth(text: string): number {
-  if (measureCtx === undefined) {
-    try {
-      measureCtx = document.createElement("canvas").getContext("2d");
-    } catch {
-      measureCtx = null;
-    }
-  }
-  if (measureCtx) {
-    measureCtx.font = `700 ${BALLOON_FONT_SIZE}px ${SVG_FONT}`;
-    const width = measureCtx.measureText(text).width;
-    if (width > 0) return width;
-  }
-  return text.length * BALLOON_FONT_SIZE * 0.58;
-}
-
-function avatarColor(name: string): string {
-  let hash = 0;
-  for (const char of name) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
-  return AVATAR_COLORS[hash % AVATAR_COLORS.length] ?? "#1b5e43";
-}
-
-const balloonCache = new Map<string, ClassicIcon>();
 
 /**
- * Ícone do balão: pílula branca (borda branca; dourada em "Meu grupo"; da cor do tipo quando selecionado) com
- * círculo do logo do grupo (ou iniciais coloridas), nome truncado e mini-selo do tipo; cauda embaixo — o anchor
- * é a ponta da cauda. `logo` é o logo já embutido (data URL); sem ele, iniciais. Cacheado por (logo, nome, tipo, isMine).
+ * Geometria do pin de foto (px, tamanho normal): imagem 56x68 com o quadrado de 48 px (x 4..52, y 3..51), cauda de 10 px
+ * e margem para a sombra. A ÂNCORA é a ponta da cauda: (28, 61).
  */
-export function balloonIcon(
+export const PIN_ICON = { width: 56, height: 68, tipX: 28, tipY: 61, badge: 48 } as const;
+/** Escala do pin selecionado. */
+export const PIN_SELECTED_SCALE = 1.15;
+
+const pinCache = new Map<string, ClassicIcon>();
+
+/**
+ * Ícone do pin de foto (quadrado de cantos arredondados + cauda): borda branca (dourada em "Meu grupo"; da cor do tipo
+ * quando selecionado), foto/logo recortada dentro e sombra. `logo` é a foto já embutida (data URL); sem ela, o fallback
+ * por tipo sobre a cor do tipo (iniciais do grupo, dia/mês do evento, ícone do treino/roda). Com foto, treino/roda/evento
+ * ganham um mini selo do tipo no canto. O selecionado fica 15% maior. O anchor é a ponta da cauda.
+ * Cacheado por (tipo, meu grupo, selecionado, foto, texto do fallback).
+ */
+export function photoPinIcon(
   place: MapPlace,
   options: { selected?: boolean; logo?: string | null } = {},
 ): ClassicIcon {
   const selected = options.selected === true;
   const logo = options.logo ?? null;
-  const name = truncateName(balloonTitle(place));
-  const key = `${place.type}|${place.isMine ? 1 : 0}|${selected ? 1 : 0}|${name}|${place.organization.name}|${logo ? place.organization.logoUrl : "-"}`;
-  const hit = balloonCache.get(key);
+  const date = place.type === "EVENT" ? dateBadge(place, toDate) : null;
+  const ini = initials(place.organization.name);
+  const fallbackKey = place.type === "UNIT" ? ini : place.type === "EVENT" ? `${date?.month}|${date?.day}` : "";
+  const photoKey = logo ? (markerPhotoUrl(place) ?? "-") : "-";
+  const key = `${place.type}|${place.isMine ? 1 : 0}|${selected ? 1 : 0}|${photoKey}|${fallbackKey}`;
+  const hit = pinCache.get(key);
   if (hit) return hit;
 
   const color = PLACE_META[place.type].color;
   const ring = place.isMine ? GOLD : selected ? color : "#ffffff";
-  const bodyH = 34;
-  const top = 4;
-  const left = 5;
-  const cx = left + 4 + 13;
-  const cy = top + bodyH / 2;
-  const textX = cx + 13 + 7;
-  const bodyW = Math.ceil(textX - left + textWidth(name) + 13);
-  const width = bodyW + left * 2;
-  const height = 50;
-  const mid = width / 2;
-  const r = bodyH / 2;
-  const bottom = top + bodyH;
-  const path =
-    `M${left + r} ${top}H${left + bodyW - r}A${r} ${r} 0 0 1 ${left + bodyW - r} ${bottom}` +
-    `H${mid + 7}L${mid} ${bottom + 8}L${mid - 7} ${bottom}H${left + r}A${r} ${r} 0 0 1 ${left + r} ${top}Z`;
+  const { width, height, tipX, tipY, badge } = PIN_ICON;
+  const x0 = 4;
+  const y0 = 3;
+  const x1 = x0 + badge;
+  const y1 = y0 + badge;
+  const r = 14;
+  const outer =
+    `M${x0 + r} ${y0}H${x1 - r}A${r} ${r} 0 0 1 ${x1} ${y0 + r}V${y1 - r}A${r} ${r} 0 0 1 ${x1 - r} ${y1}` +
+    `H${tipX + 8}L${tipX} ${tipY}L${tipX - 8} ${y1}H${x0 + r}A${r} ${r} 0 0 1 ${x0} ${y1 - r}V${y0 + r}A${r} ${r} 0 0 1 ${x0 + r} ${y0}Z`;
+  // Miolo (foto/fallback) recuado 3 px da borda; raio 11.
+  const ix = x0 + 3;
+  const iy = y0 + 3;
+  const is = badge - 6;
+  const cx = ix + is / 2;
+  const cy = iy + is / 2;
 
-  const ini = escapeXml(initials(place.organization.name));
-  const avatar = logo
-    ? `<clipPath id="c"><circle cx="${cx}" cy="${cy}" r="12"/></clipPath><circle cx="${cx}" cy="${cy}" r="13" fill="#fff" stroke="${color}" stroke-width="2"/>` +
-      `<image href="${logo}" x="${cx - 12}" y="${cy - 12}" width="24" height="24" preserveAspectRatio="xMidYMid slice" clip-path="url(#c)"/>`
-    : `<circle cx="${cx}" cy="${cy}" r="13" fill="${avatarColor(place.organization.name)}" stroke="${color}" stroke-width="2"/>` +
-      `<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-family="${SVG_FONT}" font-size="${ini.length > 1 ? 10.5 : 12}" font-weight="800" fill="#fff">${ini}</text>`;
-  const sealX = cx + 9;
-  const sealY = cy + 10;
+  let inner: string;
+  if (logo) {
+    inner =
+      `<clipPath id="c"><rect x="${ix}" y="${iy}" width="${is}" height="${is}" rx="11"/></clipPath>` +
+      `<rect x="${ix}" y="${iy}" width="${is}" height="${is}" rx="11" fill="#fff"/>` +
+      `<image href="${logo}" x="${ix}" y="${iy}" width="${is}" height="${is}" preserveAspectRatio="xMidYMid slice" clip-path="url(#c)"/>`;
+  } else {
+    inner = `<rect x="${ix}" y="${iy}" width="${is}" height="${is}" rx="11" fill="${color}"/>`;
+    if (place.type === "UNIT") {
+      const size = ini.length > 1 ? 17 : 20;
+      inner += `<text x="${cx}" y="${cy + size * 0.35}" text-anchor="middle" font-family="${SVG_FONT}" font-size="${size}" font-weight="800" fill="#fff">${escapeXml(ini)}</text>`;
+    } else if (place.type === "EVENT") {
+      inner +=
+        `<text x="${cx}" y="${cy - 5}" text-anchor="middle" font-family="${SVG_FONT}" font-size="9.5" font-weight="700" letter-spacing=".6" fill="#fff">${escapeXml(date?.month ?? "EVT")}</text>` +
+        `<text x="${cx}" y="${cy + 14}" text-anchor="middle" font-family="${SVG_FONT}" font-size="20" font-weight="800" fill="#fff">${escapeXml(date?.day ?? "•")}</text>`;
+    } else {
+      inner += `<g transform="translate(${cx - 13.2} ${cy - 13.2}) scale(1.1)" stroke="#fff" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${GLYPH_BY_TYPE[place.type]}</g>`;
+    }
+  }
+  // Foto + tipo que não é grupo: mini selo do tipo no canto superior direito.
+  const sealX = x1 - 3;
+  const sealY = y0 + 6;
   const seal =
-    `<circle cx="${sealX}" cy="${sealY}" r="7.5" fill="${color}" stroke="#fff" stroke-width="1.8"/>` +
-    `<g transform="translate(${sealX - 5} ${sealY - 5}) scale(0.42)" stroke="#fff" fill="none" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">${GLYPH_SEAL[place.type]}</g>`;
+    logo && place.type !== "UNIT"
+      ? `<circle cx="${sealX}" cy="${sealY}" r="8.5" fill="${color}" stroke="#fff" stroke-width="2"/>` +
+        `<g transform="translate(${sealX - 6} ${sealY - 6}) scale(0.5)" stroke="#fff" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">${GLYPH_SEAL[place.type]}</g>`
+      : "";
 
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
-    `<defs><filter id="s" x="-10%" y="-20%" width="120%" height="150%"><feDropShadow dx="0" dy="1.6" stdDeviation="1.5" flood-color="#0b2318" flood-opacity=".32"/></filter></defs>` +
-    `<path d="${path}" fill="#fff" stroke="${ring}" stroke-width="2.5" stroke-linejoin="round" filter="url(#s)"/>` +
-    `${avatar}${seal}` +
-    `<text x="${textX}" y="${cy + 4.4}" font-family="${SVG_FONT}" font-size="${BALLOON_FONT_SIZE}" font-weight="700" fill="#1d2b24">${escapeXml(name)}</text></svg>`;
-  const scale = selected ? 1.12 : 1;
+    `<defs><filter id="s" x="-25%" y="-20%" width="150%" height="150%"><feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="#0b2318" flood-opacity=".38"/></filter></defs>` +
+    `<path d="${outer}" fill="${ring}" stroke="${ring}" stroke-width="1" stroke-linejoin="round" filter="url(#s)"/>` +
+    `${inner}${seal}</svg>`;
+  const scale = selected ? PIN_SELECTED_SCALE : 1;
   const icon: ClassicIcon = {
     url: dataUrl(svg),
     width: Math.round(width * scale),
     height: Math.round(height * scale),
-    anchorX: Math.round(mid * scale),
-    anchorY: Math.round((bottom + 8) * scale),
+    anchorX: Math.round(tipX * scale),
+    anchorY: Math.round(tipY * scale),
   };
-  if (balloonCache.size > 1500) balloonCache.clear();
-  balloonCache.set(key, icon);
+  if (pinCache.size > 1500) pinCache.clear();
+  pinCache.set(key, icon);
   return icon;
 }
 
@@ -320,7 +300,7 @@ async function readAsDataUrl(blob: Blob): Promise<string> {
   }
 }
 
-/** Reduz o logo a 56x56 (recorte quadrado): 500 ícones com o logo cru em base64 pesariam MBs. Sem canvas, devolve o original. */
+/** Reduz a foto a 96x96 (recorte quadrado): 500 ícones com a imagem crua em base64 pesariam MBs. Sem canvas, devolve o original. */
 async function downscale(dataUrl: string): Promise<string> {
   try {
     const canvas = document.createElement("canvas");
@@ -341,15 +321,15 @@ async function downscale(dataUrl: string): Promise<string> {
     });
     const side = Math.min(img.naturalWidth, img.naturalHeight);
     if (!side) return dataUrl;
-    canvas.width = canvas.height = 56;
-    ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 56, 56);
+    canvas.width = canvas.height = 96;
+    ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, 96, 96);
     return canvas.toDataURL("image/png");
   } catch {
     return dataUrl;
   }
 }
 
-/** Baixa o logo do grupo (`/api/uploads/...` ou URL externa). CORS/erro/não-imagem => null (o balão usa iniciais). */
+/** Baixa a foto do local (`/api/uploads/...` ou URL externa). CORS/erro/não-imagem => null (o pin usa o fallback por tipo). */
 export function loadLogo(url: string): Promise<string | null> {
   const pending = logoLoading.get(url);
   if (pending) return pending;
@@ -371,9 +351,9 @@ export function loadLogo(url: string): Promise<string | null> {
   return task;
 }
 
-/** Só para testes: esquece logos e ícones em cache. */
+/** Só para testes: esquece fotos e ícones em cache. */
 export function resetMarkerCaches(): void {
   logoState.clear();
   logoLoading.clear();
-  balloonCache.clear();
+  pinCache.clear();
 }

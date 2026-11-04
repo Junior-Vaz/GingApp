@@ -224,7 +224,7 @@ function PlaceDetails({ place, near }: { place: MapPlace; near: NearMe | null })
         {lines}
       </ul>
       <div className="map-card-actions">
-        <Button asChild size="sm">
+        <Button asChild size="sm" className="map-card-cta">
           <a href={directionsUrl(place)} target="_blank" rel="noopener noreferrer">
             <Navigation />
             Como chegar
@@ -246,10 +246,13 @@ function PlaceDetails({ place, near }: { place: MapPlace; near: NearMe | null })
 }
 
 /**
- * Cartão do local selecionado: HORIZONTAL, fixado na base do mapa e centralizado (imagem quadrada à esquerda;
- * selo, título, descrição, detalhes e botões à direita). Anterior/Próximo percorrem os locais filtrados — é
- * o acesso por teclado/leitor de tela sem lista. "Ver detalhes" não aparece: o app ainda não tem tela de detalhe
- * de evento/roda/grupo; o cartão já traz tudo.
+ * Cartão do local selecionado: LARGURA TOTAL, colado na base do container do mapa (que no celular termina na barra de
+ * abas): sem margens, sem cantos arredondados nas laterais e sem sombra flutuante (só uma divisória/sombra leve no
+ * topo). Não flutua sobre o mapa: ele é irmão do `.map-stage`, então o mapa termina onde o cartão começa. Imagem
+ * quadrada à esquerda; à direita os selos (tipo / "Meu grupo") + botões redondos anterior, próximo e fechar, o nome,
+ * o endereço e "Como chegar". Anterior/Próximo percorrem os locais filtrados — é o acesso por teclado/leitor de
+ * tela sem lista. "Ver detalhes" não aparece: o app ainda não tem tela de detalhe de evento/roda/grupo; o cartão
+ * já traz tudo.
  */
 function PlaceCard({
   place,
@@ -333,8 +336,9 @@ const GEO_MESSAGE: Record<Exclude<GeoState, "idle" | "locating">, string> = {
 };
 
 /**
- * Mapa da comunidade em TELA CHEIA: o Google ocupa toda a área e tudo o mais flutua sobre ele (alternador
- * Lista | Mapa, chips de tipo, busca/período/"perto de mim", contagem e o cartão do local). Não há lista.
+ * Mapa da comunidade em TELA CHEIA: o Google ocupa a largura toda e tudo o mais flutua sobre ele (alternador
+ * Lista | Mapa, chips de tipo, busca/período/"perto de mim" e contagem). O cartão do local NÃO flutua: fica fixo
+ * na base do container, colado na barra de abas, e o mapa encolhe para terminar onde ele começa. Não há lista.
  */
 export default function MapExplorer({
   config,
@@ -544,6 +548,8 @@ export default function MapExplorer({
         if (event.key === "Escape" && selected) close();
       }}
     >
+      {/* Palco do mapa: ocupa o que sobra; o cartão do local (abaixo) é irmão dele, então o mapa ENCOLHE em vez de ser coberto. */}
+      <div className="map-stage">
       <MapCanvas
         apiKey={config.apiKey}
         mapId={config.mapId}
@@ -748,17 +754,19 @@ export default function MapExplorer({
           )
         )}
 
-        {selected && (
-          <PlaceCard
-            place={selected}
-            near={near}
-            position={visible.length > 1 ? { index: selectedIndex, total: visible.length } : null}
-            onPrev={() => step(-1)}
-            onNext={() => step(1)}
-            onClose={() => close()}
-          />
-        )}
       </div>
+      </div>
+
+      {selected && (
+        <PlaceCard
+          place={selected}
+          near={near}
+          position={visible.length > 1 ? { index: selectedIndex, total: visible.length } : null}
+          onPrev={() => step(-1)}
+          onNext={() => step(1)}
+          onClose={() => close()}
+        />
+      )}
     </section>
   );
 }

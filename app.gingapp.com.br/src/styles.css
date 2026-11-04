@@ -116,7 +116,9 @@
 .app-shell:has(.map-fullscreen) .footer { display:none; }
 .map-fullscreen { position:relative; flex:1; min-height:0; overflow:hidden; background:var(--secondary); }
 .map-loading { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:24px; text-align:center; font-size:13px; color:var(--muted-foreground); background:var(--secondary); }
-.map-explorer { position:absolute; inset:0; overflow:hidden; background:var(--secondary); }
+/* Container do mapa: coluna com o PALCO (mapa + HUD, ocupa o que sobra) e, embaixo, o cartão do local colado na base. */
+.map-explorer { position:absolute; inset:0; display:flex; flex-direction:column; overflow:hidden; background:var(--secondary); }
+.map-stage { position:relative; flex:1 1 auto; min-height:0; overflow:hidden; }
 .map-canvas,.map-canvas-host { position:absolute; inset:0; }
 .map-overlay { position:absolute; inset:0; z-index:2; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; padding:24px; text-align:center; font-size:13px; background:color-mix(in oklch,var(--background) 86%,transparent); }
 .map-overlay[role="alert"] { background:var(--card); }
@@ -184,58 +186,70 @@
 .map-state strong { font-family:var(--font-display); font-size:15px; color:var(--foreground); }
 .map-state.text-destructive { color:var(--destructive); }
 .map-empty-icon { width:44px; height:44px; color:var(--primary); opacity:.55; }
-.map-type-pill { display:inline-flex; align-items:center; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; color:#fff; background:var(--pin,var(--primary)); }
-.map-mine { display:inline-flex; align-items:center; gap:3px; padding:2px 8px; border-radius:999px; font-size:10px; font-weight:700; color:#6e5508; background:#fbeeb4; }
-.map-mine svg { width:10px; height:10px; }
+/* Selos do cartão: tipo (pílula verde-escura/cor do tipo, texto branco) e "Meu grupo" (amarelo suave com estrela). */
+.map-type-pill { flex:none; display:inline-flex; align-items:center; height:30px; padding:0 14px; border-radius:999px; font-size:13px; font-weight:700; line-height:1; white-space:nowrap; color:#fff; background:var(--pin,var(--primary)); }
+.map-mine { display:inline-flex; align-items:center; gap:5px; min-height:30px; padding:0 12px 0 10px; border-radius:999px; font-size:12.5px; font-weight:700; line-height:1.1; white-space:nowrap; color:#6e5508; background:#fbeeb4; }
+.map-mine svg { flex:none; width:13px; height:13px; }
 
-/* Cartão do local: HORIZONTAL, fixo na base e centralizado (acima da barra do Google) */
-.map-card { --pin:var(--primary); pointer-events:auto; position:absolute; z-index:5; left:0; right:0; bottom:var(--map-bottom-gap); margin-inline:auto; width:min(760px,calc(100% - 28px)); max-height:calc(100% - 200px); display:grid; grid-template-columns:150px minmax(0,1fr); grid-template-rows:minmax(0,1fr); gap:16px; padding:12px 14px 12px 12px; background:color-mix(in oklch,var(--card) 94%,transparent); -webkit-backdrop-filter:blur(14px); backdrop-filter:blur(14px); border:1px solid var(--border); border-top:3px solid var(--pin); border-radius:20px; box-shadow:0 14px 44px oklch(.2 .03 155 / .3); animation:map-card-in .28s cubic-bezier(.2,.8,.2,1); outline:none; }
-.map-card-media { align-self:start; width:100%; aspect-ratio:1; border-radius:14px; overflow:hidden; background:var(--muted); }
+/* Cartão do local: LARGURA TOTAL, colado na base do container (no celular, a barra de abas fica logo abaixo dele):
+   sem margens, sem cantos arredondados, sem sombra flutuante — só uma divisória + sombra leve no topo. Irmão do
+   .map-stage (não flutua sobre o mapa). Grade: imagem à esquerda; selos/botões, nome, endereço e "Como chegar" à direita. */
+.map-card { --pin:var(--primary); pointer-events:auto; position:relative; z-index:5; flex:none; box-sizing:border-box; width:100%; max-height:min(58%,440px); overflow-y:auto; overscroll-behavior:contain; display:grid; grid-template-columns:120px minmax(0,1fr); grid-template-rows:repeat(4,auto) 1fr; column-gap:16px; row-gap:8px; align-content:start; margin:0; padding:14px max(16px,calc(50% - 440px)) max(14px,env(safe-area-inset-bottom)); background:var(--card); border:0; border-top:1px solid var(--border); border-radius:0; box-shadow:0 -3px 12px oklch(.2 .03 155 / .1); animation:map-card-in .24s cubic-bezier(.2,.8,.2,1); outline:none; }
+.map-card-media { grid-column:1; grid-row:1 / span 5; align-self:start; width:100%; aspect-ratio:1; border-radius:18px; overflow:hidden; background:var(--muted); }
 .map-card-media img { display:block; width:100%; height:100%; object-fit:cover; }
 .map-card-media.is-logo { display:grid; place-items:center; background:color-mix(in oklch,var(--pin) 9%,var(--card)); }
-.map-card-logo { width:78%; aspect-ratio:1; border-radius:50%; overflow:hidden; display:grid; place-items:center; background:var(--card); border:3px solid var(--pin); color:var(--pin); font:800 30px var(--font-display); }
+.map-card-logo { width:84%; aspect-ratio:1; border-radius:50%; overflow:hidden; display:grid; place-items:center; background:var(--card); border:3px solid var(--pin); color:var(--pin); font:800 30px var(--font-display); }
 .map-card-logo img { width:100%; height:100%; object-fit:cover; }
-.map-card-body { min-width:0; min-height:0; display:flex; flex-direction:column; gap:6px; overflow-y:auto; }
-.map-card-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-.map-card-tags { display:flex; flex-wrap:wrap; gap:6px; min-width:0; }
-.map-card-nav { display:flex; align-items:center; gap:4px; flex:none; }
-.map-card-nav button { width:30px; height:30px; display:grid; place-items:center; border-radius:50%; border:0; background:var(--muted); color:var(--muted-foreground); cursor:pointer; transition:background .15s,color .15s; }
+.map-card-body { display:contents; }
+.map-card-top,.map-card-body h3,.map-card-desc,.map-card-lines,.map-card-actions { grid-column:2; min-width:0; }
+.map-card-top { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.map-card-tags { display:flex; flex-wrap:wrap; align-items:center; gap:8px; min-width:0; }
+.map-card-nav { display:flex; align-items:center; gap:12px; flex:none; margin-left:auto; }
+/* Botões redondos pequenos (32 px visíveis) com área de toque de 44 px (a extensão invisível ::after). */
+.map-card-nav button { position:relative; width:32px; height:32px; display:grid; place-items:center; border-radius:50%; border:0; background:var(--muted); color:var(--muted-foreground); cursor:pointer; transition:background .15s,color .15s; }
+.map-card-nav button::after { content:""; position:absolute; inset:-6px; border-radius:50%; }
 .map-card-nav button:hover { background:var(--secondary); color:var(--primary); }
-.map-card-nav svg { width:16px; height:16px; }
-.map-card-pos { min-width:30px; text-align:center; font-size:11px; font-weight:600; color:var(--muted-foreground); }
-.map-card-body h3 { font-size:18px; font-weight:800; line-height:1.25; }
-.map-card-desc { font-size:12.5px; line-height:1.55; color:var(--muted-foreground); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
-.map-card-lines { list-style:none; margin:2px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:4px 16px; font-size:12px; }
-.map-card-lines li { display:flex; align-items:flex-start; gap:6px; }
-.map-card-lines li>svg { flex:none; width:14px; height:14px; margin-top:1px; color:var(--pin); }
-.map-card-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:6px; }
-.map-card-actions a { text-decoration:none; }
-@keyframes map-card-in { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
+.map-card-nav svg { width:17px; height:17px; }
+.map-card-pos { min-width:30px; text-align:center; font-size:12px; font-weight:600; color:var(--muted-foreground); }
+.map-card-body h3 { font-size:19px; font-weight:800; line-height:1.22; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; overflow-wrap:anywhere; }
+.map-card-desc { font-size:13px; line-height:1.55; color:var(--muted-foreground); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.map-card-lines { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:4px 16px; font-size:13.5px; color:var(--muted-foreground); }
+.map-card-lines li { display:flex; align-items:flex-start; gap:6px; min-width:0; }
+.map-card-lines li>svg { flex:none; width:16px; height:16px; margin-top:1px; color:var(--pin); }
+.map-card-actions { align-self:start; display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+.map-card-actions a,.map-card-actions button { min-height:44px; padding:0 18px; border-radius:14px; font-size:15px; font-weight:700; text-decoration:none; }
+.map-card-actions .map-card-cta { background:var(--primary); color:var(--primary-foreground); box-shadow:none; }
+.map-card-actions .map-card-cta svg { width:18px; height:18px; }
+.map-card-actions a:focus-visible,.map-card-actions button:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+@keyframes map-card-in { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:none; } }
 @media(prefers-reduced-motion:reduce) { .map-card { animation:none; } }
-/* Pins (HTML do AdvancedMarkerElement) e cluster */
-.gm-pin { position:relative; display:flex; flex-direction:column; align-items:center; cursor:pointer; transform-origin:50% 100%; transition:transform .18s ease; filter:drop-shadow(0 3px 3px rgb(0 0 0 / .28)); font-family:var(--font-sans); }
-.gm-pin:hover { transform:scale(1.1); }
-.gm-pin:focus-visible { outline:3px solid #fff; outline-offset:2px; border-radius:50%; }
-.gm-pin.is-selected { transform:scale(1.3); }
-.gm-pin-badge { width:46px; height:46px; border-radius:50%; background:#fff; border:3px solid var(--pin); display:grid; place-items:center; overflow:hidden; }
-.gm-pin.is-mine .gm-pin-badge { box-shadow:0 0 0 3px #e8b923; }
-.gm-pin-logo { width:100%; height:100%; display:grid; place-items:center; font:800 14px var(--font-display); color:var(--pin); }
-.gm-pin-logo img { width:100%; height:100%; object-fit:cover; }
-.gm-pin-event .gm-pin-badge { width:46px; height:50px; border-radius:12px; display:flex; flex-direction:column; align-items:stretch; justify-content:flex-start; }
-.gm-pin-month { background:var(--pin); color:#fff; font:700 9.5px/15px var(--font-sans); text-align:center; letter-spacing:.07em; }
-.gm-pin-day { color:#1d2b24; font:800 21px/1 var(--font-display); text-align:center; margin-top:5px; }
-.gm-pin-glyph { width:100%; height:100%; display:grid; place-items:center; background:var(--pin); }
-.gm-pin-mini { position:absolute; top:-6px; right:-8px; width:21px; height:21px; border-radius:50%; border:2px solid #fff; background:#fff; overflow:hidden; display:grid; place-items:center; font:800 7px var(--font-display); color:var(--pin); }
-.gm-pin-mini img { width:100%; height:100%; object-fit:cover; }
-.gm-pin-name { margin-top:3px; max-width:168px; padding:2px 10px; border-radius:999px; background:#fff; border:1.5px solid var(--pin); color:#1d2b24; font:700 11px/1.35 var(--font-sans); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.gm-pin.is-mine .gm-pin-name { border-color:#e8b923; box-shadow:0 0 0 2px #e8b923; }
-.gm-pin-tail { width:0; height:0; margin-top:-1px; border-left:7px solid transparent; border-right:7px solid transparent; border-top:10px solid var(--pin); }
+/* Pin de foto (HTML do AdvancedMarkerElement): quadrado de cantos arredondados com borda (branca; dourada em "Meu grupo";
+   da cor do tipo quando selecionado), foto/logo dentro e cauda triangular. A ponta da cauda é a BASE do elemento — onde o
+   AdvancedMarkerElement apoia a coordenada; a escala parte da base (transform-origin 50% 100%) para a ponta não sair do lugar. */
+.gm-pin { --ring:#fff; position:relative; display:flex; flex-direction:column; align-items:center; width:48px; cursor:pointer; transform-origin:50% 100%; transition:transform .18s ease; filter:drop-shadow(0 3px 4px rgb(0 0 0 / .34)); font-family:var(--font-sans); }
+.gm-pin.is-mine { --ring:#e8b923; }
+.gm-pin.is-selected:not(.is-mine) { --ring:var(--pin); }
+.gm-pin:hover { transform:scale(1.08); }
+.gm-pin.is-selected { transform:scale(1.15); }
+.gm-pin:focus-visible { outline:3px solid var(--primary); outline-offset:4px; border-radius:16px; }
+.gm-pin-badge { box-sizing:border-box; width:48px; height:48px; border-radius:14px; background:#fff; border:3px solid var(--ring); display:grid; place-items:center; overflow:hidden; }
+.gm-pin-badge img { display:block; width:100%; height:100%; object-fit:cover; }
+.gm-pin-badge.is-fallback { background:var(--pin); color:#fff; align-content:center; }
+.gm-pin-initials { font:800 18px/1 var(--font-display); letter-spacing:-.02em; }
+.gm-pin-glyph { display:grid; place-items:center; }
+.gm-pin-glyph svg { width:26px; height:26px; }
+.gm-pin-event .gm-pin-badge.is-fallback { gap:1px; }
+.gm-pin-month { font:700 9.5px/1 var(--font-sans); letter-spacing:.07em; text-align:center; }
+.gm-pin-day { font:800 20px/1 var(--font-display); text-align:center; }
+.gm-pin-seal { position:absolute; top:-6px; right:-6px; width:19px; height:19px; border-radius:50%; background:var(--pin); border:2px solid #fff; box-sizing:border-box; display:grid; place-items:center; }
+.gm-pin-seal svg { width:11px; height:11px; }
+.gm-pin-tail { width:0; height:0; margin-top:-1px; border-left:8px solid transparent; border-right:8px solid transparent; border-top:10px solid var(--ring); }
 .gm-pin.is-new { animation:gm-pop .5s cubic-bezier(.3,1.5,.5,1) both; animation-delay:var(--delay,0ms); }
 @keyframes gm-pop { from { transform:translateY(-16px) scale(.4); opacity:0; } to { transform:none; opacity:1; } }
 .gm-cluster { display:grid; place-items:center; border-radius:50%; border:2.5px solid #fff; color:#fff; font:800 14px var(--font-display); background:radial-gradient(circle at 30% 30%,#2f8a62,#1b5e43); box-shadow:0 0 0 6px rgb(27 94 67 / .22),0 4px 10px rgb(0 0 0 / .25); cursor:pointer; transition:transform .15s; }
 .gm-cluster:hover { transform:scale(1.08); }
 .gm-cluster.is-large { background:radial-gradient(circle at 30% 30%,#1f6e4e,#123f2d); }
-@media(max-width:1100px) { .map-filters { width:270px; } .map-hud-center { left:300px; } .map-card { width:min(700px,calc(100% - 28px)); } .map-explorer[data-has-card="true"] .map-count,.map-explorer[data-has-card="true"] .map-actions { display:none; } }
+@media(max-width:1100px) { .map-filters { width:270px; } .map-hud-center { left:300px; } }
 @media(max-width:767px) {
   /* Celular/PWA: entre o topbar e a barra de abas (com safe-area); nada rola. */
   .app-shell:has(.map-fullscreen) .workspace { height:calc(100vh - var(--bottom-nav-h)); height:calc(100dvh - var(--bottom-nav-h)); }
@@ -253,20 +267,44 @@
   .map-filters[data-open="true"] { display:flex; }
   .map-count { left:10px; }
   .map-actions { left:10px; }
-  /* Celular: imagem pequena à esquerda; textos à direita; botões ocupam a largura toda embaixo (cartão mais baixo = pin visível). */
-  .map-card { width:calc(100% - 20px); max-height:calc(100% - 170px); overflow-y:auto; grid-template-columns:84px minmax(0,1fr); grid-template-rows:none; column-gap:12px; row-gap:4px; padding:10px; border-radius:18px; align-content:start; }
-  .map-card-body { display:contents; }
-  .map-card-media { grid-row:1 / span 4; grid-column:1; }
-  .map-card-top,.map-card-body h3,.map-card-desc,.map-card-lines { grid-column:2; min-width:0; }
-  .map-card-actions { grid-column:1 / -1; margin-top:4px; }
-  .map-card-nav button { width:28px; height:28px; }
-  .map-card-tags { flex-wrap:nowrap; }
-  .map-card-logo { font-size:22px; }
-  .map-card-body h3 { font-size:15px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  .map-card-desc { -webkit-line-clamp:2; font-size:12px; }
+  /* Celular: o cartão encosta nas laterais e na barra de abas (que fica logo abaixo — já inclui o safe-area do iOS, então
+     o cartão NÃO soma o inset de novo); imagem à esquerda, textos à direita e "Como chegar" embaixo, sob a imagem. */
+  .map-card { grid-template-columns:80px minmax(0,1fr); grid-template-rows:repeat(3,auto) 1fr; column-gap:12px; row-gap:6px; padding:12px max(12px,env(safe-area-inset-right)) 14px max(12px,env(safe-area-inset-left)); }
+  .map-card-media { grid-row:1 / span 4; border-radius:16px; }
+  .map-card-logo { font-size:24px; }
+  /* Selos e botões na MESMA linha (como no desenho): os selos dividem o que sobra e "Meu grupo" quebra em duas linhas. */
+  .map-card-top { flex-wrap:nowrap; }
+  .map-card-tags { flex:1 1 0; flex-wrap:nowrap; gap:6px; }
+  .map-type-pill { height:28px; padding:0 10px; font-size:12.5px; }
+  .map-mine { min-width:0; min-height:28px; padding:3px 8px 3px 7px; gap:4px; font-size:11.5px; white-space:normal; text-align:left; }
+  .map-mine svg { width:12px; height:12px; }
+  .map-card-body h3 { font-size:17px; }
+  .map-card-desc { display:none; }
+  .map-card-lines { font-size:13px; }
+  .map-card-actions { grid-column:1 / -1; margin-top:2px; }
   .map-card-pos { display:none; }
-  /* Zoom do Google um pouco acima do centro: não encosta no cartão do local quando ele fica mais alto. */
-  .map-explorer .gm-bundled-control { margin-top:-56px!important; }
+}
+/* Telas estreitas (320-369 px): sem espaço para selos + 3 botões (44 px de toque) na mesma linha — os botões descem para a linha de baixo. */
+@media(max-width:369px) {
+  .map-card-top { flex-wrap:wrap; }
+  .map-card-tags { flex-wrap:wrap; flex-basis:auto; }
+  .map-mine { white-space:nowrap; }
+}
+/* Altura baixa (celular na horizontal, janela curta): cartão compacto (sempre depois do bloco de celular, para vencer
+   nos dois casos) e o HUD do rodapé do mapa sai de cena enquanto o cartão está aberto. */
+@media(max-height:520px) {
+  /* 3 colunas: imagem | selos+botões, nome e detalhes | "Como chegar" na mesma linha dos detalhes (o mapa mantém altura útil). */
+  .map-card { grid-template-columns:56px minmax(0,1fr) auto; grid-template-rows:auto auto auto; column-gap:12px; row-gap:2px; padding-top:8px; padding-bottom:8px; max-height:56%; }
+  .map-card-media { grid-column:1; grid-row:1 / span 3; border-radius:12px; }
+  .map-card-logo { font-size:16px; border-width:2px; }
+  .map-card-desc { display:none; }
+  .map-card-top { grid-column:2 / -1; grid-row:1; }
+  .map-card-body h3 { grid-column:2 / -1; grid-row:2; font-size:15px; -webkit-line-clamp:1; }
+  .map-card-lines { grid-column:2; grid-row:3; align-self:center; flex-wrap:nowrap; overflow:hidden; font-size:12.5px; }
+  .map-card-lines li { flex:none; white-space:nowrap; }
+  .map-card-actions { grid-column:3; grid-row:3; align-self:center; flex-wrap:nowrap; margin:0; }
+  .map-card-actions a,.map-card-actions button { padding:0 14px; font-size:14px; white-space:nowrap; }
+  .map-explorer[data-has-card="true"] .map-count,.map-explorer[data-has-card="true"] .map-actions { display:none; }
 }
 
 /* ---------- Ginga Rank ---------- */

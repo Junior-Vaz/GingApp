@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,7 +15,7 @@ import {
   type MapConfig,
   type MapPlace,
 } from "@/lib/map";
-import { resetMarkerCaches } from "@/lib/map-markers";
+import { PIN_ICON, resetMarkerCaches } from "@/lib/map-markers";
 import { saveSession } from "@/lib/session";
 
 /**
@@ -568,7 +570,7 @@ describe("filtros do mapa", () => {
   });
 });
 
-describe("cartão do local (horizontal, flutuante)", () => {
+describe("cartão do local (largura total, colado ao rodapé)", () => {
   it("tocar no pin abre o cartão com descrição, endereço, 'Como chegar' e sem 'Ver detalhes'; Esc fecha", async () => {
     mockApi();
     render(<DiscoveryPage mode="community" />);
@@ -678,6 +680,187 @@ describe("cartão do local (horizontal, flutuante)", () => {
   });
 });
 
+/** Corpos (entre chaves) de TODAS as regras cujo seletor é exatamente `.map-card` (inclusive dentro de @media). */
+const mapCardRules = () =>
+  [...readFileSync(resolve(__dirname, "../styles.css"), "utf8").matchAll(/(?:^|[}\s])\.map-card\s*\{([^}]*)\}/g)].map(
+    (m) => m[1]!,
+  );
+const cssText = () => readFileSync(resolve(__dirname, "../styles.css"), "utf8");
+
+describe("cartão colado ao rodapé do container do mapa (sem margens, sem cantos nas laterais)", () => {
+  it("é irmão do palco do mapa (não flutua sobre ele), é o último filho do container e não traz margem/posição inline", async () => {
+    mockApi();
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    const explorer = container!.querySelector<HTMLElement>(".map-explorer")!;
+    expect(explorer.dataset["hasCard"]).toBe("false");
+    expect(explorer.querySelector(".map-card")).toBeNull();
+    await openPin("Treino de quinta");
+
+    const el = card()!;
+    const stage = explorer.querySelector<HTMLElement>(":scope > .map-stage")!;
+    expect(stage).toBeTruthy();
+    // O mapa e o HUD vivem no palco; o cartão vem DEPOIS dele, direto no container: o mapa termina onde o cartão começa.
+    expect(stage.querySelector(".map-canvas-host")).toBeTruthy();
+    expect(stage.querySelector(".map-hud")).toBeTruthy();
+    expect(stage.contains(el)).toBe(false);
+    expect(el.closest(".map-hud")).toBeNull();
+    expect(el.parentElement).toBe(explorer);
+    expect(stage.nextElementSibling).toBe(el);
+    expect(explorer.lastElementChild).toBe(el);
+    expect(explorer.dataset["hasCard"]).toBe("true");
+    // Só a cor do tipo vem inline; nada de margem, largura, raio, posição ou "bottom" no elemento.
+    expect(el.getAttribute("style") ?? "").not.toMatch(/margin|width|radius|position|bottom|left|right|shadow/i);
+    expect(el.classList.contains("map-card")).toBe(true);
+  });
+
+  it("CSS: largura total, sem margens, sem cantos arredondados, sem sombra flutuante e sem posição absoluta", () => {
+    const rules = mapCardRules();
+    expect(rules.length).toBeGreaterThan(0);
+    const base = rules[0]!;
+    expect(base).toMatch(/width:100%/);
+    expect(base).toMatch(/margin:0[;\s}]/);
+    expect(base).toMatch(/border-radius:0[;\s}]/);
+    expect(base).toMatch(/border-top:1px solid/); // divisória no topo
+    expect(base).toMatch(/box-shadow:0 -\d+px/); // sombra leve só para CIMA (offset-y negativo)
+    expect(base).toMatch(/position:relative/);
+    expect(base).toMatch(/background:var\(--card\)/); // fundo branco do cartão, sem transparência/blur
+    expect(base).toMatch(/env\(safe-area-inset-bottom\)/); // iOS: nunca atrás da barra do sistema
+    for (const body of rules) {
+      expect(body).not.toMatch(/position:absolute/);
+      expect(body).not.toMatch(/(^|[;\s])bottom:/);
+      expect(body).not.toMatch(/margin-inline|margin:\s*(?!0[;\s}])/);
+      expect(body).not.toMatch(/calc\(100% *- *\d+px\)/); // nada de "largura - margem lateral"
+      expect(body).not.toMatch(/backdrop-filter/);
+      expect(body).not.toMatch(/border-radius:\s*(?!0[;\s}])/);
+    }
+  });
+
+  it("CSS: o container é uma coluna (palco flexível + cartão), e no celular termina na barra de abas (--bottom-nav-h)", () => {
+    const css = cssText();
+    expect(css).toMatch(/\.map-explorer \{[^}]*display:flex;[^}]*flex-direction:column/);
+    expect(css).toMatch(/\.map-stage \{[^}]*flex:1 1 auto;[^}]*min-height:0/);
+    // A área útil do celular desconta a barra de abas (com o safe-area do iOS embutido em --bottom-nav-h).
+    expect(css).toMatch(
+      /@media\(max-width:767px\) \{[^@]*\.app-shell:has\(\.map-fullscreen\) \.workspace \{ height:calc\(100vh - var\(--bottom-nav-h\)\); height:calc\(100dvh - var\(--bottom-nav-h\)\)/,
+    );
+    expect(css).toMatch(/--bottom-nav-h: calc\(58px \+ env\(safe-area-inset-bottom\)\)/);
+    // Altura baixa (paisagem): bloco compacto próprio, declarado DEPOIS do bloco de celular para vencer nele.
+    const mobile = css.indexOf(".map-card { grid-template-columns:80px");
+    const compact = css.indexOf(".map-card { grid-template-columns:56px");
+    expect(mobile).toBeGreaterThan(0);
+    expect(compact).toBeGreaterThan(mobile);
+    expect(css.lastIndexOf("@media(max-height:520px)")).toBeLessThan(compact);
+  });
+
+  it("conteúdo: imagem quadrada, selos (tipo e 'Meu grupo'), botões anterior/próximo/fechar, nome, endereço com pino e 'Como chegar'", async () => {
+    mockApi();
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await openPin("Treino de quinta"); // treino do meu grupo
+
+    const el = card()!;
+    // Região rotulada (não diálogo).
+    expect(el.tagName).toBe("SECTION");
+    expect(el.getAttribute("aria-label")).toBe("Treino: Treino de quinta");
+    // Imagem quadrada à esquerda (primeiro filho): sem foto, mostra as iniciais do grupo.
+    expect(el.firstElementChild?.classList.contains("map-card-media")).toBe(true);
+    expect(el.querySelector(".map-card-media.is-logo .map-card-logo")?.textContent).toBe("GO");
+    // Selos: tipo (pílula na cor do tipo) e "Meu grupo" (com estrela).
+    const tags = el.querySelector(".map-card-tags")!;
+    expect(tags.querySelector(".map-type-pill")?.textContent).toBe("Treino");
+    expect(tags.querySelector(".map-mine")?.textContent).toContain("Meu grupo");
+    expect(tags.querySelector(".map-mine svg")).toBeTruthy();
+    expect(el.getAttribute("style")).toContain("#2a6f97");
+    // Botões redondos na ordem: anterior, próximo, fechar — todos <button type=button> com aria-label.
+    const nav = [...el.querySelectorAll<HTMLButtonElement>(".map-card-nav button")];
+    expect(nav.map((b) => b.getAttribute("aria-label"))).toEqual(["Local anterior", "Próximo local", "Fechar cartão"]);
+    expect(nav.every((b) => b.type === "button")).toBe(true);
+    // Nome em título; endereço com ícone de pino; ação principal.
+    expect(el.querySelector("h3")?.textContent).toBe("Treino de quinta");
+    const lines = [...el.querySelectorAll(".map-card-lines li")];
+    const address = lines.find((li) => li.textContent?.includes("Rua da Roda, 10 — São Paulo/SP"));
+    expect(address?.querySelector("svg")).toBeTruthy();
+    const cta = el.querySelector<HTMLAnchorElement>(".map-card-actions a.map-card-cta")!;
+    expect(cta.textContent).toContain("Como chegar");
+    expect(cta.querySelector("svg")).toBeTruthy();
+    expect(cta.rel).toContain("noopener");
+  });
+
+  it("selo por tipo: Grupo, Roda e Evento; 'Meu grupo' só no que é meu", async () => {
+    mockApi();
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    const pillOf = () => card()!.querySelector(".map-type-pill")!.textContent;
+    await openPin("Sede Cordão");
+    expect(pillOf()).toBe("Grupo");
+    expect(card()!.querySelector(".map-mine")).toBeNull();
+    await click(button(/Próximo local/)); // Treino (meu)
+    expect(pillOf()).toBe("Treino");
+    expect(card()!.querySelector(".map-mine")).toBeTruthy();
+    await click(button(/Próximo local/));
+    expect(pillOf()).toBe("Roda");
+    expect(card()!.querySelector(".map-mine")).toBeNull();
+    await click(button(/Próximo local/));
+    expect(pillOf()).toBe("Evento");
+  });
+
+  it("anterior/próximo/fechar: percorrem, fecham e devolvem o mapa inteiro (o cartão sai; o container deixa de ter cartão)", async () => {
+    mockApi();
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await openPin("Sede Cordão");
+    const explorer = container!.querySelector<HTMLElement>(".map-explorer")!;
+    const title = () => card()?.querySelector("h3")?.textContent;
+    await click(button(/Próximo local/));
+    expect(title()).toBe("Treino de quinta");
+    await click(button(/Local anterior/));
+    expect(title()).toBe("Sede Cordão de Ouro");
+    await click(button(/Fechar cartão/));
+    expect(card()).toBeNull();
+    expect(explorer.dataset["hasCard"]).toBe("false");
+    expect(explorer.querySelector(".map-stage .map-canvas-host")).toBeTruthy();
+  });
+
+  it("um único local: só o botão fechar (sem anterior/próximo)", async () => {
+    mockApi({ places: () => [PLACES[0]!] });
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await openPin("Sede Cordão");
+    const nav = [...card()!.querySelectorAll(".map-card-nav button")];
+    expect(nav.map((b) => b.getAttribute("aria-label"))).toEqual(["Fechar cartão"]);
+  });
+
+  it("'Como chegar' continua abrindo a rota no app de mapas (nova aba, rel seguro)", async () => {
+    mockApi();
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    await openPin("Roda da Praça");
+    const cta = card()!.querySelector<HTMLAnchorElement>("a.map-card-cta")!;
+    expect(cta.href).toBe("https://www.google.com/maps/dir/?api=1&destination=-23.55,-46.63");
+    expect(cta.target).toBe("_blank");
+    expect(cta.rel).toBe("noopener noreferrer");
+  });
+
+  it("o pin do local selecionado ganha .is-selected (e o anterior perde); o meu grupo ganha .is-mine", async () => {
+    mockApi();
+    render(<DiscoveryPage mode="community" />);
+    await openMap();
+    const pinEl = (title: string) => markerFor(title)!.opts["content"] as HTMLElement;
+    await openPin("Treino de quinta");
+    expect(pinEl("Treino de quinta").classList.contains("is-selected")).toBe(true);
+    expect(pinEl("Treino de quinta").classList.contains("is-mine")).toBe(true);
+    expect(pinEl("Sede Cordão").classList.contains("is-selected")).toBe(false);
+    await click(button(/Próximo local/));
+    expect(pinEl("Treino de quinta").classList.contains("is-selected")).toBe(false);
+    expect(pinEl("Roda da Praça").classList.contains("is-selected")).toBe(true);
+    // O pin é o pin de foto: quadrado com miolo + cauda como último filho.
+    const pin = pinEl("Roda da Praça");
+    expect(pin.querySelector(":scope > .gm-pin-badge")).toBeTruthy();
+    expect(pin.lastElementChild?.classList.contains("gm-pin-tail")).toBe(true);
+  });
+});
+
 describe("cartão do evento: vagas, lista de espera e capa", () => {
   const withEvent = (extra: Partial<MapPlace>) => (): MapPlace[] => [
     place("EVENT:7", "EVENT", "Batizado 2026", { startsAt: "2026-11-21T13:00:00.000Z", ...extra }),
@@ -735,8 +918,13 @@ const lesson = (classId: number) => ({
   status: "ACTIVE",
 });
 
-describe("balões dos marcadores (sem Map ID)", () => {
-  it("o ícone é um SVG em data URL com o NOME, a cor/selo do tipo e anchor na ponta da cauda", async () => {
+/** Ponta da cauda do pin de foto (px, tamanho normal): a âncora do marcador clássico. */
+const TIP = PIN_ICON.tipY;
+/** Passo do empilhamento de locais no mesmo ponto (o pin de foto tem 48 px de quadrado + cauda). */
+const STACK = 54;
+
+describe("pins de foto dos marcadores (sem Map ID)", () => {
+  it("o ícone é um SVG em data URL no formato pin de foto: cor do tipo, selo, anel dourado e anchor na ponta da cauda", async () => {
     mockApi({ config: mapNoId });
     render(<DiscoveryPage mode="community" />);
     await openMap();
@@ -746,35 +934,38 @@ describe("balões dos marcadores (sem Map ID)", () => {
     const icon = iconOf(cls) as { url: string };
     expect(icon.url.startsWith("data:image/svg+xml")).toBe(true);
     const svg = svgOf(icon);
-    expect(svg).toContain("Treino de quinta");
-    expect(svg).toContain("#2a6f97"); // cor do tipo Treino
-    expect(svg).toContain("<circle"); // selo do tipo (relógio) sobre o avatar
-    expect(svg).toContain("#e8b923"); // 'meu grupo' (esta turma é do meu grupo): anel dourado
-    // O grupo mostra o NOME DO GRUPO (não o da unidade); o evento, o título do evento.
-    expect(svgOf(iconOf(markerFor("Sede Cordão")))).toContain("Grupo Cordão de Ouro");
+    expect(svg).toContain("#2a6f97"); // cor do tipo Treino (miolo sem foto)
+    expect(svg).toContain("<circle"); // ícone do tipo (relógio) no miolo
+    expect(svg).toContain("#e8b923"); // 'meu grupo' (esta turma é do meu grupo): borda dourada
+    // Sem foto: o grupo mostra as iniciais do GRUPO; o evento, dia/mês — sobre a cor do tipo.
+    expect(svgOf(iconOf(markerFor("Sede Cordão")))).toContain(">GO<");
     const event = svgOf(iconOf(markerFor("Batizado 2026")));
-    expect(event).toContain("Batizado 2026");
     expect(event).toContain("#a65e0a"); // cor do tipo Evento
+    expect(event).toContain(">NOV<");
+    expect(event).toContain(">21<");
     expect(event).not.toContain("#e8b923"); // não é do meu grupo
-    // Anchor na ponta da cauda: centro horizontal, base do ícone (altura 50, cauda termina a 46 px).
-    const anchor = (icon as unknown as { anchor: { x: number; y: number }; scaledSize: { width?: number } }).anchor;
-    expect(anchor.y).toBe(46);
-    expect(anchor.x).toBeGreaterThan(40);
+    // O pin não leva nome (o nome é do cartão): o texto acessível fica no `title` do marcador.
+    expect(svg).not.toContain("Treino de quinta");
+    expect(cls.opts["title"]).toBe("Treino: Treino de quinta — Grupo Cordão de Ouro");
+    // Anchor na ponta da cauda: centro horizontal e a base da cauda (56x68; a cauda termina em y=61).
+    const anchor = (icon as unknown as { anchor: { x: number; y: number } }).anchor;
+    expect(anchor).toEqual({ x: PIN_ICON.tipX, y: TIP });
+    expect(PIN_ICON.tipX).toBe(PIN_ICON.width / 2);
   });
 
-  it("locais no mesmo ponto empilham os balões para cima (grupo na ponta; depois treino, roda, evento)", async () => {
+  it("locais no mesmo ponto empilham os pins para cima (grupo na ponta; depois treino, roda, evento)", async () => {
     mockApi({ config: mapNoId });
     render(<DiscoveryPage mode="community" />);
     await openMap();
     const anchorY = (title: string) => (iconOf(markerFor(title)) as { anchor: { y: number } }).anchor.y;
     // UNIT:1, RODA:3, EVENT:7 e EVENT:8 dividem as coordenadas; o treino (CLASS:9) tem as suas.
-    expect(anchorY("Sede Cordão")).toBe(46);
-    expect(anchorY("Roda da Praça")).toBe(46 + 44);
-    expect(anchorY("Batizado 2026")).toBe(46 + 88);
-    expect(anchorY("Treino de quinta")).toBe(46);
+    expect(anchorY("Sede Cordão")).toBe(TIP);
+    expect(anchorY("Roda da Praça")).toBe(TIP + STACK);
+    expect(anchorY("Batizado 2026")).toBe(TIP + 2 * STACK);
+    expect(anchorY("Treino de quinta")).toBe(TIP);
   });
 
-  it("nome longo é truncado com reticências e a largura cresce com o texto; altura fixa", async () => {
+  it("o tamanho do pin não depende do nome: nome longo e curto geram o MESMO ícone (sem texto do nome)", async () => {
     const long = "Encontro Internacional de Capoeira Angola do Recôncavo";
     mockApi({
       config: mapNoId,
@@ -786,11 +977,13 @@ describe("balões dos marcadores (sem Map ID)", () => {
     render(<DiscoveryPage mode="community" />);
     await openMap();
     const svgLong = svgOf(iconOf(markerFor("Encontro Internacional")));
-    expect(svgLong).toContain("Encontro Internacio…");
     expect(svgLong).not.toContain("Angola");
-    const widthOf = (svg: string) => Number(/<svg [^>]*width="(\d+)"/.exec(svg)![1]);
-    expect(widthOf(svgLong)).toBeGreaterThan(widthOf(svgOf(iconOf(markerFor("Roda")))));
-    expect(/<svg [^>]*height="(\d+)"/.exec(svgLong)![1]).toBe("50");
+    expect(svgLong).not.toContain("Encontro");
+    const dims = (svg: string) => /<svg [^>]*width="(\d+)" height="(\d+)"/.exec(svg)!.slice(1, 3).map(Number);
+    expect(dims(svgLong)).toEqual([PIN_ICON.width, PIN_ICON.height]);
+    expect(dims(svgOf(iconOf(markerFor("Roda"))))).toEqual([PIN_ICON.width, PIN_ICON.height]);
+    // O nome completo continua acessível pelo title/aria do marcador.
+    expect(String(markerFor("Encontro Internacional")!.opts["title"])).toContain(long);
   });
 
   it("sem logo (ou se o download falhar) usa as iniciais coloridas — nunca imagem quebrada", async () => {
@@ -966,9 +1159,9 @@ describe("treino com local PRÓPRIO (coordenada da turma) vs herdado da unidade"
     await openMap();
     await waitFor(() => expect(fake.state.markers.length).toBe(3));
     const anchorY = (title: string) => (iconOf(markerFor(title)) as { anchor: { y: number } }).anchor.y;
-    expect(anchorY("Sede Cordão")).toBe(46);
-    expect(anchorY("Treino herdado")).toBe(46 + 44); // mesma coordenada da unidade: balão empilhado
-    expect(anchorY("Treino da Praça")).toBe(46); // posição própria: no chão, sem empilhar
+    expect(anchorY("Sede Cordão")).toBe(TIP);
+    expect(anchorY("Treino herdado")).toBe(TIP + STACK); // mesma coordenada da unidade: pin empilhado
+    expect(anchorY("Treino da Praça")).toBe(TIP); // posição própria: no chão, sem empilhar
   });
 
   it("o cartão do treino mostra o local do treino (nome + endereço) e a rota usa a posição própria", async () => {
