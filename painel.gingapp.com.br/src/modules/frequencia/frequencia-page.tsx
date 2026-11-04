@@ -25,6 +25,7 @@ import {
   useRoster,
   useSaveAttendance,
 } from "./frequencia-api";
+import { CheckinSourceBadge } from "./checkin-source-badge";
 import {
   markAll,
   nextPresence,
@@ -137,6 +138,7 @@ export function FrequenciaPage() {
                   <span className="flex items-center gap-2">
                     <StudentAvatar name={row.studentName} photo={row.photo} className="size-8" />
                     {row.studentName}
+                    <CheckinSourceBadge source={row.checkinSource} />
                   </span>
                 </TableCell>
                 <TableCell>

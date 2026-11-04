@@ -296,6 +296,7 @@ describe('Fotos + contrato de leitura class/unit/teacher (e2e)', () => {
         photo: studentPhoto,
         present: null,
         justification: null,
+        checkinSource: null,
       });
     });
 

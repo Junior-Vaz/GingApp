@@ -60,6 +60,7 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/classes/me', 'turmas em que o próprio/dependente está matriculado'],
   ['/api/lessons/me', 'aulas das turmas do próprio/dependente'],
   ['/api/attendance/me', 'presenças do próprio/dependente'],
+  ['/api/attendance/geo-checkin/available', 'check-in por localização: aulas em janela do PRÓPRIO aluno/dependente ATIVO matriculado (nome do aluno, turma, horário, raio); nunca coordenadas nem dado de terceiros'],
   ['/api/finance/me', 'financeiro do próprio/dependente'],
   ['/api/finance/me/summary', 'resumo financeiro do próprio/dependente (escopo por vínculo, FinanceService)'],
   ['/api/certificates/me', 'certificados do próprio/dependente'],

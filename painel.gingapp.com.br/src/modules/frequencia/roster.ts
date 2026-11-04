@@ -1,3 +1,13 @@
+/** Como a presença foi registrada pelo próprio aluno: QR da aula ou localização (GPS). Nulo = chamada manual. */
+export type CheckinSource = "QR" | "GEO";
+
+/** Texto do selo discreto "Check-in por …" (ou null quando a presença veio da chamada manual). */
+export function checkinSourceLabel(source: CheckinSource | null | undefined): string | null {
+  if (source === "GEO") return "Check-in por GPS";
+  if (source === "QR") return "Check-in por QR";
+  return null;
+}
+
 /** Item de GET /attendance/lessons/:lessonId (present === null: chamada ainda não feita). */
 export interface RosterEntry {
   studentId: number;
@@ -6,6 +16,8 @@ export interface RosterEntry {
   justification: string | null;
   /** Foto do aluno (caminho de /uploads ou URL http(s)); ausente/nula = iniciais. */
   photo?: string | null;
+  /** Origem do check-in feito pelo aluno (QR/GEO); nulo/ausente = marcada à mão pelo professor. */
+  checkinSource?: CheckinSource | null;
 }
 
 /** Linha editável da chamada. `present: null` = o professor ainda não decidiu. */
@@ -15,6 +27,8 @@ export interface RosterRow {
   present: boolean | null;
   justification: string;
   photo: string | null;
+  /** Origem do check-in do aluno; some assim que o professor muda a marcação desta linha (o servidor também zera). */
+  checkinSource: CheckinSource | null;
 }
 
 /** Item de POST /attendance/lessons/:lessonId (corpo é um array). */
@@ -31,6 +45,7 @@ export function toRows(entries: RosterEntry[]): RosterRow[] {
     present: e.present,
     justification: e.justification ?? "",
     photo: e.photo ?? null,
+    checkinSource: e.checkinSource ?? null,
   }));
 }
 
@@ -40,7 +55,10 @@ export function nextPresence(current: boolean | null): boolean {
 }
 
 export function setPresence(rows: RosterRow[], studentId: number, present: boolean): RosterRow[] {
-  return rows.map((r) => (r.studentId === studentId ? { ...r, present } : r));
+  // Mudar a marcação à mão tira o selo de check-in (o servidor também volta `checkinSource` para null).
+  return rows.map((r) =>
+    r.studentId === studentId ? { ...r, present, checkinSource: r.present === present ? r.checkinSource : null } : r,
+  );
 }
 
 export function setJustification(rows: RosterRow[], studentId: number, justification: string): RosterRow[] {
@@ -49,7 +67,9 @@ export function setJustification(rows: RosterRow[], studentId: number, justifica
 
 /** Marca todos (ou só os ainda sem marcação, com `onlyUndecided`) como presentes/ausentes. */
 export function markAll(rows: RosterRow[], present: boolean, onlyUndecided = false): RosterRow[] {
-  return rows.map((r) => (onlyUndecided && r.present !== null ? r : { ...r, present }));
+  return rows.map((r) =>
+    onlyUndecided && r.present !== null ? r : { ...r, present, checkinSource: r.present === present ? r.checkinSource : null },
+  );
 }
 
 export function summarize(rows: RosterRow[]) {

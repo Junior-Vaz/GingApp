@@ -33,6 +33,7 @@ import { BirthdaysStrip } from "./birthdays-strip";
 import { HomeFeedPreview } from "./feed/home-feed-preview";
 import { StoriesRow } from "./stories/stories-row";
 import { HomeOnboarding } from "./onboarding/home-onboarding";
+import { GeoCheckinHomeCard } from "./geo-checkin";
 import { PinnedCommunications } from "./pinned-communications";
 import { Avatar } from "./avatar";
 import { GraduationCard } from "./graduation-parts";
@@ -78,6 +79,8 @@ export function HomePage() {
       />
       {/* Convite único (instalar OU ativar notificações), logo abaixo do título e acima dos stories; some sozinho quando não se aplica. */}
       <HomeOnboarding />
+      {/* Cartão discreto e SEPARADO do convite acima: só quando há check-in por localização em janela e ainda não registrado. */}
+      <GeoCheckinHomeCard />
       {studentError && <StateMessage tone="error">{errorMessage(studentError, "Não foi possível carregar seus dados.")}</StateMessage>}
       {!loadingStudent && !studentError && !student && <StateMessage>Nenhum aluno vinculado a esta conta.</StateMessage>}
       {/* A faixa de stories fica COLADA no banner (sem margem entre os dois); o arredondamento de cima é da faixa. */}

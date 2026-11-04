@@ -3,6 +3,7 @@ import { Transform } from 'class-transformer';
 import { IsBoolean, IsEnum, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateIf } from 'class-validator';
 import { BR_UFS } from '../../../../shared/geo/br-states';
 import { IsOptionalLatitude, IsOptionalLongitude } from '../../../../shared/geo/coordinates';
+import { GEO_CHECKIN_RADIUS_MAX_METERS, GEO_CHECKIN_RADIUS_MIN_METERS } from '../../../../shared/geo/geo-checkin';
 import { UF_MESSAGE } from '../../units/dto/create-unit.dto';
 import { trimOrNull, ufOrNull } from '../../units/dto/update-unit.dto';
 import { blankImageToNull, IsImageRef } from '../../../../shared/uploads/image-ref';
@@ -95,4 +96,16 @@ export class UpdateClassDto {
 
   @IsOptionalLongitude()
   longitude?: number | null;
+
+  /** Check-in por localizacao ligado/desligado (nao aceita null). Ligar exige local: 400 GEO_CHECKIN_NO_LOCATION. */
+  @ValidateIf((_, v) => v !== undefined)
+  @IsBoolean()
+  geoCheckinEnabled?: boolean;
+
+  /** Raio permitido em metros (inteiro, 50..500; nao aceita null). */
+  @ValidateIf((_, v) => v !== undefined)
+  @IsInt()
+  @Min(GEO_CHECKIN_RADIUS_MIN_METERS)
+  @Max(GEO_CHECKIN_RADIUS_MAX_METERS)
+  geoCheckinRadiusMeters?: number;
 }

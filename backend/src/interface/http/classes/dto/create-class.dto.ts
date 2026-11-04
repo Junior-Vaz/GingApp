@@ -2,6 +2,7 @@ import { Transform } from 'class-transformer';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { BR_UFS } from '../../../../shared/geo/br-states';
 import { IsOptionalLatitude, IsOptionalLongitude } from '../../../../shared/geo/coordinates';
+import { GEO_CHECKIN_RADIUS_MAX_METERS, GEO_CHECKIN_RADIUS_MIN_METERS } from '../../../../shared/geo/geo-checkin';
 import { trimOrUndefined, UF_MESSAGE, ufOrUndefined } from '../../units/dto/create-unit.dto';
 import { blankImageToNull, IsImageRef } from '../../../../shared/uploads/image-ref';
 import { IsAfterTimeOf, IsTimeOfDay } from '../../../../shared/dates/time-of-day';
@@ -83,4 +84,19 @@ export class CreateClassDto {
 
   @IsOptionalLongitude()
   longitude?: number;
+
+  /**
+   * Check-in por localizacao (docs/CONTRATO_CHECKIN_GEOLOCALIZACAO.md): padrao desligado. Ligar exige local (coordenadas
+   * da turma ou da unidade) — senao 400 GEO_CHECKIN_NO_LOCATION (validado no service).
+   */
+  @IsOptional()
+  @IsBoolean()
+  geoCheckinEnabled?: boolean;
+
+  /** Raio permitido em metros (inteiro, 50..500; padrao 150). */
+  @IsOptional()
+  @IsInt()
+  @Min(GEO_CHECKIN_RADIUS_MIN_METERS)
+  @Max(GEO_CHECKIN_RADIUS_MAX_METERS)
+  geoCheckinRadiusMeters?: number;
 }

@@ -1038,6 +1038,11 @@ model Class {
   state               String?
   latitude            Float?
   longitude           Float?
+  /// Check-in por localizacao (docs/CONTRATO_CHECKIN_GEOLOCALIZACAO.md): o aluno registra a propria presenca pelo GPS
+  /// quando esta a ate geoCheckinRadiusMeters (50..500) do local da turma (coordenadas proprias, senao as da unidade).
+  /// Padrao desligado; ligar exige local (400 GEO_CHECKIN_NO_LOCATION).
+  geoCheckinEnabled      Boolean @default(false)
+  geoCheckinRadiusMeters Int     @default(150)
   status              RecordStatus @default(ACTIVE)
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
@@ -1098,6 +1103,12 @@ model Lesson {
   @@index([classId, date])
 }
 
+/// Origem de uma presenca registrada pelo PROPRIO aluno (check-in). Nulo em Attendance = chamada manual do professor.
+enum AttendanceSource {
+  QR
+  GEO
+}
+
 model Attendance {
   id             Int      @id @default(autoincrement())
   organizationId Int
@@ -1105,6 +1116,9 @@ model Attendance {
   studentId      Int
   present        Boolean  @default(true)
   justification  String?
+  /// QR = check-in por QR; GEO = check-in por localizacao; null = chamada manual (marcar/ajustar a chamada zera).
+  /// Um check-in que so CONFIRMA uma presenca ja existente nao troca a origem. Nunca guarda coordenadas.
+  checkinSource  AttendanceSource?
   createdAt      DateTime @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id])

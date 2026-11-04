@@ -12,6 +12,7 @@ import { errorMessage } from "@/lib/api";
 import { useCan } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { useQuickSessions, useReactivateLesson, useRoster, useSaveAttendance, type QuickSession } from "./frequencia-api";
+import { CheckinSourceBadge } from "./checkin-source-badge";
 import { markAll, setPresence, summarize, toRows, type RosterRow } from "./roster";
 
 const STATUS_LABEL: Record<QuickSession["status"], string> = {
@@ -217,7 +218,10 @@ function QuickAttendancePanel({
         {rows.map((row) => (
           <li key={row.studentId} className="flex items-center gap-2.5 px-3 py-2 sm:gap-3 sm:px-4 sm:py-2.5" data-testid="quick-student-row">
             <StudentAvatar name={row.studentName} photo={row.photo} className="size-10 text-sm sm:size-12" />
-            <span className="min-w-0 flex-1 break-words text-sm font-semibold leading-tight">{row.studentName}</span>
+            <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5 break-words text-sm font-semibold leading-tight">
+              {row.studentName}
+              <CheckinSourceBadge source={row.checkinSource} />
+            </span>
             <div role="group" aria-label={`Presença de ${row.studentName}`} className="flex shrink-0 gap-1.5">
               <button
                 type="button"

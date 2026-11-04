@@ -1,5 +1,23 @@
-import { Body, Controller, Get, HttpCode, Param, ParseArrayPipe, ParseIntPipe, Post, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ExecutionContext,
+  Get,
+  HttpCode,
+  Param,
+  ParseArrayPipe,
+  ParseIntPipe,
+  Post,
+  Query,
+  Res,
+  UseFilters,
+  UseGuards,
+} from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
+import { UserThrottlerGuard } from '../../../shared/guards/user-throttler.guard';
+import { CommunicationsExceptionFilter } from '../communications/communications-http';
+import { GeoCheckinDto } from './dto/geo-checkin.dto';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
@@ -10,6 +28,27 @@ import { ListMyAttendanceQueryDto } from './dto/list-my-attendance-query.dto';
 import { AttendanceEntryDto } from './dto/mark-attendance.dto';
 import { AttendanceCheckinService } from './attendance-checkin.service';
 import { EventCheckinSelfDto } from '../events/dto/event-checkin-self.dto';
+
+/** Limite lido a cada pedido (os e2e trocam a env). */
+const envNumber = (name: string, fallback: number): number => {
+  const n = Number(process.env[name]);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+/**
+ * POST /attendance/geo-checkin: o mesmo @Throttle vale para o guard global (antes do login: conta por IP) e para o
+ * UserThrottlerGuard da rota (depois do login: conta por usuario), como em certificate-templates/feed. Por usuario 10/min;
+ * por IP o mesmo teto global do QR (GLOBAL_THROTTLE_LIMIT, 600/min) — o check-in da turma inteira sai do mesmo Wi-Fi.
+ */
+const GEO_CHECKIN_THROTTLE = {
+  default: {
+    ttl: 60_000,
+    limit: (ctx: ExecutionContext) =>
+      ctx.switchToHttp().getRequest<{ user?: unknown }>().user
+        ? envNumber('GEO_CHECKIN_THROTTLE_LIMIT', 10)
+        : envNumber('GEO_CHECKIN_IP_THROTTLE_LIMIT', envNumber('GLOBAL_THROTTLE_LIMIT', 600)),
+  },
+};
 
 @Controller('attendance')
 export class AttendanceController {
@@ -28,6 +67,35 @@ export class AttendanceController {
     @Body() dto: EventCheckinSelfDto,
   ) {
     return this.checkinService.selfCheckin(organizationId, user, dto);
+  }
+
+  /**
+   * Check-in por LOCALIZACAO (docs/CONTRATO_CHECKIN_GEOLOCALIZACAO.md secao 3): o que o usuario (e seus dependentes)
+   * pode registrar AGORA. Sem @CanAccess (self-service, como o QR); nunca devolve coordenadas.
+   */
+  @Get('geo-checkin/available')
+  @UseFilters(CommunicationsExceptionFilter)
+  geoCheckinAvailable(@CurrentOrganization() organizationId: number, @CurrentUser() user: AuthenticatedUser) {
+    return this.checkinService.geoAvailable(organizationId, user);
+  }
+
+  /**
+   * Registra a presenca do proprio aluno (ou dependente) pela posicao do aparelho. 10/min POR USUARIO
+   * (GEO_CHECKIN_THROTTLE_LIMIT) e o teto por IP do QR (GEO_CHECKIN_IP_THROTTLE_LIMIT, padrao = o global de 600/min: a
+   * turma inteira faz check-in atras do mesmo Wi-Fi). 429 com code TOO_MANY_REQUESTS. Latitude/longitude/precisao NUNCA
+   * sao gravadas nem logadas (o log de requisicao nao registra corpo).
+   */
+  @Post('geo-checkin')
+  @HttpCode(200)
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(GEO_CHECKIN_THROTTLE)
+  @UseFilters(CommunicationsExceptionFilter)
+  geoCheckin(
+    @CurrentOrganization() organizationId: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: GeoCheckinDto,
+  ) {
+    return this.checkinService.geoCheckin(organizationId, user, dto);
   }
 
   /** Token + QR (data URL) de check-in da aula, para a equipe exibir/imprimir. */

@@ -12,6 +12,17 @@ import { isImageRef } from "@/lib/uploads";
 
 export type ClassStatus = "ACTIVE" | "INACTIVE";
 
+/** Origem do local do check-in por GPS: coordenadas da própria turma, da unidade, ou nenhuma (null). */
+export type GeoCheckinLocation = "CLASS" | "UNIT";
+
+/** Raio permitido do check-in por GPS (metros): faixa aceita pelo servidor e valor padrão. */
+export const GEO_RADIUS_MIN = 50;
+export const GEO_RADIUS_MAX = 500;
+export const GEO_RADIUS_DEFAULT = 150;
+
+/** Código do 400 quando se liga o check-in por GPS sem local (nem da turma, nem da unidade). */
+export const GEO_CHECKIN_NO_LOCATION = "GEO_CHECKIN_NO_LOCATION";
+
 export interface ClassItem {
   id: number;
   unitId: number | null;
@@ -40,6 +51,12 @@ export interface ClassItem {
   state?: string | null;
   latitude?: number | null;
   longitude?: number | null;
+  /** Check-in por localização (GPS) pelo aluno: ligado? (padrão desligado). Ausente em respostas antigas da API. */
+  geoCheckinEnabled?: boolean;
+  /** Raio permitido em metros (50..500, padrão 150). */
+  geoCheckinRadiusMeters?: number;
+  /** SÓ LEITURA: de onde vem o local usado no check-in ("CLASS" = da turma, "UNIT" = da unidade, null = sem local). */
+  geoCheckinLocation?: GeoCheckinLocation | null;
   /** Só na lista (GET /classes): a aula mais próxima (hoje em diante) de qualquer status, ou null. */
   nextLesson?: { date: string; status: "ACTIVE" | "INACTIVE" } | null;
   /** Só na lista: a aula ATIVA mais próxima (hoje em diante), ou null. */
@@ -69,6 +86,10 @@ export interface ClassInput {
   state?: string | null | undefined;
   latitude?: number | null | undefined;
   longitude?: number | null | undefined;
+  /** Check-in por localização: só vai quando o interruptor está ligado (ou foi desligado numa turma que estava ligada). */
+  geoCheckinEnabled?: boolean | undefined;
+  /** Raio em metros (50..500, inteiro): só vai com o interruptor ligado. */
+  geoCheckinRadiusMeters?: number | undefined;
 }
 
 /** Dias de aulas à frente que o sistema mantém sozinho na geração contínua (texto de ajuda). */
@@ -85,6 +106,14 @@ export const WEEKDAY_LABEL: Record<number, string> = {
   5: "Sexta",
   6: "Sábado",
 };
+
+/** Raio digitado -> metros inteiros dentro de 50..500, ou null se vazio/inválido/fora da faixa. */
+export function parseGeoRadius(text: string | undefined): number | null {
+  const trimmed = (text ?? "").trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const meters = Number(trimmed);
+  return meters >= GEO_RADIUS_MIN && meters <= GEO_RADIUS_MAX ? meters : null;
+}
 
 export const classSchema = z.object({
   name: z.string().trim().min(2, "Informe o nome da turma (mínimo 2 letras)."),
@@ -112,9 +141,15 @@ export const classSchema = z.object({
     .optional(),
   latitude: latitudeField.optional(),
   longitude: longitudeField.optional(),
+  /** Check-in por localização (GPS): interruptor (padrão desligado) e raio em metros (texto do campo; 50..500). */
+  geoCheckinEnabled: z.boolean().optional(),
+  geoCheckinRadiusMeters: z.string().optional(),
 }).refine((values) => !hasHalfCoordinates({ latitude: values.latitude ?? "", longitude: values.longitude ?? "" }), {
   path: ["longitude"],
   message: "Informe a latitude e a longitude juntas (ou deixe as duas vazias).",
+}).refine((values) => values.geoCheckinEnabled !== true || parseGeoRadius(values.geoCheckinRadiusMeters) !== null, {
+  path: ["geoCheckinRadiusMeters"],
+  message: `Informe o raio em metros (número inteiro de ${GEO_RADIUS_MIN} a ${GEO_RADIUS_MAX}).`,
 });
 export type ClassFormValues = z.infer<typeof classSchema>;
 
@@ -156,6 +191,8 @@ export const emptyClassForm: ClassFormValues = {
   state: "",
   latitude: "",
   longitude: "",
+  geoCheckinEnabled: false, // check-in por GPS nasce desligado
+  geoCheckinRadiusMeters: String(GEO_RADIUS_DEFAULT),
 };
 
 export function classToForm(c: ClassItem): ClassFormValues {
@@ -176,7 +213,27 @@ export function classToForm(c: ClassItem): ClassFormValues {
     city: c.city ?? "",
     state: c.state ?? "",
     ...coordinatesToForm(c),
+    geoCheckinEnabled: c.geoCheckinEnabled ?? false,
+    geoCheckinRadiusMeters: String(c.geoCheckinRadiusMeters ?? GEO_RADIUS_DEFAULT),
   };
+}
+
+/**
+ * Campos do check-in por GPS para o POST: nada quando desligado (o servidor já nasce desligado, raio 150); ligado manda
+ * `geoCheckinEnabled: true` e o raio.
+ */
+function geoCheckinCreatePayload(values: ClassFormValues): Partial<ClassInput> {
+  if (values.geoCheckinEnabled !== true) return {};
+  return { geoCheckinEnabled: true, geoCheckinRadiusMeters: parseGeoRadius(values.geoCheckinRadiusMeters) ?? GEO_RADIUS_DEFAULT };
+}
+
+/**
+ * Campos do check-in por GPS para o PATCH: ligado manda interruptor + raio; desligado só manda `false` se a turma estava
+ * ligada (desligar); turma que já estava desligada não manda nada (e o raio guardado é preservado).
+ */
+function geoCheckinUpdatePayload(values: ClassFormValues, original?: ClassItem): Partial<ClassInput> {
+  if (values.geoCheckinEnabled === true) return geoCheckinCreatePayload(values);
+  return original?.geoCheckinEnabled === true ? { geoCheckinEnabled: false } : {};
 }
 
 /** O formulário está em "Local diferente" e tem ao menos um campo de local preenchido? */
@@ -223,6 +280,7 @@ function locationUpdatePayload(values: ClassFormValues, original?: OwnLocation):
 export function classToPayload(values: ClassFormValues): ClassInput {
   return {
     ...locationCreatePayload(values),
+    ...geoCheckinCreatePayload(values),
     name: values.name.trim(),
     unitId: values.unitId ? Number(values.unitId) : undefined,
     teacherUserId: values.teacherUserId ? Number(values.teacherUserId) : undefined,
@@ -243,6 +301,7 @@ export function classToPayload(values: ClassFormValues): ClassInput {
 export function classToUpdatePayload(values: ClassFormValues, original?: ClassItem): ClassInput {
   return {
     ...locationUpdatePayload(values, original),
+    ...geoCheckinUpdatePayload(values, original),
     name: values.name.trim(),
     unitId: values.unitId ? Number(values.unitId) : null,
     teacherUserId: values.teacherUserId ? Number(values.teacherUserId) : null,

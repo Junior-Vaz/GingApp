@@ -120,6 +120,9 @@ export const AuditAction = {
   EVENT_CANCEL: 'EVENT_CANCEL',
   EVENT_CHECKIN_SELF: 'EVENT_CHECKIN_SELF',
   LESSON_CHECKIN_SELF: 'LESSON_CHECKIN_SELF',
+  // Check-in por LOCALIZACAO na aula (docs/CONTRATO_CHECKIN_GEOLOCALIZACAO.md): entidade lesson; meta SO com studentId,
+  // classId, distanceMeters (arredondada), radiusMeters e hadAbsence — NUNCA latitude/longitude/precisao (LGPD).
+  ATTENDANCE_GEO_CHECKIN: 'ATTENDANCE_GEO_CHECKIN',
   // Aulas: reativacao em massa das canceladas (POST /lessons/reactivate): so contagem/periodo/turma, nunca os ids
   LESSON_REACTIVATE_BULK: 'LESSON_REACTIVATE_BULK',
   // Aulas: exclusao DEFINITIVA (DELETE /lessons/:id) e em lote das canceladas (POST /lessons/bulk-delete): so contagens/ids de turma

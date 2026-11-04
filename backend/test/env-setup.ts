@@ -104,3 +104,7 @@ process.env.FEED_WRITE_THROTTLE_LIMIT = '1000';
 process.env.FEED_WRITE_IP_THROTTLE_LIMIT = '5000';
 process.env.FEED_UPLOAD_THROTTLE_LIMIT = '1000';
 process.env.FEED_UPLOAD_IP_THROTTLE_LIMIT = '5000';
+// Check-in por localizacao (10/min por usuario em producao; teto por IP = o global): alto nos e2e; geo-checkin.e2e-spec.ts
+// prova o 429 rebaixando o limite por usuario (lido a cada pedido).
+process.env.GEO_CHECKIN_THROTTLE_LIMIT = '1000';
+process.env.GEO_CHECKIN_IP_THROTTLE_LIMIT = '5000';

@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { AttendanceSource, Prisma } from '@prisma/client';
 import { civilDateRange } from '../../../shared/dates/date-range';
 import { pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
@@ -31,6 +31,8 @@ export interface RosterEntry {
   photo: string | null;
   present: boolean | null;
   justification: string | null;
+  /** Origem do registro: 'QR' / 'GEO' = check-in do próprio aluno; null = chamada manual (ou sem registro). */
+  checkinSource: AttendanceSource | null;
 }
 
 export type QuickSessionStatus = 'UPCOMING' | 'ONGOING' | 'ENDED';
@@ -199,6 +201,7 @@ export class AttendanceService {
         photo: cs.student.photo,
         present: attendance ? attendance.present : null,
         justification: attendance?.justification ?? null,
+        checkinSource: attendance?.checkinSource ?? null,
       };
     });
   }
@@ -280,7 +283,9 @@ export class AttendanceService {
 
   /**
    * Registra a chamada em lote de uma aula. Faz upsert por (lessonId, studentId) — cada
-   * entrada substitui o registro anterior daquele aluno naquela aula, se existir.
+   * entrada substitui o registro anterior daquele aluno naquela aula, se existir. Chamada MANUAL: a origem do
+   * check-in (checkinSource QR/GEO) volta a null nas linhas que a chamada marca/ajusta (presença ou justificativa
+   * diferente); linha reenviada sem mudança mantém a origem (docs/CONTRATO_CHECKIN_GEOLOCALIZACAO.md §2).
    */
   async markAttendance(
     organizationId: number,
@@ -309,6 +314,22 @@ export class AttendanceService {
       throw new BadRequestException('Aluno inválido para esta organização.');
     }
 
+    // Origem do check-in (QR/GEO): a chamada que MARCA/AJUSTA a linha (presença ou justificativa diferente) a zera; a
+    // linha reenviada IGUAL (o painel salva todos os alunos com decisão, inclusive quem fez check-in) mantém o selo.
+    const existingRows = await this.prisma.attendance.findMany({
+      where: { organizationId, lessonId, studentId: { in: studentIds }, checkinSource: { not: null } },
+      select: { studentId: true, present: true, justification: true },
+    });
+    const withSource = new Map(existingRows.map((row) => [row.studentId, row]));
+    const keepsSource = (entry: AttendanceEntryDto): boolean => {
+      const row = withSource.get(entry.studentId);
+      return (
+        row !== undefined &&
+        row.present === entry.present &&
+        (entry.justification === undefined || entry.justification === row.justification)
+      );
+    };
+
     await this.prisma.$transaction(
       entries.map((entry) =>
         this.prisma.attendance.upsert({
@@ -319,10 +340,12 @@ export class AttendanceService {
             studentId: entry.studentId,
             present: entry.present,
             justification: entry.justification,
+            checkinSource: null,
           },
           update: {
             present: entry.present,
             justification: entry.justification,
+            ...(keepsSource(entry) ? {} : { checkinSource: null }),
           },
         }),
       ),

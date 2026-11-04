@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { errorMessage } from "@/lib/api";
 import { normalizeCheckinInput, parseCheckinToken, submitCheckin, type CheckinResult } from "@/lib/checkin";
 import { useMyStudent } from "@/lib/queries";
+import { GeoCheckinSection } from "./geo-checkin";
 import { PageHeading } from "./shared";
 
 /** BarcodeDetector ainda nao esta nos tipos do TypeScript (so Chromium/Android e Safari recentes). */
@@ -219,6 +220,7 @@ export function CheckinPage({ initialToken = "" }: { initialToken?: string }) {
           </p>
         )}
       </form>
+      <GeoCheckinSection />
     </>
   );
 }

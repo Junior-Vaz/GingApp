@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Building2, Ban, CalendarPlus, Eye, Layers, MapPin, Pencil, Plus, Repeat, Trash2, UserRound, Users } from "lucide-react";
 import { useNavigate } from "@tanstack/react-router";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { errorMessage } from "@/lib/api";
+import { ApiError, errorMessage } from "@/lib/api";
 import { BR_UFS } from "@/lib/br-ufs";
 import { dayOnly, fmt } from "@/lib/format";
 import { plural } from "@/lib/plural";
@@ -28,11 +28,13 @@ import { useUnitNames } from "@/lib/unit-lookup";
 import { NativeSelect } from "@/modules/alunos/native-select";
 import { OPTIONS_LIMIT, useTeacherOptions } from "@/modules/aulas/aulas-api";
 import { GenerateLessonsDialog } from "./generate-lessons-dialog";
+import { GeoCheckinFields } from "./geo-checkin-fields";
 import { classes, useClassDeleteImpact, useDeleteClass, useInactivateClass } from "./turmas-api";
 import { ClassStudentsDialog } from "./students-dialog";
 import {
   CLASS_STATUS_LABEL,
   CONTINUOUS_AHEAD_DAYS,
+  GEO_CHECKIN_NO_LOCATION,
   WEEKDAY_LABEL,
   classLessonDiagnostic,
   classLocationMissingPin,
@@ -73,6 +75,9 @@ export function TurmasPage() {
   const eraseImpact = useClassDeleteImpact(erasing?.id);
   const [studentsOf, setStudentsOf] = useState<ClassItem | null>(null);
   const [generatingOf, setGeneratingOf] = useState<ClassItem | null>(null);
+  /** Mensagem do 400 GEO_CHECKIN_NO_LOCATION do último salvar; some ao reabrir o formulário ou mexer no interruptor. */
+  const [geoError, setGeoError] = useState<string | null>(null);
+  useEffect(() => setGeoError(null), [editing]);
 
   // Nomes só das unidades desta página (GET /units/:id por id distinto): não depende de lista com teto.
   const nameOfUnit = useUnitNames((list.items ?? []).map((c) => c.unitId));
@@ -284,11 +289,18 @@ export function TurmasPage() {
         title={isEdit ? "Editar turma" : "Nova turma"}
         schema={classSchema}
         defaultValues={editing && editing !== "new" ? classToForm(editing) : emptyClassForm}
-        onSubmit={(values) =>
-          editing && editing !== "new"
-            ? update.mutateAsync({ id: editing.id, data: classToUpdatePayload(values, editing) })
-            : create.mutateAsync(classToCreatePayload(values))
-        }
+        onSubmit={async (values) => {
+          setGeoError(null);
+          try {
+            return await (editing && editing !== "new"
+              ? update.mutateAsync({ id: editing.id, data: classToUpdatePayload(values, editing) })
+              : create.mutateAsync(classToCreatePayload(values)));
+          } catch (error) {
+            // 400 GEO_CHECKIN_NO_LOCATION: a mensagem do servidor aparece junto do interruptor (além do aviso padrão).
+            if (error instanceof ApiError && error.code === GEO_CHECKIN_NO_LOCATION) setGeoError(error.message);
+            throw error;
+          }
+        }}
       >
         {(form) => (
           <>
@@ -527,6 +539,11 @@ export function TurmasPage() {
                 </>
               )}
             </fieldset>
+            <GeoCheckinFields
+              location={editing && editing !== "new" ? (editing.geoCheckinLocation ?? null) : undefined}
+              serverError={geoError}
+              onToggle={() => setGeoError(null)}
+            />
             <FormField
               control={form.control}
               name="autoGenerateLessons"

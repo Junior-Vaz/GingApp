@@ -19,6 +19,7 @@ import { GenerateLessonsDto } from './dto/generate-lessons.dto';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
 import { resolveCoordinatesInput } from '../../../shared/geo/coordinates';
+import { GeoCheckinLocationSource, resolveGeoCheckinLocation } from '../../../shared/geo/geo-checkin';
 import { GeocodingService } from '../../../shared/geo/geocoding.service';
 import { civilTodayStart } from '../finance/finance.service';
 import {
@@ -37,14 +38,48 @@ import { enrollStudentInClass } from './class-enrollment';
 export { GENERATE_LESSONS_LOCK_NS, MAX_GENERATE_LESSONS_SPAN_DAYS };
 export type { GenerateLessonsResult };
 
-/** Foto e nome da unidade / do professor responsável que acompanham cada turma (contrato de leitura). */
+/**
+ * Foto e nome da unidade / do professor responsável que acompanham cada turma (contrato de leitura). As coordenadas da
+ * unidade só são LIDAS para calcular `geoCheckinLocation` e saem da resposta em toClassView (o `unit` continua {id,name,photo}).
+ */
 const CLASS_INCLUDE = {
-  unit: { select: { id: true, name: true, photo: true } },
+  unit: { select: { id: true, name: true, photo: true, latitude: true, longitude: true } },
   teacher: { select: { id: true, name: true, photo: true } },
 } satisfies Prisma.ClassInclude;
 
-/** Turma como a API devolve: colunas + `photo` + `unit:{id,name,photo}|null` + `teacher:{id,name,photo}|null`. */
-export type ClassView = Prisma.ClassGetPayload<{ include: typeof CLASS_INCLUDE }>;
+type ClassRow = Prisma.ClassGetPayload<{ include: typeof CLASS_INCLUDE }>;
+
+/**
+ * Turma como a API devolve: colunas (inclui geoCheckinEnabled/geoCheckinRadiusMeters) + `photo` + `unit:{id,name,photo}|null`
+ * + `teacher:{id,name,photo}|null` + `geoCheckinLocation` (SÓ leitura: 'CLASS' | 'UNIT' | null — de onde vem o local usado
+ * no check-in por localização; docs/CONTRATO_CHECKIN_GEOLOCALIZACAO.md secao 2).
+ */
+export type ClassView = Omit<ClassRow, 'unit'> & {
+  unit: { id: number; name: string; photo: string | null } | null;
+  geoCheckinLocation: GeoCheckinLocationSource | null;
+};
+
+/** Linha do banco -> contrato de leitura (tira as coordenadas da unidade, acrescenta geoCheckinLocation). */
+function toClassView(row: ClassRow): ClassView {
+  const { unit, ...rest } = row;
+  return {
+    ...rest,
+    unit: unit ? { id: unit.id, name: unit.name, photo: unit.photo } : null,
+    geoCheckinLocation: resolveGeoCheckinLocation(row)?.source ?? null,
+  };
+}
+
+const GEO_CHECKIN_NO_LOCATION_MESSAGE = 'Defina o local da turma (ou da unidade) antes de ligar o check-in por localização.';
+
+/** 400 do contrato: ligar o check-in por localização (ou deixá-lo ligado) sem local da turma nem da unidade. */
+function geoCheckinNoLocation(): BadRequestException {
+  return new BadRequestException({
+    statusCode: 400,
+    error: 'Bad Request',
+    code: 'GEO_CHECKIN_NO_LOCATION',
+    message: GEO_CHECKIN_NO_LOCATION_MESSAGE,
+  });
+}
 
 /**
  * Turma na LISTA (GET /classes): o ClassView + diagnóstico das aulas à frente (hoje em diante, dia civil de São Paulo):
@@ -120,7 +155,7 @@ export class ClassesService {
       this.prisma.class.findMany({ where, include: CLASS_INCLUDE, orderBy: { id: 'desc' }, ...pageArgs(query) }),
       this.prisma.class.count({ where }),
     ]);
-    return { items: await this.withNextLessons(organizationId, items), total };
+    return { items: await this.withNextLessons(organizationId, items.map(toClassView)), total };
   }
 
   /** Acrescenta nextLesson/nextActiveLesson a cada turma da página com UMA agregação (min(date) por turma+status). */
@@ -163,7 +198,8 @@ export class ClassesService {
     const classIds = [...new Set(enrollments.map((e) => e.classId))];
     if (classIds.length === 0) return [];
 
-    return this.prisma.class.findMany({ where: { id: { in: classIds }, organizationId }, include: CLASS_INCLUDE });
+    const rows = await this.prisma.class.findMany({ where: { id: { in: classIds }, organizationId }, include: CLASS_INCLUDE });
+    return rows.map(toClassView);
   }
 
   async findOne(organizationId: number, id: number, user?: AuthenticatedUser): Promise<ClassView> {
@@ -175,14 +211,12 @@ export class ClassesService {
     if (!classItem) {
       throw new NotFoundException('Turma não encontrada.');
     }
-    return classItem;
+    return toClassView(classItem);
   }
 
   async create(organizationId: number, dto: CreateClassDto, user?: AuthenticatedUser) {
     const unitId = resolveWriteUnit(await this.unitScope.resolve(user, organizationId), dto.unitId);
-    if (unitId) {
-      await this.assertUnitBelongsToOrganization(organizationId, unitId);
-    }
+    const unit = unitId ? await this.assertUnitBelongsToOrganization(organizationId, unitId) : null;
     if (dto.teacherUserId) {
       await assertActiveTeacher(this.prisma, organizationId, dto.teacherUserId);
     }
@@ -190,6 +224,10 @@ export class ClassesService {
     // Local do treino proprio: coordenadas do corpo, ou geocodificadas (so' com chave do Google; falha = sem coordenadas,
     // a turma e' salva igual e herda a posicao da unidade no mapa).
     const coordinates = await this.geocoding.forCreate(dto, this.locationParts(dto));
+    // Check-in por localizacao ligado ja na criacao: exige local (o proprio, ja geocodificado, ou o da unidade).
+    if (dto.geoCheckinEnabled === true && !resolveGeoCheckinLocation({ ...coordinates, unit })) {
+      throw geoCheckinNoLocation();
+    }
 
     const created = await this.prisma.class.create({
       data: {
@@ -209,6 +247,8 @@ export class ClassesService {
         state: dto.state,
         latitude: coordinates.latitude,
         longitude: coordinates.longitude,
+        geoCheckinEnabled: dto.geoCheckinEnabled,
+        geoCheckinRadiusMeters: dto.geoCheckinRadiusMeters,
       },
       include: CLASS_INCLUDE,
     });
@@ -221,7 +261,7 @@ export class ClassesService {
     });
     // Aulas continuas: turma nova com dia da semana ganha as aulas ate o horizonte (fire-and-forget; silencioso).
     if (created.weekday !== null && created.autoGenerateLessons) this.rolling.queueEnsureHorizon(created.id);
-    return created;
+    return toClassView(created);
   }
 
   async update(organizationId: number, id: number, dto: UpdateClassDto, user?: AuthenticatedUser) {
@@ -244,6 +284,7 @@ export class ClassesService {
     }
 
     const coordinates = await this.coordinatesForUpdate(current, dto);
+    await this.assertGeoCheckinLocationOnUpdate(organizationId, current, dto, coordinates);
 
     const updated = await this.prisma.class.update({
       where: { id },
@@ -264,6 +305,8 @@ export class ClassesService {
         state: dto.state,
         latitude: coordinates?.latitude,
         longitude: coordinates?.longitude,
+        geoCheckinEnabled: dto.geoCheckinEnabled,
+        geoCheckinRadiusMeters: dto.geoCheckinRadiusMeters,
       },
       include: CLASS_INCLUDE,
     });
@@ -290,7 +333,31 @@ export class ClassesService {
     if (touchesHorizon && updated.status === 'ACTIVE' && updated.weekday !== null && updated.autoGenerateLessons) {
       this.rolling.queueEnsureHorizon(id);
     }
-    return updated;
+    return toClassView(updated);
+  }
+
+  /**
+   * Regra do contrato (secao 2) no PATCH: a turma que FICA com o check-in por localização ligado precisa de local (o
+   * próprio ou o da unidade) — 400 GEO_CHECKIN_NO_LOCATION ao ligar sem local e quando a edição remove o último local
+   * (coordenadas da turma limpas/invalidadas, ou troca/remoção da unidade). Uma edição que não liga nem mexe no local
+   * (ex.: só o nome) não é barrada; desligar é sempre aceito. O check-in em si recusa turma sem local (409 GEO_NO_LOCATION).
+   */
+  private async assertGeoCheckinLocationOnUpdate(
+    organizationId: number,
+    current: ClassView,
+    dto: UpdateClassDto,
+    coordinates: { latitude: number | null; longitude: number | null } | undefined,
+  ): Promise<void> {
+    const enabled = dto.geoCheckinEnabled ?? current.geoCheckinEnabled;
+    if (!enabled) return;
+    const locationTouched = coordinates !== undefined || dto.unitId !== undefined;
+    if (dto.geoCheckinEnabled !== true && !locationTouched) return;
+    const own = coordinates ?? { latitude: current.latitude, longitude: current.longitude };
+    const unitId = dto.unitId === undefined ? current.unitId : dto.unitId;
+    const unit = unitId
+      ? await this.prisma.unit.findFirst({ where: { id: unitId, organizationId }, select: { latitude: true, longitude: true } })
+      : null;
+    if (!resolveGeoCheckinLocation({ ...own, unit })) throw geoCheckinNoLocation();
   }
 
   /** Partes do endereco do treino para geocodificar (sem endereco, o rotulo — ex.: "Praca X" — ancora a busca). */
@@ -590,10 +657,17 @@ export class ClassesService {
 
   /** Nunca confiar em unitId vindo do corpo da requisição sem confirmar que pertence à
    * organização do usuário autenticado (PLANO_PROJETO.md §3.2 item 4). */
-  private async assertUnitBelongsToOrganization(organizationId: number, unitId: number): Promise<void> {
-    const unit = await this.prisma.unit.findFirst({ where: { id: unitId, organizationId } });
+  private async assertUnitBelongsToOrganization(
+    organizationId: number,
+    unitId: number,
+  ): Promise<{ latitude: number | null; longitude: number | null }> {
+    const unit = await this.prisma.unit.findFirst({
+      where: { id: unitId, organizationId },
+      select: { latitude: true, longitude: true },
+    });
     if (!unit) {
       throw new BadRequestException('Unidade inválida para esta organização.');
     }
+    return unit;
   }
 }
