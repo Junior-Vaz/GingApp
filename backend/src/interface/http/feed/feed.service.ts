@@ -10,7 +10,8 @@ import { deleteFeedFiles } from './feed-media-storage';
 import { FEED_POST_SELECT, FeedPostRow, FeedPostView, FeedPresenter, ReactionSummary } from './feed-presenter';
 import { detachMedia } from './feed-purge';
 import { FeedNoticesService } from './feed-notices.service';
-import { ageOn, cleanBlockedWords, containsBlockedWord, decodeCursor, encodeCursor, FeedCursor, isStoryLive, normalizeUserText, startOfDaySaoPaulo } from './feed-text';
+import { cleanBlockedWords, containsBlockedWord, decodeCursor, encodeCursor, FeedCursor, isStoryLive, normalizeUserText, startOfDaySaoPaulo } from './feed-text';
+import { isUserMinor } from './feed-minor';
 
 export interface FeedSettingsView {
   enabled: boolean;
@@ -98,13 +99,8 @@ export class FeedService {
    * data: ALUNO conta como menor (nao da para provar que e adulto: decisao conservadora); os demais papeis, adulto.
    */
   async isMinor(v: FeedViewer, now = new Date()): Promise<boolean> {
-    const [person, student] = await Promise.all([
-      this.prisma.person.findUnique({ where: { userId: v.userId }, select: { birthDate: true } }),
-      this.prisma.student.findFirst({ where: { organizationId: v.organizationId, userId: v.userId }, select: { birthDate: true } }),
-    ]);
-    const birthDate = person?.birthDate ?? student?.birthDate ?? null;
-    if (!birthDate) return v.role === OrgRole.ALUNO;
-    return ageOn(birthDate, now) < 18;
+    // Regra unica em feed-minor.ts (tambem usada pelos patrocinadores, contrato secao 5).
+    return isUserMinor(this.prisma, { organizationId: v.organizationId, userId: v.userId, role: v.role }, now);
   }
 
   /**

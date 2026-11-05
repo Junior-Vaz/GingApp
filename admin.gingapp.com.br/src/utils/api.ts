@@ -1,7 +1,7 @@
 import { AUTH_TOKEN_KEY, AUTH_USER_KEY } from '@/stores/auth'
 import { apiErrorText } from '@/utils/errors'
 
-const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000/api'
+export const API_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000/api'
 
 export class ApiError extends Error {
   status: number
@@ -21,8 +21,11 @@ export class ApiError extends Error {
 }
 
 interface RequestOptions extends Omit<RequestInit, 'body'> {
+  /** Objeto/valor JSON, ou um FormData (upload multipart: o navegador define o Content-Type com o boundary). */
   body?: unknown
   skipAuth?: boolean
+  /** 'blob' = o corpo da resposta é um arquivo (ex.: CSV); padrão = JSON. */
+  responseType?: 'json' | 'blob'
 }
 
 /**
@@ -33,17 +36,18 @@ interface RequestOptions extends Omit<RequestInit, 'body'> {
  * backend NestJS estiver disponível.
  */
 async function requestRaw<T>(path: string, options: RequestOptions = {}): Promise<{ data: T; headers: Headers }> {
-  const { skipAuth, body, headers, ...rest } = options
+  const { skipAuth, body, headers, responseType, ...rest } = options
   const token = localStorage.getItem(AUTH_TOKEN_KEY)
+  const isForm = typeof FormData !== 'undefined' && body instanceof FormData
 
   const response = await fetch(`${API_URL}${path}`, {
     ...rest,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isForm ? {} : { 'Content-Type': 'application/json' }),
       ...(token && !skipAuth ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
   })
 
   if (response.status === 401 && token && !skipAuth && localStorage.getItem(AUTH_TOKEN_KEY) !== token) {
@@ -64,6 +68,10 @@ async function requestRaw<T>(path: string, options: RequestOptions = {}): Promis
   if (!response.ok) {
     const errorBody = await response.json().catch(() => null)
     throw new ApiError(apiErrorText(response.status, errorBody), response.status, errorBody)
+  }
+
+  if (responseType === 'blob') {
+    return { data: (await response.blob()) as T, headers: response.headers }
   }
 
   // Corpo vazio pode vir com 204 OU com 200/201 (endpoint que não devolve nada) — `.json()`
@@ -111,6 +119,12 @@ export const api = {
     return { items, total: Number.isFinite(total) && total >= 0 ? total : items.length }
   },
   get: <T>(path: string, options?: RequestOptions) => request<T>(path, { ...options, method: 'GET' }),
+  /** GET autenticado de um arquivo (ex.: CSV). Erros seguem o mesmo contrato de `ApiError`. */
+  getBlob: async (path: string, params?: QueryParams, options?: RequestOptions): Promise<Blob> =>
+    (await requestRaw<Blob>(`${path}${buildQuery(params)}`, { ...options, method: 'GET', responseType: 'blob' })).data,
+  /** POST multipart (upload de arquivo). */
+  postForm: <T>(path: string, form: FormData, options?: RequestOptions) =>
+    request<T>(path, { ...options, method: 'POST', body: form }),
   post: <T>(path: string, body?: unknown, options?: RequestOptions) =>
     request<T>(path, { ...options, method: 'POST', body }),
   put: <T>(path: string, body?: unknown, options?: RequestOptions) =>

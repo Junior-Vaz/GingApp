@@ -76,6 +76,15 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   TWO_FACTOR_RESET: 'Verificação em duas etapas redefinida',
   DATA_DELETION_REQUEST_UPDATE: 'Pedido de exclusão de dados tratado',
   AUDIT_PURGE: 'Limpeza automática da auditoria',
+  SPONSOR_CREATE: 'Patrocinador criado',
+  SPONSOR_UPDATE: 'Patrocinador editado',
+  SPONSOR_DELETE: 'Patrocinador excluído',
+  SPONSOR_CAMPAIGN_CREATE: 'Campanha de patrocínio criada',
+  SPONSOR_CAMPAIGN_UPDATE: 'Campanha de patrocínio editada',
+  SPONSOR_CAMPAIGN_DELETE: 'Campanha de patrocínio excluída',
+  SPONSOR_CAMPAIGN_ACTIVATE: 'Campanha de patrocínio ativada',
+  SPONSOR_CAMPAIGN_PAUSE: 'Campanha de patrocínio pausada',
+  SPONSOR_CAMPAIGN_RESUME: 'Campanha de patrocínio retomada',
 }
 
 /** Rótulo da ação; códigos novos ainda sem tradução aparecem como vieram. */

@@ -82,6 +82,7 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/notifications', 'notificações do próprio usuário'],
   ['/api/notifications/unread-count', 'contador do próprio usuário'],
   ['/api/platform-announcements/mine', 'avisos da plataforma para a própria organização'],
+  ['/api/sponsors/active', 'Patrocinadores: 0 ou 1 slide de campanha ATIVA na região do espectador (nome/logo do patrocinador, título, texto, botão, link do redirecionador); menor = vazio; nunca dado de pessoa, contato, preço ou notas'],
   // '/api/subscriptions/me' SAIU da allowlist: plano/preço/ids do gateway = financeiro do grupo,
   // agora exige finance.view (só MESTRE) — ALUNO/RESPONSAVEL/PROFESSOR recebem 403.
   ['/api/calendar', 'pública: rodas + eventos isPublic, sem participantes'],

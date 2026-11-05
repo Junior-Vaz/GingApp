@@ -7,6 +7,8 @@ declare module 'vue-router' {
     navLabel?: string
     /** Título da aba do navegador quando a rota não tem navLabel. */
     title?: string
+    /** Só usuários da PLATAFORMA (userType PLATFORM): os demais caem no painel e não veem o item de menu. */
+    platformOnly?: boolean
   }
 }
 
@@ -90,6 +92,36 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, navLabel: 'Avisos' },
   },
   {
+    path: '/sponsors',
+    name: 'sponsors',
+    component: () => import('@/views/SponsorsView.vue'),
+    meta: { requiresAuth: true, platformOnly: true, navLabel: 'Patrocinadores' },
+  },
+  {
+    path: '/sponsors/campaigns',
+    name: 'sponsor-campaigns',
+    component: () => import('@/views/SponsorCampaignsView.vue'),
+    meta: { requiresAuth: true, platformOnly: true, title: 'Campanhas' },
+  },
+  {
+    path: '/sponsors/campaigns/new',
+    name: 'sponsor-campaign-new',
+    component: () => import('@/views/SponsorCampaignFormView.vue'),
+    meta: { requiresAuth: true, platformOnly: true, title: 'Nova campanha' },
+  },
+  {
+    path: '/sponsors/campaigns/:id(\\d+)/edit',
+    name: 'sponsor-campaign-edit',
+    component: () => import('@/views/SponsorCampaignFormView.vue'),
+    meta: { requiresAuth: true, platformOnly: true, title: 'Editar campanha' },
+  },
+  {
+    path: '/sponsors/campaigns/:id(\\d+)/report',
+    name: 'sponsor-campaign-report',
+    component: () => import('@/views/SponsorCampaignReportView.vue'),
+    meta: { requiresAuth: true, platformOnly: true, title: 'Relatório da campanha' },
+  },
+  {
     path: '/audit',
     name: 'audit',
     component: () => import('@/views/AuditView.vue'),
@@ -132,6 +164,11 @@ router.beforeEach((to) => {
   }
 
   if (to.name === 'login' && authStore.isAuthenticated) {
+    return { name: 'dashboard' }
+  }
+
+  // Patrocinadores é só da equipe da plataforma (o backend também barra: PlatformOnlyGuard).
+  if (to.meta.platformOnly && authStore.user?.userType !== 'PLATFORM') {
     return { name: 'dashboard' }
   }
 

@@ -35,14 +35,17 @@ onMounted(async () => {
   }
 })
 
+const isPlatformUser = computed(() => authStore.user?.userType === 'PLATFORM')
+
 const navItems = computed(() =>
   routes
-    .filter((r) => typeof r.path === 'string' && r.meta?.navLabel)
+    .filter((r) => typeof r.path === 'string' && r.meta?.navLabel && (!r.meta.platformOnly || isPlatformUser.value))
     .map((r) => ({ path: r.path, label: r.meta!.navLabel as string })),
 )
 
+// Telas filhas (ex.: /sponsors/campaigns/3/report) mantêm o item do menu marcado.
 function isActive(path: string): boolean {
-  return route.path === path
+  return route.path === path || route.path.startsWith(`${path}/`)
 }
 
 function handleLogout(): void {

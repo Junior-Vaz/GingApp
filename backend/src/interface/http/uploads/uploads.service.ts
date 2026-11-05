@@ -20,6 +20,22 @@ export const UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
 /** Lado maior depois do reprocessamento (sharp). */
 export const UPLOAD_MAX_DIMENSION = 1600;
 
+/** Passadas do reprocessamento (sharp). A 1a e a do upload de grupo; as demais so no da plataforma (peso final limitado). */
+const REPROCESS_PASSES: ReadonlyArray<{ dimension: number; quality: number }> = [
+  { dimension: UPLOAD_MAX_DIMENSION, quality: 82 },
+  { dimension: UPLOAD_MAX_DIMENSION, quality: 70 },
+  { dimension: 1280, quality: 65 },
+  { dimension: 1200, quality: 55 },
+  { dimension: 1024, quality: 50 },
+  { dimension: 800, quality: 45 },
+];
+
+/** Peso FINAL maximo do upload da plataforma: PLATFORM_UPLOAD_MAX_KB (padrao 250 KB, contrato 4.3). Lido a cada envio. */
+export function platformUploadMaxBytes(env: NodeJS.ProcessEnv = process.env): number {
+  const kb = Number(env.PLATFORM_UPLOAD_MAX_KB);
+  return Math.floor((Number.isFinite(kb) && kb > 0 ? kb : 250) * 1024);
+}
+
 export interface UploadedImageFile {
   buffer: Buffer;
   size: number;
@@ -71,7 +87,26 @@ export class UploadsService {
     return Number.isFinite(mb) && mb > 0 ? Math.floor(mb * 1024 * 1024) : 0;
   }
 
+  /** Upload de GRUPO (POST /uploads): dono = grupo do token, conta na cota do grupo. Comportamento inalterado. */
   async save(file: UploadedImageFile | undefined, organizationId: number, userId: number): Promise<UploadResult> {
+    return this.store(file, { organizationId, userId, maxFinalBytes: null });
+  }
+
+  /**
+   * Upload da EQUIPE DA PLATAFORMA (POST /platform-uploads: logo/imagem de patrocinador, docs/CONTRATO_PATROCINADORES.md
+   * secao 4.3): mesmas validacoes e o mesmo reprocessamento (assinatura, sharp, sem EXIF), dono = organizationId NULO (nao
+   * conta na cota de grupo nenhum) e peso FINAL limitado (PLATFORM_UPLOAD_MAX_KB, padrao 250 KB): se a 1a passada ficar
+   * acima, reprocessa com qualidade/dimensao menores; se nada couber, 413 (nada e gravado).
+   */
+  async savePlatform(file: UploadedImageFile | undefined, userId: number): Promise<UploadResult> {
+    return this.store(file, { organizationId: null, userId, maxFinalBytes: platformUploadMaxBytes() });
+  }
+
+  private async store(
+    file: UploadedImageFile | undefined,
+    owner: { organizationId: number | null; userId: number; maxFinalBytes: number | null },
+  ): Promise<UploadResult> {
+    const { organizationId, userId, maxFinalBytes } = owner;
     if (!file || !file.buffer || file.size === 0) {
       throw new BadRequestException('Envie a imagem no campo "file" (multipart/form-data).');
     }
@@ -92,26 +127,36 @@ export class UploadsService {
 
     const sharp = loadSharp(this.logger);
     if (sharp) {
-      try {
-        // rotate(): aplica a orientacao EXIF antes de o metadado ser descartado. webp() sem withMetadata()
-        // remove EXIF/GPS/ICC. limitInputPixels barra "bombas de pixels".
-        const out = await sharp(file.buffer, { failOn: 'error', limitInputPixels: 40_000_000 })
-          .rotate()
-          .resize({ width: UPLOAD_MAX_DIMENSION, height: UPLOAD_MAX_DIMENSION, fit: 'inside', withoutEnlargement: true })
-          .webp({ quality: 82 })
-          .toBuffer({ resolveWithObject: true });
-        data = out.data;
-        width = out.info.width;
-        height = out.info.height;
-        contentType = 'image/webp';
-        ext = 'webp';
-      } catch {
-        throw new BadRequestException('Imagem invalida ou corrompida.');
+      // Grupo: 1 passada (a de sempre). Plataforma (maxFinalBytes): passadas cada vez menores ate caber no peso final.
+      const passes = maxFinalBytes === null ? [REPROCESS_PASSES[0]] : REPROCESS_PASSES;
+      for (const pass of passes) {
+        try {
+          // rotate(): aplica a orientacao EXIF antes de o metadado ser descartado. webp() sem withMetadata()
+          // remove EXIF/GPS/ICC. limitInputPixels barra "bombas de pixels".
+          const out = await sharp(file.buffer, { failOn: 'error', limitInputPixels: 40_000_000 })
+            .rotate()
+            .resize({ width: pass.dimension, height: pass.dimension, fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: pass.quality })
+            .toBuffer({ resolveWithObject: true });
+          data = out.data;
+          width = out.info.width;
+          height = out.info.height;
+          contentType = 'image/webp';
+          ext = 'webp';
+        } catch {
+          throw new BadRequestException('Imagem invalida ou corrompida.');
+        }
+        if (maxFinalBytes === null || data.length <= maxFinalBytes) break;
       }
     }
+    if (maxFinalBytes !== null && data.length > maxFinalBytes) {
+      throw new PayloadTooLargeException(
+        `A imagem ficou com mais de ${Math.floor(maxFinalBytes / 1024)} KB mesmo depois de otimizada. Envie uma imagem menor ou mais simples.`,
+      );
+    }
 
-    const quota = this.quotaBytes();
-    if (quota > 0) {
+    const quota = organizationId === null ? 0 : this.quotaBytes();
+    if (quota > 0 && organizationId !== null) {
       const used = await this.prisma.upload.aggregate({ where: { organizationId }, _sum: { sizeBytes: true } });
       if ((used._sum.sizeBytes ?? 0) + data.length > quota) {
         throw new PayloadTooLargeException('O limite de armazenamento de imagens do grupo foi atingido.');
@@ -137,7 +182,7 @@ export class UploadsService {
       action: AuditAction.UPLOAD_CREATE,
       entity: AuditEntity.UPLOAD,
       entityId: filename,
-      meta: { sizeBytes: data.length, mimeType: contentType },
+      meta: { sizeBytes: data.length, mimeType: contentType, ...(organizationId === null ? { scope: 'platform' } : {}) },
     });
     return { url: `${UPLOAD_URL_PREFIX}${filename}`, filename, contentType, size: data.length, width, height };
   }

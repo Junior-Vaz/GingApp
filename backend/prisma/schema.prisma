@@ -501,9 +501,12 @@ model Organization {
 /// Imagem enviada por POST /uploads (foto de aluno, logo do grupo, capa de evento/roda, perfil no app).
 /// O arquivo fica em disco (UPLOADS_DIR, volume Docker gingapp_uploads) com nome aleatorio (uuid) em
 /// `filename`; esta linha guarda a que grupo/usuario ele pertence e o tamanho (cota por grupo).
+/// organizationId NULO = imagem da EQUIPE DA PLATAFORMA (POST /platform-uploads: logo/imagem de patrocinador,
+/// docs/CONTRATO_PATROCINADORES.md secao 4.3); nao conta na cota de nenhum grupo. O upload de grupo sempre grava o
+/// grupo do token (nunca nulo).
 model Upload {
   id             Int      @id @default(autoincrement())
-  organizationId Int
+  organizationId Int?
   userId         Int
   /// Nome do arquivo em disco (uuid + extensao): o mesmo que aparece na URL /api/uploads/<filename>.
   filename       String   @unique
@@ -511,7 +514,9 @@ model Upload {
   sizeBytes      Int
   createdAt      DateTime @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id])
+  /// onDelete Restrict EXPLICITO (o padrao de relacao opcional seria SetNull): apagar um grupo nunca pode transformar as
+  /// imagens dele em imagens "da plataforma" (organizationId nulo). Mesmo comportamento de antes (FK obrigatoria = Restrict).
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   user         User         @relation("UploadUser", fields: [userId], references: [id])
 
   @@index([organizationId, createdAt])
@@ -2420,4 +2425,94 @@ model SeasonResult {
 
   @@unique([season, scope, scopeKey, rank])
   @@index([season])
+}
+
+// =========================================================================
+// PATROCINADORES NO BANNER DA HOME (piloto, docs/CONTRATO_PATROCINADORES.md)
+// =========================================================================
+
+/// Lista BRANCA de categorias de patrocinador (contrato secao 2.5). Bebida alcoolica, apostas, tabaco, conteudo adulto,
+/// credito predatorio e politica partidaria NAO existem aqui de proposito (proibidas por construcao).
+enum SponsorCategory {
+  INSTRUMENTOS
+  VESTUARIO
+  SAUDE
+  EDUCACAO
+  EVENTOS_TURISMO
+  ALIMENTACAO
+  ESPORTES
+}
+
+/// Status gravado da campanha. "Encerrada"/"agendada"/"no ar" sao CALCULADOS pelas datas (effectiveStatus), nao status.
+enum SponsorCampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+}
+
+/// Patrocinador (gerido so pela equipe da plataforma). Contato/documento/notas sao comerciais: nunca vao para o app.
+model Sponsor {
+  id           Int      @id @default(autoincrement())
+  name         String
+  /// Referencia de upload de PLATAFORMA (/api/uploads/<uuid>.<ext>, POST /platform-uploads) ou nulo.
+  logo         String?
+  contactName  String?
+  contactEmail String?
+  contactPhone String?
+  /// CNPJ/CPF opcional (so admin).
+  document     String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  campaigns SponsorCampaign[]
+}
+
+/// Campanha de um patrocinador: um slide "Patrocinado" no carrossel da Home do app. Elegivel agora = status ACTIVE e
+/// now em [startsAt, endsAt). states vazio = Brasil todo. approvedByUserId/approvedAt = quem ATIVOU (super admin) e quando.
+model SponsorCampaign {
+  id               Int                   @id @default(autoincrement())
+  sponsorId        Int
+  title            String
+  text             String
+  imageRef         String?
+  ctaLabel         String                @default("Conhecer")
+  /// URL https normalizada (contrato 2.6); o redirecionador do clique usa SEMPRE este valor gravado.
+  destinationUrl   String
+  destinationHost  String
+  category         SponsorCategory
+  startsAt         DateTime
+  endsAt           DateTime
+  status           SponsorCampaignStatus @default(DRAFT)
+  weight           Int                   @default(1)
+  states           String[]              @default([])
+  /// Informativo (cobranca manual na F1), so admin.
+  priceCents       Int?
+  billingNote      String?
+  approvedByUserId Int?
+  approvedAt       DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  sponsor Sponsor          @relation(fields: [sponsorId], references: [id], onDelete: Restrict)
+  stats   SponsorStatDay[]
+
+  @@index([status, startsAt, endsAt])
+  @@index([sponsorId])
+}
+
+/// Contadores AGREGADOS por (campanha, dia civil de Sao Paulo, UF). NENHUM identificador de pessoa, grupo, aparelho, IP
+/// ou User-Agent (contrato 2.1): so os numeros. state '' = UF desconhecida.
+model SponsorStatDay {
+  id          Int    @id @default(autoincrement())
+  campaignId  Int
+  /// 'YYYY-MM-DD' em America/Sao_Paulo.
+  day         String
+  state       String @default("")
+  impressions Int    @default(0)
+  clicks      Int    @default(0)
+
+  campaign SponsorCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, day, state])
 }

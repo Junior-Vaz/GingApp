@@ -220,6 +220,18 @@ export const AuditAction = {
   FEED_SETTINGS_UPDATE: 'FEED_SETTINGS_UPDATE',
   // Story criado (entidade feed_post; meta so com visibilidade, alcance, status e validade - NUNCA a legenda nem a foto)
   FEED_STORY_CREATE: 'FEED_STORY_CREATE',
+  // Patrocinadores no banner (docs/CONTRATO_PATROCINADORES.md 4.3): acoes da equipe da PLATAFORMA (organizationId nulo).
+  // meta SO com ids, status, nomes de campos alterados e contagens: NUNCA contato/documento/notas/preco do patrocinador nem
+  // dado de quem viu/clicou (impressao e clique NAO sao auditados: sao so contadores agregados).
+  SPONSOR_CREATE: 'SPONSOR_CREATE',
+  SPONSOR_UPDATE: 'SPONSOR_UPDATE',
+  SPONSOR_DELETE: 'SPONSOR_DELETE',
+  SPONSOR_CAMPAIGN_CREATE: 'SPONSOR_CAMPAIGN_CREATE',
+  SPONSOR_CAMPAIGN_UPDATE: 'SPONSOR_CAMPAIGN_UPDATE',
+  SPONSOR_CAMPAIGN_DELETE: 'SPONSOR_CAMPAIGN_DELETE',
+  SPONSOR_CAMPAIGN_ACTIVATE: 'SPONSOR_CAMPAIGN_ACTIVATE',
+  SPONSOR_CAMPAIGN_PAUSE: 'SPONSOR_CAMPAIGN_PAUSE',
+  SPONSOR_CAMPAIGN_RESUME: 'SPONSOR_CAMPAIGN_RESUME',
 } as const;
 
 export type AuditActionCode = (typeof AuditAction)[keyof typeof AuditAction];
@@ -271,4 +283,6 @@ export const AuditEntity = {
   BIRTHDAY: 'birthday',
   FEED_POST: 'feed_post',
   FEED_COMMENT: 'feed_comment',
+  SPONSOR: 'sponsor',
+  SPONSOR_CAMPAIGN: 'sponsor_campaign',
 } as const;

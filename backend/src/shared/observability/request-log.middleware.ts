@@ -35,19 +35,28 @@ function routePattern(req: Request): string {
   return typeof pattern === 'string' ? `${req.baseUrl ?? ''}${pattern}` : 'unmatched';
 }
 
+/**
+ * Rotas do app/clique dos patrocinadores (docs/CONTRATO_PATROCINADORES.md 2.1 e 4.2: "nunca loga nem guarda IP/UA do
+ * clique"; nenhum identificador pessoal em log): a linha sai SEM userId e SEM ip. As de plataforma (/api/platform-...)
+ * seguem normais.
+ */
+const ANONYMOUS_LOG_ROUTE = /^\/api\/sponsors\//;
+
 export function buildRequestLogLine(req: Request, res: Response, requestId: string, ms: number): RequestLogLine {
   const status = res.statusCode;
+  const route = routePattern(req);
+  const anonymous = ANONYMOUS_LOG_ROUTE.test(route);
   return {
     ts: new Date().toISOString(),
     level: status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info',
     msg: 'http_request',
     requestId,
     method: req.method,
-    route: routePattern(req),
+    route,
     status,
     ms: Math.round(ms * 10) / 10,
-    userId: (req as Request & { user?: { id?: number } }).user?.id ?? null,
-    ip: req.ip ?? null,
+    userId: anonymous ? null : ((req as Request & { user?: { id?: number } }).user?.id ?? null),
+    ip: anonymous ? null : (req.ip ?? null),
   };
 }
 

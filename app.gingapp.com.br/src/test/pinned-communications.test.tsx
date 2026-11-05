@@ -226,7 +226,8 @@ describe("PinnedCommunications: confirmação", () => {
     await act(async () => buttonText("Vou")!.click());
     // a requisição saiu, a resposta ainda não: a tela já mostra "Vou" selecionado
     await waitFor(() => expect(acks()).toHaveLength(1));
-    expect(buttonText("Vou")!.getAttribute("aria-pressed")).toBe("true");
+    // O cache otimista avisa a tela no ciclo seguinte ao envio: esperar (a resposta continua presa em `gate`, então ainda é ANTES do servidor).
+    await waitFor(() => expect(buttonText("Vou")!.getAttribute("aria-pressed")).toBe("true"));
     await act(async () => release());
     await settle();
     expect(buttonText("Vou")!.getAttribute("aria-pressed")).toBe("true");

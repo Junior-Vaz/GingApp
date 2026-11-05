@@ -64,6 +64,7 @@ import { CommunicationsModule } from './interface/http/communications/communicat
 import { isCommSchedulerEnabled } from './jobs/communications-scheduler.service';
 import { FeedModule } from './interface/http/feed/feed.module';
 import { isFeedMediaCleanupEnabled } from './jobs/feed-media-cleanup-cron.service';
+import { SponsorsModule } from './interface/http/sponsors/sponsors.module';
 
 const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
 
@@ -125,6 +126,9 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     BirthdaysModule,
     // Feed do grupo (contrato secao 4): /feed. Limpeza das fotos pendentes/removidas (FEED_MEDIA_CLEANUP) no JobsModule.
     FeedModule,
+    // Patrocinadores no banner da Home (docs/CONTRATO_PATROCINADORES.md): /sponsors (app + clique publico) e
+    // /platform-sponsors, /platform-sponsor-campaigns (equipe da plataforma). Interruptor: SPONSORS_ENABLED.
+    SponsorsModule,
 
     // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador
     // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.

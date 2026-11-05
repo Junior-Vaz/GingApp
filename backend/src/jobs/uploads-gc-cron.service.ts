@@ -57,7 +57,7 @@ export class UploadsGcCronService {
    * Corpo do job (chamavel direto). `dir`, `now` e `organizationId` existem para o teste (diretorio temporario,
    * relogio e limitar a varredura das LINHAS Upload a um grupo; a producao nao os passa).
    */
-  async run(options: { dir?: string; now?: Date; organizationId?: number } = {}): Promise<UploadsGcResult | null> {
+  async run(options: { dir?: string; now?: Date; organizationId?: number | null } = {}): Promise<UploadsGcResult | null> {
     const mode = uploadsGcMode();
     if (mode === 'off') return null;
     if (this.running) return null;
@@ -98,7 +98,8 @@ export class UploadsGcCronService {
     return found;
   }
 
-  private async collect(dir: string, now: Date, dryRun: boolean, organizationId?: number): Promise<UploadsGcResult> {
+  /** `organizationId` (so testes): limita as LINHAS Upload a um grupo; `null` = so as imagens da plataforma (patrocinadores). */
+  private async collect(dir: string, now: Date, dryRun: boolean, organizationId?: number | null): Promise<UploadsGcResult> {
     const cutoff = new Date(now.getTime() - UPLOADS_GC_MIN_AGE_MS);
     const referenced = await this.referencedFilenames();
     const result: UploadsGcResult = { dryRun, referenced: referenced.size, filesRemoved: 0, rowsRemoved: 0, bytesFreed: 0 };

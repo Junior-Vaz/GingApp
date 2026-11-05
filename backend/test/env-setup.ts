@@ -112,3 +112,8 @@ process.env.GEO_CHECKIN_IP_THROTTLE_LIMIT = '5000';
 // ranking-student.e2e-spec.ts prova o 429 rebaixando o limite por usuario (lido a cada pedido).
 process.env.RANKING_DAILY_CHECKIN_THROTTLE_LIMIT = '1000';
 process.env.RANKING_DAILY_CHECKIN_IP_THROTTLE_LIMIT = '5000';
+// Patrocinadores (docs/CONTRATO_PATROCINADORES.md): impressao 120/min por usuario e clique 60/min por IP em producao; altos nos
+// e2e (sponsors.e2e-spec.ts prova os 429 rebaixando os limites, lidos a cada pedido). SPONSORS_ENABLED fica no padrao (ligado).
+process.env.SPONSOR_IMPRESSION_THROTTLE_LIMIT = '1000';
+process.env.SPONSOR_IMPRESSION_IP_THROTTLE_LIMIT = '5000';
+process.env.SPONSOR_CLICK_THROTTLE_LIMIT = '5000';
