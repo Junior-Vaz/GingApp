@@ -45,6 +45,8 @@ export interface RankedStudentRow {
   city: string | null;
   state: string | null;
   nickname: string | null;
+  /** Vitrine (codigos de conquistas) do RankingProfile; null sem perfil. So sai para quem ja esta na lista (visivel). */
+  showcase: string[] | null;
   points: number;
   lastAt: Date | null;
   rank: number;
@@ -106,7 +108,7 @@ export function rankedStudentsCte(p: StudentRankParams): Prisma.Sql {
   return Prisma.sql`
     WITH base AS (
       SELECT s.id AS "studentId", s."organizationId" AS "groupId", s.name, s.photo, s."birthDate",
-             o.name AS "groupName", o.logo AS "groupLogo", o.city, o.state, rp.nickname,
+             o.name AS "groupName", o.logo AS "groupLogo", o.city, o.state, rp.nickname, rp.showcase,
              COALESCE(SUM(pe.points), 0)::int AS points, MAX(pe."occurredAt") AS "lastAt"
       FROM "Student" s
       JOIN "Organization" o ON o.id = s."organizationId"

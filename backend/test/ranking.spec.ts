@@ -154,13 +154,18 @@ describe('Ginga Rank: conquistas', () => {
     source.rodas = Array.from({ length: 10 }, (_, i) => ({ rodaId: i + 1, date: new Date(`2026-08-${10 + i}T15:00:00.000Z`) }));
     source.graduations = [{ id: 1, graduatedAt: day('2026-05-10'), levelOrder: 1 }];
     const codes = derivePoints(source, NOW).achievements.map((a) => a.code).sort();
-    assert.deepEqual(codes, ['CENTURION', 'EVENT_5', 'FIRST_GRADUATION', 'PERFECT_MONTH', 'RODA_10', 'SEQ_4W']);
+    // Os 6 originais continuam (mesmo codigo/regra); o catalogo novo (docs/CONTRATO_RANK_ALUNO.md secao 2) soma os que
+    // este historico tambem atinge: 25 aulas, 8/12 semanas seguidas, 3 meses consistentes seguidos, 1a roda, 1o evento.
+    const legacy = ['CENTURION', 'EVENT_5', 'FIRST_GRADUATION', 'PERFECT_MONTH', 'RODA_10', 'SEQ_4W'];
+    assert.deepEqual(codes.filter((c) => legacy.includes(c)), legacy);
+    assert.deepEqual(codes, [...legacy, 'AULAS_25', 'CONSISTENT_3M', 'EVENT_1', 'RODA_1', 'SEQ_12W', 'SEQ_8W'].sort());
   });
 
-  it('sem os minimos nenhuma conquista', () => {
+  it('sem os minimos nenhuma conquista original (o 1o evento ja vale EVENT_1 do catalogo novo)', () => {
     const source = empty();
     source.events = [{ eventId: 1, date: new Date('2026-08-01T15:00:00.000Z') }];
-    assert.deepEqual(derivePoints(source, NOW).achievements, []);
+    assert.deepEqual(derivePoints(source, NOW).achievements.map((a) => a.code), ['EVENT_1']);
+    assert.deepEqual(derivePoints(empty(), NOW).achievements, []);
   });
 });
 

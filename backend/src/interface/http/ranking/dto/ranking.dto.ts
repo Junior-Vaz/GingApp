@@ -1,7 +1,20 @@
 import { Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayUnique,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { OptionalStudentId } from '../../../../shared/access/linked-student';
-import { BANDS, CATEGORIES, RankingBand, RankingCategory } from '../ranking-rules';
+import { BANDS, CATEGORIES, RankingBand, RankingCategory, SHOWCASE_MAX } from '../ranking-rules';
 
 /** 'ALL' (todos os tempos) ou 'YYYY-MM'. */
 const SEASON_PATTERN = /^(ALL|\d{4}-(0[1-9]|1[0-2]))$/;
@@ -93,6 +106,60 @@ export class UpdateRankingSettingsDto {
   @IsString()
   @MaxLength(60)
   nickname?: string | null;
+
+  /** Vitrine: 0..3 codigos UNICOS de conquistas ja ganhas (nao ganha => 400 ACHIEVEMENT_NOT_EARNED no service). */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(SHOWCASE_MAX)
+  @ArrayUnique()
+  @IsString({ each: true })
+  @MaxLength(40, { each: true })
+  showcase?: string[] | null;
+}
+
+export const POINTS_DEFAULT_LIMIT = 20;
+export const POINTS_MAX_LIMIT = 50;
+
+/** GET /ranking/me/points (extrato) */
+export class PointStatementQueryDto {
+  @IsOptional()
+  @Matches(SEASON_PATTERN, { message: SEASON_MESSAGE })
+  season?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(POINTS_MAX_LIMIT)
+  limit?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  offset?: number;
+
+  @OptionalStudentId()
+  studentId?: number;
+}
+
+export const EVOLUTION_DEFAULT_COUNT = 12;
+
+/** GET /ranking/me/evolution */
+export class EvolutionQueryDto {
+  @IsOptional()
+  @IsIn(['WEEK', 'MONTH'])
+  granularity?: 'WEEK' | 'MONTH';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(4)
+  @Max(26)
+  count?: number;
+
+  @OptionalStudentId()
+  studentId?: number;
 }
 
 /** GET /ranking/seasons: quantas temporadas fechadas devolver (mais recentes primeiro). */

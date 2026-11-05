@@ -3,6 +3,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
 import { StudentsModule } from '../students/students.module';
 import { RankingController } from './ranking.controller';
 import { RankingQueryService } from './ranking-query.service';
+import { RankingStudentService } from './ranking-student.service';
 import { RankingService } from './ranking.service';
 
 /**
@@ -13,7 +14,7 @@ import { RankingService } from './ranking.service';
 @Module({
   imports: [StudentsModule, NotificationsModule],
   controllers: [RankingController],
-  providers: [RankingService, RankingQueryService],
+  providers: [RankingService, RankingQueryService, RankingStudentService],
   exports: [RankingService],
 })
 export class RankingModule {}

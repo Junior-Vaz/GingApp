@@ -485,7 +485,8 @@ model Organization {
   rodas                   Roda[]
   uploads                 Upload[]
   pointEvents             PointEvent[]
-  transfersOut            TransferRequest[]             @relation("TransferFrom")
+  dailyCheckins           DailyCheckin[]
+  transfersOut           TransferRequest[]             @relation("TransferFrom")
   transfersIn             TransferRequest[]             @relation("TransferTo")
   personRoles             PersonRole[]
   groupRoles              GroupRole[]
@@ -638,6 +639,7 @@ model Student {
   pointEvents         PointEvent[]
   rankingProfile      RankingProfile?
   achievements        Achievement[]
+  dailyCheckins       DailyCheckin[]
   roleNotices         RoleSuggestionNotice[]
   occurrences         Occurrence[]
 
@@ -2322,6 +2324,10 @@ enum PointEventType {
   MONTHLY_CONSISTENCY
   GRADUATION
   CERTIFICATE
+  /// Check-in diario do app (refType 'Day', refId 'YYYY-MM-DD'): docs/CONTRATO_RANK_ALUNO.md secao 6.
+  DAILY_CHECKIN
+  /// Semana em dia no check-in diario (refType 'Week', refId segunda 'YYYY-MM-DD'), so com a semana encerrada.
+  DAILY_WEEK_BONUS
 }
 
 /// Ponto ganho por um aluno, DERIVADO das tabelas de origem (presenca, evento, roda, graduacao, certificado) por
@@ -2357,9 +2363,31 @@ model RankingProfile {
   studentId   Int      @unique
   optInPublic Boolean  @default(false)
   nickname    String?
+  /// Vitrine: ate 3 codigos de conquistas JA ganhas (ranking-rules.ts), escolhidos pelo aluno/responsavel
+  /// (PUT /ranking/me/settings). Nao dispara a regra de consentimento (so optInPublic dispara).
+  showcase    String[] @default([])
   updatedAt   DateTime @updatedAt
 
   student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+}
+
+/// Check-in diario do app (docs/CONTRATO_RANK_ALUNO.md secao 6): 1 por aluno por dia civil de America/Sao_Paulo
+/// calculado NO SERVIDOR (o app nunca envia a data). Tabela de ORIGEM: os pontos (DAILY_CHECKIN/DAILY_WEEK_BONUS) sao
+/// derivados por RankingService.syncStudent. Sem localizacao nem dado do aparelho. Sai junto com o aluno (cascade) e
+/// e apagada explicitamente na anonimizacao (LGPD).
+model DailyCheckin {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  studentId      Int
+  /// 'YYYY-MM-DD' (America/Sao_Paulo).
+  day            String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  student      Student      @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([studentId, day])
+  @@index([organizationId, day])
 }
 
 /// Conquista do aluno (codigos em ranking-rules.ts). Codigos 'LEAGUE_*' sao marcadores internos de "liga ja

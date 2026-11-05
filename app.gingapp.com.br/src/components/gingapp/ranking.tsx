@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { Medal, Settings2, Sparkles, Trophy, User, Users, X } from "lucide-react";
+import { Award, CircleHelp, Medal, Settings2, Sparkles, TrendingUp, Trophy, User, Users, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { errorMessage } from "@/lib/api";
 import { plural } from "@/lib/plural";
@@ -36,6 +36,61 @@ import {
   GroupsPodium,
   StudentsPodium,
 } from "./ranking-parts";
+import { ProgressView } from "./ranking-progress";
+import { AchievementsView } from "./ranking-achievements";
+import { HowItWorksSheet } from "./ranking-howto";
+
+/** Áreas da tela: a classificação de sempre, "Meu progresso" (aluno ativo) e "Conquistas". */
+type View = "ranking" | "progress" | "achievements";
+
+const VIEWS: { value: View; label: string; icon: typeof User }[] = [
+  { value: "ranking", label: "Classificação", icon: Trophy },
+  { value: "progress", label: "Meu progresso", icon: TrendingUp },
+  { value: "achievements", label: "Conquistas", icon: Award },
+];
+
+/** Navegação entre as áreas (abas com setas do teclado). Fica no estado da tela: a URL /ranking continua a mesma. */
+function ViewNav({ view, onChange, onHelp }: { view: View; onChange: (view: View) => void; onHelp: () => void }) {
+  return (
+    <div className="rkp-nav">
+      <div
+        className="rkp-seg"
+        role="tablist"
+        aria-label="Áreas do Ginga Rank"
+        onKeyDown={(event) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault();
+          const index = VIEWS.findIndex((item) => item.value === view);
+          const nextIndex =
+            event.key === "Home" ? 0 : event.key === "End" ? VIEWS.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + VIEWS.length) % VIEWS.length;
+          const next = VIEWS[nextIndex]!.value;
+          onChange(next);
+          event.currentTarget.querySelector<HTMLElement>(`[data-view="${next}"]`)?.focus();
+        }}
+      >
+        {VIEWS.map(({ value, label, icon: Icon }) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            id={`rk-tab-${value}`}
+            data-view={value}
+            aria-selected={view === value}
+            aria-controls="rk-panel"
+            tabIndex={view === value ? 0 : -1}
+            onClick={() => onChange(value)}
+          >
+            <Icon aria-hidden="true" />
+            {label}
+          </button>
+        ))}
+      </div>
+      <Button type="button" variant="outline" className="rkp-help min-h-11" onClick={onHelp}>
+        <CircleHelp aria-hidden="true" /> Como funciona?
+      </Button>
+    </div>
+  );
+}
 
 type Tab = "students" | "groups";
 
@@ -132,6 +187,8 @@ export function RankingPage() {
   const [band, setBand] = useState<RankBand | "">("");
   const [pickedSeason, setPickedSeason] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [view, setView] = useState<View>("ranking");
   const [celebrate, setCelebrate] = useState<RankLevel | null>(null);
   const [confetti, setConfetti] = useState(false);
 
@@ -148,8 +205,9 @@ export function RankingPage() {
 
   const groupsTab = tab === "groups";
   const groupScope: GroupScope = scope === "GROUP" ? "CITY" : scope;
-  const students = useRankingStudents({ scope, season, category, band }, seasonsSettled && !groupsTab);
-  const groups = useRankingGroups({ scope: groupScope, season }, seasonsSettled && groupsTab);
+  const onRanking = view === "ranking";
+  const students = useRankingStudents({ scope, season, category, band }, seasonsSettled && !groupsTab && onRanking);
+  const groups = useRankingGroups({ scope: groupScope, season }, seasonsSettled && groupsTab && onRanking);
   const me = useRankingMe();
 
   function changeTab(next: Tab) {
@@ -214,6 +272,13 @@ export function RankingPage() {
       )}
       {confetti && <Confetti />}
 
+      <ViewNav view={view} onChange={setView} onHelp={() => setHelpOpen(true)} />
+
+      <div id="rk-panel" role="tabpanel" aria-labelledby={`rk-tab-${view}`} data-view={view}>
+      {view === "progress" && <ProgressView />}
+      {view === "achievements" && <AchievementsView />}
+      {view === "ranking" && (
+      <>
       <section className="rk-filters" aria-label="Filtros do ranking">
         <div className="rk-filter-top">
           <TabToggle tab={tab} onChange={changeTab} />
@@ -351,8 +416,12 @@ export function RankingPage() {
           )}
         </div>
       </div>
+      </>
+      )}
+      </div>
 
       <SettingsSheet open={settingsOpen} onOpenChange={setSettingsOpen} settings={settings} />
+      <HowItWorksSheet open={helpOpen} onOpenChange={setHelpOpen} />
     </>
   );
 }

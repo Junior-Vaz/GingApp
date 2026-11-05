@@ -50,7 +50,8 @@ const option = (over: Partial<GeoCheckinOption> = {}): GeoCheckinOption => ({
   studentId: 5,
   studentName: "Ana",
   className: "Capoeira Infantil",
-  date: new Date().toISOString().slice(0, 10) + "T00:00:00.000Z",
+  // Data civil de HOJE no fuso do aparelho (o servidor manda a meia-noite UTC do dia civil); usar o dia UTC quebrava depois das 21h em Sao Paulo.
+  date: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}-${String(new Date().getDate()).padStart(2, "0")}T00:00:00.000Z`,
   startTime: "18:00",
   endTime: "19:00",
   opensAt: new Date(Date.now() - 3_600_000).toISOString(),

@@ -4,6 +4,7 @@ import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { fetchRankedGroups, fetchRankedStudents } from './ranking-queries';
 import {
+  Derivation,
   LEAGUES,
   LEAGUE_MARKER_PREFIX,
   RankingSource,
@@ -14,6 +15,7 @@ import {
   leagueMarker,
   previousSeason,
   shortName,
+  shouldNotifyAchievement,
 } from './ranking-rules';
 
 export interface SyncOptions {
@@ -54,7 +56,7 @@ const TOP_N = 10;
 
 /**
  * Motor do Ginga Rank. DERIVA os PointEvent das tabelas de origem (Attendance, EventParticipant, RodaParticipant,
- * StudentGraduation, Certificate) — nunca recebe "pontos" de fora —, entao `syncStudent` e' idempotente: roda quantas
+ * StudentGraduation, Certificate, DailyCheckin) — nunca recebe "pontos" de fora —, entao `syncStudent` e' idempotente: roda quantas
  * vezes quiser e converge para o mesmo estado (cria o que falta, corrige o que mudou, remove o que deixou de existir
  * na origem, ex.: presenca desmarcada). As regras (valores, anti-fraude, sequencia) vivem em ranking-rules.ts.
  *
@@ -134,12 +136,25 @@ export class RankingService implements OnModuleDestroy {
     }
   }
 
+  /**
+   * Derivacao PURA (sem gravar nada) de um aluno: pontos, conquistas e CONTADORES (progresso/raridade das conquistas
+   * vem daqui — uma fonte so). `null` = aluno inexistente.
+   */
+  async deriveFor(studentId: number, now: Date = new Date()): Promise<Derivation | null> {
+    const student = await this.prisma.student.findUnique({
+      where: { id: studentId },
+      select: { id: true, organizationId: true, userId: true, joinedAt: true },
+    });
+    if (!student) return null;
+    return derivePoints(await this.loadSource(student, now), now);
+  }
+
   private async loadSource(
-    student: { id: number; organizationId: number; userId: number | null },
+    student: { id: number; organizationId: number; userId: number | null; joinedAt: Date | null },
     now: Date,
   ): Promise<RankingSource> {
     const studentId = student.id;
-    const [attendances, events, directRodas, userRodas, siblings, graduations, certificates] = await Promise.all([
+    const [attendances, events, directRodas, userRodas, siblings, graduations, certificates, dailyCheckins] = await Promise.all([
       this.prisma.attendance.findMany({
         where: { studentId, lesson: { status: RecordStatus.ACTIVE } },
         select: { lessonId: true, present: true, lesson: { select: { date: true } } },
@@ -179,6 +194,7 @@ export class RankingService implements OnModuleDestroy {
         select: { id: true, graduatedAt: true, graduationLevel: { select: { order: true } } },
       }),
       this.prisma.certificate.findMany({ where: { studentId }, select: { id: true, issuedAt: true, createdAt: true } }),
+      this.prisma.dailyCheckin.findMany({ where: { studentId }, select: { day: true } }),
     ]);
 
     // Participacao em roda grava so o userId (RodasService.join): vale para o aluno do usuario cujo GRUPO e' o da roda;
@@ -198,6 +214,8 @@ export class RankingService implements OnModuleDestroy {
       rodas: [...rodas].map(([rodaId, date]) => ({ rodaId, date })),
       graduations: graduations.map((g) => ({ id: g.id, graduatedAt: g.graduatedAt, levelOrder: g.graduationLevel.order })),
       certificates: certificates.map((c) => ({ id: c.id, issuedAt: c.issuedAt ?? c.createdAt })),
+      dailyCheckins: dailyCheckins.map((d) => d.day),
+      joinedAt: student.joinedAt,
     };
   }
 
@@ -205,7 +223,7 @@ export class RankingService implements OnModuleDestroy {
     const now = options.now ?? new Date();
     const student = await this.prisma.student.findUnique({
       where: { id: studentId },
-      select: { id: true, organizationId: true, userId: true, name: true, status: true },
+      select: { id: true, organizationId: true, userId: true, name: true, status: true, joinedAt: true },
     });
     if (!student) return null;
 
@@ -253,7 +271,11 @@ export class RankingService implements OnModuleDestroy {
     };
   }
 
-  /** Cria as conquistas novas (uma notificacao por conquista, so quando a linha foi MESMO criada agora). */
+  /**
+   * Cria as conquistas novas (uma notificacao por conquista, so quando a linha foi MESMO criada agora). Conquistas
+   * concedidas RETROATIVAMENTE (catalogo novo, recalculo diario) nao viram notificacao em massa: os codigos novos so
+   * notificam se o requisito foi atingido nos ultimos 7 dias (shouldNotifyAchievement); os 6 originais seguem como sempre.
+   */
   private async grantAchievements(
     student: { id: number; organizationId: number; name: string; status: StudentStatus },
     earned: Array<{ code: string; earnedAt: Date }>,
@@ -275,7 +297,7 @@ export class RankingService implements OnModuleDestroy {
       if (count !== 1) continue; // outro sync criou primeiro: ele notifica
       created.push(a.code);
       const def = achievementDef(a.code);
-      if (notify && def && student.status === StudentStatus.ACTIVE) {
+      if (notify && def && student.status === StudentStatus.ACTIVE && shouldNotifyAchievement(a.code, a.earnedAt, now)) {
         await this.notifications.notifyStudents(student.organizationId, [student.id], {
           title: 'Nova conquista!',
           body: `${shortName(student.name)} desbloqueou a conquista "${def.name}": ${def.description}`,

@@ -34,6 +34,7 @@ import { HomeFeedPreview } from "./feed/home-feed-preview";
 import { StoriesRow } from "./stories/stories-row";
 import { HomeOnboarding } from "./onboarding/home-onboarding";
 import { GeoCheckinHomeCard } from "./geo-checkin";
+import { DailyCheckinHomeRow } from "./daily-checkin-home";
 import { PinnedCommunications } from "./pinned-communications";
 import { Avatar } from "./avatar";
 import { CountUp } from "./count-up";
@@ -101,6 +102,8 @@ export function HomePage() {
         />
       </Link>
       <HomeFeedPreview className="mb-5" />
+      {/* Linha fina do check-in diário do Ginga Rank: só com aluno ativo, Ranking acessível e check-in de hoje pendente. Longe dos cartões do topo. */}
+      <DailyCheckinHomeRow />
       <section className="stats-grid stats-grid-2 stagger" aria-label="Minha evolução">
         <Link to="/frequencia" className="stat no-underline">
           <div>

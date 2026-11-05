@@ -90,6 +90,12 @@ describe('LGPD - anonimizar pedido de exclusao (e2e)', () => {
     await prisma.occurrence.create({
       data: { organizationId: org.organizationId, studentId, personId, kind: 'EXPULSAO', occurredAt: new Date('2026-08-01T00:00:00Z'), reason: 'Motivo identificavel secreto' },
     });
+    // Ginga Rank: check-in diario (dias de uso do app), ponto derivado dele e vitrine/apelido no perfil do ranking.
+    await prisma.dailyCheckin.create({ data: { organizationId: org.organizationId, studentId, day: '2026-09-02' } });
+    await prisma.pointEvent.create({
+      data: { organizationId: org.organizationId, studentId, type: 'DAILY_CHECKIN', points: 1, refType: 'Day', refId: '2026-09-02', occurredAt: new Date('2026-09-02T12:00:00Z'), season: '2026-09' },
+    });
+    await prisma.rankingProfile.create({ data: { studentId, nickname: 'Lia Axe', optInPublic: true, showcase: ['FIRST_GRADUATION'] } });
     requestId = (await http().post('/api/auth/me/delete-request').set(auth(userToken)).send({ reason: 'Quero sair' }).expect(200)).body.id;
   });
 
@@ -156,8 +162,13 @@ describe('LGPD - anonimizar pedido de exclusao (e2e)', () => {
     assert.equal(occ.kind, 'EXPULSAO');
     assert.ok(!occ.reason.includes('secreto'));
     assert.equal(await prisma.classStudent.count({ where: { studentId, status: 'ACTIVE' } }), 0);
+    // Ginga Rank: check-ins diarios e os pontos derivados deles saem; perfil do ranking sem apelido, opt-in nem vitrine.
+    assert.equal(await prisma.dailyCheckin.count({ where: { studentId } }), 0);
+    assert.equal(await prisma.pointEvent.count({ where: { studentId, type: { in: ['DAILY_CHECKIN', 'DAILY_WEEK_BONUS'] } } }), 0);
+    const rankingProfile = await prisma.rankingProfile.findUniqueOrThrow({ where: { studentId } });
+    assert.deepEqual([rankingProfile.nickname, rankingProfile.optInPublic, rankingProfile.showcase], [null, false, []]);
 
-    const request = await prisma.dataDeletionRequest.findUniqueOrThrow({ where: { id: requestId } });
+    const request =await prisma.dataDeletionRequest.findUniqueOrThrow({ where: { id: requestId } });
     assert.equal(request.status, 'DONE');
     assert.ok(request.resolvedAt);
     const audit = await prisma.auditLog.findFirstOrThrow({ where: { action: 'PERSON_ANONYMIZE' }, orderBy: { id: 'desc' } });

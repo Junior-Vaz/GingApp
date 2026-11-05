@@ -69,6 +69,7 @@ import { Rope } from "./rope";
 import { OccurrencesShortcut } from "./occurrences";
 import { TransfersShortcut } from "./transfers";
 import { PushSettings } from "./push-settings";
+import { ProfileShowcase } from "./ranking-achievements";
 import { DependentChips, InstallRow, LinkRow, ProfileCard, ProfileHero, ProfileHighlights, ProfileSkeleton } from "./profile-parts";
 
 const ROLE_LABEL: Record<string, string> = {
@@ -331,6 +332,7 @@ export function ProfilePage() {
 
       <div className="pf-grid">
         <div className="pf-col">
+          {!must && <ProfileShowcase />}
           {!must && (
             <ProfileCard icon={RouteIcon} title="Minha jornada" id="pf-journey-title" testId="profile-journey">
               <div className="pf-rows">

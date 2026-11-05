@@ -108,3 +108,7 @@ process.env.FEED_UPLOAD_IP_THROTTLE_LIMIT = '5000';
 // prova o 429 rebaixando o limite por usuario (lido a cada pedido).
 process.env.GEO_CHECKIN_THROTTLE_LIMIT = '1000';
 process.env.GEO_CHECKIN_IP_THROTTLE_LIMIT = '5000';
+// Check-in diario do Ginga Rank (30/min por usuario em producao; teto por IP = o global): alto nos e2e;
+// ranking-student.e2e-spec.ts prova o 429 rebaixando o limite por usuario (lido a cada pedido).
+process.env.RANKING_DAILY_CHECKIN_THROTTLE_LIMIT = '1000';
+process.env.RANKING_DAILY_CHECKIN_IP_THROTTLE_LIMIT = '5000';

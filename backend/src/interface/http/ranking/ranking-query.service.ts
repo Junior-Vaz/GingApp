@@ -28,6 +28,7 @@ import {
 import {
   ACHIEVEMENTS,
   LEAGUE_MARKER_PREFIX,
+  SHOWCASE_MAX,
   RankingBand,
   RankingCategory,
   achievementDef,
@@ -66,6 +67,8 @@ export interface RankingItem {
   level: { code: string; name: string; color: string };
   rankDelta: number | null;
   isMe: boolean;
+  /** Vitrine (ate 3 codigos de conquistas) — so de quem ja esta visivel nesta lista. */
+  showcase: string[];
 }
 
 export interface RankingSettings {
@@ -73,7 +76,13 @@ export interface RankingSettings {
   nickname: string | null;
   canOptIn: boolean;
   requiresGuardianConsent: boolean;
+  /** Vitrine: ate 3 codigos de conquistas ja ganhas. */
+  showcase: string[];
 }
+
+/** So codigos do catalogo (nunca marcador interno LEAGUE_*), na ordem gravada, sem repetir, no maximo 3. */
+const cleanShowcase = (codes: readonly string[] | null | undefined): string[] =>
+  [...new Set((codes ?? []).filter((c) => !!achievementDef(c)))].slice(0, SHOWCASE_MAX);
 
 /** Leitura do Ginga Rank (rankings, "meu progresso", configuracoes, temporadas, visao do grupo). */
 @Injectable()
@@ -88,15 +97,18 @@ export class RankingQueryService {
   // Contexto
   // ---------------------------------------------------------------------------------------------
 
-  private orgOf(user: AuthenticatedUser): number {
+  orgOf(user: AuthenticatedUser): number {
     if (user.organizationId === undefined || user.organizationId === null) {
       throw new UnauthorizedException('Token sem contexto de organização.');
     }
     return user.organizationId;
   }
 
-  /** Aluno "da vez" do usuario: o ?studentId= (vinculo conferido: proprio ou dependente) ou o primeiro aluno ligado. */
-  private async viewerStudent(organizationId: number, userId: number, studentId?: number): Promise<Student | null> {
+  /**
+   * Aluno "da vez" do usuario: o ?studentId= (vinculo conferido: proprio ou dependente) ou o primeiro aluno ligado.
+   * SSOT da regra de dependente das rotas /ranking/me* (tambem usada pelo RankingStudentService).
+   */
+  async viewerStudent(organizationId: number, userId: number, studentId?: number): Promise<Student | null> {
     if (studentId !== undefined) return requireLinkedStudent(this.studentsService, organizationId, userId, studentId);
     const mine = await this.studentsService.findMine(organizationId, userId);
     return mine.find((s) => s.status === StudentStatus.ACTIVE) ?? mine[0] ?? null;
@@ -122,6 +134,7 @@ export class RankingQueryService {
       nickname: profile?.nickname ?? null,
       canOptIn: !requiresGuardianConsent,
       requiresGuardianConsent,
+      showcase: cleanShowcase(profile?.showcase),
     };
   }
 
@@ -173,6 +186,7 @@ export class RankingQueryService {
         level: levelView(leagueFor(levels.get(r.studentId) ?? 0)),
         rankDelta: before && before.points > 0 ? before.rank - r.rank : null,
         isMe: viewer?.id === r.studentId,
+        showcase: cleanShowcase(r.showcase),
       };
     });
 
@@ -288,6 +302,7 @@ export class RankingQueryService {
         })
         .filter((a): a is NonNullable<typeof a> => a !== null),
       availableAchievements: ACHIEVEMENTS.filter((a) => !earned.has(a.code)).map((a) => ({ code: a.code, name: a.name, description: a.description })),
+      showcase: settings.showcase,
       settings,
     };
   }
@@ -317,13 +332,40 @@ export class RankingQueryService {
       });
     }
 
-    if (dto.optInPublic !== undefined || nickname !== undefined) {
+    // Vitrine (contrato secao 3): 0..3 codigos unicos (DTO) e TODOS ja ganhos pelo aluno. Nao passa pela regra de
+    // consentimento do responsavel (so optInPublic passa).
+    let showcase: string[] | undefined;
+    if (dto.showcase !== undefined) {
+      const codes = dto.showcase ?? [];
+      const earned = new Set(
+        (
+          await this.prisma.achievement.findMany({
+            where: { studentId: student.id, code: { in: codes } },
+            select: { code: true },
+          })
+        ).map((a) => a.code),
+      );
+      const notEarned = codes.filter((c) => !achievementDef(c) || !earned.has(c));
+      if (notEarned.length > 0) {
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'A vitrine só aceita conquistas que o aluno já ganhou.',
+          code: 'ACHIEVEMENT_NOT_EARNED',
+          codes: notEarned,
+        });
+      }
+      showcase = codes;
+    }
+
+    if (dto.optInPublic !== undefined || nickname !== undefined || showcase !== undefined) {
       await this.prisma.rankingProfile.upsert({
         where: { studentId: student.id },
-        create: { studentId: student.id, optInPublic: dto.optInPublic ?? false, nickname: nickname ?? null },
+        create: { studentId: student.id, optInPublic: dto.optInPublic ?? false, nickname: nickname ?? null, showcase: showcase ?? [] },
         update: {
           ...(dto.optInPublic !== undefined ? { optInPublic: dto.optInPublic } : {}),
           ...(nickname !== undefined ? { nickname } : {}),
+          ...(showcase !== undefined ? { showcase } : {}),
         },
       });
       await this.audit.record({
@@ -335,6 +377,7 @@ export class RankingQueryService {
           studentId: student.id,
           ...(dto.optInPublic !== undefined ? { optInPublic: dto.optInPublic } : {}),
           ...(nickname !== undefined ? { nicknameSet: nickname !== null } : {}),
+          ...(showcase !== undefined ? { showcase } : {}),
         },
       });
     }

@@ -942,3 +942,176 @@ a.stat:hover { border-color:color-mix(in oklch,var(--primary) 35%,var(--border))
   .nav-item:active,.bottom-nav a:active,a.stat:active,.grad-link:active,.group-mini:active,.menu-user:active,.view-toggle button:active,[class*="active:scale-"]:active { scale:none!important; }
   .bottom-nav a.active svg { transform:none; }
 }
+
+/* ---- Ginga Rank do aluno: Meu progresso, Conquistas e Como funciona (prefixo rkp-) ----
+   Cores sempre por tokens (--primary, --border, --muted...). As animacoes caem na regra global de prefers-reduced-motion. */
+.rkp-nav { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin-bottom:16px; }
+.rkp-seg { display:inline-flex; gap:2px; padding:4px; border-radius:999px; background:var(--muted); border:1px solid var(--border); }
+.rkp-seg button { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:44px; padding:0 16px; border:0; border-radius:999px; background:transparent; color:var(--muted-foreground); font-size:13px; font-weight:650; cursor:pointer; white-space:nowrap; transition:background-color .2s var(--ease-out),color .2s var(--ease-out); }
+.rkp-seg button svg { width:16px; height:16px; flex:none; }
+.rkp-seg button[aria-selected="true"],.rkp-seg button[aria-checked="true"] { background:var(--primary); color:var(--primary-foreground); box-shadow:0 3px 10px oklch(.2 .03 155 / .22); }
+.rkp-seg button:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+.rkp-seg-sm { align-self:flex-start; }
+.rkp-seg-sm button { min-height:44px; padding:0 14px; }
+.rkp-help { margin-left:auto; gap:6px; }
+.rkp-help svg { width:17px; height:17px; }
+@media(max-width:560px) {
+  .rkp-seg { width:100%; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .rkp-seg-sm { width:auto; display:inline-flex; }
+  .rkp-seg:not(.rkp-seg-sm) button { padding:0 4px; font-size:12px; }
+  .rkp-seg:not(.rkp-seg-sm) button svg { display:none; }
+}
+
+.rkp-grid { display:grid; grid-template-columns:minmax(0,1fr); gap:16px; align-items:start; }
+@media(min-width:900px) { .rkp-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .rkp-wide,.rkp-evo,.rkp-stmt { grid-column:1 / -1; } }
+.rkp-card { display:grid; gap:14px; min-width:0; }
+.rkp-title { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:750; }
+.rkp-title svg { width:18px; height:18px; color:var(--primary); flex:none; }
+.rkp-skel-wrap { display:grid; gap:10px; }
+.rkp-error { display:grid; justify-items:start; gap:10px; padding:12px; border-radius:12px; font-size:13px; color:var(--destructive); background:color-mix(in oklch,var(--destructive) 6%,var(--card)); border:1px solid color-mix(in oklch,var(--destructive) 30%,var(--border)); }
+.rkp-empty { padding:16px; border-radius:12px; font-size:13px; line-height:1.55; text-align:center; color:var(--muted-foreground); border:1px dashed var(--border); }
+.rkp-hint { font-size:12px; line-height:1.5; color:var(--muted-foreground); }
+
+/* Check-in de hoje */
+.rkp-dots { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; list-style:none; padding:0; margin:0; }
+.rkp-dots li { display:grid; justify-items:center; gap:4px; }
+.rkp-dots small { font-size:10.5px; text-transform:capitalize; color:var(--muted-foreground); }
+.rkp-dot { display:grid; place-items:center; width:30px; height:30px; border-radius:50%; border:2px solid var(--border); background:var(--card); color:var(--primary-foreground); }
+.rkp-dot svg { width:16px; height:16px; stroke-width:3; }
+.rkp-dot.is-done { background:var(--primary); border-color:var(--primary); }
+.rkp-dot.is-today { box-shadow:0 0 0 3px color-mix(in oklch,var(--primary) 25%,transparent); }
+.rkp-week { font-size:14px; }
+.rkp-week strong { font:800 17px var(--font-display); color:var(--primary); }
+.rkp-daily-btn { min-height:52px; width:100%; font-size:15px; font-weight:750; border-radius:14px; }
+.rkp-daily-btn svg { width:20px; height:20px; }
+.rkp-done { display:flex; align-items:center; gap:12px; padding:12px 14px; border-radius:14px; background:color-mix(in oklch,var(--primary) 8%,var(--card)); border:1px solid color-mix(in oklch,var(--primary) 30%,var(--border)); }
+.rkp-done div { display:grid; gap:2px; font-size:13px; }
+.rkp-done strong { font:750 14px var(--font-display); }
+.rkp-done span { color:var(--muted-foreground); }
+.rkp-done-icon { display:grid; place-items:center; flex:none; width:36px; height:36px; border-radius:50%; background:var(--primary); color:var(--primary-foreground); }
+.rkp-done-icon svg { width:22px; height:22px; }
+.rkp-done.is-pop .rkp-done-icon { animation:rkp-pop .55s var(--ease-out) both; }
+.rkp-done.is-pop { animation:rkp-rise .4s var(--ease-out) both; }
+@keyframes rkp-pop { 0% { transform:scale(.4); } 60% { transform:scale(1.25); } 100% { transform:scale(1); } }
+@keyframes rkp-rise { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+
+/* Meta do mes (anel) */
+.rkp-goal-body { display:grid; grid-template-columns:auto minmax(0,1fr); gap:16px; align-items:center; }
+.rkp-ring { position:relative; width:132px; height:132px; flex:none; }
+.rkp-ring svg { width:100%; height:100%; overflow:visible; }
+.rkp-ring-track { fill:none; stroke:var(--muted); stroke-width:12; }
+.rkp-ring-fill { fill:none; stroke:var(--primary); stroke-width:12; stroke-linecap:round; transition:stroke-dashoffset .6s var(--ease-out); animation:rkp-ring-in 1s var(--ease-out) backwards; }
+.rkp-ring-fill.is-reached { stroke:#d9a514; }
+.rkp-ring-mark { stroke:var(--foreground); stroke-width:3; stroke-linecap:round; opacity:.55; }
+.rkp-ring-center { position:absolute; inset:0; display:grid; place-content:center; justify-items:center; text-align:center; }
+.rkp-ring-center strong { font:800 30px/1 var(--font-display); }
+.rkp-ring-center span { font-size:11px; color:var(--muted-foreground); }
+.rkp-ring-center svg { width:34px; height:34px; color:var(--muted-foreground); }
+.rkp-goal-text { display:grid; gap:6px; min-width:0; }
+.rkp-goal-text strong { font:750 14px/1.35 var(--font-display); }
+.rkp-goal-text p { font-size:12.5px; line-height:1.5; color:var(--muted-foreground); }
+@keyframes rkp-ring-in { from { stroke-dashoffset:var(--ring-c); } }
+@media(max-width:420px) { .rkp-goal-body { grid-template-columns:minmax(0,1fr); justify-items:center; text-align:center; } }
+
+/* Liga e sequencia */
+.rkp-league-body { display:grid; gap:10px; justify-items:start; width:100%; }
+.rkp-league-body .rk-next-line,.rkp-league-body .rk-bar { width:100%; }
+.rkp-streak-tiles { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+.rkp-streak-tiles>div { display:grid; justify-items:center; align-content:start; gap:2px; text-align:center; padding:12px 6px; border-radius:12px; border:1px solid var(--border); }
+.rkp-streak-tiles svg { width:20px; height:20px; color:var(--primary); }
+.rkp-streak-tiles svg.is-flame { color:#f97316; fill:#fdba74; }
+.rkp-streak-tiles strong { font:800 24px/1.1 var(--font-display); }
+.rkp-streak-tiles span { font-size:11px; line-height:1.3; color:var(--muted-foreground); }
+
+/* Grafico de evolucao */
+.rkp-chart-wrap { display:grid; gap:10px; }
+.rkp-chart { width:100%; max-width:520px; height:auto; margin:0 auto; overflow:visible; }
+.rkp-chart-base { stroke:var(--border); stroke-width:1; }
+.rkp-bar { fill:color-mix(in oklch,var(--primary) 38%,var(--card)); transform-box:fill-box; transform-origin:bottom; animation:rkp-bar-grow .55s var(--ease-out) backwards; }
+.rkp-bar.is-last { fill:var(--primary); }
+.rkp-bar.is-zero { fill:var(--border); }
+.rkp-bar-value { font:800 11px var(--font-display); fill:var(--primary); }
+.rkp-bar-label { font-size:9.5px; fill:var(--muted-foreground); }
+.rkp-bar-label.is-last { fill:var(--foreground); font-weight:700; }
+.rkp-chart-sum { font-size:12.5px; line-height:1.5; color:var(--muted-foreground); }
+.rkp-chart-sum strong { color:var(--foreground); }
+@keyframes rkp-bar-grow { from { transform:scaleY(0); } }
+
+/* Extrato */
+.rkp-stmt-top { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; }
+.rkp-stmt-filter { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--muted-foreground); }
+.rkp-stmt-filter .select-field { min-height:44px; font-size:13px; }
+.rkp-stmt-total { font-size:13px; }
+.rkp-stmt-total strong { font:800 15px var(--font-display); color:var(--primary); }
+.rkp-stmt-list { display:grid; list-style:none; padding:0; margin:0; }
+.rkp-stmt-list li { display:grid; grid-template-columns:36px minmax(0,1fr) auto; align-items:center; gap:12px; padding:10px 0; border-top:1px solid var(--border); }
+.rkp-stmt-list li:first-child { border-top:0; }
+.rkp-stmt-icon { display:grid; place-items:center; width:36px; height:36px; border-radius:50%; background:var(--secondary); color:var(--primary); }
+.rkp-stmt-icon svg { width:18px; height:18px; }
+.rkp-stmt-main { display:grid; gap:1px; min-width:0; }
+.rkp-stmt-main strong { font-size:13.5px; font-weight:650; line-height:1.3; overflow-wrap:anywhere; }
+.rkp-stmt-main time { font-size:11.5px; color:var(--muted-foreground); }
+.rkp-stmt-pts { font:800 15px var(--font-display); color:var(--primary); white-space:nowrap; }
+.rkp-stmt-pts.is-neg { color:var(--destructive); }
+
+/* Conquistas: medalhas por nivel (o nome do nivel vem sempre escrito) */
+.rkp-medal { position:relative; display:grid; place-items:center; flex:none; width:52px; height:52px; border-radius:50%; color:#fff; box-sizing:border-box; }
+.rkp-medal svg { width:24px; height:24px; }
+.rkp-medal.is-lg { width:76px; height:76px; margin:0 auto; }
+.rkp-medal.is-lg svg { width:36px; height:36px; }
+.rkp-medal.is-earned.is-bronze { background:linear-gradient(145deg,#e6b183,#b9722f 60%,#8f531b); box-shadow:0 5px 14px rgb(143 83 27 / .35),inset 0 1px 0 rgb(255 255 255 / .5); }
+.rkp-medal.is-earned.is-silver { background:linear-gradient(145deg,#eef1f5,#a3adba 60%,#7b8794); box-shadow:0 5px 14px rgb(100 110 125 / .35),inset 0 1px 0 rgb(255 255 255 / .6); }
+.rkp-medal.is-earned.is-gold { background:linear-gradient(145deg,#fcd34d,#f59e0b 55%,#d97706); box-shadow:0 5px 14px rgb(217 119 6 / .38),inset 0 1px 0 rgb(255 255 255 / .55); }
+.rkp-medal.is-earned.is-plain { background:linear-gradient(145deg,color-mix(in oklch,var(--primary) 70%,#fff),var(--primary)); box-shadow:0 5px 14px oklch(.2 .03 155 / .25); }
+.rkp-medal.is-locked { color:#9ca3af; background:var(--muted); border:2px dashed var(--border); }
+.rkp-medal-lock { position:absolute; right:-4px; bottom:-4px; width:20px!important; height:20px!important; padding:4px; border-radius:50%; background:var(--card); color:var(--muted-foreground); border:1px solid var(--border); box-sizing:border-box; }
+.rkp-tier { display:inline-block; padding:1px 8px; border-radius:999px; font-size:10.5px; font-weight:700; letter-spacing:.02em; background:var(--muted); color:var(--muted-foreground); }
+.rkp-tier.is-bronze { background:#f6e3d2; color:#7a4416; }
+.rkp-tier.is-silver { background:#e8ebef; color:#475160; }
+.rkp-tier.is-gold { background:#fdf0c4; color:#7a5200; }
+.rkp-tier.is-family { background:var(--secondary); color:var(--primary); }
+.rkp-ach-page { display:grid; gap:16px; }
+.rkp-ach-count { font-size:13px; color:var(--muted-foreground); }
+.rkp-ach-count strong { font:800 18px var(--font-display); color:var(--foreground); }
+.rkp-ach-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(132px,1fr)); gap:10px; list-style:none; padding:0; margin:0; }
+.rkp-ach { display:grid; justify-items:center; align-content:start; gap:6px; width:100%; min-height:44px; height:100%; padding:12px 8px; border-radius:14px; border:1px solid var(--border); background:var(--card); color:var(--foreground); text-align:center; cursor:pointer; transition:transform .2s var(--ease-out),border-color .2s,box-shadow .2s; }
+.rkp-ach:hover:not(:disabled) { transform:translateY(-2px); box-shadow:var(--shadow); }
+.rkp-ach:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+.rkp-ach:disabled { cursor:default; opacity:.55; }
+.rkp-ach.is-locked .rkp-ach-name { color:var(--muted-foreground); }
+.rkp-ach.is-selected { border-color:var(--primary); box-shadow:0 0 0 3px color-mix(in oklch,var(--primary) 22%,transparent); }
+.rkp-ach-name { font-size:12.5px; font-weight:700; line-height:1.25; overflow-wrap:anywhere; }
+.rkp-ach-state { font-size:11px; font-weight:650; color:var(--primary); }
+.rkp-ach-prog { display:grid; gap:3px; width:100%; }
+.rkp-ach-prog small { font-size:10.5px; color:var(--muted-foreground); }
+.rkp-ach-bar { display:block; height:7px; border-radius:999px; overflow:hidden; background:var(--muted); border:1px solid var(--border); }
+.rkp-ach-bar i { display:block; height:100%; border-radius:999px; background:var(--primary); }
+.rkp-ach-rarity,.rkp-rarity { font-size:11px; color:var(--muted-foreground); }
+.rkp-rarity { text-align:center; }
+.rkp-dialog-chips { display:flex; justify-content:center; gap:6px; }
+.rkp-showcase-head { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.rkp-showcase { display:grid; grid-template-columns:repeat(auto-fit,minmax(104px,1fr)); gap:10px; list-style:none; padding:0; margin:0; }
+.rkp-showcase-btn { display:grid; justify-items:center; align-content:start; gap:6px; width:100%; min-height:44px; padding:10px 6px; border:0; border-radius:14px; background:transparent; color:var(--foreground); text-align:center; cursor:default; }
+button.rkp-showcase-btn { cursor:pointer; }
+button.rkp-showcase-btn:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+.rkp-showcase-btn strong { font-size:12.5px; line-height:1.25; }
+.rkp-highlight { background:linear-gradient(180deg,color-mix(in oklch,#f5c242 12%,var(--card)),var(--card) 120px); }
+.rkp-edit { display:grid; gap:10px; font-size:13px; }
+.rkp-edit-actions { display:flex; flex-wrap:wrap; gap:8px; }
+
+/* Como funciona */
+.rkp-how-sheet { overflow-y:auto; }
+.rkp-how-sheet.inset-x-0 { max-height:92dvh; border-radius:22px 22px 0 0; padding-bottom:calc(24px + env(safe-area-inset-bottom)); }
+.rkp-how { margin-top:12px; }
+.rkp-how-body { display:grid; gap:10px; font-size:13.5px; line-height:1.6; }
+.rkp-how-body p { margin:0 0 8px; }
+.rkp-how-table { width:100%; border-collapse:collapse; font-size:13px; }
+.rkp-how-table th,.rkp-how-table td { padding:8px 6px; text-align:left; vertical-align:top; border-bottom:1px solid var(--border); }
+.rkp-how-table th { font-weight:650; width:48%; }
+.rkp-how-table td { font-weight:750; color:var(--primary); }
+.rkp-how-list { margin:0 0 8px; padding-left:18px; display:grid; gap:4px; }
+.rkp-how-leagues { list-style:none; margin:0; padding:0; display:grid; gap:6px; }
+.rkp-how-leagues li { display:flex; align-items:center; flex-wrap:wrap; gap:4px 10px; padding:8px 10px; border-radius:10px; border:1px solid var(--border); }
+.rkp-how-leagues i { width:14px; height:14px; border-radius:50%; background:var(--lg); border:1px solid color-mix(in oklch,var(--foreground) 30%,transparent); flex:none; }
+.rkp-how-leagues span { margin-left:auto; font-size:12px; color:var(--muted-foreground); }
+.rkp-how-faq { margin:22px 0 0; font-size:15px; font-weight:750; }

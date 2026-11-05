@@ -100,6 +100,8 @@ export interface RankingMe {
   achievements: RankAchievement[];
   availableAchievements: { code: string; name: string; description: string }[];
   settings: RankSettings;
+  /** Códigos da vitrine (até 3, contrato §3). Ausente em backend antigo. */
+  showcase?: string[];
 }
 
 export interface SeasonsResponse {
@@ -292,6 +294,8 @@ export function useRankingMe() {
 export interface SettingsInput {
   optInPublic?: boolean;
   nickname?: string | null;
+  /** Vitrine: 0..3 códigos de conquistas JÁ ganhas (docs/CONTRATO_RANK_ALUNO.md §3). Não dispara o consentimento do responsável. */
+  showcase?: string[];
 }
 
 /** Salva as preferencias do aluno ativo. 403 {code:'GUARDIAN_CONSENT_REQUIRED'} chega como ApiError (code). */
@@ -303,7 +307,9 @@ export function useSaveRankingSettings() {
     mutationFn: (body: SettingsInput) =>
       api.put<RankSettings>(withQuery("/ranking/me/settings", { studentId: student.studentId }), body),
     onSuccess: (settings) => {
-      if (settings && typeof settings === "object") {
+      // Só troca as configurações em cache se a resposta realmente for o objeto de configurações (um PUT só de vitrine pode
+      // responder outra coisa): o resto é refeito pelo invalidate abaixo.
+      if (settings && typeof settings === "object" && "optInPublic" in settings) {
         queryClient.setQueryData<RankingMe>(["ranking", "me", studentKey], (old) => (old ? { ...old, settings } : old));
       }
       void queryClient.invalidateQueries({ queryKey: ["ranking"] });

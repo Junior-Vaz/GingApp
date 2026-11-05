@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
 import { RankingService } from '../src/interface/http/ranking/ranking.service';
-import { currentSeason, shortName } from '../src/interface/http/ranking/ranking-rules';
+import { ACHIEVEMENTS, currentSeason, shortName } from '../src/interface/http/ranking/ranking-rules';
 import { DEV_PASSWORD, SecondOrg, createSecondOrg, loginAs, todaySaoPaulo } from './utils/list-helpers';
 import { createTestApp } from './utils/test-app';
 
@@ -427,10 +427,10 @@ describe('Ginga Rank (e2e)', () => {
     const denied = await http().put(`/api/ranking/me/settings?studentId=${s.a3}`).set(auth(users.guardian.token)).send({ optInPublic: true }).expect(403);
     assert.equal(denied.body.code, 'GUARDIAN_CONSENT_REQUIRED');
     const g3 = await get(`/api/ranking/me?studentId=${s.a3}`, users.guardian.token).expect(200);
-    assert.deepEqual(g3.body.settings, { optInPublic: true, nickname: null, canOptIn: false, requiresGuardianConsent: true });
+    assert.deepEqual(g3.body.settings, { optInPublic: true, nickname: null, canOptIn: false, requiresGuardianConsent: true, showcase: [] });
 
     const ok = await http().put(`/api/ranking/me/settings?studentId=${s.a4}`).set(auth(users.guardian.token)).send({ optInPublic: true, nickname: 'Duda Mirim' }).expect(200);
-    assert.deepEqual(ok.body, { optInPublic: true, nickname: 'Duda Mirim', canOptIn: true, requiresGuardianConsent: false });
+    assert.deepEqual(ok.body, { optInPublic: true, nickname: 'Duda Mirim', canOptIn: true, requiresGuardianConsent: false, showcase: [] });
     const listed = async () => (await get('/api/ranking/students?scope=CITY', users.a1.token).expect(200)).body.items.map((i: { studentId: number }) => i.studentId);
     assert.ok((await listed()).includes(s.a4), 'menor COM consentimento e opt-in aparece');
 
@@ -474,10 +474,16 @@ describe('Ginga Rank (e2e)', () => {
     assert.equal(b.student.avatarUrl, '/api/uploads/a1.png');
     assert.equal(b.rank.group, 1);
     assert.ok(b.rank.city >= 1 && b.rank.state >= 1 && b.rank.country >= 1);
-    assert.deepEqual(b.achievements.map((a: { code: string }) => a.code), ['FIRST_GRADUATION']);
+    // Catalogo novo (docs/CONTRATO_RANK_ALUNO.md secao 2): a roda do teste de gatilho tambem da RODA_1 (ordem = earnedAt).
+    assert.deepEqual(b.achievements.map((a: { code: string }) => a.code), ['FIRST_GRADUATION', 'RODA_1']);
     assert.ok(b.achievements[0].name && b.achievements[0].description && b.achievements[0].earnedAt);
-    assert.deepEqual(b.availableAchievements.map((a: { code: string }) => a.code).sort(), ['CENTURION', 'EVENT_5', 'PERFECT_MONTH', 'RODA_10', 'SEQ_4W']);
-    assert.deepEqual(Object.keys(b.settings).sort(), ['canOptIn', 'nickname', 'optInPublic', 'requiresGuardianConsent']);
+    assert.deepEqual(
+      b.availableAchievements.map((a: { code: string }) => a.code).sort(),
+      ACHIEVEMENTS.map((a) => a.code).filter((c) => !['FIRST_GRADUATION', 'RODA_1'].includes(c)).sort(),
+    );
+    assert.ok(['CENTURION', 'EVENT_5', 'PERFECT_MONTH', 'RODA_10', 'SEQ_4W'].every((c) => b.availableAchievements.some((a: { code: string }) => a.code === c)));
+    assert.deepEqual(Object.keys(b.settings).sort(), ['canOptIn', 'nickname', 'optInPublic', 'requiresGuardianConsent', 'showcase']);
+    assert.deepEqual(b.showcase, []);
     // mestre sem cadastro de aluno => 404; conta de aluno de outro grupo nao enxerga o a1
     await get('/api/ranking/me', orgA.token).expect(404);
     await get(`/api/ranking/me?studentId=${s.a1}`, users.d2.token).expect(404);

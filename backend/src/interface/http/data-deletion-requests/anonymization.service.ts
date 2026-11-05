@@ -1,5 +1,5 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, StudentStatus, TransferStatus, UserType } from '@prisma/client';
+import { PointEventType, Prisma, StudentStatus, TransferStatus, UserType } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { randomBytes } from 'node:crypto';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
@@ -217,7 +217,13 @@ export class AnonymizationService {
     let occurrencesRetained = 0;
     if (studentIds.length > 0) {
       await tx.classStudent.updateMany({ where: { studentId: { in: studentIds }, status: 'ACTIVE' }, data: { status: 'INACTIVE' } });
-      await tx.rankingProfile.updateMany({ where: { studentId: { in: studentIds } }, data: { nickname: null, optInPublic: false } });
+      await tx.rankingProfile.updateMany({ where: { studentId: { in: studentIds } }, data: { nickname: null, optInPublic: false, showcase: [] } });
+      // Ginga Rank (docs/CONTRATO_RANK_ALUNO.md secao 6): os check-ins diarios (dias de uso do app) saem junto, com os
+      // pontos derivados deles (a matricula anonimizada nao e' apagada, entao o cascade do Student nao se aplica aqui).
+      await tx.dailyCheckin.deleteMany({ where: { studentId: { in: studentIds } } });
+      await tx.pointEvent.deleteMany({
+        where: { studentId: { in: studentIds }, type: { in: [PointEventType.DAILY_CHECKIN, PointEventType.DAILY_WEEK_BONUS] } },
+      });
       await tx.publicProfile.updateMany({
         where: { studentId: { in: studentIds } },
         data: { displayName: REMOVED_NAME, bio: null, photo: null, isPublished: false },

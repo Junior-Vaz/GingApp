@@ -94,6 +94,12 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   ['/api/ranking/me', 'Ginga Rank: progresso do PRÓPRIO aluno/dependente (vínculo conferido por resolveLink)'],
   ['/api/ranking/seasons', 'Ginga Rank: campeões de temporadas fechadas (Brasil só com opt-in vigente; e do próprio grupo)'],
   ['/api/ranking/hall-of-fame', 'Ginga Rank: alias de /ranking/students com season=ALL (mesmas regras de privacidade)'],
+  ['/api/ranking/rules', 'Ginga Rank "Como funciona": só as constantes de ranking-rules.ts (pontos, limites, ligas, catálogo), sem dado pessoal'],
+  ['/api/ranking/me/points', 'Ginga Rank: extrato do PRÓPRIO aluno/dependente (vínculo conferido como no /ranking/me); rótulos só do próprio grupo/aluno'],
+  ['/api/ranking/me/evolution', 'Ginga Rank: evolução de pontos do PRÓPRIO aluno/dependente (vínculo conferido como no /ranking/me)'],
+  ['/api/ranking/me/goal', 'Ginga Rank: meta do mês do PRÓPRIO aluno/dependente (contagem de aulas das turmas dele; vínculo como no /ranking/me)'],
+  ['/api/ranking/me/achievements', 'Ginga Rank: conquistas do PRÓPRIO aluno/dependente; raridade só agregada e oculta em grupo < 10 ativos'],
+  ['/api/ranking/me/daily-checkin', 'Ginga Rank: check-in diário do PRÓPRIO aluno/dependente ATIVO (só datas, sem localização)'],
   // '/api/ranking/group-overview' NÃO entra: é da equipe (students.view) — ALUNO/RESPONSAVEL recebem 403.
   ['/api/rodas', 'pública (comunidade): sem participantes; agregados de contagem'],
   ['/api/rodas/:id', 'pública (comunidade)'],
