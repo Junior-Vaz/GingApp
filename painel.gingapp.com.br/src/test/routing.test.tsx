@@ -108,7 +108,7 @@ describe("guard de rotas", () => {
     expect(toast.error).not.toHaveBeenCalled();
   });
 
-  it.each(["/unidades", "/configuracoes"])(
+  it.each(["/unidades", "/configuracoes", "/patrocinadores"])(
     "PROFESSOR abrindo %s por URL direta: vai para /dashboard com aviso e mantém a sessão; MESTRE entra sem aviso",
     async (path) => {
       localStorage.clear();
@@ -230,8 +230,8 @@ describe("guard de rotas", () => {
     }
   });
 
-  it("todas as 22 rotas do menu existem na árvore", async () => {
-    expect(NAV_ITEMS).toHaveLength(22);
+  it("todas as 23 rotas do menu existem na árvore", async () => {
+    expect(NAV_ITEMS).toHaveLength(23);
     saveSession("t", makeUser("MESTRE"));
     for (const item of NAV_ITEMS) {
       const router = makeRouter(item.to);
@@ -242,9 +242,10 @@ describe("guard de rotas", () => {
 });
 
 describe("menu por papel", () => {
-  it("MESTRE vê 22 itens (com Financeiro, Transferências, Ranking, Formulários, Aniversariantes, Comunicar, Feed do grupo e Atividade do grupo); PROFESSOR não vê Financeiro/Transferências/Unidades/Configurações/Atividade", () => {
+  it("MESTRE vê 23 itens (com Financeiro, Transferências, Patrocinadores, Ranking, Formulários, Aniversariantes, Comunicar, Feed do grupo e Atividade do grupo); PROFESSOR não vê Financeiro/Transferências/Unidades/Configurações/Atividade", () => {
     const mestre = navItemsFor("MESTRE").map((i) => i.label);
-    expect(mestre).toHaveLength(22);
+    expect(mestre).toHaveLength(23);
+    expect(mestre).toContain("Patrocinadores");
     expect(mestre).toContain("Feed do grupo");
     expect(mestre).toContain("Aniversariantes");
     expect(mestre).toContain("Comunicar");
@@ -263,6 +264,7 @@ describe("menu por papel", () => {
     expect(labels).not.toContain("Unidades");
     expect(labels).not.toContain("Configurações");
     expect(labels).not.toContain("Atividade do grupo");
+    expect(labels).not.toContain("Patrocinadores");
     expect(labels).toContain("Dashboard");
     expect(labels).toContain("Ranking");
     expect(mestre).toContain("Ranking");

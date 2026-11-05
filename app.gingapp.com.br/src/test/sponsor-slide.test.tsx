@@ -3,12 +3,12 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HeroCarousel, HeroCarouselView, HERO_INTERVAL_MS, type HeroSlideSpec } from "@/components/gingapp/hero-carousel";
-import { SPONSOR_SLIDE_KEY, buildSponsorSlide, insertSponsorSlide } from "@/components/gingapp/hero-sponsor";
+import { SPONSOR_GROUP_SLIDE_KEY, SPONSOR_SLIDE_KEY, buildSponsorSlide, insertSponsorSlides } from "@/components/gingapp/hero-sponsor";
 import {
   SPONSOR_IMPRESSION_DELAY_MS,
   isViewerMinor,
   parseSponsorSlide,
-  pickSponsorSlide,
+  pickSponsorSlides,
   reportImpressionOnce,
   resetSponsorImpressionMemory,
   sponsorAssetUrl,
@@ -69,6 +69,22 @@ const ITEM: SponsorSlide = {
   ctaLabel: "Conhecer",
   clickPath: "/api/sponsors/12/click?s=GO",
   state: "GO",
+  scope: "PLATFORM",
+  groupName: null,
+};
+/** Item do GRUPO (contrato de grupo, secao 2). */
+const GROUP_ITEM: SponsorSlide = {
+  id: 31,
+  sponsorName: "Padaria do Mestre",
+  logoUrl: "/api/uploads/logo-31.webp",
+  imageUrl: "/api/uploads/banner-31.webp",
+  title: "Pão de queijo da roda",
+  text: "Desconto para quem treina no grupo.",
+  ctaLabel: "Ver cardápio",
+  clickPath: "/api/sponsors/31/click?s=GO",
+  state: "GO",
+  scope: "GROUP",
+  groupName: "Capoeira Axé",
 };
 
 afterEach(() => {
@@ -84,14 +100,48 @@ afterEach(() => {
 });
 
 describe("lib/sponsors: formatos do contrato e regra de menor", () => {
-  it("pickSponsorSlide: lê { items: [1 item] }; vazio, sem items ou lixo = null", () => {
-    expect(pickSponsorSlide({ items: [ITEM] })).toEqual(ITEM);
-    expect(pickSponsorSlide({ items: [] })).toBeNull();
-    expect(pickSponsorSlide({})).toBeNull();
-    expect(pickSponsorSlide(null)).toBeNull();
-    expect(pickSponsorSlide(undefined)).toBeNull();
-    expect(pickSponsorSlide({ items: "x" })).toBeNull();
-    expect(pickSponsorSlide({ items: [null, 5, { id: "x" }] })).toBeNull();
+  it("pickSponsorSlides: lê { items: [1 item] }; vazio, sem items ou lixo = []", () => {
+    expect(pickSponsorSlides({ items: [ITEM] })).toEqual([ITEM]);
+    expect(pickSponsorSlides({ items: [] })).toEqual([]);
+    expect(pickSponsorSlides({})).toEqual([]);
+    expect(pickSponsorSlides(null)).toEqual([]);
+    expect(pickSponsorSlides(undefined)).toEqual([]);
+    expect(pickSponsorSlides({ items: "x" })).toEqual([]);
+    expect(pickSponsorSlides({ items: [null, 5, { id: "x" }] })).toEqual([]);
+  });
+
+  it("pickSponsorSlides: 2 itens (grupo + plataforma) saem com o do GRUPO primeiro, mesmo vindo na ordem inversa", () => {
+    expect(pickSponsorSlides({ items: [GROUP_ITEM, ITEM] })).toEqual([GROUP_ITEM, ITEM]);
+    expect(pickSponsorSlides({ items: [ITEM, GROUP_ITEM] })).toEqual([GROUP_ITEM, ITEM]);
+  });
+
+  it("pickSponsorSlides: no máximo 1 por escopo (duplicados descartados; vale o primeiro válido)", () => {
+    const outroGrupo: SponsorSlide = { ...GROUP_ITEM, id: 32, title: "Outro do grupo" };
+    const outraPlataforma: SponsorSlide = { ...ITEM, id: 13, title: "Outro da plataforma" };
+    expect(pickSponsorSlides({ items: [ITEM, outraPlataforma, GROUP_ITEM, outroGrupo] })).toEqual([GROUP_ITEM, ITEM]);
+    // o inválido não "consome" a vaga do escopo
+    expect(pickSponsorSlides({ items: [{ ...GROUP_ITEM, clickPath: "https://x.com" }, outroGrupo] })).toEqual([outroGrupo]);
+  });
+
+  it("pickSponsorSlides: resposta antiga (sem scope/groupName) = PLATAFORMA com groupName null", () => {
+    const old: Record<string, unknown> = { ...ITEM };
+    delete old["scope"];
+    delete old["groupName"];
+    const [only] = pickSponsorSlides({ items: [old] });
+    expect(only).toEqual({ ...old, scope: "PLATFORM", groupName: null });
+  });
+
+  it("pickSponsorSlides: item inválido é descartado em silêncio e o outro escopo segue valendo", () => {
+    expect(pickSponsorSlides({ items: [{ ...GROUP_ITEM, id: "x" }, ITEM] })).toEqual([ITEM]);
+    expect(pickSponsorSlides({ items: [GROUP_ITEM, { ...ITEM, clickPath: "//evil.example.com/api/sponsors/12/click" }] })).toEqual([GROUP_ITEM]);
+    expect(pickSponsorSlides({ items: [GROUP_ITEM, { ...ITEM, scope: "OUTRO" }] })).toEqual([GROUP_ITEM]); // escopo desconhecido = fora do contrato
+  });
+
+  it("parseSponsorSlide: groupName só vale no escopo GRUPO (trim; vazio/ausente = null); na PLATAFORMA é sempre null", () => {
+    expect(parseSponsorSlide({ ...GROUP_ITEM, groupName: "  Capoeira Axé  " })!.groupName).toBe("Capoeira Axé");
+    expect(parseSponsorSlide({ ...GROUP_ITEM, groupName: "  " })!.groupName).toBeNull();
+    expect(parseSponsorSlide({ ...GROUP_ITEM, groupName: undefined })!.groupName).toBeNull();
+    expect(parseSponsorSlide({ ...ITEM, groupName: "Capoeira Axé" })!.groupName).toBeNull();
   });
 
   it("parseSponsorSlide: logo/imagem nulos viram null; clique sem UF é válido; state ausente = ''", () => {
@@ -214,7 +264,7 @@ describe("reportImpressionOnce (uma vez por campanha por sessão)", () => {
 describe("useActiveSponsor", () => {
   let paths: string[] = [];
   let reply: () => Response = () => new Response(JSON.stringify({ items: [ITEM] }), { status: 200 });
-  let seen: { data: SponsorSlide | null | undefined; isError: boolean } = { data: undefined, isError: false };
+  let seen: { data: SponsorSlide[] | undefined; isError: boolean } = { data: undefined, isError: false };
 
   function Probe({ studentId, enabled }: { studentId: number | undefined; enabled: boolean }) {
     const q = useActiveSponsor(studentId, enabled);
@@ -251,14 +301,20 @@ describe("useActiveSponsor", () => {
     reply = () => new Response(JSON.stringify({ items: [ITEM] }), { status: 200 });
     await mount(11, true);
     expect(paths).toEqual(["/api/sponsors/active?studentId=11"]);
-    expect(seen.data).toEqual(ITEM);
+    expect(seen.data).toEqual([ITEM]);
   });
 
-  it("sem aluno a rota vai sem studentId; resposta vazia = null (sem erro)", async () => {
+  it("devolve a lista com grupo + plataforma (grupo primeiro)", async () => {
+    reply = () => new Response(JSON.stringify({ items: [GROUP_ITEM, ITEM] }), { status: 200 });
+    await mount(11, true);
+    expect(seen.data).toEqual([GROUP_ITEM, ITEM]);
+  });
+
+  it("sem aluno a rota vai sem studentId; resposta vazia = [] (sem erro)", async () => {
     reply = () => new Response(JSON.stringify({ items: [] }), { status: 200 });
     await mount(undefined, true);
     expect(paths).toEqual(["/api/sponsors/active"]);
-    expect(seen.data).toBeNull();
+    expect(seen.data).toEqual([]);
     expect(seen.isError).toBe(false);
   });
 
@@ -451,6 +507,121 @@ describe("HeroCarouselView com slide patrocinado", () => {
     expect(link().getAttribute("tabindex")).toBe("0");
     expect(why().getAttribute("tabindex")).toBe("0");
   });
+
+  it("slide da PLATAFORMA não tem faixa de parceiro; o selo é 'Patrocinado' e a folha usa o texto da plataforma", () => {
+    render(<HeroCarouselView slides={SLIDES()} onSponsorSeen={seenSpy} />);
+    expect($(`[data-testid="hero-slide-${SPONSOR_SLIDE_KEY}"] [data-testid="hero-sponsor-partner"]`)).toBeNull();
+    expect($('[data-testid="hero-sponsor-partner"]')).toBeNull();
+  });
+
+  describe("com os dois (grupo + plataforma)", () => {
+    const BOTH = (): HeroSlideSpec[] => [
+      plain("a", "/comunidade"),
+      plain("b", "/ranking"),
+      buildSponsorSlide(GROUP_ITEM)!,
+      plain("c", "/jornada"),
+      buildSponsorSlide(ITEM)!,
+      plain("d", "/checkin"),
+    ];
+    const slideOf = (key: string) => $(`[data-testid="hero-slide-${key}"]`)!;
+    const dotOf = (key: string) => dots()[keys().indexOf(key)]!;
+
+    it("chaves fixas por escopo; o selo é o mesmo 'Patrocinado' nos dois", () => {
+      render(<HeroCarouselView slides={BOTH()} onSponsorSeen={seenSpy} />);
+      expect(keys()).toEqual(["a", "b", SPONSOR_GROUP_SLIDE_KEY, "c", SPONSOR_SLIDE_KEY, "d"]);
+      expect(SPONSOR_GROUP_SLIDE_KEY).toBe("patrocinado-grupo");
+      expect(SPONSOR_SLIDE_KEY).toBe("patrocinado");
+      for (const key of [SPONSOR_GROUP_SLIDE_KEY, SPONSOR_SLIDE_KEY]) {
+        expect(slideOf(key).querySelector('[data-testid="hero-sponsor-badge"]')!.textContent).toBe("Patrocinado");
+        expect(slideOf(key).className).toContain("hero-sponsor");
+      }
+      expect(slideOf(SPONSOR_GROUP_SLIDE_KEY).querySelector(".hero-sponsor-name")!.textContent).toBe("Padaria do Mestre");
+      expect(slideOf(SPONSOR_SLIDE_KEY).querySelector(".hero-sponsor-name")!.textContent).toBe("Loja do Berimbau");
+    });
+
+    it("faixa 'Parceiro do grupo <nome>' SÓ no slide do grupo; sem nome = 'Parceiro do seu grupo'", () => {
+      render(<HeroCarouselView slides={BOTH()} onSponsorSeen={seenSpy} />);
+      expect(slideOf(SPONSOR_GROUP_SLIDE_KEY).querySelector('[data-testid="hero-sponsor-partner"]')!.textContent).toBe("Parceiro do grupo Capoeira Axé");
+      expect(slideOf(SPONSOR_SLIDE_KEY).querySelector('[data-testid="hero-sponsor-partner"]')).toBeNull();
+      expect($$('[data-testid="hero-sponsor-partner"]')).toHaveLength(1);
+      act(() => root?.unmount());
+      container?.remove();
+      render(<HeroCarouselView slides={[plain("a", "/a"), plain("b", "/b"), buildSponsorSlide({ ...GROUP_ITEM, groupName: null })!]} onSponsorSeen={seenSpy} />);
+      expect($('[data-testid="hero-sponsor-partner"]')!.textContent).toBe("Parceiro do seu grupo");
+    });
+
+    it("indicadores acessíveis 'Patrocinado: <título>' para cada um", () => {
+      render(<HeroCarouselView slides={BOTH()} onSponsorSeen={seenSpy} />);
+      expect(dots().map((d) => d.getAttribute("aria-label"))).toEqual([
+        "Ir para o slide 1 de 6",
+        "Ir para o slide 2 de 6",
+        "Patrocinado: Pão de queijo da roda",
+        "Ir para o slide 4 de 6",
+        "Patrocinado: Berimbaus artesanais",
+        "Ir para o slide 6 de 6",
+      ]);
+    });
+
+    it("folha 'Por que vejo isso?' do GRUPO tem o texto do grupo (sem a frase da plataforma)", () => {
+      render(<HeroCarouselView slides={BOTH()} onSponsorSeen={seenSpy} />);
+      act(() => dotOf(SPONSOR_GROUP_SLIDE_KEY).click());
+      act(() => slideOf(SPONSOR_GROUP_SLIDE_KEY).querySelector<HTMLButtonElement>(".hero-sponsor-why")!.click());
+      const text = $('[role="dialog"]')!.textContent!;
+      expect(text).toContain("Este anúncio é de Padaria do Mestre, parceiro do seu grupo, e não usa seus dados pessoais.");
+      expect(text).not.toContain("O GingApp é gratuito");
+    });
+
+    it("folha 'Por que vejo isso?' da PLATAFORMA mantém o texto atual (depois de fechar a do grupo)", () => {
+      render(<HeroCarouselView slides={BOTH()} onSponsorSeen={seenSpy} />);
+      act(() => dotOf(SPONSOR_GROUP_SLIDE_KEY).click());
+      act(() => slideOf(SPONSOR_GROUP_SLIDE_KEY).querySelector<HTMLButtonElement>(".hero-sponsor-why")!.click());
+      act(() => void document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+      advance(500);
+      expect($('[role="dialog"]')).toBeNull();
+      act(() => dotOf(SPONSOR_SLIDE_KEY).click());
+      act(() => slideOf(SPONSOR_SLIDE_KEY).querySelector<HTMLButtonElement>(".hero-sponsor-why")!.click());
+      const text = $('[role="dialog"]')!.textContent!;
+      expect(text).toContain("O GingApp é gratuito e se mantém com o apoio de parceiros. Este anúncio é de Loja do Berimbau e não usa seus dados pessoais.");
+      expect(text).not.toContain("parceiro do seu grupo");
+    });
+
+    it("impressão: cada slide conta a sua (grupo 31, plataforma 12), 1 vez cada, após 1 s visível", () => {
+      render(<HeroCarouselView slides={BOTH()} onSponsorSeen={seenSpy} />);
+      act(() => dotOf(SPONSOR_GROUP_SLIDE_KEY).click());
+      advance(SPONSOR_IMPRESSION_DELAY_MS - 1);
+      expect(seenSpy).not.toHaveBeenCalled();
+      advance(1);
+      expect(seenSpy.mock.calls).toEqual([[31]]);
+      act(() => dotOf(SPONSOR_SLIDE_KEY).click());
+      advance(SPONSOR_IMPRESSION_DELAY_MS - 1);
+      expect(seenSpy.mock.calls).toEqual([[31]]);
+      advance(1);
+      expect(seenSpy.mock.calls).toEqual([[31], [12]]);
+      advance(2000); // ficar no mesmo slide não repete
+      expect(seenSpy).toHaveBeenCalledTimes(2);
+    });
+
+    it("sair do slide patrocinado antes de 1 s cancela só a impressão dele (também entre os dois patrocinados colados)", () => {
+      render(<HeroCarouselView slides={[plain("a", "/a"), plain("b", "/b"), buildSponsorSlide(GROUP_ITEM)!, buildSponsorSlide(ITEM)!]} onSponsorSeen={seenSpy} />);
+      act(() => dotOf(SPONSOR_GROUP_SLIDE_KEY).click());
+      advance(900);
+      act(() => dotOf(SPONSOR_SLIDE_KEY).click()); // colado: sair do grupo cancela o do grupo
+      advance(900);
+      act(() => dotOf("a").click()); // e sair da plataforma antes de 1 s cancela a dela
+      advance(10_000);
+      expect(seenSpy).not.toHaveBeenCalled();
+    });
+
+    it("autoplay passa pelos dois patrocinados e volta ao primeiro", () => {
+      render(<HeroCarouselView slides={BOTH()} onSponsorSeen={seenSpy} />);
+      const order: (string | undefined)[] = [activeKey()];
+      for (let i = 0; i < 6; i++) {
+        advance(HERO_INTERVAL_MS);
+        order.push(activeKey());
+      }
+      expect(order).toEqual(["a", "b", SPONSOR_GROUP_SLIDE_KEY, "c", SPONSOR_SLIDE_KEY, "d", "a"]);
+    });
+  });
 });
 
 describe("HeroCarousel (dados reais do aluno ativo + patrocinador)", () => {
@@ -508,6 +679,7 @@ describe("HeroCarousel (dados reais do aluno ativo + patrocinador)", () => {
           case "/sponsors/active":
             return sponsorsReply();
           case "/sponsors/12/impression":
+          case "/sponsors/31/impression":
             return new Response(null, { status: 204 });
           default:
             return json(404, { message: `sem rota ${url.pathname}` });
@@ -536,26 +708,172 @@ describe("HeroCarousel (dados reais do aluno ativo + patrocinador)", () => {
     saveSession("t", { id: 1, name: "Camila Souza", email: "c@x.com", userType: "MEMBER", isSuperAdmin: false, organizationId: 1, organizationSlug: "g", role: "ALUNO" });
   });
 
-  it("com patrocinador: entra na 3ª posição (comunidade, ranking, PATROCINADO, jornada, check-in) e pede /sponsors/active?studentId=11", async () => {
+  it("só plataforma: entra na 5ª posição (no fim com 4 slides comuns) e pede /sponsors/active?studentId=11", async () => {
     mockApi();
     await mount();
-    expect(keys()).toEqual(["comunidade", "ranking", SPONSOR_SLIDE_KEY, "jornada", "checkin"]);
+    expect(keys()).toEqual(["comunidade", "ranking", "jornada", "checkin", SPONSOR_SLIDE_KEY]);
     expect(sponsorCalls()).toEqual(["GET /sponsors/active?studentId=11"]);
     // os demais slides e links intactos
     const hrefs = $$<HTMLAnchorElement>(".hero-slide a").map((a) => a.getAttribute("href"));
-    expect(hrefs[0]).toBe("/comunidade");
-    expect(hrefs[1]).toBe("/ranking");
-    expect(hrefs[2]!.endsWith("/api/sponsors/12/click?s=GO")).toBe(true);
-    expect(hrefs.slice(3)).toEqual(["/jornada", "/checkin"]);
+    expect(hrefs.slice(0, 4)).toEqual(["/comunidade", "/ranking", "/jornada", "/checkin"]);
+    expect(hrefs[4]!.endsWith("/api/sponsors/12/click?s=GO")).toBe(true);
     expect($(`[data-testid="hero-slide-${SPONSOR_SLIDE_KEY}"] [data-testid="hero-sponsor-badge"]`)!.textContent).toBe("Patrocinado");
-  });
+    expect($('[data-testid="hero-sponsor-partner"]')).toBeNull();
+  }, 30000);
 
-  it("com menos de 3 slides (ranking e jornada falham): vai para o FIM, nunca em 1º", async () => {
+  it("só grupo: 3ª posição (comunidade, ranking, GRUPO, jornada, check-in) com a faixa 'Parceiro do grupo Capoeira Axé'", async () => {
+    sponsorsReply = () => json(200, { items: [GROUP_ITEM] });
+    mockApi();
+    await mount();
+    expect(keys()).toEqual(["comunidade", "ranking", SPONSOR_GROUP_SLIDE_KEY, "jornada", "checkin"]);
+    const hrefs = $$<HTMLAnchorElement>(".hero-slide a").map((a) => a.getAttribute("href"));
+    expect(hrefs[2]!.endsWith("/api/sponsors/31/click?s=GO")).toBe(true);
+    expect($(`[data-testid="hero-slide-${SPONSOR_GROUP_SLIDE_KEY}"] [data-testid="hero-sponsor-partner"]`)!.textContent).toBe("Parceiro do grupo Capoeira Axé");
+    expect($(`[data-testid="hero-slide-${SPONSOR_GROUP_SLIDE_KEY}"] [data-testid="hero-sponsor-badge"]`)!.textContent).toBe("Patrocinado");
+  }, 30000);
+
+  it("os dois (grupo + plataforma): grupo na 3ª e plataforma na 5ª posição, sem ficarem colados, nunca em 1º", async () => {
+    sponsorsReply = () => json(200, { items: [GROUP_ITEM, ITEM] });
+    mockApi();
+    await mount();
+    expect(keys()).toEqual(["comunidade", "ranking", SPONSOR_GROUP_SLIDE_KEY, "jornada", SPONSOR_SLIDE_KEY, "checkin"]);
+    expect(sponsorCalls()).toEqual(["GET /sponsors/active?studentId=11"]); // 1 só chamada para os dois
+    expect(dots()).toHaveLength(6);
+    expect($$('[data-testid="hero-sponsor-badge"]')).toHaveLength(2);
+    expect($$('[data-testid="hero-sponsor-partner"]')).toHaveLength(1);
+  }, 30000);
+
+  it("os dois vindo em ordem inversa do servidor: o grupo continua na 3ª e a plataforma na 5ª", async () => {
+    sponsorsReply = () => json(200, { items: [ITEM, GROUP_ITEM] });
+    mockApi();
+    await mount();
+    expect(keys()).toEqual(["comunidade", "ranking", SPONSOR_GROUP_SLIDE_KEY, "jornada", SPONSOR_SLIDE_KEY, "checkin"]);
+  }, 30000);
+
+  it("resposta antiga do backend (sem scope/groupName) vira slide da PLATAFORMA, sem faixa de parceiro", async () => {
+    const old: Record<string, unknown> = { ...ITEM };
+    delete old["scope"];
+    delete old["groupName"];
+    sponsorsReply = () => json(200, { items: [old] });
+    mockApi();
+    await mount();
+    expect(keys()).toEqual(["comunidade", "ranking", "jornada", "checkin", SPONSOR_SLIDE_KEY]);
+    expect($('[data-testid="hero-sponsor-partner"]')).toBeNull();
+  }, 30000);
+
+  it("item inválido (clique fora do contrato) é descartado e o outro escopo aparece normalmente", async () => {
+    sponsorsReply = () => json(200, { items: [{ ...GROUP_ITEM, clickPath: "https://loja.example.com" }, ITEM] });
+    mockApi();
+    await mount();
+    expect(keys()).toEqual(["comunidade", "ranking", "jornada", "checkin", SPONSOR_SLIDE_KEY]);
+  }, 30000);
+
+  it("o outro caso de item inválido: plataforma com id torto é descartada e o grupo aparece", async () => {
+    sponsorsReply = () => json(200, { items: [GROUP_ITEM, { ...ITEM, id: "x" }] });
+    mockApi();
+    await mount();
+    expect(keys()).toEqual(["comunidade", "ranking", SPONSOR_GROUP_SLIDE_KEY, "jornada", "checkin"]);
+  }, 30000);
+
+  it("com poucos slides (ranking e jornada falham): grupo vai ao fim, nunca em 1º", async () => {
+    sponsorsReply = () => json(200, { items: [GROUP_ITEM] });
+    mockApi({ ranking: "fail", graduations: "fail" });
+    await mount();
+    expect(keys()).toEqual(["comunidade", "checkin", SPONSOR_GROUP_SLIDE_KEY]);
+  }, 30000);
+
+  it("com poucos slides (ranking e jornada falham) e os dois patrocinados: nunca em 1º e sem colar quando há como", async () => {
+    sponsorsReply = () => json(200, { items: [GROUP_ITEM, ITEM] });
+    mockApi({ ranking: "fail", graduations: "fail" });
+    await mount();
+    // base [comunidade, checkin] -> grupo no fim; a plataforma vai para entre os comuns para não colar no grupo
+    expect(keys()).toEqual(["comunidade", SPONSOR_SLIDE_KEY, "checkin", SPONSOR_GROUP_SLIDE_KEY]);
+    expect(keys()[0]).toBe("comunidade");
+  }, 30000);
+
+  it("com menos de 5 slides (ranking e jornada falham): plataforma vai para o FIM, nunca em 1º", async () => {
     mockApi({ ranking: "fail", graduations: "fail" });
     await mount();
     expect(keys()).toEqual(["comunidade", "checkin", SPONSOR_SLIDE_KEY]);
     expect(keys()[0]).not.toBe(SPONSOR_SLIDE_KEY);
-  });
+  }, 30000);
+
+  it("chave estável: o slide do grupo não 'pula' quando a campanha do grupo muda (id/título novos, mesma chave)", async () => {
+    sponsorsReply = () => json(200, { items: [GROUP_ITEM, ITEM] });
+    mockApi();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <HeroCarousel />
+      </QueryClientProvider>,
+    );
+    for (let i = 0; i < 4; i++) await settle();
+    act(() => dots()[keys().indexOf(SPONSOR_GROUP_SLIDE_KEY)]!.click());
+    expect(activeKey()).toBe(SPONSOR_GROUP_SLIDE_KEY);
+    expect($(`[data-testid="hero-slide-${SPONSOR_GROUP_SLIDE_KEY}"] h2`)!.textContent).toBe("Pão de queijo da roda");
+    // a campanha do grupo troca (o servidor sorteou outra) e o cache é atualizado
+    sponsorsReply = () => json(200, { items: [{ ...GROUP_ITEM, id: 32, title: "Café da roda", clickPath: "/api/sponsors/32/click?s=GO" }, ITEM] });
+    await act(async () => void (await queryClient.invalidateQueries({ queryKey: ["sponsors", "active"] })));
+    await settle();
+    expect(keys()).toEqual(["comunidade", "ranking", SPONSOR_GROUP_SLIDE_KEY, "jornada", SPONSOR_SLIDE_KEY, "checkin"]);
+    expect($(`[data-testid="hero-slide-${SPONSOR_GROUP_SLIDE_KEY}"] h2`)!.textContent).toBe("Café da roda");
+    expect(activeKey()).toBe(SPONSOR_GROUP_SLIDE_KEY); // o aluno continua no mesmo slide
+  }, 30000);
+
+  it("grupo + plataforma: cada slide conta a PRÓPRIA impressão, 1x por campanha por sessão", async () => {
+    sponsorsReply = () => json(200, { items: [GROUP_ITEM, ITEM] });
+    mockApi();
+    await mount();
+    vi.useFakeTimers();
+    const dotOf = (key: string) => dots()[keys().indexOf(key)]!;
+    act(() => dotOf(SPONSOR_GROUP_SLIDE_KEY).click());
+    await advanceAsync(SPONSOR_IMPRESSION_DELAY_MS - 1);
+    expect(posts).toEqual([]);
+    await advanceAsync(1);
+    expect(posts).toEqual(["/sponsors/31/impression"]);
+    act(() => dotOf(SPONSOR_SLIDE_KEY).click());
+    await advanceAsync(SPONSOR_IMPRESSION_DELAY_MS);
+    expect(posts).toEqual(["/sponsors/31/impression", "/sponsors/12/impression"]);
+    // sair e voltar nos dois: nada repete
+    act(() => dotOf(SPONSOR_GROUP_SLIDE_KEY).click());
+    await advanceAsync(3000);
+    act(() => dotOf(SPONSOR_SLIDE_KEY).click());
+    await advanceAsync(3000);
+    expect(posts).toEqual(["/sponsors/31/impression", "/sponsors/12/impression"]);
+    expect(sessionStorage.length).toBe(2);
+  }, 30000);
+
+  it("grupo + plataforma: sair de um deles antes de 1 s não gera POST", async () => {
+    sponsorsReply = () => json(200, { items: [GROUP_ITEM, ITEM] });
+    mockApi();
+    await mount();
+    vi.useFakeTimers();
+    const dotOf = (key: string) => dots()[keys().indexOf(key)]!;
+    act(() => dotOf(SPONSOR_GROUP_SLIDE_KEY).click());
+    await advanceAsync(800);
+    act(() => dotOf(SPONSOR_SLIDE_KEY).click());
+    await advanceAsync(800);
+    act(() => dotOf("comunidade").click());
+    await advanceAsync(10_000);
+    expect(posts).toEqual([]);
+    expect(sessionStorage.length).toBe(0);
+  }, 30000);
+
+  it("perfil MENOR com grupo + plataforma no servidor: nenhuma chamada a /sponsors/active e nenhum slide patrocinado", async () => {
+    sponsorsReply = () => json(200, { items: [GROUP_ITEM, ITEM] });
+    mockApi({ minor: true });
+    await mount();
+    expect(sponsorCalls()).toEqual([]);
+    expect(keys()).toEqual(["comunidade", "ranking", "jornada", "checkin"]);
+  }, 30000);
+
+  it("erro do servidor com grupo+plataforma esperados: carrossel idêntico ao atual", async () => {
+    sponsorsReply = () => json(500, { message: "erro" });
+    mockApi();
+    await mount();
+    expect(keys()).toEqual(["comunidade", "ranking", "jornada", "checkin"]);
+    expect($(".hero-sponsor")).toBeNull();
+  }, 30000);
 
   it("nunca em 1º mesmo que o patrocinador chegue antes dos outros dados", async () => {
     mockApi();
@@ -615,13 +933,13 @@ describe("HeroCarousel (dados reais do aluno ativo + patrocinador)", () => {
     mockApi();
     await mount();
     vi.useFakeTimers();
-    act(() => dots()[2]!.click());
+    act(() => dots()[4]!.click()); // plataforma sozinha = 5ª posição
     await advanceAsync(SPONSOR_IMPRESSION_DELAY_MS - 1);
     expect(posts).toEqual([]);
     await advanceAsync(1);
     expect(posts).toEqual(["/sponsors/12/impression"]);
     act(() => dots()[3]!.click());
-    act(() => dots()[2]!.click());
+    act(() => dots()[4]!.click());
     await advanceAsync(5000);
     expect(posts).toEqual(["/sponsors/12/impression"]); // 1x por campanha por sessão
     expect(sessionStorage.length).toBe(1);
@@ -632,22 +950,22 @@ describe("HeroCarousel (dados reais do aluno ativo + patrocinador)", () => {
     container?.remove();
     await mount();
     vi.useFakeTimers();
-    act(() => dots()[2]!.click());
+    act(() => dots()[4]!.click());
     await advanceAsync(3000);
     expect(posts).toEqual(["/sponsors/12/impression"]);
-  });
+  }, 30000);
 
   it("trocar de slide antes de 1 s: nenhum POST", async () => {
     mockApi();
     await mount();
     vi.useFakeTimers();
-    act(() => dots()[2]!.click());
+    act(() => dots()[4]!.click());
     await advanceAsync(800);
     act(() => dots()[0]!.click());
     await advanceAsync(10_000);
     expect(posts).toEqual([]);
     expect(sessionStorage.length).toBe(0);
-  });
+  }, 30000);
 
   it("o botão do banner aponta para o redirecionador do servidor (o app não conhece a URL do patrocinador)", async () => {
     mockApi();
@@ -661,20 +979,61 @@ describe("HeroCarousel (dados reais do aluno ativo + patrocinador)", () => {
   });
 });
 
-describe("insertSponsorSlide (posição)", () => {
+describe("insertSponsorSlides (posição)", () => {
   const p = (key: string): HeroSlideSpec => ({ key, tone: "community", eyebrowIcon: null, eyebrow: key, title: key, text: key, cta: { to: `/${key}`, label: key } });
-  const order = (n: number) => insertSponsorSlide(Array.from({ length: n }, (_, i) => p(`s${i}`)), buildSponsorSlide(ITEM)).map((s) => s.key);
+  const base = (n: number) => Array.from({ length: n }, (_, i) => p(`s${i}`));
+  const G = SPONSOR_GROUP_SLIDE_KEY;
+  const P = SPONSOR_SLIDE_KEY;
+  const only = (n: number, which: "group" | "platform") =>
+    insertSponsorSlides(base(n), which === "group" ? { group: buildSponsorSlide(GROUP_ITEM) } : { platform: buildSponsorSlide(ITEM) }).map((s) => s.key);
+  const both = (n: number) => insertSponsorSlides(base(n), { group: buildSponsorSlide(GROUP_ITEM), platform: buildSponsorSlide(ITEM) }).map((s) => s.key);
 
-  it("3ª posição; no fim com menos de 3; nunca em 1º (com ao menos 1 slide)", () => {
-    expect(order(4)).toEqual(["s0", "s1", SPONSOR_SLIDE_KEY, "s2", "s3"]);
-    expect(order(3)).toEqual(["s0", "s1", SPONSOR_SLIDE_KEY, "s2"]);
-    expect(order(2)).toEqual(["s0", "s1", SPONSOR_SLIDE_KEY]);
-    expect(order(1)).toEqual(["s0", SPONSOR_SLIDE_KEY]);
+  it("só GRUPO: 3ª posição; no fim com menos de 3 slides; nunca em 1º", () => {
+    expect(only(4, "group")).toEqual(["s0", "s1", G, "s2", "s3"]);
+    expect(only(3, "group")).toEqual(["s0", "s1", G, "s2"]);
+    expect(only(2, "group")).toEqual(["s0", "s1", G]);
+    expect(only(1, "group")).toEqual(["s0", G]);
   });
 
-  it("sem slide patrocinado a lista não muda", () => {
-    const list = [p("a"), p("b"), p("c")];
-    expect(insertSponsorSlide(list, null).map((s) => s.key)).toEqual(["a", "b", "c"]);
+  it("só PLATAFORMA: 5ª posição; no fim com menos de 5 slides; nunca em 1º", () => {
+    expect(only(6, "platform")).toEqual(["s0", "s1", "s2", "s3", P, "s4", "s5"]);
+    expect(only(5, "platform")).toEqual(["s0", "s1", "s2", "s3", P, "s4"]);
+    expect(only(4, "platform")).toEqual(["s0", "s1", "s2", "s3", P]);
+    expect(only(2, "platform")).toEqual(["s0", "s1", P]);
+    expect(only(1, "platform")).toEqual(["s0", P]);
+  });
+
+  it("os DOIS: grupo na 3ª e plataforma na 5ª (contando o do grupo), sem colar", () => {
+    expect(both(4)).toEqual(["s0", "s1", G, "s2", P, "s3"]); // o caso real do app (comunidade, ranking, jornada, check-in)
+    expect(both(5)).toEqual(["s0", "s1", G, "s2", P, "s3", "s4"]);
+    expect(both(3)).toEqual(["s0", "s1", G, "s2", P]);
+  });
+
+  it("poucos slides: nunca em 1º; evita dois patrocinados colados quando há como; senão fica colado", () => {
+    expect(both(2)).toEqual(["s0", P, "s1", G]); // evitou colar
+    expect(both(1)).toEqual(["s0", G, P]); // sem como evitar
+    for (let n = 1; n <= 8; n++) {
+      const order = both(n);
+      expect(order[0]).toBe("s0"); // nunca um patrocinado em 1º
+      expect(order).toHaveLength(n + 2);
+      expect(order).toContain(G);
+      expect(order).toContain(P);
+    }
+  });
+
+  it("sem slide patrocinado (null/ausente) a lista não muda", () => {
+    expect(insertSponsorSlides([p("a"), p("b"), p("c")], { group: null, platform: null }).map((s) => s.key)).toEqual(["a", "b", "c"]);
+    expect(insertSponsorSlides([p("a"), p("b"), p("c")], {}).map((s) => s.key)).toEqual(["a", "b", "c"]);
+  });
+
+  it("buildSponsorSlide: chave fixa por escopo (não muda com a campanha) e faixa só no grupo", () => {
+    expect(buildSponsorSlide(GROUP_ITEM)!.key).toBe("patrocinado-grupo");
+    expect(buildSponsorSlide({ ...GROUP_ITEM, id: 99, title: "Outra" })!.key).toBe("patrocinado-grupo");
+    expect(buildSponsorSlide(ITEM)!.key).toBe("patrocinado");
+    expect(buildSponsorSlide({ ...ITEM, id: 98 })!.key).toBe("patrocinado");
+    expect(buildSponsorSlide(GROUP_ITEM)!.sponsor).toMatchObject({ scope: "GROUP", partnerLabel: "Parceiro do grupo Capoeira Axé" });
+    expect(buildSponsorSlide({ ...GROUP_ITEM, groupName: null })!.sponsor!.partnerLabel).toBe("Parceiro do seu grupo");
+    expect(buildSponsorSlide(ITEM)!.sponsor).toMatchObject({ scope: "PLATFORM", partnerLabel: null });
   });
 });
 

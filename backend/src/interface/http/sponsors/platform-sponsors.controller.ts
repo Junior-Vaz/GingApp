@@ -5,11 +5,13 @@ import { PlatformOnlyGuard } from '../../../shared/guards/platform-only.guard';
 import { SuperAdminGuard } from '../../../shared/guards/super-admin.guard';
 import { sendPage } from '../../../shared/pagination/pagination';
 import { sendCsv } from '../../../shared/csv/csv';
+import { PageQueryDto } from '../../../shared/pagination/pagination';
 import {
   CreateSponsorCampaignDto,
   CreateSponsorDto,
-  ListSponsorCampaignsQueryDto,
-  ListSponsorsQueryDto,
+  PlatformListSponsorCampaignsQueryDto,
+  PlatformListSponsorsQueryDto,
+  SponsorReasonDto,
   SponsorReportQueryDto,
   UpdateSponsorCampaignDto,
   UpdateSponsorDto,
@@ -19,7 +21,9 @@ import { PlatformSponsorsService } from './platform-sponsors.service';
 /**
  * Patrocinadores (equipe da PLATAFORMA, admin.gingapp.com.br). Prefixo na convencao do projeto para rotas de plataforma
  * (`platform-team`, `platform-settings`, `platform-announcements`): /platform-sponsors. Contrato 4.3.
- * Listas: corpo = array + total em X-Total-Count (?q=&limit=&offset=), como o resto do projeto.
+ * Listas: corpo = array + total em X-Total-Count (?q=&limit=&offset=), como o resto do projeto. Por padrao SO os da
+ * plataforma; `?scope=GROUP[&organizationId=]` lista os dos grupos (supervisao, contrato do grupo secao 4). Leitura por id
+ * aceita patrocinador de grupo; editar/excluir patrocinador de grupo = 404 (e do Mestre).
  */
 @Controller('platform-sponsors')
 @UseGuards(PlatformOnlyGuard)
@@ -27,7 +31,7 @@ export class PlatformSponsorsController {
   constructor(private readonly service: PlatformSponsorsService) {}
 
   @Get()
-  async list(@Query() query: ListSponsorsQueryDto, @Res({ passthrough: true }) res: Response) {
+  async list(@Query() query: PlatformListSponsorsQueryDto, @Res({ passthrough: true }) res: Response) {
     return sendPage(res, await this.service.listSponsors(query));
   }
 
@@ -64,9 +68,12 @@ export class PlatformSponsorsController {
 export class PlatformSponsorCampaignsController {
   constructor(private readonly service: PlatformSponsorsService) {}
 
-  /** Filtros: status, sponsorId, effective, q (titulo/patrocinador/host); paginado (X-Total-Count). */
+  /**
+   * Filtros: status, sponsorId, effective, q (titulo/patrocinador/host); paginado (X-Total-Count). Padrao = so plataforma;
+   * `?scope=GROUP[&organizationId=]` = campanhas dos grupos (somente leitura, com organization e platformSuspended).
+   */
   @Get()
-  async list(@Query() query: ListSponsorCampaignsQueryDto, @Res({ passthrough: true }) res: Response) {
+  async list(@Query() query: PlatformListSponsorCampaignsQueryDto, @Res({ passthrough: true }) res: Response) {
     return sendPage(res, await this.service.listCampaigns(query));
   }
 
@@ -127,5 +134,49 @@ export class PlatformSponsorCampaignsController {
   @HttpCode(200)
   resume(@Param('id', ParseIntPipe) id: number) {
     return this.service.resume(id);
+  }
+
+  /** Suspende campanha de GRUPO (qualquer PLATFORM; `{ reason }` 3..300): para de ser servida na hora; o Mestre nao retoma. */
+  @Post(':id/suspend')
+  @HttpCode(200)
+  suspend(@Param('id', ParseIntPipe) id: number, @CurrentUser('id') userId: number, @Body() dto: SponsorReasonDto) {
+    return this.service.suspend(id, userId, dto);
+  }
+
+  /** Levanta a suspensao (SO super admin): a campanha fica PAUSED/DRAFT para o Mestre decidir retomar. */
+  @Post(':id/unsuspend')
+  @HttpCode(200)
+  @UseGuards(SuperAdminGuard)
+  unsuspend(@Param('id', ParseIntPipe) id: number, @Body() dto: SponsorReasonDto) {
+    return this.service.unsuspend(id, dto);
+  }
+}
+
+/**
+ * Patrocinio LOCAL dos grupos visto pela PLATAFORMA (contrato do grupo secao 4): lista dos grupos com patrocinadores/
+ * campanhas e bloqueio/liberacao do grupo todo (SO super admin, `{ reason }` 3..300 para bloquear).
+ */
+@Controller('platform-sponsor-groups')
+@UseGuards(PlatformOnlyGuard)
+export class PlatformSponsorGroupsController {
+  constructor(private readonly service: PlatformSponsorsService) {}
+
+  @Get()
+  async list(@Query() query: PageQueryDto, @Res({ passthrough: true }) res: Response) {
+    return sendPage(res, await this.service.listGroups(query));
+  }
+
+  @Post(':organizationId/block')
+  @HttpCode(200)
+  @UseGuards(SuperAdminGuard)
+  block(@Param('organizationId', ParseIntPipe) organizationId: number, @Body() dto: SponsorReasonDto) {
+    return this.service.blockGroup(organizationId, dto);
+  }
+
+  @Post(':organizationId/unblock')
+  @HttpCode(200)
+  @UseGuards(SuperAdminGuard)
+  unblock(@Param('organizationId', ParseIntPipe) organizationId: number, @Body() dto: SponsorReasonDto) {
+    return this.service.unblockGroup(organizationId, dto);
   }
 }

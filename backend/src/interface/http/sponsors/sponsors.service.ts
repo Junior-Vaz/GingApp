@@ -7,16 +7,23 @@ import { spDay } from '../ranking/ranking-rules';
 import { StudentsService } from '../students/students.service';
 import {
   clickRedirectUrl,
-  isEligibleNow,
+  impressionCountsFor,
+  isServableNow,
   looksLikeBot,
   matchesRegion,
+  orderSlidesByScope,
   pickWeighted,
+  SponsorScope,
   sponsorsEnabled,
   toUf,
   validateDestinationUrl,
 } from './sponsor-rules';
 
-/** Item do carrossel do app (contrato 4.1). Nunca contato, preco, notas nem URL de destino. */
+/**
+ * Item do carrossel do app (contrato 4.1 + contrato do grupo secao 2). Nunca contato, preco, notas nem URL de destino.
+ * `scope`/`groupName` (Fase 2): GRUPO = patrocinador local do grupo do espectador (groupName = nome do grupo); PLATAFORMA =
+ * como na Fase 1 (groupName null). Os campos da Fase 1 continuam iguais.
+ */
 export interface SponsorSlide {
   id: number;
   sponsorName: string;
@@ -27,7 +34,25 @@ export interface SponsorSlide {
   ctaLabel: string;
   clickPath: string;
   state: string;
+  scope: SponsorScope;
+  groupName: string | null;
 }
+
+const SLIDE_SELECT = {
+  id: true,
+  title: true,
+  text: true,
+  imageRef: true,
+  ctaLabel: true,
+  weight: true,
+  states: true,
+  status: true,
+  startsAt: true,
+  endsAt: true,
+  organizationId: true,
+  platformSuspendedAt: true,
+  sponsor: { select: { name: true, logo: true } },
+} as const;
 
 export interface SponsorViewer {
   /** Menor (contrato secao 5): nao ve patrocinador e nao conta impressao. */
@@ -97,57 +122,66 @@ export class SponsorsService {
     return toUf(org?.state);
   }
 
-  /** GET /sponsors/active: 0 ou 1 slide (sorteio ponderado por weight entre as elegiveis na regiao). */
+  /**
+   * GET /sponsors/active: 0, 1 ou 2 slides — no maximo 1 do GRUPO (patrocinio local do grupo do token: ACTIVE na janela, sem
+   * suspensao da plataforma, grupo nao bloqueado; sorteio uniforme, peso 1) e 1 da PLATAFORMA (organizationId nulo; sorteio
+   * ponderado por weight entre as elegiveis na regiao, como na Fase 1); o do GRUPO vem primeiro. Menor / interruptor
+   * desligado = nenhum dos dois.
+   */
   async active(organizationId: number, user: AuthenticatedUser, studentId?: number): Promise<{ items: SponsorSlide[] }> {
     if (!sponsorsEnabled()) return { items: [] };
     const now = new Date();
     const viewer = await this.resolveViewer(organizationId, user, studentId, now);
     if (viewer.minor) return { items: [] };
-    const rows = await this.prisma.sponsorCampaign.findMany({
-      where: {
-        status: SponsorCampaignStatus.ACTIVE,
-        startsAt: { lte: now },
-        endsAt: { gt: now },
-        OR: [{ states: { isEmpty: true } }, ...(viewer.uf ? [{ states: { has: viewer.uf } }] : [])],
-      },
-      select: {
-        id: true,
-        title: true,
-        text: true,
-        imageRef: true,
-        ctaLabel: true,
-        weight: true,
-        states: true,
-        status: true,
-        startsAt: true,
-        endsAt: true,
-        sponsor: { select: { name: true, logo: true } },
-      },
-      orderBy: { id: 'asc' },
-    });
-    const eligible = rows.filter((r) => isEligibleNow(r, now) && matchesRegion(r.states, viewer.uf));
-    const pick = pickWeighted(eligible, this.random);
-    if (!pick) return { items: [] };
-    return {
-      items: [
-        {
-          id: pick.id,
-          sponsorName: pick.sponsor.name,
-          logoUrl: pick.sponsor.logo ?? null,
-          imageUrl: pick.imageRef ?? null,
-          title: pick.title,
-          text: pick.text,
-          ctaLabel: pick.ctaLabel,
-          clickPath: `/api/sponsors/${pick.id}/click${viewer.uf ? `?s=${viewer.uf}` : ''}`,
-          state: viewer.uf,
+    const window = { status: SponsorCampaignStatus.ACTIVE, startsAt: { lte: now }, endsAt: { gt: now } };
+    const [org, groupRows, platformRows] = await Promise.all([
+      this.prisma.organization.findUnique({ where: { id: organizationId }, select: { name: true, sponsorsBlockedAt: true } }),
+      this.prisma.sponsorCampaign.findMany({
+        where: { ...window, organizationId, platformSuspendedAt: null },
+        select: SLIDE_SELECT,
+        orderBy: { id: 'asc' },
+      }),
+      this.prisma.sponsorCampaign.findMany({
+        where: {
+          ...window,
+          organizationId: null,
+          OR: [{ states: { isEmpty: true } }, ...(viewer.uf ? [{ states: { has: viewer.uf } }] : [])],
         },
-      ],
-    };
+        select: SLIDE_SELECT,
+        orderBy: { id: 'asc' },
+      }),
+    ]);
+    const blockedAt = org?.sponsorsBlockedAt ?? null;
+    const servable = (r: (typeof groupRows)[number]) => isServableNow(r, blockedAt, now) && matchesRegion(r.states, viewer.uf);
+    // Grupo: peso fixo 1 (sorteio uniforme), mesmo se alguem gravou outro peso fora da API.
+    const groupPick = pickWeighted(
+      groupRows.filter((r) => r.organizationId === organizationId && servable(r)).map((r) => ({ ...r, weight: 1 })),
+      this.random,
+    );
+    const platformPick = pickWeighted(platformRows.filter((r) => r.organizationId === null && servable(r)), this.random);
+    const slide = (pick: (typeof groupRows)[number], scope: SponsorScope): SponsorSlide => ({
+      id: pick.id,
+      sponsorName: pick.sponsor.name,
+      logoUrl: pick.sponsor.logo ?? null,
+      imageUrl: pick.imageRef ?? null,
+      title: pick.title,
+      text: pick.text,
+      ctaLabel: pick.ctaLabel,
+      clickPath: `/api/sponsors/${pick.id}/click${viewer.uf ? `?s=${viewer.uf}` : ''}`,
+      state: viewer.uf,
+      scope,
+      groupName: scope === 'GROUP' ? (org?.name ?? null) : null,
+    });
+    const items: SponsorSlide[] = [];
+    if (groupPick) items.push(slide(groupPick, 'GROUP'));
+    if (platformPick) items.push(slide(platformPick, 'PLATFORM'));
+    return { items: orderSlidesByScope(items) };
   }
 
   /**
    * POST /sponsors/:id/impression: +1 em (campanha, dia SP, UF do espectador) SO se o interruptor estiver ligado, o
-   * User-Agent nao parecer robo, o espectador nao for menor e a campanha estiver elegivel AGORA e na regiao dele. Qualquer
+   * User-Agent nao parecer robo, o espectador nao for menor e a campanha estiver elegivel AGORA e na regiao dele; campanha
+   * de GRUPO so conta para espectador DO MESMO grupo, sem suspensao da plataforma e com o grupo nao bloqueado. Qualquer
    * outro caso: nada conta e nada e revelado (o controller responde 204 sempre).
    */
   async impression(organizationId: number, user: AuthenticatedUser, campaignId: number, userAgent: unknown, studentId?: number): Promise<void> {
@@ -157,15 +191,27 @@ export class SponsorsService {
     if (viewer.minor) return;
     const campaign = await this.prisma.sponsorCampaign.findUnique({
       where: { id: campaignId },
-      select: { status: true, startsAt: true, endsAt: true, states: true },
+      select: {
+        status: true,
+        startsAt: true,
+        endsAt: true,
+        states: true,
+        organizationId: true,
+        platformSuspendedAt: true,
+        organization: { select: { sponsorsBlockedAt: true } },
+      },
     });
-    if (!campaign || !isEligibleNow(campaign, now) || !matchesRegion(campaign.states, viewer.uf)) return;
+    if (!campaign) return;
+    if (!impressionCountsFor(campaign, campaign.organization?.sponsorsBlockedAt ?? null, organizationId, now)) return;
+    if (!matchesRegion(campaign.states, viewer.uf)) return;
     await this.bump(campaignId, spDay(now), viewer.uf, 1, 0);
   }
 
   /**
    * GET /sponsors/:id/click (PUBLICO): destino = a URL GRAVADA da campanha (+ utm); o pedido nunca escolhe o destino.
    * Campanha inelegivel/inexistente, id invalido ou SPONSORS_ENABLED=false => `<APP_URL>/` sem contar (null sem APP_URL => 404).
+   * Campanha de GRUPO: o clique e publico (sem token), entao NAO se exige o grupo, so a elegibilidade geral (ACTIVE na janela,
+   * sem suspensao da plataforma, grupo nao bloqueado).
    */
   async click(rawId: string, rawState: unknown): Promise<string | null> {
     const fallback = appHomeUrl();
@@ -175,9 +221,17 @@ export class SponsorsService {
     const now = new Date();
     const campaign = await this.prisma.sponsorCampaign.findUnique({
       where: { id },
-      select: { status: true, startsAt: true, endsAt: true, destinationUrl: true },
+      select: {
+        status: true,
+        startsAt: true,
+        endsAt: true,
+        destinationUrl: true,
+        organizationId: true,
+        platformSuspendedAt: true,
+        organization: { select: { sponsorsBlockedAt: true } },
+      },
     });
-    if (!campaign || !isEligibleNow(campaign, now)) return fallback;
+    if (!campaign || !isServableNow(campaign, campaign.organization?.sponsorsBlockedAt ?? null, now)) return fallback;
     // Defesa em profundidade: a URL gravada ja foi validada no cadastro; se alguem a alterou fora da API, nao redireciona.
     const checked = validateDestinationUrl(campaign.destinationUrl);
     if (!checked.ok) return fallback;

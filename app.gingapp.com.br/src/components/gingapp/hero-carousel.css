@@ -26,7 +26,11 @@
 .hero-sponsor { background: linear-gradient(120deg, oklch(.24 .03 158), oklch(.33 .035 160) 70%, oklch(.38 .04 150)); }
 .hero-sponsor > img { object-position: center; }
 .hero-sponsor:after { background: linear-gradient(90deg, rgb(0 0 0 / .82), rgb(0 0 0 / .6) 58%, rgb(0 0 0 / .38)); }
+.hero-sponsor-head { min-width: 0; }
 .hero-sponsor-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
+/* Faixa do patrocínio do grupo ("Parceiro do grupo X"): texto claro sobre o sombreamento escuro, sem depender de cor. */
+.hero-sponsor-partner { display: block; margin-top: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 700; letter-spacing: .3px; color: #fff; }
+.hero-sponsor-partner:before { content: ''; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--highlight); vertical-align: 1px; }
 .hero-sponsor-logo { flex: none; display: inline-grid; place-items: center; height: 30px; max-width: 76px; padding: 3px 6px; border-radius: 8px; background: #fff; box-shadow: 0 2px 8px rgb(0 0 0 / .3); }
 .hero-sponsor-logo img { display: block; max-height: 24px; max-width: 64px; width: auto; height: auto; object-fit: contain; }
 /* Selo: texto escuro sobre fundo claro (contraste > 12:1), nunca só cor/ícone. */
@@ -77,6 +81,7 @@
   .hero-sponsor .welcome-content { padding-left: 18px; padding-right: 18px; padding-top: 20px; }
   .hero-slide.hero-sponsor .welcome-content h2 { font-size: 20px; margin: 8px 0 6px; }
   .hero-sponsor .welcome-content p { -webkit-line-clamp: 2; line-clamp: 2; max-width: none; margin-bottom: 8px; }
+  .hero-sponsor-partner { margin-top: 3px; }
   .hero-sponsor-logo { height: 26px; }
   .hero-sponsor-logo img { max-height: 20px; }
 }

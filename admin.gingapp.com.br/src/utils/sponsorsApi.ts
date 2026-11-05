@@ -7,11 +7,14 @@
  * prefixo, MUDE SÓ AS TRÊS CONSTANTES ABAIXO.
  */
 import { api, type Page, type QueryParams } from '@/utils/api'
+import type { SponsorGroupRow } from '@/utils/sponsorGroups'
 import type { CampaignReport, EffectiveStatus, Sponsor, SponsorCampaign } from '@/utils/sponsors'
 
 export const SPONSORS_PATH = '/platform-sponsors'
 export const CAMPAIGNS_PATH = '/platform-sponsor-campaigns'
 export const UPLOADS_PATH = '/platform-uploads'
+/** Supervisão do patrocínio local dos grupos (docs/CONTRATO_PATROCINADORES_GRUPO.md §4). */
+export const GROUPS_PATH = '/platform-sponsor-groups'
 
 export interface SponsorListParams {
   q?: string
@@ -48,6 +51,22 @@ export const sponsorsApi = {
     api.get<CampaignReport>(`${CAMPAIGNS_PATH}/${id}/report${queryOf(range)}`),
   getReportCsv: (id: number, range: { from: string; to: string }) =>
     api.getBlob(`${CAMPAIGNS_PATH}/${id}/report.csv`, range),
+
+  // ---- supervisão dos grupos (contrato do grupo §4). As listas padrão acima NÃO mudam: sem `scope`, só as da plataforma.
+  // O backend pagina (padrão 50, máx. 200): pede o máximo para a lista de supervisão não esconder grupos.
+  listGroups: (): Promise<Page<SponsorGroupRow>> => api.getPage<SponsorGroupRow>(GROUPS_PATH, { limit: 200 } as QueryParams),
+  listGroupSponsors: (organizationId: number, params: SponsorListParams = {}): Promise<Page<Sponsor>> =>
+    api.getPage<Sponsor>(SPONSORS_PATH, { scope: 'GROUP', organizationId, ...params } as QueryParams),
+  listGroupCampaigns: (organizationId: number, params: CampaignListParams = {}): Promise<Page<SponsorCampaign>> =>
+    api.getPage<SponsorCampaign>(CAMPAIGNS_PATH, { scope: 'GROUP', organizationId, ...params } as QueryParams),
+  /** Qualquer usuário da plataforma. Corpo `{ reason }` (3..300). */
+  suspendCampaign: (id: number, reason: string) => api.post<SponsorCampaign>(`${CAMPAIGNS_PATH}/${id}/suspend`, { reason }),
+  /** Só super admin. Sem corpo. */
+  unsuspendCampaign: (id: number) => api.post<SponsorCampaign>(`${CAMPAIGNS_PATH}/${id}/unsuspend`),
+  /** Só super admin. Corpo `{ reason }`. */
+  blockGroup: (organizationId: number, reason: string) => api.post<unknown>(`${GROUPS_PATH}/${organizationId}/block`, { reason }),
+  /** Só super admin. Sem corpo. */
+  unblockGroup: (organizationId: number) => api.post<unknown>(`${GROUPS_PATH}/${organizationId}/unblock`),
 
   /** Envia UMA imagem (multipart, campo "file"). Resposta como a do upload de grupo: `{ url: '/api/uploads/<arquivo>' }`. */
   async uploadImage(file: File): Promise<string> {

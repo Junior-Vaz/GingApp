@@ -164,7 +164,8 @@ describe('rotas e menu de Patrocinadores', () => {
     expect(byName('sponsor-campaign-edit')?.path).toContain('/sponsors/campaigns/:id')
     expect(byName('sponsor-campaign-report')?.path).toContain('/report')
     const sponsorRoutes = routes.filter((r) => String(r.path).startsWith('/sponsors'))
-    expect(sponsorRoutes).toHaveLength(5)
+    // 5 da Fase 1 + 2 da aba "Dos grupos" (lista e tela do grupo; contrato do grupo §7): as novas também são platformOnly e sem item de menu.
+    expect(sponsorRoutes).toHaveLength(7)
     expect(sponsorRoutes.every((r) => r.meta?.platformOnly === true && r.meta?.requiresAuth === true)).toBe(true)
     expect(sponsorRoutes.filter((r) => r.meta?.navLabel)).toHaveLength(1)
   })

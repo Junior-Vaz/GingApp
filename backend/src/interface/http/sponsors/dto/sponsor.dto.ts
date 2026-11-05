@@ -277,6 +277,55 @@ export class ListSponsorCampaignsQueryDto extends PageQueryDto {
   effective?: EffectiveStatus;
 }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Plataforma: supervisao dos grupos (docs/CONTRATO_PATROCINADORES_GRUPO.md secao 4)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** `?scope=GROUP&organizationId=` (supervisao); sem scope = so os da plataforma (comportamento da Fase 1). */
+type PlatformListScope = 'PLATFORM' | 'GROUP';
+
+export class PlatformListSponsorsQueryDto extends ListSponsorsQueryDto {
+  @IsOptional()
+  @IsIn(['PLATFORM', 'GROUP'], { message: 'scope: use PLATFORM ou GROUP.' })
+  scope?: PlatformListScope;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'organizationId: número inteiro.' })
+  @Min(1, { message: 'organizationId: número inteiro.' })
+  organizationId?: number;
+}
+
+export class PlatformListSponsorCampaignsQueryDto extends ListSponsorCampaignsQueryDto {
+  @IsOptional()
+  @IsIn(['PLATFORM', 'GROUP'], { message: 'scope: use PLATFORM ou GROUP.' })
+  scope?: PlatformListScope;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt({ message: 'organizationId: número inteiro.' })
+  @Min(1, { message: 'organizationId: número inteiro.' })
+  organizationId?: number;
+}
+
+/** Motivo da suspensao/bloqueio (3..300; a regra fina e normalizeReason no service). Opcional no levantar/liberar. */
+export class SponsorReasonDto {
+  @IsOptional()
+  @IsString({ message: 'reason: informe o motivo (3 a 300 caracteres).' })
+  @MaxLength(1000, { message: 'reason: no máximo 300 caracteres.' })
+  reason?: string;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Mestre: termo de responsabilidade
+// ---------------------------------------------------------------------------------------------------------------
+
+export class AcceptSponsorTermsDto {
+  @IsString({ message: 'version: informe a versão do termo que você leu (campo version de GET /group-sponsors/terms).' })
+  @MaxLength(50, { message: 'version: versão inválida.' })
+  version: string;
+}
+
 export class SponsorReportQueryDto {
   @IsOptional()
   @IsString({ message: 'from: data inicial no formato AAAA-MM-DD.' })

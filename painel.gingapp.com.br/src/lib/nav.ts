@@ -22,6 +22,7 @@ import {
   UserRound,
   Cake,
   MessageSquarePlus,
+  Handshake,
   type LucideIcon,
 } from "lucide-react";
 import { PANEL_ROLES, type OrgRole } from "@/lib/session";
@@ -58,6 +59,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/financeiro", label: "Financeiro", icon: Wallet, roles: ["MESTRE"] },
   // Transferências entre grupos (GET/POST /transfers): só o MESTRE (backend: 403 para os demais papéis).
   { to: "/transferencias", label: "Transferências", icon: ArrowRightLeft, roles: ["MESTRE"] },
+  // Patrocinadores do grupo (/group-sponsors, /group-sponsor-campaigns): o MESTRE publica e responde pelo conteúdo (backend: 403 para os demais papéis).
+  { to: "/patrocinadores", label: "Patrocinadores", icon: Handshake, roles: ["MESTRE"] },
   { to: "/eventos", label: "Eventos", icon: PartyPopper },
   // Formulários de inscrição (/event-forms): quem gerencia eventos (events:edit = MESTRE, PROFESSOR, INSTRUTOR); o MONITOR é só leitura.
   { to: "/formularios", label: "Formulários", icon: ClipboardList, roles: WITHOUT_MONITOR },

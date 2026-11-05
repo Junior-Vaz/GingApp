@@ -58,7 +58,10 @@ const CLICK_THROTTLE = { default: { ttl: 60_000, limit: () => envNumber('SPONSOR
 export class SponsorsController {
   constructor(private readonly sponsors: SponsorsService) {}
 
-  /** 0 ou 1 slide para o espectador (menor / interruptor desligado = { items: [] }). Token de MEMBER do grupo. */
+  /**
+   * Ate 2 slides para o espectador: no maximo 1 do GRUPO (primeiro) e 1 da PLATAFORMA, com `scope` e `groupName`
+   * (menor / interruptor desligado = { items: [] }). Token de MEMBER do grupo.
+   */
   @Get('active')
   @Header('Cache-Control', 'private, max-age=300')
   active(

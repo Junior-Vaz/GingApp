@@ -12,7 +12,7 @@ import { useGraduations, useHierarchy, useMyStudent, usePassport } from "@/lib/q
 import { formatPoints, leagueColor, readableOn, useRankingMe } from "@/lib/ranking";
 import { useSessionUser } from "@/lib/session";
 import { SPONSOR_IMPRESSION_DELAY_MS, isViewerMinor, reportImpressionOnce, useActiveSponsor } from "@/lib/sponsors";
-import { buildSponsorSlide, insertSponsorSlide } from "./hero-sponsor";
+import { buildSponsorSlide, insertSponsorSlides } from "./hero-sponsor";
 import { useReducedMotion } from "@/lib/use-reduced-motion";
 
 /** Tempo em cada slide antes de avançar sozinho. */
@@ -28,6 +28,17 @@ export interface HeroSponsorSpec {
   id: number;
   name: string;
   logoSrc: string | null;
+  /** 'GROUP' = parceiro do grupo do aluno; 'PLATFORM' = patrocinador da plataforma. */
+  scope: "GROUP" | "PLATFORM";
+  /** Texto da faixa "Parceiro do grupo X" (só no escopo GRUPO; null na plataforma). */
+  partnerLabel: string | null;
+}
+
+/** Texto da folha "Por que vejo isso?" por escopo (nenhum dos dois usa dado pessoal). */
+function sponsorWhyText(info: { sponsorName: string; scope: HeroSponsorSpec["scope"] }): string {
+  return info.scope === "GROUP"
+    ? `Este anúncio é de ${info.sponsorName}, parceiro do seu grupo, e não usa seus dados pessoais.`
+    : `O GingApp é gratuito e se mantém com o apoio de parceiros. Este anúncio é de ${info.sponsorName} e não usa seus dados pessoais.`;
 }
 
 export interface HeroSlideSpec {
@@ -84,7 +95,7 @@ export function HeroCarouselView({
   const [focus, setFocus] = useState(false);
   const [touching, setTouching] = useState(false);
   // Folha "Por que vejo isso?": o nome fica guardado ao fechar para o texto não mudar durante a animação de saída.
-  const [info, setInfo] = useState<{ sponsorName: string; open: boolean } | null>(null);
+  const [info, setInfo] = useState<{ sponsorName: string; scope: HeroSponsorSpec["scope"]; open: boolean } | null>(null);
   const [hidden, setHidden] = useState(() => typeof document !== "undefined" && document.visibilityState === "hidden");
   const count = slides.length;
   const found = slides.findIndex((s) => s.key === activeKey);
@@ -205,22 +216,29 @@ export function HeroCarouselView({
             {slide.art && <div className="hero-art">{slide.art}</div>}
             <div className="welcome-content">
               {slide.sponsor ? (
-                <div className="hero-sponsor-top">
-                  {slide.sponsor.logoSrc && (
-                    <span className="hero-sponsor-logo" data-testid="hero-sponsor-logo">
-                      <img
-                        src={slide.sponsor.logoSrc}
-                        alt=""
-                        loading="lazy"
-                        decoding="async"
-                        onError={(e) => void (e.currentTarget.style.display = "none")}
-                      />
+                <div className="hero-sponsor-head">
+                  <div className="hero-sponsor-top">
+                    {slide.sponsor.logoSrc && (
+                      <span className="hero-sponsor-logo" data-testid="hero-sponsor-logo">
+                        <img
+                          src={slide.sponsor.logoSrc}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          onError={(e) => void (e.currentTarget.style.display = "none")}
+                        />
+                      </span>
+                    )}
+                    <span className="hero-sponsor-badge" data-testid="hero-sponsor-badge">
+                      {slide.eyebrow}
+                    </span>
+                    <span className="hero-sponsor-name">{slide.sponsor.name}</span>
+                  </div>
+                  {slide.sponsor.partnerLabel && (
+                    <span className="hero-sponsor-partner" data-testid="hero-sponsor-partner">
+                      {slide.sponsor.partnerLabel}
                     </span>
                   )}
-                  <span className="hero-sponsor-badge" data-testid="hero-sponsor-badge">
-                    {slide.eyebrow}
-                  </span>
-                  <span className="hero-sponsor-name">{slide.sponsor.name}</span>
                 </div>
               ) : (
                 <div className="eyebrow">
@@ -244,7 +262,7 @@ export function HeroCarouselView({
                     className="hero-sponsor-why"
                     tabIndex={i === index ? 0 : -1}
                     aria-haspopup="dialog"
-                    onClick={() => setInfo({ sponsorName: slide.sponsor!.name, open: true })}
+                    onClick={() => setInfo({ sponsorName: slide.sponsor!.name, scope: slide.sponsor!.scope, open: true })}
                   >
                     Por que vejo isso?
                   </button>
@@ -299,7 +317,7 @@ export function HeroCarouselView({
           <DialogHeader>
             <DialogTitle>Por que vejo isso?</DialogTitle>
             <DialogDescription className="text-sm leading-relaxed text-foreground/80">
-              O GingApp é gratuito e se mantém com o apoio de parceiros. Este anúncio é de {info?.sponsorName} e não usa seus dados pessoais.
+              {info ? sponsorWhyText(info) : null}
             </DialogDescription>
           </DialogHeader>
         </DialogContent>
@@ -332,13 +350,22 @@ export function HeroCarousel() {
   const passport = usePassport();
   const minor = isViewerMinor({ passportIsMinor: passport.data?.viewer?.isMinor });
   const sponsorQuery = useActiveSponsor(student?.id, !!user && studentsLoaded && !passport.isLoading && !minor);
-  const sponsor = minor ? null : (sponsorQuery.data ?? null);
+  const sponsors = minor ? undefined : sponsorQuery.data;
 
   const me = ranking.isError ? undefined : ranking.data;
   const current = graduations.isError ? undefined : graduations.data?.[0];
   const levels = useMemo(() => (hierarchy.isError ? [] : [...(hierarchy.data?.levels ?? [])].sort((a, b) => a.order - b.order)), [hierarchy.data, hierarchy.isError]);
 
-  const sponsorSlide = useMemo(() => (sponsor ? buildSponsorSlide(sponsor) : null), [sponsor]);
+  // Até 2 slides patrocinados: o do GRUPO (3ª posição) e o da PLATAFORMA (5ª ou no fim). Chaves fixas por escopo.
+  const sponsorSlides = useMemo(() => {
+    const list = sponsors ?? [];
+    const groupItem = list.find((s) => s.scope === "GROUP");
+    const platformItem = list.find((s) => s.scope === "PLATFORM");
+    return {
+      group: groupItem ? buildSponsorSlide(groupItem) : null,
+      platform: platformItem ? buildSponsorSlide(platformItem) : null,
+    };
+  }, [sponsors]);
 
   const slides = useMemo(() => {
     const list: HeroSlideSpec[] = [
@@ -422,8 +449,8 @@ export function HeroCarousel() {
       art: <QrCode className="hero-qr" aria-hidden="true" />,
       cta: { to: "/checkin", label: "Fazer check-in" },
     });
-    return insertSponsorSlide(list, sponsorSlide);
-  }, [me, current, levels, sponsorSlide]);
+    return insertSponsorSlides(list, sponsorSlides);
+  }, [me, current, levels, sponsorSlides]);
 
   return <HeroCarouselView slides={slides} onSponsorSeen={reportImpressionOnce} />;
 }

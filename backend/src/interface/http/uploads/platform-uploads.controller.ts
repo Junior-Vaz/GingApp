@@ -7,7 +7,7 @@ import { UserThrottlerGuard } from '../../../shared/guards/user-throttler.guard'
 import { UPLOAD_MAX_BYTES, UploadedImageFile, UploadResult, UploadsService } from './uploads.service';
 
 /** Mesmo teto do upload de grupo (UPLOAD_THROTTLE_LIMIT, 20/min por IP e por usuario), lido a cada pedido. */
-const PLATFORM_UPLOAD_THROTTLE = {
+export const PLATFORM_UPLOAD_THROTTLE = {
   default: {
     ttl: 60_000,
     limit: () => {

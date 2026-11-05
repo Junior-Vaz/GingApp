@@ -601,7 +601,8 @@ describe('Patrocinadores (e2e)', () => {
       assert.equal(res.headers['cache-control'], 'private, max-age=300');
       assert.equal(res.body.items.length, 1);
       const [slide] = res.body.items;
-      assert.deepEqual(Object.keys(slide).sort(), ['clickPath', 'ctaLabel', 'id', 'imageUrl', 'logoUrl', 'sponsorName', 'state', 'text', 'title']);
+      // Fase 2 (docs/CONTRATO_PATROCINADORES_GRUPO.md secao 2): + scope/groupName; os campos da Fase 1 continuam iguais.
+      assert.deepEqual(Object.keys(slide).sort(), ['clickPath', 'ctaLabel', 'groupName', 'id', 'imageUrl', 'logoUrl', 'scope', 'sponsorName', 'state', 'text', 'title']);
       assert.deepEqual(slide, {
         id: natA.id,
         sponsorName: `[e2e-spons] Loja do Berimbau ${stamp}`,
@@ -612,6 +613,8 @@ describe('Patrocinadores (e2e)', () => {
         ctaLabel: 'Conhecer',
         clickPath: `/api/sponsors/${natA.id}/click?s=GO`,
         state: 'GO',
+        scope: 'PLATFORM',
+        groupName: null,
       });
       for (const secret of ['loja-sigilosa', 'Contato Sigiloso', '99999-1234', '12.345.678', 'Nota comercial', 'loja-exemplo.com.br', 'approved', 'priceCents', 'weight']) {
         assert.ok(!res.text.includes(secret), `vazou ${secret}`);

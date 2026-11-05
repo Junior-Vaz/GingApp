@@ -266,3 +266,91 @@ export function isIsoDay(value: unknown): value is string {
   const d = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// Patrocinadores do GRUPO (docs/CONTRATO_PATROCINADORES_GRUPO.md)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** Limites anti-abuso por grupo (contrato do grupo secao 3): 10 patrocinadores, 10 campanhas, 3 ACTIVE ao mesmo tempo. */
+export const GROUP_SPONSOR_LIMITS = { sponsors: 10, campaigns: 10, activeCampaigns: 3 } as const;
+
+/** Motivo de suspensao/bloqueio pela plataforma: 3..300 caracteres de texto puro. */
+export const SPONSOR_REASON_LIMITS = { min: 3, max: 300 } as const;
+
+export type SponsorScope = 'GROUP' | 'PLATFORM';
+
+/** Escopo pela coluna organizationId: nulo = PLATAFORMA; preenchido = GRUPO. */
+export function campaignScope(organizationId: number | null | undefined): SponsorScope {
+  return organizationId === null || organizationId === undefined ? 'PLATFORM' : 'GROUP';
+}
+
+/**
+ * Regras de campo EXCLUSIVAS da campanha de grupo: `states` so vazio (sem segmentacao por UF) e `weight` so 1. Ausente =
+ * ok (o servico grava [] e 1). Devolve o primeiro erro (campo + mensagem em portugues) ou null.
+ */
+export function groupCampaignFieldError(input: { states?: unknown; weight?: unknown }): { field: 'states' | 'weight'; message: string } | null {
+  if (input.states !== undefined && input.states !== null && !(Array.isArray(input.states) && input.states.length === 0)) {
+    return { field: 'states', message: 'states: campanha do grupo não tem segmentação por UF (deixe vazio: aparece para os membros do grupo).' };
+  }
+  if (input.weight !== undefined && input.weight !== null && input.weight !== 1) {
+    return { field: 'weight', message: 'weight: campanha do grupo tem peso fixo 1.' };
+  }
+  return null;
+}
+
+/** O grupo aceitou o termo na versao VIGENTE? (aceite de versao antiga = precisa aceitar de novo). */
+export function termsAccepted(acceptedVersion: string | null | undefined, currentVersion: string): boolean {
+  return typeof acceptedVersion === 'string' && acceptedVersion === currentVersion;
+}
+
+/**
+ * Campanha pode ir ao ar AGORA considerando o escopo: elegivel (ACTIVE na janela) e, se for de GRUPO, sem suspensao da
+ * plataforma e com o grupo dono nao bloqueado. Campanha de plataforma ignora os dois campos de grupo.
+ */
+export function isServableNow(
+  c: { status: SponsorCampaignStatus | string; startsAt: Date; endsAt: Date; organizationId: number | null; platformSuspendedAt: Date | null },
+  groupBlockedAt: Date | null,
+  now: Date = new Date(),
+): boolean {
+  if (!isEligibleNow(c, now)) return false;
+  if (c.organizationId === null) return true;
+  return c.platformSuspendedAt === null && groupBlockedAt === null;
+}
+
+/**
+ * Impressao conta para o espectador do grupo `viewerOrganizationId`? Plataforma: so a elegibilidade (a regiao e conferida a
+ * parte). Grupo: so para espectador DO MESMO grupo e se a campanha puder ir ao ar (sem suspensao/bloqueio).
+ */
+export function impressionCountsFor(
+  c: { status: SponsorCampaignStatus | string; startsAt: Date; endsAt: Date; organizationId: number | null; platformSuspendedAt: Date | null },
+  groupBlockedAt: Date | null,
+  viewerOrganizationId: number,
+  now: Date = new Date(),
+): boolean {
+  if (c.organizationId !== null && c.organizationId !== viewerOrganizationId) return false;
+  return isServableNow(c, groupBlockedAt, now);
+}
+
+/** Ordem do banner: o slide do GRUPO primeiro, depois o da PLATAFORMA (estavel dentro do mesmo escopo). */
+export function orderSlidesByScope<T extends { scope: SponsorScope }>(items: readonly T[]): T[] {
+  return [...items.filter((i) => i.scope === 'GROUP'), ...items.filter((i) => i.scope === 'PLATFORM')];
+}
+
+/**
+ * Suspender pela plataforma: campanha ACTIVE passa a PAUSED (a aprovacao fica) para que levantar a suspensao NAO a coloque no
+ * ar sozinha (o Mestre decide retomar); DRAFT/PAUSED ficam como estao.
+ */
+export function statusAfterSuspend(status: SponsorCampaignStatus): SponsorCampaignStatus {
+  return status === SponsorCampaignStatus.ACTIVE ? SponsorCampaignStatus.PAUSED : status;
+}
+
+/** Motivo (suspensao/bloqueio): texto puro com espacos normalizados, 3..300, sem HTML. */
+export function normalizeReason(raw: unknown): { ok: true; reason: string } | { ok: false; message: string } {
+  if (typeof raw !== 'string') return { ok: false, message: 'reason: informe o motivo (3 a 300 caracteres).' };
+  // eslint-disable-next-line no-control-regex
+  const text = raw.replace(/[\u0000-\u001F\u007F]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (looksLikeHtml(text)) return { ok: false, message: 'reason: use texto puro, sem HTML.' };
+  if (text.length < SPONSOR_REASON_LIMITS.min) return { ok: false, message: `reason: mínimo de ${SPONSOR_REASON_LIMITS.min} caracteres.` };
+  if (text.length > SPONSOR_REASON_LIMITS.max) return { ok: false, message: `reason: no máximo ${SPONSOR_REASON_LIMITS.max} caracteres.` };
+  return { ok: true, reason: text };
+}

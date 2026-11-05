@@ -102,9 +102,18 @@ export class UploadsService {
     return this.store(file, { organizationId: null, userId, maxFinalBytes: platformUploadMaxBytes() });
   }
 
+  /**
+   * Upload de imagem de PATROCINADOR DO GRUPO (POST /group-sponsor-uploads, so o Mestre; docs/CONTRATO_PATROCINADORES_GRUPO.md
+   * secao 3): dono = grupo do token (conta na cota do grupo, como o POST /uploads) e o MESMO reprocessamento com teto de peso
+   * final do upload de plataforma (PLATFORM_UPLOAD_MAX_KB, 250 KB; nada cabe = 413). O POST /uploads normal nao muda.
+   */
+  async saveGroupSponsor(file: UploadedImageFile | undefined, organizationId: number, userId: number): Promise<UploadResult> {
+    return this.store(file, { organizationId, userId, maxFinalBytes: platformUploadMaxBytes(), auditScope: 'group-sponsor' });
+  }
+
   private async store(
     file: UploadedImageFile | undefined,
-    owner: { organizationId: number | null; userId: number; maxFinalBytes: number | null },
+    owner: { organizationId: number | null; userId: number; maxFinalBytes: number | null; auditScope?: string },
   ): Promise<UploadResult> {
     const { organizationId, userId, maxFinalBytes } = owner;
     if (!file || !file.buffer || file.size === 0) {
@@ -182,7 +191,11 @@ export class UploadsService {
       action: AuditAction.UPLOAD_CREATE,
       entity: AuditEntity.UPLOAD,
       entityId: filename,
-      meta: { sizeBytes: data.length, mimeType: contentType, ...(organizationId === null ? { scope: 'platform' } : {}) },
+      meta: {
+        sizeBytes: data.length,
+        mimeType: contentType,
+        ...(organizationId === null ? { scope: 'platform' } : owner.auditScope ? { scope: owner.auditScope } : {}),
+      },
     });
     return { url: `${UPLOAD_URL_PREFIX}${filename}`, filename, contentType, size: data.length, width, height };
   }

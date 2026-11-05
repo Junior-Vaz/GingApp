@@ -4,16 +4,20 @@ import { isMinorByBirthDate } from "@/lib/birthdays";
 import { withQuery } from "@/lib/queries";
 
 /* ------------------------------------------------------------------------------------------------
- * Slide "Patrocinado" do banner da Home (docs/CONTRATO_PATROCINADORES.md, secoes 2, 4.1 e 6).
- * GET /sponsors/active?studentId= -> { items: SponsorSlide[] } (0 ou 1 item) e
- * POST /sponsors/:id/impression (sem corpo -> 204).
+ * Slides "Patrocinado" do banner da Home (docs/CONTRATO_PATROCINADORES.md, secoes 2, 4.1 e 6, e
+ * docs/CONTRATO_PATROCINADORES_GRUPO.md, secoes 2 e 6).
+ * GET /sponsors/active?studentId= -> { items: SponsorSlide[] } (0 a 2 itens: no maximo 1 do GRUPO + 1 da
+ * PLATAFORMA, o do grupo primeiro) e POST /sponsors/:id/impression (sem corpo -> 204).
  *
  * PRIVACIDADE: nada de rastreamento no app. Nenhum script/pixel/imagem de terceiro (as imagens vem de
  * /api/uploads), nada do patrocinador vai para localStorage, e da impressao so' fica na sessao do
  * navegador o ID da campanha (sessionStorage), para contar UMA vez por campanha por sessao.
  * ---------------------------------------------------------------------------------------------- */
 
-/** Item devolvido por GET /sponsors/active (contrato 4.1). Nunca traz contato, preco nem notas. */
+/** Escopo do patrocinador: do GRUPO do aluno (patrocinio local do Mestre) ou da PLATAFORMA (nacional/regional). */
+export type SponsorScope = "GROUP" | "PLATFORM";
+
+/** Item devolvido por GET /sponsors/active (contrato 4.1 + contrato de grupo 2). Nunca traz contato, preco nem notas. */
 export interface SponsorSlide {
   /** Id da campanha. */
   id: number;
@@ -29,6 +33,10 @@ export interface SponsorSlide {
   clickPath: string;
   /** UF usada na contagem ('' se desconhecida). */
   state: string;
+  /** 'GROUP' = patrocinador do grupo do aluno; 'PLATFORM' = da plataforma (resposta antiga, sem este campo, = PLATFORM). */
+  scope: SponsorScope;
+  /** Nome do grupo quando `scope` = 'GROUP' (null se o servidor nao mandou); sempre null na PLATAFORMA. */
+  groupName: string | null;
 }
 
 export interface SponsorsActiveResponse {
@@ -63,10 +71,13 @@ const isText = (value: unknown): value is string => typeof value === "string" &&
 export function parseSponsorSlide(raw: unknown): SponsorSlide | null {
   if (typeof raw !== "object" || raw === null) return null;
   const item = raw as Record<string, unknown>;
-  const { id, sponsorName, title, text, ctaLabel, clickPath, logoUrl, imageUrl, state } = item;
+  const { id, sponsorName, title, text, ctaLabel, clickPath, logoUrl, imageUrl, state, scope: rawScope, groupName } = item;
   if (typeof id !== "number" || !Number.isInteger(id) || id <= 0) return null;
   if (!isText(sponsorName) || !isText(title) || !isText(text) || !isText(ctaLabel)) return null;
   if (typeof clickPath !== "string" || !CLICK_PATH.test(clickPath)) return null;
+  // Sem `scope` (backend antigo) = PLATAFORMA; valor desconhecido = item fora do contrato (descartado).
+  if (rawScope !== undefined && rawScope !== null && rawScope !== "GROUP" && rawScope !== "PLATFORM") return null;
+  const scope: SponsorScope = rawScope === "GROUP" ? "GROUP" : "PLATFORM";
   return {
     id,
     sponsorName,
@@ -77,18 +88,27 @@ export function parseSponsorSlide(raw: unknown): SponsorSlide | null {
     logoUrl: typeof logoUrl === "string" && UPLOAD_PATH.test(logoUrl) ? logoUrl : null,
     imageUrl: typeof imageUrl === "string" && UPLOAD_PATH.test(imageUrl) ? imageUrl : null,
     state: typeof state === "string" ? state : "",
+    scope,
+    groupName: scope === "GROUP" && isText(groupName) ? groupName.trim() : null,
   };
 }
 
-/** Primeiro item valido de `{ items }` (o contrato manda 0 ou 1); resposta vazia/torta = null. */
-export function pickSponsorSlide(response: unknown): SponsorSlide | null {
+/**
+ * Itens validos de `{ items }` (o contrato manda 0 a 2): no maximo 1 por escopo (o primeiro valido de cada escopo ganha,
+ * duplicados sao descartados) e o do GRUPO sempre primeiro. Item invalido some em silencio; resposta vazia/torta = [].
+ */
+export function pickSponsorSlides(response: unknown): SponsorSlide[] {
   const items = (response as { items?: unknown } | null | undefined)?.items;
-  if (!Array.isArray(items)) return null;
+  if (!Array.isArray(items)) return [];
+  let group: SponsorSlide | null = null;
+  let platform: SponsorSlide | null = null;
   for (const raw of items) {
     const parsed = parseSponsorSlide(raw);
-    if (parsed) return parsed;
+    if (!parsed) continue;
+    if (parsed.scope === "GROUP") group ??= parsed;
+    else platform ??= parsed;
   }
-  return null;
+  return [...(group ? [group] : []), ...(platform ? [platform] : [])];
 }
 
 export interface ViewerMinorInput {
@@ -113,14 +133,14 @@ export function isViewerMinor({ passportIsMinor, birthDate, now }: ViewerMinorIn
 export const SPONSORS_ACTIVE_KEY = ["sponsors", "active"] as const;
 
 /**
- * Patrocinador do banner para o aluno ativo. `data` = o slide (ou null: nenhum, resposta vazia/torta).
+ * Patrocinadores do banner para o aluno ativo. `data` = a lista (0 a 2 slides; [] = nenhum, resposta vazia/torta).
  * Erro nao e' repetido e nao gera mensagem: o carrossel fica como sempre foi. `enabled=false` NAO faz requisicao.
  */
 export function useActiveSponsor(studentId: number | undefined, enabled: boolean) {
   return useQuery({
     queryKey: [...SPONSORS_ACTIVE_KEY, studentId ?? null],
-    queryFn: async (): Promise<SponsorSlide | null> =>
-      pickSponsorSlide(await api.get<SponsorsActiveResponse>(withQuery("/sponsors/active", { studentId }))),
+    queryFn: async (): Promise<SponsorSlide[]> =>
+      pickSponsorSlides(await api.get<SponsorsActiveResponse>(withQuery("/sponsors/active", { studentId }))),
     enabled,
     retry: false,
     staleTime: SPONSOR_STALE_MS,

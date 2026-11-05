@@ -142,6 +142,8 @@ export interface Sponsor {
   updatedAt: string
   /** Opcional: o contrato não promete este contador; usado só se vier. */
   campaignsCount?: number
+  /** Grupo dono (só nas leituras com `scope=GROUP`; nulo/ausente = patrocinador da plataforma). */
+  organization?: { id: number; name: string } | null
 }
 
 export interface SponsorCampaign {
@@ -172,6 +174,18 @@ export interface SponsorCampaign {
   approvedByName?: string | null
   createdAt: string
   updatedAt: string
+
+  // ---- campanhas de GRUPO (docs/CONTRATO_PATROCINADORES_GRUPO.md §4): só vêm nas leituras com `scope=GROUP`.
+  /** Grupo dono da campanha (nulo/ausente = campanha da plataforma). */
+  organization?: { id: number; name: string } | null
+  /** Suspensa pela plataforma (o Mestre não retoma). */
+  platformSuspended?: boolean
+  platformSuspendReason?: string | null
+  /** O contrato não lista estes três: aceitamos quando o backend mandar (quem/quando da suspensão). */
+  platformSuspendedAt?: string | null
+  platformSuspendedByUserId?: number | null
+  platformSuspendedBy?: { id: number; name: string } | null
+  platformSuspendedByName?: string | null
 }
 
 export interface CampaignReport {

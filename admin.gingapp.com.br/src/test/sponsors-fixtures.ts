@@ -2,6 +2,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import type { Component } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import type { AuthUser } from '@/stores/auth'
+import type { SponsorGroupRow } from '@/utils/sponsorGroups'
 import type { CampaignReport, Sponsor, SponsorCampaign } from '@/utils/sponsors'
 import { loginAs, makeUser } from './helpers'
 
@@ -66,6 +67,47 @@ export function report(overrides: Partial<CampaignReport> = {}): CampaignReport 
   }
 }
 
+/** Linha de `GET /platform-sponsor-groups` (formato do contrato do grupo §4). */
+export function groupRow(overrides: Partial<SponsorGroupRow> = {}): SponsorGroupRow {
+  return {
+    organizationId: 5,
+    name: 'Capoeira Raízes',
+    sponsors: 2,
+    campaigns: 3,
+    activeNow: 1,
+    blocked: false,
+    termsAcceptedAt: '2026-10-20T13:00:00.000Z',
+    ...overrides,
+  }
+}
+
+/** Campanha de GRUPO como a plataforma a lê (`scope=GROUP`): traz `organization`, `platformSuspended*` e, de propósito, os campos PRIVADOS do Mestre. */
+export function groupCampaign(overrides: Partial<SponsorCampaign> = {}): SponsorCampaign {
+  return campaign({
+    id: 21,
+    sponsorId: 11,
+    sponsorName: 'Loja do Axé',
+    title: 'Abadá com desconto',
+    text: 'Vestuário para a sua roda.',
+    imageRef: '/api/uploads/123e4567-e89b-12d3-a456-426614174000.webp',
+    destinationUrl: 'https://www.lojadoaxe.com.br/abada',
+    category: 'VESTUARIO',
+    status: 'ACTIVE',
+    effectiveStatus: 'ACTIVE_NOW',
+    weight: 1,
+    states: [],
+    priceCents: 99999,
+    billingNote: 'SEGREDO-COBRANCA do Mestre',
+    approvedByUserId: 40,
+    approvedAt: '2026-10-02T15:30:00.000Z',
+    approvedBy: { id: 40, name: 'Mestre Bimba' },
+    organization: { id: 5, name: 'Capoeira Raízes' },
+    platformSuspended: false,
+    platformSuspendReason: null,
+    ...overrides,
+  })
+}
+
 const stub = { template: '<div />' }
 
 /** Monta a view numa rota memória com as rotas de patrocinadores (a URL inicial vale para `useRoute().params`). */
@@ -86,6 +128,8 @@ export async function mountAt(
       { path: '/sponsors/campaigns/new', name: 'sponsor-campaign-new', component: stub },
       { path: '/sponsors/campaigns/:id/edit', name: 'sponsor-campaign-edit', component: stub },
       { path: '/sponsors/campaigns/:id/report', name: 'sponsor-campaign-report', component: stub },
+      { path: '/sponsors/groups', name: 'sponsor-groups', component: stub },
+      { path: '/sponsors/groups/:organizationId', name: 'sponsor-group-detail', component: stub },
     ],
   })
   await router.push(path)

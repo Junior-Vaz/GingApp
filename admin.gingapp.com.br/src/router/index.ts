@@ -122,6 +122,18 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, platformOnly: true, title: 'Relatório da campanha' },
   },
   {
+    path: '/sponsors/groups',
+    name: 'sponsor-groups',
+    component: () => import('@/views/SponsorGroupsView.vue'),
+    meta: { requiresAuth: true, platformOnly: true, title: 'Patrocínio dos grupos' },
+  },
+  {
+    path: '/sponsors/groups/:organizationId(\\d+)',
+    name: 'sponsor-group-detail',
+    component: () => import('@/views/SponsorGroupDetailView.vue'),
+    meta: { requiresAuth: true, platformOnly: true, title: 'Patrocínio do grupo' },
+  },
+  {
     path: '/audit',
     name: 'audit',
     component: () => import('@/views/AuditView.vue'),

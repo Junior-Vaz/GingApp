@@ -400,52 +400,60 @@ model AuditLog {
 // =========================================================================
 
 model Organization {
-  id                      Int              @id @default(autoincrement())
-  name                    String
-  slug                    String           @unique
-  type                    OrganizationType @default(GROUP)
-  status                  RecordStatus     @default(ACTIVE)
-  document                String?
-  email                   String?
-  phone                   String?
-  logo                    String?
+  id                           Int              @id @default(autoincrement())
+  name                         String
+  slug                         String           @unique
+  type                         OrganizationType @default(GROUP)
+  status                       RecordStatus     @default(ACTIVE)
+  document                     String?
+  email                        String?
+  phone                        String?
+  logo                         String?
   /// Perfil institucional do grupo (projeto.txt §13), editado pelo MESTRE em PATCH /organizations/me.
   /// description = apresentacao curta; history = historia do grupo; foundedYear = ano de fundacao;
   /// city/state = cidade e UF-sede (texto livre, nao FK); website = site; socialLinks = redes
   /// ({ instagram?, youtube?, tiktok?, facebook?, whatsapp? }, todas opcionais, so URLs).
-  description             String?
-  history                 String?
-  foundedYear             Int?
-  city                    String?
-  state                   String?
-  website                 String?
-  socialLinks             Json?
+  description                  String?
+  history                      String?
+  foundedYear                  Int?
+  city                         String?
+  state                        String?
+  website                      String?
+  socialLinks                  Json?
   /// "Como pagar" (E07): texto livre (chave PIX, dados bancarios, link, orientacoes) mostrado ao aluno/
   /// responsavel no app. Editado pelo MESTRE em PATCH /organizations/me.
-  paymentInstructions     String?
+  paymentInstructions          String?
   /// Mapa da comunidade (GET /map/places): o MESTRE controla se o grupo (unidades, treinos, eventos publicos e
   /// rodas organizadas por ele) aparece no mapa. Padrao true; grupo INACTIVE nunca aparece, qualquer que seja o valor.
-  mapVisible              Boolean          @default(true)
+  mapVisible                   Boolean          @default(true)
   /// Aviso de presenca (push/sino): quando a chamada de uma aula marca o aluno PRESENTE, ele e os responsaveis com
   /// login recebem "Presenca registrada". O MESTRE liga/desliga em PATCH /organizations/me. Padrao true.
-  attendanceNotifications Boolean          @default(true)
+  attendanceNotifications      Boolean          @default(true)
   /// Aniversariantes (docs/CONTRATO_FEED_ANIVERSARIOS_COMUNICACAO.md §2), editado pelo MESTRE em PUT /birthdays/settings:
   /// resumo diario aos gestores (07:30 SP), parabens automaticos (desligado por padrao) com mensagem propria
   /// (nulo = mensagem padrao) e hora (0..23, SP) do envio.
-  birthdayDailyDigest     Boolean          @default(true)
-  birthdayAutoGreeting    Boolean          @default(false)
-  birthdayGreetingMessage String?
-  birthdayGreetingHour    Int              @default(8)
+  birthdayDailyDigest          Boolean          @default(true)
+  birthdayAutoGreeting         Boolean          @default(false)
+  birthdayGreetingMessage      String?
+  birthdayGreetingHour         Int              @default(8)
   /// Feed do grupo (contrato §4), editado pelo MESTRE em PUT /feed/settings. feedBlockedWords = palavras que mandam
   /// o post para aprovacao (comparacao sem acento/caixa feita no backend).
-  feedEnabled             Boolean          @default(false)
-  feedPostingMode         FeedPostingMode  @default(MODERATED)
-  feedAllowComments       Boolean          @default(true)
-  feedBlockedWords        String[]         @default([])
+  feedEnabled                  Boolean          @default(false)
+  feedPostingMode              FeedPostingMode  @default(MODERATED)
+  feedAllowComments            Boolean          @default(true)
+  feedBlockedWords             String[]         @default([])
   /// Opcao do MESTRE: menor de 18 anos publica direto (sem a aprovacao obrigatoria de menor). Padrao false.
-  feedMinorsPostDirectly  Boolean          @default(false)
-  createdAt              DateTime         @default(now())
-  updatedAt               DateTime         @updatedAt
+  feedMinorsPostDirectly       Boolean          @default(false)
+  /// Patrocinadores do GRUPO (docs/CONTRATO_PATROCINADORES_GRUPO.md §1): bloqueio do patrocinio local pela PLATAFORMA
+  /// (campanhas do grupo param de ser servidas; o Mestre nao ativa/retoma) e o aceite do termo de responsabilidade do
+  /// Mestre (versao aceita, quando e por quem). Versao vigente = SPONSOR_TERMS_VERSION no codigo.
+  sponsorsBlockedAt            DateTime?
+  sponsorsBlockedReason        String?
+  sponsorTermsVersion          String?
+  sponsorTermsAcceptedAt       DateTime?
+  sponsorTermsAcceptedByUserId Int?
+  createdAt                    DateTime         @default(now())
+  updatedAt                    DateTime         @updatedAt
 
   birthdayGreetings       BirthdayGreeting[]
   birthdayCongrats        BirthdayCongrats[]
@@ -486,7 +494,7 @@ model Organization {
   uploads                 Upload[]
   pointEvents             PointEvent[]
   dailyCheckins           DailyCheckin[]
-  transfersOut           TransferRequest[]             @relation("TransferFrom")
+  transfersOut            TransferRequest[]             @relation("TransferFrom")
   transfersIn             TransferRequest[]             @relation("TransferTo")
   personRoles             PersonRole[]
   groupRoles              GroupRole[]
@@ -494,6 +502,8 @@ model Organization {
   registrationForms       RegistrationForm[]
   registrationSubmissions RegistrationSubmission[]
   registrationFiles       RegistrationSubmissionFile[]
+  sponsors                Sponsor[]
+  sponsorCampaigns        SponsorCampaign[]
 
   @@index([status])
 }
@@ -517,7 +527,7 @@ model Upload {
   /// onDelete Restrict EXPLICITO (o padrao de relacao opcional seria SetNull): apagar um grupo nunca pode transformar as
   /// imagens dele em imagens "da plataforma" (organizationId nulo). Mesmo comportamento de antes (FK obrigatoria = Restrict).
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  user         User         @relation("UploadUser", fields: [userId], references: [id])
+  user         User          @relation("UploadUser", fields: [userId], references: [id])
 
   @@index([organizationId, createdAt])
   @@index([userId])
@@ -1018,41 +1028,41 @@ model StudentGuardian {
 }
 
 model Class {
-  id                  Int          @id @default(autoincrement())
-  organizationId      Int
-  unitId              Int?
-  name                String
-  description         String?
-  weekday             Int?
-  startTime           String?
-  endTime             String?
+  id                     Int          @id @default(autoincrement())
+  organizationId         Int
+  unitId                 Int?
+  name                   String
+  description            String?
+  weekday                Int?
+  startTime              String?
+  endTime                String?
   /// Professor responsavel pela turma: User.id de um membro ATIVO MESTRE/PROFESSOR do mesmo
   /// grupo (validado no service, mesmo padrao de Lesson.teacherUserId). Copiado para as aulas
   /// geradas por POST /classes/:id/generate-lessons.
-  teacherUserId       Int?
+  teacherUserId          Int?
   /// Foto da turma (URL http(s) ou /api/uploads/<uuid>.<ext>, validada por IsImageRef).
-  photo               String?
+  photo                  String?
   /// Aulas continuas (sem data final): true = o job diario (e o ensureHorizon ao criar/editar a turma) mantem as
   /// aulas geradas ate LESSONS_HORIZON_DAYS a frente, a partir do weekday/horario da turma. Turmas ja existentes
   /// migram com true (passam a ter aulas geradas automaticamente); false = so geracao manual por periodo.
-  autoGenerateLessons Boolean      @default(true)
+  autoGenerateLessons    Boolean      @default(true)
   /// Local do treino PROPRIO da turma (opcional): mesmo desenho da Unit (address/city/state + latitude/longitude,
   /// geocodificados por shared/geo/geocoding.service.ts) + um rotulo livre (ex.: "Praca X"). Tudo null = a turma
   /// herda o endereco/coordenadas da unidade (comportamento de sempre; turmas antigas continuam assim).
-  locationLabel       String?
-  address             String?
-  city                String?
-  state               String?
-  latitude            Float?
-  longitude           Float?
+  locationLabel          String?
+  address                String?
+  city                   String?
+  state                  String?
+  latitude               Float?
+  longitude              Float?
   /// Check-in por localizacao (docs/CONTRATO_CHECKIN_GEOLOCALIZACAO.md): o aluno registra a propria presenca pelo GPS
   /// quando esta a ate geoCheckinRadiusMeters (50..500) do local da turma (coordenadas proprias, senao as da unidade).
   /// Padrao desligado; ligar exige local (400 GEO_CHECKIN_NO_LOCATION).
-  geoCheckinEnabled      Boolean @default(false)
-  geoCheckinRadiusMeters Int     @default(150)
-  status              RecordStatus @default(ACTIVE)
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  geoCheckinEnabled      Boolean      @default(false)
+  geoCheckinRadiusMeters Int          @default(150)
+  status                 RecordStatus @default(ACTIVE)
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
 
   organization  Organization   @relation(fields: [organizationId], references: [id])
   unit          Unit?          @relation(fields: [unitId], references: [id])
@@ -1117,16 +1127,16 @@ enum AttendanceSource {
 }
 
 model Attendance {
-  id             Int      @id @default(autoincrement())
+  id             Int               @id @default(autoincrement())
   organizationId Int
   lessonId       Int
   studentId      Int
-  present        Boolean  @default(true)
+  present        Boolean           @default(true)
   justification  String?
   /// QR = check-in por QR; GEO = check-in por localizacao; null = chamada manual (marcar/ajustar a chamada zera).
   /// Um check-in que so CONFIRMA uma presenca ja existente nao troca a origem. Nunca guarda coordenadas.
   checkinSource  AttendanceSource?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime          @default(now())
 
   organization Organization @relation(fields: [organizationId], references: [id])
   lesson       Lesson       @relation(fields: [lessonId], references: [id])
@@ -2450,55 +2460,71 @@ enum SponsorCampaignStatus {
   PAUSED
 }
 
-/// Patrocinador (gerido so pela equipe da plataforma). Contato/documento/notas sao comerciais: nunca vao para o app.
+/// Patrocinador. organizationId NULO = da PLATAFORMA (equipe da plataforma); preenchido = patrocinador LOCAL do grupo
+/// (gerido pelo Mestre, docs/CONTRATO_PATROCINADORES_GRUPO.md). Contato/documento/notas sao comerciais: nunca vao para o app.
 model Sponsor {
-  id           Int      @id @default(autoincrement())
-  name         String
-  /// Referencia de upload de PLATAFORMA (/api/uploads/<uuid>.<ext>, POST /platform-uploads) ou nulo.
-  logo         String?
-  contactName  String?
-  contactEmail String?
-  contactPhone String?
+  id             Int      @id @default(autoincrement())
+  organizationId Int?
+  name           String
+  /// Referencia de upload do MESMO dono (/api/uploads/<uuid>.<ext>): plataforma = POST /platform-uploads; grupo = upload
+  /// do proprio grupo (POST /uploads ou /group-sponsor-uploads) com no maximo 250 KB. Ou nulo.
+  logo           String?
+  contactName    String?
+  contactEmail   String?
+  contactPhone   String?
   /// CNPJ/CPF opcional (so admin).
-  document     String?
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  document       String?
+  notes          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  campaigns SponsorCampaign[]
+  /// Apagar o grupo apaga os patrocinadores dele (e as campanhas, pela FK da campanha).
+  organization Organization?     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaigns    SponsorCampaign[]
+
+  @@index([organizationId])
 }
 
 /// Campanha de um patrocinador: um slide "Patrocinado" no carrossel da Home do app. Elegivel agora = status ACTIVE e
-/// now em [startsAt, endsAt). states vazio = Brasil todo. approvedByUserId/approvedAt = quem ATIVOU (super admin) e quando.
+/// now em [startsAt, endsAt). states vazio = Brasil todo. approvedByUserId/approvedAt = quem ATIVOU (super admin na
+/// plataforma; o Mestre no grupo) e quando. organizationId = o MESMO do patrocinador (invariante garantida no servico e
+/// por trigger no banco, migration 20261106000100_sponsor_groups); nulo = campanha da PLATAFORMA.
+/// platformSuspended*: suspensao feita pela PLATAFORMA numa campanha de grupo (para de ser servida; o Mestre nao retoma).
 model SponsorCampaign {
-  id               Int                   @id @default(autoincrement())
-  sponsorId        Int
-  title            String
-  text             String
-  imageRef         String?
-  ctaLabel         String                @default("Conhecer")
+  id                        Int                   @id @default(autoincrement())
+  organizationId            Int?
+  sponsorId                 Int
+  title                     String
+  text                      String
+  imageRef                  String?
+  ctaLabel                  String                @default("Conhecer")
   /// URL https normalizada (contrato 2.6); o redirecionador do clique usa SEMPRE este valor gravado.
-  destinationUrl   String
-  destinationHost  String
-  category         SponsorCategory
-  startsAt         DateTime
-  endsAt           DateTime
-  status           SponsorCampaignStatus @default(DRAFT)
-  weight           Int                   @default(1)
-  states           String[]              @default([])
+  destinationUrl            String
+  destinationHost           String
+  category                  SponsorCategory
+  startsAt                  DateTime
+  endsAt                    DateTime
+  status                    SponsorCampaignStatus @default(DRAFT)
+  weight                    Int                   @default(1)
+  states                    String[]              @default([])
   /// Informativo (cobranca manual na F1), so admin.
-  priceCents       Int?
-  billingNote      String?
-  approvedByUserId Int?
-  approvedAt       DateTime?
-  createdAt        DateTime              @default(now())
-  updatedAt        DateTime              @updatedAt
+  priceCents                Int?
+  billingNote               String?
+  approvedByUserId          Int?
+  approvedAt                DateTime?
+  platformSuspendedAt       DateTime?
+  platformSuspendedByUserId Int?
+  platformSuspendReason     String?
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
 
-  sponsor Sponsor          @relation(fields: [sponsorId], references: [id], onDelete: Restrict)
-  stats   SponsorStatDay[]
+  organization Organization?    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sponsor      Sponsor          @relation(fields: [sponsorId], references: [id], onDelete: Restrict)
+  stats        SponsorStatDay[]
 
   @@index([status, startsAt, endsAt])
   @@index([sponsorId])
+  @@index([organizationId, status])
 }
 
 /// Contadores AGREGADOS por (campanha, dia civil de Sao Paulo, UF). NENHUM identificador de pessoa, grupo, aparelho, IP

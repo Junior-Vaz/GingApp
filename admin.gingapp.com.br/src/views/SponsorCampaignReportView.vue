@@ -3,8 +3,10 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import BarChart from '@/components/sponsors/BarChart.vue'
 import SponsorStatusChip from '@/components/sponsors/SponsorStatusChip.vue'
+import SuspendedBadge from '@/components/sponsors/SuspendedBadge.vue'
 import { errorMessage } from '@/utils/api'
 import { formatDateTime, formatInt } from '@/utils/format'
+import { isCampaignSuspended } from '@/utils/sponsorGroups'
 import {
   addDays,
   campaignSponsorName,
@@ -24,6 +26,13 @@ import { sponsorsApi } from '@/utils/sponsorsApi'
 
 const route = useRoute()
 const campaignId = computed(() => Number(route.params.id))
+/** Vindo da supervisão dos grupos (`?group=<organizationId>`): o "voltar" retorna ao grupo, não à lista da plataforma. */
+const groupId = computed(() => {
+  const raw = Array.isArray(route.query.group) ? route.query.group[0] : route.query.group
+  const n = Number(raw)
+  return Number.isInteger(n) && n > 0 ? n : null
+})
+const backTo = computed(() => (groupId.value ? `/sponsors/groups/${groupId.value}` : '/sponsors/campaigns'))
 
 const campaign = ref<SponsorCampaign | null>(null)
 const report = ref<CampaignReport | null>(null)
@@ -137,13 +146,17 @@ onMounted(() => void init())
 
 <template>
   <div>
-    <RouterLink to="/sponsors/campaigns" class="text-sm font-medium text-slate-700 underline hover:text-slate-900" data-testid="back">← Voltar para as campanhas</RouterLink>
+    <RouterLink :to="backTo" class="text-sm font-medium text-slate-700 underline hover:text-slate-900" data-testid="back">
+      {{ groupId ? '← Voltar para o grupo' : '← Voltar para as campanhas' }}
+    </RouterLink>
     <div class="mt-2 flex flex-wrap items-center gap-3">
       <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Relatório da campanha</h1>
       <SponsorStatusChip v-if="campaign" :status="campaign.effectiveStatus" />
+      <SuspendedBadge v-if="campaign && isCampaignSuspended(campaign)" :reason="campaign.platformSuspendReason" />
     </div>
     <p v-if="campaign" class="mt-1 text-sm text-slate-700" data-testid="report-header">
       <strong>{{ campaign.title }}</strong> · {{ campaignSponsorName(campaign) }} · {{ formatDateTime(campaign.startsAt) }} até {{ formatDateTime(campaign.endsAt) }}
+      <template v-if="campaign.organization?.name"> · Grupo: <span data-testid="report-group">{{ campaign.organization.name }}</span></template>
     </p>
 
     <p class="mt-3 rounded-md border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-950" data-testid="privacy-note">

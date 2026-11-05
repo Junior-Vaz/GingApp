@@ -31,6 +31,7 @@ import { Route as AppFinanceiroRouteImport } from './routes/_app.financeiro'
 import { Route as AppFormulariosRouteImport } from './routes/_app.formularios'
 import { Route as AppFrequenciaRouteImport } from './routes/_app.frequencia'
 import { Route as AppGraduacoesRouteImport } from './routes/_app.graduacoes'
+import { Route as AppPatrocinadoresRouteImport } from './routes/_app.patrocinadores'
 import { Route as AppPerfilRouteImport } from './routes/_app.perfil'
 import { Route as AppProfessoresRouteImport } from './routes/_app.professores'
 import { Route as AppRankingRouteImport } from './routes/_app.ranking'
@@ -154,6 +155,11 @@ const AppGraduacoesRoute = AppGraduacoesRouteImport.update({
   path: '/graduacoes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPatrocinadoresRoute = AppPatrocinadoresRouteImport.update({
+  id: '/patrocinadores',
+  path: '/patrocinadores',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppPerfilRoute = AppPerfilRouteImport.update({
   id: '/perfil',
   path: '/perfil',
@@ -243,6 +249,7 @@ export interface FileRoutesByFullPath {
   '/formularios': typeof AppFormulariosRoute
   '/frequencia': typeof AppFrequenciaRoute
   '/graduacoes': typeof AppGraduacoesRoute
+  '/patrocinadores': typeof AppPatrocinadoresRoute
   '/perfil': typeof AppPerfilRoute
   '/professores': typeof AppProfessoresRoute
   '/ranking': typeof AppRankingRoute
@@ -279,6 +286,7 @@ export interface FileRoutesByTo {
   '/formularios': typeof AppFormulariosRoute
   '/frequencia': typeof AppFrequenciaRoute
   '/graduacoes': typeof AppGraduacoesRoute
+  '/patrocinadores': typeof AppPatrocinadoresRoute
   '/perfil': typeof AppPerfilRoute
   '/professores': typeof AppProfessoresRoute
   '/ranking': typeof AppRankingRoute
@@ -317,6 +325,7 @@ export interface FileRoutesById {
   '/_app/formularios': typeof AppFormulariosRoute
   '/_app/frequencia': typeof AppFrequenciaRoute
   '/_app/graduacoes': typeof AppGraduacoesRoute
+  '/_app/patrocinadores': typeof AppPatrocinadoresRoute
   '/_app/perfil': typeof AppPerfilRoute
   '/_app/professores': typeof AppProfessoresRoute
   '/_app/ranking': typeof AppRankingRoute
@@ -355,6 +364,7 @@ export interface FileRouteTypes {
     | '/formularios'
     | '/frequencia'
     | '/graduacoes'
+    | '/patrocinadores'
     | '/perfil'
     | '/professores'
     | '/ranking'
@@ -391,6 +401,7 @@ export interface FileRouteTypes {
     | '/formularios'
     | '/frequencia'
     | '/graduacoes'
+    | '/patrocinadores'
     | '/perfil'
     | '/professores'
     | '/ranking'
@@ -428,6 +439,7 @@ export interface FileRouteTypes {
     | '/_app/formularios'
     | '/_app/frequencia'
     | '/_app/graduacoes'
+    | '/_app/patrocinadores'
     | '/_app/perfil'
     | '/_app/professores'
     | '/_app/ranking'
@@ -609,6 +621,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppGraduacoesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/patrocinadores': {
+      id: '/_app/patrocinadores'
+      path: '/patrocinadores'
+      fullPath: '/patrocinadores'
+      preLoaderRoute: typeof AppPatrocinadoresRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/perfil': {
       id: '/_app/perfil'
       path: '/perfil'
@@ -719,6 +738,7 @@ interface AppRouteChildren {
   AppFormulariosRoute: typeof AppFormulariosRoute
   AppFrequenciaRoute: typeof AppFrequenciaRoute
   AppGraduacoesRoute: typeof AppGraduacoesRoute
+  AppPatrocinadoresRoute: typeof AppPatrocinadoresRoute
   AppPerfilRoute: typeof AppPerfilRoute
   AppProfessoresRoute: typeof AppProfessoresRoute
   AppRankingRoute: typeof AppRankingRoute
@@ -750,6 +770,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppFormulariosRoute: AppFormulariosRoute,
   AppFrequenciaRoute: AppFrequenciaRoute,
   AppGraduacoesRoute: AppGraduacoesRoute,
+  AppPatrocinadoresRoute: AppPatrocinadoresRoute,
   AppPerfilRoute: AppPerfilRoute,
   AppProfessoresRoute: AppProfessoresRoute,
   AppRankingRoute: AppRankingRoute,
