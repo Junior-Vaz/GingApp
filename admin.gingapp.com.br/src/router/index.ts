@@ -134,6 +134,13 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, platformOnly: true, title: 'Patrocínio do grupo' },
   },
   {
+    // Livro-caixa e transparência: leitura para toda a equipe PLATFORM; os botões de escrita são do super admin (o servidor barra).
+    path: '/financeiro',
+    name: 'finance',
+    component: () => import('@/views/FinanceView.vue'),
+    meta: { requiresAuth: true, platformOnly: true, navLabel: 'Financeiro' },
+  },
+  {
     path: '/audit',
     name: 'audit',
     component: () => import('@/views/AuditView.vue'),

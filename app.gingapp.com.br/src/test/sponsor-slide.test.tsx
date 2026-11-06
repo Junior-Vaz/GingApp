@@ -414,6 +414,9 @@ describe("HeroCarouselView com slide patrocinado", () => {
     expect(dialog).toBeTruthy();
     expect(dialog.textContent).toContain("Por que vejo isso?");
     expect(dialog.textContent).toContain("O GingApp é gratuito e se mantém com o apoio de parceiros. Este anúncio é de Loja do Berimbau e não usa seus dados pessoais.");
+    const transparency = dialog.querySelector<HTMLAnchorElement>('[data-testid="sponsor-transparency-link"]')!;
+    expect(transparency.getAttribute("href")).toBe("/transparencia");
+    expect(transparency.textContent).toBe("Veja como a plataforma se sustenta");
     expect(dialog.getAttribute("aria-labelledby")).toBeTruthy();
     expect(dialog.getAttribute("aria-describedby")).toBeTruthy();
     expect(dialog.contains(document.activeElement)).toBe(true); // foco dentro da folha

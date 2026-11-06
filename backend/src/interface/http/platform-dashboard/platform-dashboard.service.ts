@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
-import { OrganizationType, RecordStatus, StudentStatus, SubscriptionStatus } from '@prisma/client';
+import { RecordStatus, SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
+import { countActiveGroups, countActiveStudents, GROUP_ONLY } from './platform-metrics';
 
 /** Assinaturas que contam como "em uso" por plano (distribuição): ACTIVE e TRIALING. */
 const IN_USE_STATUSES: SubscriptionStatus[] = [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIALING];
@@ -58,7 +59,7 @@ export class PlatformDashboardService {
   async getDashboard(): Promise<PlatformDashboard> {
     const now = new Date();
     const since = new Date(now.getTime() - NEW_ORGANIZATIONS_WINDOW_DAYS * 24 * 60 * 60 * 1000);
-    const groupOnly = { type: OrganizationType.GROUP };
+    const groupOnly = GROUP_ONLY;
 
     const [
       orgTotal,
@@ -72,10 +73,10 @@ export class PlatformDashboardService {
       recent,
     ] = await Promise.all([
       this.prisma.organization.count({ where: groupOnly }),
-      this.prisma.organization.count({ where: { ...groupOnly, status: RecordStatus.ACTIVE } }),
+      countActiveGroups(this.prisma),
       this.prisma.organization.count({ where: { ...groupOnly, status: RecordStatus.INACTIVE } }),
       this.prisma.organization.count({ where: { ...groupOnly, createdAt: { gte: since } } }),
-      this.prisma.student.count({ where: { status: StudentStatus.ACTIVE, organization: groupOnly } }),
+      countActiveStudents(this.prisma),
       this.prisma.subscription.groupBy({ by: ['status'], _count: { _all: true } }),
       this.prisma.subscription.groupBy({
         by: ['planId'],

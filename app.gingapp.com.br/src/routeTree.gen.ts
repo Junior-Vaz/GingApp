@@ -16,6 +16,7 @@ import { Route as LoginRouteImport } from './routes/login'
 import { Route as PrivacidadeRouteImport } from './routes/privacidade'
 import { Route as RedefinirSenhaRouteImport } from './routes/redefinir-senha'
 import { Route as TermosRouteImport } from './routes/termos'
+import { Route as TransparenciaRouteImport } from './routes/transparencia'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
 import { Route as AppAulasRouteImport } from './routes/_app.aulas'
 import { Route as AppCheckinRouteImport } from './routes/_app.checkin'
@@ -67,6 +68,11 @@ const RedefinirSenhaRoute = RedefinirSenhaRouteImport.update({
 const TermosRoute = TermosRouteImport.update({
   id: '/termos',
   path: '/termos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TransparenciaRoute = TransparenciaRouteImport.update({
+  id: '/transparencia',
+  path: '/transparencia',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -168,6 +174,7 @@ export interface FileRoutesByFullPath {
   '/privacidade': typeof PrivacidadeRoute
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
+  '/transparencia': typeof TransparenciaRoute
   '/aulas': typeof AppAulasRoute
   '/checkin': typeof AppCheckinRoute
   '/comunidade': typeof AppComunidadeRoute
@@ -193,6 +200,7 @@ export interface FileRoutesByTo {
   '/privacidade': typeof PrivacidadeRoute
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
+  '/transparencia': typeof TransparenciaRoute
   '/aulas': typeof AppAulasRoute
   '/checkin': typeof AppCheckinRoute
   '/comunidade': typeof AppComunidadeRoute
@@ -221,6 +229,7 @@ export interface FileRoutesById {
   '/privacidade': typeof PrivacidadeRoute
   '/redefinir-senha': typeof RedefinirSenhaRoute
   '/termos': typeof TermosRoute
+  '/transparencia': typeof TransparenciaRoute
   '/_app/aulas': typeof AppAulasRoute
   '/_app/checkin': typeof AppCheckinRoute
   '/_app/comunidade': typeof AppComunidadeRoute
@@ -250,6 +259,7 @@ export interface FileRouteTypes {
     | '/privacidade'
     | '/redefinir-senha'
     | '/termos'
+    | '/transparencia'
     | '/aulas'
     | '/checkin'
     | '/comunidade'
@@ -275,6 +285,7 @@ export interface FileRouteTypes {
     | '/privacidade'
     | '/redefinir-senha'
     | '/termos'
+    | '/transparencia'
     | '/aulas'
     | '/checkin'
     | '/comunidade'
@@ -302,6 +313,7 @@ export interface FileRouteTypes {
     | '/privacidade'
     | '/redefinir-senha'
     | '/termos'
+    | '/transparencia'
     | '/_app/aulas'
     | '/_app/checkin'
     | '/_app/comunidade'
@@ -330,6 +342,7 @@ export interface RootRouteChildren {
   PrivacidadeRoute: typeof PrivacidadeRoute
   RedefinirSenhaRoute: typeof RedefinirSenhaRoute
   TermosRoute: typeof TermosRoute
+  TransparenciaRoute: typeof TransparenciaRoute
   ISlugRoute: typeof ISlugRoute
   VerificarPassaporteCodeRoute: typeof VerificarPassaporteCodeRoute
   VerificarCodeRoute: typeof VerificarCodeRoute
@@ -384,6 +397,13 @@ declare module '@tanstack/react-router' {
       path: '/termos'
       fullPath: '/termos'
       preLoaderRoute: typeof TermosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/transparencia': {
+      id: '/transparencia'
+      path: '/transparencia'
+      fullPath: '/transparencia'
+      preLoaderRoute: typeof TransparenciaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -561,6 +581,7 @@ const rootRouteChildren: RootRouteChildren = {
   PrivacidadeRoute: PrivacidadeRoute,
   RedefinirSenhaRoute: RedefinirSenhaRoute,
   TermosRoute: TermosRoute,
+  TransparenciaRoute: TransparenciaRoute,
   ISlugRoute: ISlugRoute,
   VerificarPassaporteCodeRoute: VerificarPassaporteCodeRoute,
   VerificarCodeRoute: VerificarCodeRoute,

@@ -502,6 +502,7 @@ export function ProfilePage() {
             <div className="pf-rows">
               <LinkRow to="/termos" icon={FileText} label="Termos de Uso" />
               <LinkRow to="/privacidade" icon={ShieldCheck} label="Política de Privacidade" />
+              <LinkRow to="/transparencia" icon={Wallet} label="Transparência: para onde vai o dinheiro" />
             </div>
           </ProfileCard>
 

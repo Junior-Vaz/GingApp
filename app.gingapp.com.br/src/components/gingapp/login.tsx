@@ -6,6 +6,7 @@ import { isChallengeExpired, login, verifyTwoFactor, type TwoFactorProof } from 
 import { cleanTotpCode, TOTP_CODE_LENGTH } from "@/lib/two-factor";
 import { usePasswordResetEnabled } from "@/lib/password-reset";
 import { LegalLinks } from "./legal";
+import { TransparencyLink } from "./transparency";
 import rodaImage from "@/assets/capoeira-roda.jpg";
 
 const HIGHLIGHTS = [
@@ -310,6 +311,7 @@ export function LoginPage({ redirect }: { redirect?: string | undefined }) {
               </p>
             ))}
           <LegalLinks />
+          <TransparencyLink />
         </div>
       </main>
     </div>

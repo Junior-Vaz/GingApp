@@ -2542,3 +2542,74 @@ model SponsorStatDay {
 
   @@unique([campaignId, day, state])
 }
+
+// =============================================================================================================
+// Transparencia da plataforma (docs/CONTRATO_TRANSPARENCIA.md, Frente B Fase 1): livro-caixa lancado a mao pela equipe
+// da PLATAFORMA e pagina publica /transparencia (so totais por categoria/mes dos meses PUBLICADOS).
+// =============================================================================================================
+
+enum LedgerEntryType {
+  RECEITA
+  DESPESA
+}
+
+/// Lista FECHADA (contrato 2.1). O par tipo x categoria e validado no servico (transparency-rules.ts, SSOT dos rotulos).
+enum LedgerCategory {
+  HOSPEDAGEM
+  MAPAS
+  ARMAZENAMENTO_BACKUP
+  NOTIFICACOES
+  EMAIL
+  DOMINIO
+  FERRAMENTAS
+  PESSOAS_SUPORTE
+  IMPOSTOS_TARIFAS
+  OUTROS_DESPESA
+  APOIO
+  PATROCINIO
+  EDITAIS_OUTROS
+}
+
+/// Lancamento do livro-caixa da plataforma. amountCents SEMPRE centavos inteiros positivos (1..1_000_000_000; CHECK no
+/// banco). month = 'YYYY-MM' DERIVADO de occurredOn no servidor. description e PRIVADA do admin (pode citar fornecedor ou
+/// pessoa): nunca sai no endpoint publico nem no log de auditoria. createdByUserId sem FK (mesma convencao de
+/// SponsorCampaign.approvedByUserId): apagar um usuario da equipe nao apaga o historico financeiro.
+model LedgerEntry {
+  id              Int             @id @default(autoincrement())
+  type            LedgerEntryType
+  category        LedgerCategory
+  amountCents     Int
+  occurredOn      DateTime        @db.Date
+  month           String
+  description     String
+  createdByUserId Int
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([month])
+  @@index([month, type])
+}
+
+/// Mes PUBLICADO (existir a linha = publicado e congelado). activeStudents/activeGroups/goalCents = RETRATO gravado na
+/// publicacao (o numero publico nao muda depois). note = texto PUBLICO do dono (<= 500).
+model TransparencyMonth {
+  month             String   @id
+  publishedAt       DateTime @default(now())
+  publishedByUserId Int
+  note              String?
+  activeStudents    Int
+  activeGroups      Int
+  goalCents         Int
+}
+
+/// Configuracao da transparencia (singleton id = 1). openingReserveCents = saldo antes do primeiro mes publicado (>= 0).
+model TransparencySetting {
+  id                  Int      @id @default(1)
+  monthlyGoalCents    Int      @default(0)
+  openingReserveCents Int      @default(0)
+  entityName          String?
+  introText           String?
+  surplusText         String?
+  updatedByUserId     Int?
+  updatedAt           DateTime @updatedAt
+}

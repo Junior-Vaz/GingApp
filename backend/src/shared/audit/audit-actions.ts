@@ -250,6 +250,18 @@ export const AuditAction = {
   SPONSOR_GROUP_CAMPAIGN_ACTIVATE: 'SPONSOR_GROUP_CAMPAIGN_ACTIVATE',
   SPONSOR_GROUP_CAMPAIGN_PAUSE: 'SPONSOR_GROUP_CAMPAIGN_PAUSE',
   SPONSOR_GROUP_CAMPAIGN_RESUME: 'SPONSOR_GROUP_CAMPAIGN_RESUME',
+  // Transparencia da plataforma (docs/CONTRATO_TRANSPARENCIA.md): escritas do SUPER ADMIN no livro-caixa (organizationId
+  // nulo). meta SO com id, mes, tipo, categoria, valor em centavos, nomes de campos alterados e contagens: NUNCA o texto da
+  // description do lancamento (privada; pode citar fornecedor ou pessoa) nem os textos das configuracoes. A pagina publica
+  // (GET /transparency) NAO e auditada.
+  PLATFORM_FINANCE_ENTRY_CREATE: 'PLATFORM_FINANCE_ENTRY_CREATE',
+  PLATFORM_FINANCE_ENTRY_UPDATE: 'PLATFORM_FINANCE_ENTRY_UPDATE',
+  PLATFORM_FINANCE_ENTRY_DELETE: 'PLATFORM_FINANCE_ENTRY_DELETE',
+  PLATFORM_FINANCE_MONTH_PUBLISH: 'PLATFORM_FINANCE_MONTH_PUBLISH',
+  PLATFORM_FINANCE_MONTH_UNPUBLISH: 'PLATFORM_FINANCE_MONTH_UNPUBLISH',
+  PLATFORM_FINANCE_SETTINGS_UPDATE: 'PLATFORM_FINANCE_SETTINGS_UPDATE',
+  // Exportacao CSV do livro-caixa (contem as descriptions privadas): so o mes filtrado e a contagem de linhas.
+  PLATFORM_FINANCE_EXPORT: 'PLATFORM_FINANCE_EXPORT',
 } as const;
 
 export type AuditActionCode = (typeof AuditAction)[keyof typeof AuditAction];
@@ -303,4 +315,7 @@ export const AuditEntity = {
   FEED_COMMENT: 'feed_comment',
   SPONSOR: 'sponsor',
   SPONSOR_CAMPAIGN: 'sponsor_campaign',
+  LEDGER_ENTRY: 'ledger_entry',
+  TRANSPARENCY_MONTH: 'transparency_month',
+  TRANSPARENCY_SETTING: 'transparency_setting',
 } as const;

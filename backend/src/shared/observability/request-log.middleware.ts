@@ -38,9 +38,10 @@ function routePattern(req: Request): string {
 /**
  * Rotas do app/clique dos patrocinadores (docs/CONTRATO_PATROCINADORES.md 2.1 e 4.2: "nunca loga nem guarda IP/UA do
  * clique"; nenhum identificador pessoal em log): a linha sai SEM userId e SEM ip. As de plataforma (/api/platform-...)
- * seguem normais.
+ * seguem normais. Idem a pagina publica de transparencia (docs/CONTRATO_TRANSPARENCIA.md regra 6: nenhum IP/User-Agent
+ * guardado ao servir): GET /api/transparency.
  */
-const ANONYMOUS_LOG_ROUTE = /^\/api\/sponsors\//;
+const ANONYMOUS_LOG_ROUTE = /^\/api\/(sponsors\/|transparency$)/;
 
 export function buildRequestLogLine(req: Request, res: Response, requestId: string, ms: number): RequestLogLine {
   const status = res.statusCode;

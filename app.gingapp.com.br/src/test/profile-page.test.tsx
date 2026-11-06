@@ -182,7 +182,8 @@ describe("Perfil: seções e ações", () => {
       expect(headings, title).toContain(title);
     }
     const hrefs = [...container!.querySelectorAll("a")].map((a) => a.getAttribute("href"));
-    for (const to of ["/jornada", "/ranking", "/frequencia", "/financeiro", "/termos", "/privacidade"]) expect(hrefs).toContain(to);
+    for (const to of ["/jornada", "/ranking", "/frequencia", "/financeiro", "/termos", "/privacidade", "/transparencia"]) expect(hrefs).toContain(to);
+    expect(byTestId("profile-legal")?.textContent).toContain("Transparência: para onde vai o dinheiro");
     expect(byTestId("person-code-value")?.textContent).toBe("GING-7K3Q-9XPM");
     const personal = byTestId("profile-personal")!;
     expect(personal.textContent).toContain("ana@x.com");

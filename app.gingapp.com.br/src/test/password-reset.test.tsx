@@ -200,6 +200,8 @@ describe("Baixar PDF do certificado", () => {
 
     const button = () =>
       [...container!.querySelectorAll("button")].find((b) => b.textContent?.includes("Baixar PDF")) as HTMLButtonElement;
+    // sob carga (gate completo) a lista pode demorar mais que 1 settle: espera o botao existir
+    for (let i = 0; i < 50 && !button(); i++) await settle();
     act(() => button().click());
     await settle();
 

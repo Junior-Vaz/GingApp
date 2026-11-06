@@ -319,6 +319,14 @@ export function HeroCarouselView({
             <DialogDescription className="text-sm leading-relaxed text-foreground/80">
               {info ? sponsorWhyText(info) : null}
             </DialogDescription>
+            <Link
+              to="/transparencia"
+              className="text-sm font-semibold underline"
+              data-testid="sponsor-transparency-link"
+              onClick={() => setInfo((current) => (current ? { ...current, open: false } : current))}
+            >
+              Veja como a plataforma se sustenta
+            </Link>
           </DialogHeader>
         </DialogContent>
       </Dialog>

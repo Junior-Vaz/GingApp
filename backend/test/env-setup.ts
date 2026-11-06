@@ -117,3 +117,6 @@ process.env.RANKING_DAILY_CHECKIN_IP_THROTTLE_LIMIT = '5000';
 process.env.SPONSOR_IMPRESSION_THROTTLE_LIMIT = '1000';
 process.env.SPONSOR_IMPRESSION_IP_THROTTLE_LIMIT = '5000';
 process.env.SPONSOR_CLICK_THROTTLE_LIMIT = '5000';
+// Transparencia (docs/CONTRATO_TRANSPARENCIA.md): GET /transparency 60/min por IP em producao; alto nos e2e
+// (transparency.e2e-spec.ts prova o 429 rebaixando o limite, lido a cada pedido).
+process.env.TRANSPARENCY_THROTTLE_LIMIT = '5000';

@@ -83,7 +83,7 @@ export function LinkRow({
   hint,
   count,
 }: {
-  to: "/jornada" | "/ranking" | "/frequencia" | "/financeiro" | "/termos" | "/privacidade";
+  to: "/jornada" | "/ranking" | "/frequencia" | "/financeiro" | "/termos" | "/privacidade" | "/transparencia";
   icon: LucideIcon;
   label: string;
   hint?: string;
