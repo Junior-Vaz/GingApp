@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as ComecarRouteImport } from './routes/comecar'
 import { Route as EsqueciSenhaRouteImport } from './routes/esqueci-senha'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PrivacidadeRouteImport } from './routes/privacidade'
@@ -43,6 +44,7 @@ import { Route as AppUnidadesRouteImport } from './routes/_app.unidades'
 import { Route as AppCertificadosModelosRouteImport } from './routes/_app.certificados_.modelos'
 import { Route as AppFormulariosFormIdRouteImport } from './routes/_app.formularios_.$formId'
 import { Route as AppTurmasClassIdRouteImport } from './routes/_app.turmas_.$classId'
+import { Route as ComecarAcompanharTokenRouteImport } from './routes/comecar_.acompanhar.$token'
 import { Route as AppCertificadosModelosIdRouteImport } from './routes/_app.certificados_.modelos_.$id'
 import { Route as AppCheckinKindIdRouteImport } from './routes/_app.checkin.$kind.$id'
 
@@ -53,6 +55,11 @@ const IndexRoute = IndexRouteImport.update({
 } as any)
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ComecarRoute = ComecarRouteImport.update({
+  id: '/comecar',
+  path: '/comecar',
   getParentRoute: () => rootRouteImport,
 } as any)
 const EsqueciSenhaRoute = EsqueciSenhaRouteImport.update({
@@ -215,6 +222,11 @@ const AppTurmasClassIdRoute = AppTurmasClassIdRouteImport.update({
   path: '/turmas/$classId',
   getParentRoute: () => AppRoute,
 } as any)
+const ComecarAcompanharTokenRoute = ComecarAcompanharTokenRouteImport.update({
+  id: '/comecar_/acompanhar/$token',
+  path: '/comecar/acompanhar/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppCertificadosModelosIdRoute =
   AppCertificadosModelosIdRouteImport.update({
     id: '/certificados_/modelos_/$id',
@@ -229,6 +241,7 @@ const AppCheckinKindIdRoute = AppCheckinKindIdRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/comecar': typeof ComecarRoute
   '/esqueci-senha': typeof EsqueciSenhaRoute
   '/login': typeof LoginRoute
   '/privacidade': typeof PrivacidadeRoute
@@ -261,11 +274,13 @@ export interface FileRoutesByFullPath {
   '/certificados/modelos': typeof AppCertificadosModelosRoute
   '/formularios/$formId': typeof AppFormulariosFormIdRoute
   '/turmas/$classId': typeof AppTurmasClassIdRoute
+  '/comecar/acompanhar/$token': typeof ComecarAcompanharTokenRoute
   '/certificados/modelos/$id': typeof AppCertificadosModelosIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/comecar': typeof ComecarRoute
   '/esqueci-senha': typeof EsqueciSenhaRoute
   '/login': typeof LoginRoute
   '/privacidade': typeof PrivacidadeRoute
@@ -298,6 +313,7 @@ export interface FileRoutesByTo {
   '/certificados/modelos': typeof AppCertificadosModelosRoute
   '/formularios/$formId': typeof AppFormulariosFormIdRoute
   '/turmas/$classId': typeof AppTurmasClassIdRoute
+  '/comecar/acompanhar/$token': typeof ComecarAcompanharTokenRoute
   '/certificados/modelos/$id': typeof AppCertificadosModelosIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
@@ -305,6 +321,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_app': typeof AppRouteWithChildren
+  '/comecar': typeof ComecarRoute
   '/esqueci-senha': typeof EsqueciSenhaRoute
   '/login': typeof LoginRoute
   '/privacidade': typeof PrivacidadeRoute
@@ -337,6 +354,7 @@ export interface FileRoutesById {
   '/_app/certificados_/modelos': typeof AppCertificadosModelosRoute
   '/_app/formularios_/$formId': typeof AppFormulariosFormIdRoute
   '/_app/turmas_/$classId': typeof AppTurmasClassIdRoute
+  '/comecar_/acompanhar/$token': typeof ComecarAcompanharTokenRoute
   '/_app/certificados_/modelos_/$id': typeof AppCertificadosModelosIdRoute
   '/_app/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
@@ -344,6 +362,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/comecar'
     | '/esqueci-senha'
     | '/login'
     | '/privacidade'
@@ -376,11 +395,13 @@ export interface FileRouteTypes {
     | '/certificados/modelos'
     | '/formularios/$formId'
     | '/turmas/$classId'
+    | '/comecar/acompanhar/$token'
     | '/certificados/modelos/$id'
     | '/checkin/$kind/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/comecar'
     | '/esqueci-senha'
     | '/login'
     | '/privacidade'
@@ -413,12 +434,14 @@ export interface FileRouteTypes {
     | '/certificados/modelos'
     | '/formularios/$formId'
     | '/turmas/$classId'
+    | '/comecar/acompanhar/$token'
     | '/certificados/modelos/$id'
     | '/checkin/$kind/$id'
   id:
     | '__root__'
     | '/'
     | '/_app'
+    | '/comecar'
     | '/esqueci-senha'
     | '/login'
     | '/privacidade'
@@ -451,6 +474,7 @@ export interface FileRouteTypes {
     | '/_app/certificados_/modelos'
     | '/_app/formularios_/$formId'
     | '/_app/turmas_/$classId'
+    | '/comecar_/acompanhar/$token'
     | '/_app/certificados_/modelos_/$id'
     | '/_app/checkin/$kind/$id'
   fileRoutesById: FileRoutesById
@@ -458,11 +482,13 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
+  ComecarRoute: typeof ComecarRoute
   EsqueciSenhaRoute: typeof EsqueciSenhaRoute
   LoginRoute: typeof LoginRoute
   PrivacidadeRoute: typeof PrivacidadeRoute
   RedefinirSenhaRoute: typeof RedefinirSenhaRoute
   TermosRoute: typeof TermosRoute
+  ComecarAcompanharTokenRoute: typeof ComecarAcompanharTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -479,6 +505,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/comecar': {
+      id: '/comecar'
+      path: '/comecar'
+      fullPath: '/comecar'
+      preLoaderRoute: typeof ComecarRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/esqueci-senha': {
@@ -705,6 +738,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTurmasClassIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/comecar_/acompanhar/$token': {
+      id: '/comecar_/acompanhar/$token'
+      path: '/comecar/acompanhar/$token'
+      fullPath: '/comecar/acompanhar/$token'
+      preLoaderRoute: typeof ComecarAcompanharTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/certificados_/modelos_/$id': {
       id: '/_app/certificados_/modelos_/$id'
       path: '/certificados/modelos/$id'
@@ -791,11 +831,13 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
+  ComecarRoute: ComecarRoute,
   EsqueciSenhaRoute: EsqueciSenhaRoute,
   LoginRoute: LoginRoute,
   PrivacidadeRoute: PrivacidadeRoute,
   RedefinirSenhaRoute: RedefinirSenhaRoute,
   TermosRoute: TermosRoute,
+  ComecarAcompanharTokenRoute: ComecarAcompanharTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

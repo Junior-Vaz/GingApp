@@ -176,6 +176,10 @@ services:
       FORMS_SUBMISSIONS_PER_IP_HOUR: "${FORMS_SUBMISSIONS_PER_IP_HOUR:-5}"
       FORMS_SUBMISSIONS_PER_IP_DAY: "${FORMS_SUBMISSIONS_PER_IP_DAY:-20}"
       FORMS_PUBLIC_LEGACY: "${FORMS_PUBLIC_LEGACY:-true}"
+      # Adesao de grupos (docs/CONTRATO_ADESAO_GRUPOS.md): retencao diaria 05:30 dos pedidos publicos (PENDING > 60 dias
+      # expira; decididos antigos sao apagados): dry-run (PADRAO: so log) | true | false. Limites por IP (padroes do
+      # codigo): pedido 5/hora, acompanhamento 30/min. Links do e-mail/status: PAINEL_URL.
+      GROUP_APPLICATIONS_PURGE: "${GROUP_APPLICATIONS_PURGE:-dry-run}"
       # Feed do grupo (docs/EASYPANEL.md secao 27): fotos PRIVADAS dentro do volume persistente gingapp_private_uploads
       # (subpasta feed; nunca em UPLOADS_DIR, o boot falha se ficar la), servidas so por URL assinada (validade em horas).
       # Cotas diarias por usuario: posts e comentarios. FEED_MEDIA_CLEANUP=false desliga a limpeza (15 min + diaria).

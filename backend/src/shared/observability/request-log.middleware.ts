@@ -39,9 +39,11 @@ function routePattern(req: Request): string {
  * Rotas do app/clique dos patrocinadores (docs/CONTRATO_PATROCINADORES.md 2.1 e 4.2: "nunca loga nem guarda IP/UA do
  * clique"; nenhum identificador pessoal em log): a linha sai SEM userId e SEM ip. As de plataforma (/api/platform-...)
  * seguem normais. Idem a pagina publica de transparencia (docs/CONTRATO_TRANSPARENCIA.md regra 6: nenhum IP/User-Agent
- * guardado ao servir): GET /api/transparency.
+ * guardado ao servir): GET /api/transparency. Idem o pedido PUBLICO de adesao de grupo (docs/CONTRATO_ADESAO_GRUPOS.md
+ * regra 4: "nao guardar IP nem User-Agent"): POST /api/public/group-applications e GET .../:token (o token so aparece como
+ * o padrao `:token`, nunca o valor; o corpo, que leva a senha, nunca e logado por este middleware).
  */
-const ANONYMOUS_LOG_ROUTE = /^\/api\/(sponsors\/|transparency$)/;
+const ANONYMOUS_LOG_ROUTE = /^\/api\/(sponsors\/|transparency$|public\/group-applications(\/|$))/;
 
 export function buildRequestLogLine(req: Request, res: Response, requestId: string, ms: number): RequestLogLine {
   const status = res.statusCode;

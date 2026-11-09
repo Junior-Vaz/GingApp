@@ -17,6 +17,7 @@ import { CommunicationsSchedulerService } from './communications-scheduler.servi
 import { BirthdaysModule } from '../interface/http/birthdays/birthdays.module';
 import { BirthdaysCronService } from './birthdays-cron.service';
 import { FeedMediaCleanupCronService } from './feed-media-cleanup-cron.service';
+import { GroupApplicationsRetentionCronService } from './group-applications-retention-cron.service';
 
 /**
  * Jobs agendados. So entra no AppModule (junto com ScheduleModule.forRoot()) quando pelo menos um deles esta ligado
@@ -41,6 +42,8 @@ import { FeedMediaCleanupCronService } from './feed-media-cleanup-cron.service';
     CommunicationsSchedulerService,
     // Feed: fotos pendentes vencidas (24 h) e restos de posts removidos, a cada 15 min (FEED_MEDIA_CLEANUP).
     FeedMediaCleanupCronService,
+    // Pedidos de adesao de grupo: PENDING > 60 dias expira; decididos antigos sao apagados, diario 05:30 (GROUP_APPLICATIONS_PURGE).
+    GroupApplicationsRetentionCronService,
   ],
 })
 export class JobsModule {}

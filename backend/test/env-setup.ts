@@ -120,3 +120,9 @@ process.env.SPONSOR_CLICK_THROTTLE_LIMIT = '5000';
 // Transparencia (docs/CONTRATO_TRANSPARENCIA.md): GET /transparency 60/min por IP em producao; alto nos e2e
 // (transparency.e2e-spec.ts prova o 429 rebaixando o limite, lido a cada pedido).
 process.env.TRANSPARENCY_THROTTLE_LIMIT = '5000';
+// Adesao de grupos (docs/CONTRATO_ADESAO_GRUPOS.md): pedido 5/HORA e status 30/min por IP em producao; altos nos e2e
+// (group-applications.e2e-spec.ts prova os 429 rebaixando os limites, lidos a cada pedido). Sem o job de retencao
+// agendado (o spec chama GroupApplicationsRetentionCronService.run direto, ligando GROUP_APPLICATIONS_PURGE por conta propria).
+process.env.GROUP_APPLICATION_SUBMIT_THROTTLE_LIMIT = '5000';
+process.env.GROUP_APPLICATION_STATUS_THROTTLE_LIMIT = '5000';
+process.env.GROUP_APPLICATIONS_PURGE = 'false';

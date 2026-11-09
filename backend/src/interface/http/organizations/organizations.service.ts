@@ -58,6 +58,32 @@ export type CreatedGroup = Prisma.OrganizationGetPayload<object> & {
   mestre: { id: number; name: string; email: string };
 };
 
+/** Dados do grupo + MESTRE aceitos pelo núcleo de criação (o CreateOrganizationDto já tem este formato; a senha NÃO entra
+ * aqui: vai como hash pronto, ver createGroupWithPasswordHash). Campos opcionais ausentes = não gravados. */
+export interface GroupCreationInput {
+  name: string;
+  slug?: string;
+  document?: string;
+  email?: string;
+  phone?: string;
+  city?: string;
+  state?: string;
+  mestre: {
+    name: string;
+    email: string;
+    phone?: string;
+    /** Aceite dos Termos/Política já feito pelo titular (ex.: no pedido de adesão): versão e quando. */
+    acceptedTerms?: { version: string; at: Date };
+  };
+}
+
+/** Ganchos da transação de criação (ver createGroupWithPasswordHash). */
+export interface GroupCreationHooks {
+  beforeCreate?: (tx: Prisma.TransactionClient) => Promise<void>;
+  afterCreate?: (tx: Prisma.TransactionClient, created: CreatedGroup) => Promise<void>;
+  errors?: { emailTaken?: () => Error; slugTaken?: (slug: string) => Error };
+}
+
 /** Resposta do GET /organizations/:id: a organização (mesmas colunas de uma linha de GET /organizations)
  * + os seus MESTREs sem NENHUM segredo. `id` = id do USUÁRIO (o mesmo de .../members/:userId/reset-password);
  * `status` = status do vínculo (OrganizationUser) — ACTIVE é o que o reset exige. */
@@ -272,15 +298,37 @@ export class OrganizationsService {
    * A senha só existe em memória para gerar o hash; não é logada nem devolvida.
    */
   async createGroup(dto: CreateOrganizationDto): Promise<CreatedGroup> {
-    const email = normalizeEmail(dto.mestre.email);
-
     if (isForbiddenPassword(dto.mestre.password)) {
       throw new BadRequestException('mestre.password não pode ser a senha padrão de desenvolvimento.');
     }
+    // A senha só vira hash DEPOIS das checagens baratas do núcleo (409/503 antes de gastar bcrypt).
+    return this.createGroupWithPasswordHash(dto, () => bcrypt.hash(dto.mestre.password, BCRYPT_ROUNDS));
+  }
+
+  /**
+   * NÚCLEO ÚNICO de criação de grupo (SSOT): usado por createGroup (POST /organizations, senha digitada pelo super admin)
+   * e pela aprovação de um pedido de adesão (docs/CONTRATO_ADESAO_GRUPOS.md regra 6, senha já em hash bcrypt no pedido).
+   * Mesmas garantias de createGroup (ver acima): 409 de e-mail antes de gastar o hash, 503 sem a matriz de permissões,
+   * Organization + User + OrganizationUser(MESTRE) + Matriz + 4 cargos numa ÚNICA transação, retry de slug gerado.
+   *
+   * `passwordHash`: o hash pronto ou uma função que o produz (chamada só depois das checagens). `hooks.beforeCreate` roda
+   * PRIMEIRO dentro da transação (ex.: a aprovação "reserva" o pedido PENDING com um UPDATE condicional — a segunda
+   * aprovação simultânea espera o lock e falha ali, antes de criar qualquer coisa) e `hooks.afterCreate` por último;
+   * uma exceção em qualquer um desfaz tudo. `hooks.errors` troca só o CORPO dos 409 (createGroup usa os textos de sempre).
+   */
+  async createGroupWithPasswordHash(
+    input: GroupCreationInput,
+    passwordHash: string | (() => Promise<string>),
+    hooks: GroupCreationHooks = {},
+  ): Promise<CreatedGroup> {
+    const email = normalizeEmail(input.mestre.email);
+    const emailTaken = hooks.errors?.emailTaken ?? (() => new ConflictException(EMAIL_TAKEN));
+    const slugTaken = hooks.errors?.slugTaken ?? ((s: string) => new ConflictException(`O slug "${s}" já está em uso por outro grupo.`));
 
     // 409 amigável antes de gastar bcrypt. Case-insensitive: contas antigas podem ter sido
     // gravadas com maiúsculas (o login compara o e-mail exatamente como digitado).
-    await this.assertEmailFree(email);
+    const [existing] = await findUserIdsByEmail(this.prisma, email, 1);
+    if (existing !== undefined) throw emailTaken();
 
     const mestrePermissions = await this.prisma.rolePermission.count({ where: { role: OrgRole.MESTRE } });
     if (mestrePermissions === 0) {
@@ -289,29 +337,35 @@ export class OrganizationsService {
       );
     }
 
-    const passwordHash = await bcrypt.hash(dto.mestre.password, BCRYPT_ROUNDS);
-    const explicitSlug = dto.slug?.trim() || undefined;
+    const hash = typeof passwordHash === 'string' ? passwordHash : await passwordHash();
+    const explicitSlug = input.slug?.trim() || undefined;
 
     for (let attempt = 1; attempt <= MAX_SLUG_ATTEMPTS; attempt++) {
-      const slug = explicitSlug ?? (await this.pickFreeSlug(dto.name));
+      const slug = explicitSlug ?? (await this.pickFreeSlug(input.name));
       try {
         const created = await this.prisma.$transaction(async (tx) => {
+          if (hooks.beforeCreate) await hooks.beforeCreate(tx);
           const organization = await tx.organization.create({
             data: {
-              name: dto.name.trim(),
+              name: input.name.trim(),
               slug,
               type: OrganizationType.GROUP,
               status: RecordStatus.ACTIVE,
-              document: dto.document || undefined,
-              email: dto.email ? dto.email.trim().toLowerCase() : undefined,
-              phone: dto.phone || undefined,
+              document: input.document || undefined,
+              email: input.email ? input.email.trim().toLowerCase() : undefined,
+              phone: input.phone || undefined,
+              city: input.city || undefined,
+              state: input.state || undefined,
             },
           });
           const user = await tx.user.create({
             data: {
               email,
-              passwordHash,
-              name: dto.mestre.name.trim(),
+              passwordHash: hash,
+              name: input.mestre.name.trim(),
+              phone: input.mestre.phone || undefined,
+              acceptedTermsVersion: input.mestre.acceptedTerms?.version,
+              acceptedTermsAt: input.mestre.acceptedTerms?.at,
               userType: UserType.MEMBER,
               status: 'ACTIVE',
             },
@@ -326,7 +380,9 @@ export class OrganizationsService {
           });
           // ...e com os 4 cargos padrão (Mestre/Professor/Instrutor/Monitor), que o Mestre renomeia/amplia em Cargos do grupo.
           await ensureDefaultGroupRoles(tx, organization.id);
-          return { ...organization, mestre: user };
+          const group: CreatedGroup = { ...organization, mestre: user };
+          if (hooks.afterCreate) await hooks.afterCreate(tx, group);
+          return group;
         });
         await this.audit.record({
           organizationId: created.id,
@@ -340,19 +396,12 @@ export class OrganizationsService {
         if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
 
         const target = String(error.meta?.target ?? '');
-        if (target.includes('email')) throw new ConflictException(EMAIL_TAKEN);
-        if (explicitSlug) {
-          throw new ConflictException(`O slug "${explicitSlug}" já está em uso por outro grupo.`);
-        }
+        if (target.includes('email')) throw emailTaken();
+        if (explicitSlug) throw slugTaken(explicitSlug);
         // Slug gerado perdeu a corrida para outra criação: escolhe de novo e tenta outra vez.
       }
     }
     throw new ConflictException('Não foi possível gerar um slug livre para este grupo. Informe um slug explícito.');
-  }
-
-  private async assertEmailFree(email: string): Promise<void> {
-    const [existing] = await findUserIdsByEmail(this.prisma, email, 1);
-    if (existing !== undefined) throw new ConflictException(EMAIL_TAKEN);
   }
 
   /** Primeiro slug livre entre `base`, `base-2`, `base-3`... (base = nome em kebab-case sem acento). */

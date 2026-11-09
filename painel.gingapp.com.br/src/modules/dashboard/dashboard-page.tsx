@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/api";
 import { useDashboard } from "@/lib/dashboard";
 import { dayOnly, fmt, formatCurrency } from "@/lib/format";
+import { FirstStepsCard } from "@/modules/dashboard/primeiros-passos";
 
 export function DashboardPage() {
   const { data, isLoading, error, refetch } = useDashboard();
@@ -17,6 +18,9 @@ export function DashboardPage() {
   return (
     <div>
       <PageHeader title="Dashboard" description="Como está o seu grupo agora." />
+
+      {/* Só aparece para o MESTRE e some sozinho quando os 5 passos estão cumpridos. */}
+      <FirstStepsCard />
 
       {error ? (
         <Card className="items-center gap-3 p-8 text-center" role="alert">

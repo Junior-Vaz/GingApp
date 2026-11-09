@@ -85,6 +85,15 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   SPONSOR_CAMPAIGN_ACTIVATE: 'Campanha de patrocínio ativada',
   SPONSOR_CAMPAIGN_PAUSE: 'Campanha de patrocínio pausada',
   SPONSOR_CAMPAIGN_RESUME: 'Campanha de patrocínio retomada',
+  PLATFORM_FINANCE_ENTRY_CREATE: 'Lançamento da plataforma criado',
+  PLATFORM_FINANCE_ENTRY_UPDATE: 'Lançamento da plataforma editado',
+  PLATFORM_FINANCE_ENTRY_DELETE: 'Lançamento da plataforma excluído',
+  PLATFORM_FINANCE_MONTH_PUBLISH: 'Mês da transparência publicado',
+  PLATFORM_FINANCE_MONTH_UNPUBLISH: 'Mês da transparência despublicado',
+  PLATFORM_FINANCE_SETTINGS_UPDATE: 'Configuração da transparência alterada',
+  PLATFORM_FINANCE_EXPORT: 'Livro-caixa da plataforma exportado',
+  GROUP_APPLICATION_APPROVE: 'Pedido de adesão aprovado',
+  GROUP_APPLICATION_REJECT: 'Pedido de adesão não aprovado',
 }
 
 /** Rótulo da ação; códigos novos ainda sem tradução aparecem como vieram. */

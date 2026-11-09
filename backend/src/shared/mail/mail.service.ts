@@ -2,6 +2,8 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { readSmtpConfig } from './mail.config';
 import {
+  renderGroupApplicationApprovedMail,
+  renderGroupApplicationRejectedMail,
   RegistrationNoticeKind,
   renderInviteMail,
   renderPasswordResetMail,
@@ -76,6 +78,16 @@ export class MailService {
     link: string;
   }): Promise<boolean> {
     return this.deliver('registration-notice', input.to, renderRegistrationNoticeMail(input));
+  }
+
+  /** Pedido de adesão APROVADO: só o link do painel (nunca a senha). */
+  sendGroupApplicationApproved(input: { to: string; link: string }): Promise<boolean> {
+    return this.deliver('group-application-approved', input.to, renderGroupApplicationApprovedMail(input));
+  }
+
+  /** Pedido de adesão NÃO aprovado: o motivo escrito pela equipe. */
+  sendGroupApplicationRejected(input: { to: string; reason: string; link: string }): Promise<boolean> {
+    return this.deliver('group-application-rejected', input.to, renderGroupApplicationRejectedMail(input));
   }
 
   private async deliver(template: string, to: string, mail: RenderedMail): Promise<boolean> {

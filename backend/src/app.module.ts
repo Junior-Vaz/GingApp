@@ -66,6 +66,8 @@ import { FeedModule } from './interface/http/feed/feed.module';
 import { isFeedMediaCleanupEnabled } from './jobs/feed-media-cleanup-cron.service';
 import { SponsorsModule } from './interface/http/sponsors/sponsors.module';
 import { TransparencyModule } from './interface/http/transparency/transparency.module';
+import { GroupApplicationsModule } from './interface/http/group-applications/group-applications.module';
+import { groupApplicationsPurgeMode } from './jobs/group-applications-retention-cron.service';
 
 const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
 
@@ -133,12 +135,15 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     // Transparencia da plataforma (docs/CONTRATO_TRANSPARENCIA.md): /platform-finance/* (livro-caixa da equipe da plataforma)
     // e GET /transparency (publico, sem login).
     TransparencyModule,
+    // Adesao de grupos (docs/CONTRATO_ADESAO_GRUPOS.md): /public/group-applications (pedido publico, sem login) e
+    // /platform-group-applications (equipe da plataforma; decidir so super admin). Retencao (GROUP_APPLICATIONS_PURGE) no JobsModule.
+    GroupApplicationsModule,
 
     // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador
     // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.
     // Ginga Rank (RANKING_CRON): recalculo noturno 02:30 + fechamento mensal 03:00 do dia 1, no mesmo agendador.
     // Aulas continuas (LESSONS_CRON): geracao rolante diaria 01:30 (LESSONS_HORIZON_DAYS a frente), no mesmo agendador.
-    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled() || isLessonsCronEnabled() || isTransferCronEnabled() || isPaymentsReconcileCronEnabled() || formsRetentionMode() !== 'off' || isCommSchedulerEnabled() || isBirthdayCronEnabled() || isFeedMediaCleanupEnabled()
+    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled() || isLessonsCronEnabled() || isTransferCronEnabled() || isPaymentsReconcileCronEnabled() || formsRetentionMode() !== 'off' || isCommSchedulerEnabled() || isBirthdayCronEnabled() || isFeedMediaCleanupEnabled() || groupApplicationsPurgeMode() !== 'off'
       ? [ScheduleModule.forRoot(), JobsModule]
       : []),
   ],

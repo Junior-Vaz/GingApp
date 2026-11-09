@@ -122,6 +122,37 @@ export function renderRegistrationNoticeMail(input: {
   };
 }
 
+/**
+ * Decisao do pedido de adesao de grupo (docs/CONTRATO_ADESAO_GRUPOS.md 3). O e-mail do pedido NAO foi verificado (pode ser
+ * de outra pessoa), entao NENHUM texto digitado pelo solicitante entra aqui (nem o nome nem o nome do grupo): saudacao fixa.
+ * Aprovado: so o link do painel (NUNCA a senha: a pessoa entra com a senha que escolheu no pedido). Nao aprovado: o motivo
+ * escrito pela EQUIPE da plataforma (escapado no HTML) e o link para acompanhar/fazer novo pedido.
+ */
+export function renderGroupApplicationApprovedMail(input: { link: string }): RenderedMail {
+  const hello = 'Olá!';
+  const intro = 'Seu grupo foi aprovado pela equipe do GingApp. A conta de administrador do grupo já está pronta.';
+  const how = 'Entre no painel com o e-mail do pedido e a senha que você escolheu ao fazer o pedido. Lá, siga o passo a passo "Primeiros passos".';
+  const footer = 'Se você não fez este pedido, ignore este e-mail ou responda para a equipe do GingApp.';
+  return {
+    subject: 'Seu grupo foi aprovado - GingApp',
+    text: [hello, '', intro, how, '', 'Acesse o painel:', input.link, '', footer].join('\n'),
+    html: layout('Seu grupo foi aprovado', [escapeHtml(hello), escapeHtml(intro), escapeHtml(how)], input.link, 'Entrar no painel', footer),
+  };
+}
+
+export function renderGroupApplicationRejectedMail(input: { reason: string; link: string }): RenderedMail {
+  const hello = 'Olá!';
+  const intro = 'A equipe do GingApp analisou o seu pedido de cadastro de grupo e ele não foi aprovado.';
+  const reason = `Motivo: ${input.reason}`;
+  const again = 'Se quiser, você pode corrigir o que foi apontado e fazer um novo pedido.';
+  const footer = 'Se você não fez este pedido, ignore este e-mail.';
+  return {
+    subject: 'Pedido de cadastro de grupo não aprovado - GingApp',
+    text: [hello, '', intro, reason, again, '', input.link, '', footer].join('\n'),
+    html: layout('Pedido não aprovado', [escapeHtml(hello), escapeHtml(intro), escapeHtml(reason), escapeHtml(again)], input.link, 'Fazer novo pedido', footer),
+  };
+}
+
 export function renderInviteMail(input: {
   name: string;
   groupName: string;

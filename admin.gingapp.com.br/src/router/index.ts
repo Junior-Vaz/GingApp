@@ -68,6 +68,13 @@ export const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, title: 'Grupo' },
   },
   {
+    // Pedidos de cadastro de grupo feitos pelo site: leitura para toda a equipe PLATFORM; aprovar/não aprovar é do super admin (o servidor barra).
+    path: '/pedidos-de-adesao',
+    name: 'group-applications',
+    component: () => import('@/views/GroupApplicationsView.vue'),
+    meta: { requiresAuth: true, platformOnly: true, navLabel: 'Pedidos de adesão' },
+  },
+  {
     path: '/plans',
     name: 'plans',
     component: () => import('@/views/PlansView.vue'),

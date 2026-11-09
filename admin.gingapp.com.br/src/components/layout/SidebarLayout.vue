@@ -6,6 +6,7 @@ import TermsGateModal from '@/components/TermsGateModal.vue'
 import TwoFactorModal from '@/components/TwoFactorModal.vue'
 import { routes } from '@/router'
 import { useAuthStore } from '@/stores/auth'
+import { usePendingApplicationsStore } from '@/stores/pendingApplications'
 import { fetchTwoFactorStatus } from '@/utils/twoFactor'
 
 const route = useRoute()
@@ -37,6 +38,18 @@ onMounted(async () => {
 
 const isPlatformUser = computed(() => authStore.user?.userType === 'PLATFORM')
 
+// Contador de pedidos de adesão pendentes no menu (só equipe da plataforma). Falha na contagem não quebra o menu.
+const pendingApplications = usePendingApplicationsStore()
+onMounted(() => {
+  if (mustChangePassword.value || needsTerms.value || !isPlatformUser.value) return
+  void pendingApplications.refresh()
+})
+
+const APPLICATIONS_PATH = '/pedidos-de-adesao'
+function badgeFor(path: string): number {
+  return path === APPLICATIONS_PATH && pendingApplications.count ? pendingApplications.count : 0
+}
+
 const navItems = computed(() =>
   routes
     .filter((r) => typeof r.path === 'string' && r.meta?.navLabel && (!r.meta.platformOnly || isPlatformUser.value))
@@ -67,14 +80,23 @@ function handleLogout(): void {
           <li v-for="item in navItems" :key="item.path">
             <RouterLink
               :to="item.path"
-              class="block rounded-md px-3 py-2 text-sm font-medium transition-colors"
+              class="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors"
               :class="
                 isActive(item.path)
                   ? 'bg-slate-900 text-white'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
               "
             >
-              {{ item.label }}
+              <span>{{ item.label }}</span>
+              <span
+                v-if="badgeFor(item.path) > 0"
+                class="min-w-[1.25rem] rounded-full bg-amber-500 px-1.5 py-0.5 text-center text-[11px] font-semibold leading-none text-slate-900 tabular-nums"
+                data-testid="pending-applications-badge"
+                :title="`${badgeFor(item.path)} pedido(s) de adesão aguardando decisão`"
+              >
+                {{ badgeFor(item.path) }}
+                <span class="sr-only"> pendentes</span>
+              </span>
             </RouterLink>
           </li>
         </ul>

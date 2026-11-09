@@ -504,6 +504,8 @@ model Organization {
   registrationFiles       RegistrationSubmissionFile[]
   sponsors                Sponsor[]
   sponsorCampaigns        SponsorCampaign[]
+  /// Pedido de adesao que deu origem a este grupo (docs/CONTRATO_ADESAO_GRUPOS.md); null nos criados pelo admin.
+  groupApplication        GroupApplication?
 
   @@index([status])
 }
@@ -2612,4 +2614,62 @@ model TransparencySetting {
   surplusText         String?
   updatedByUserId     Int?
   updatedAt           DateTime @updatedAt
+}
+
+// =============================================================================================================
+// Adesao de grupos (docs/CONTRATO_ADESAO_GRUPOS.md): pedido PUBLICO de cadastro de grupo, aprovado ou rejeitado pela
+// equipe da plataforma (so super admin decide). Nenhuma conta nem grupo existe antes da aprovacao.
+// =============================================================================================================
+
+enum GroupApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+/// Cargo INFORMADO pelo solicitante (so informacao para a equipe: NAO concede nada; quem e aprovado vira OrgRole.MESTRE).
+enum ApplicantRole {
+  MESTRE
+  CONTRAMESTRE
+  PROFESSOR
+  INSTRUTOR
+  MONITOR
+  OUTRO
+}
+
+/// Pedido de adesao. passwordHash = bcrypt da senha escolhida (politica SSOT @IsNewPassword), apagado (null) ao aprovar,
+/// rejeitar, expirar ou purgar; PENDING exige o hash (CHECK). statusTokenHash = sha256 do token de acompanhamento (o
+/// token em claro so vai na resposta do POST). Sem IP nem User-Agent. 1 PENDING por e-mail: indice UNICO PARCIAL em
+/// lower(email) WHERE status = 'PENDING' (so no SQL da migration: o Prisma nao modela indice parcial/funcional).
+/// decidedByUserId sem FK (mesma convencao de LedgerEntry.createdByUserId). rejectionReason VAI para o solicitante;
+/// internalNote e so do admin.
+model GroupApplication {
+  id                Int                    @id @default(autoincrement())
+  status            GroupApplicationStatus @default(PENDING)
+  applicantName     String
+  email             String
+  phone             String?
+  passwordHash      String?
+  claimedRole       ApplicantRole
+  groupName         String
+  city              String
+  state             String
+  estimatedStudents Int?
+  message           String?
+  termsVersion      String
+  termsAcceptedAt   DateTime
+  adultDeclaredAt   DateTime
+  statusTokenHash   String                 @unique
+  decidedAt         DateTime?
+  decidedByUserId   Int?
+  rejectionReason   String?
+  internalNote      String?
+  organizationId    Int?                   @unique
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
 }

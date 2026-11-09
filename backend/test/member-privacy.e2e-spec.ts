@@ -114,6 +114,11 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   // rascunho/arquivado/inexistente = 404 idêntico. As rotas do painel (/api/event-forms/*) exigem events.edit (403 aqui).
   ['/api/public/forms/:slug', 'pública: definição de formulário PUBLICADO (campos, textos, Pix do grupo); nenhuma inscrição/dado de terceiro'],
   ['/api/public/forms/:slug/share', 'pública: HTML Open Graph do formulário publicado (título/descrição/imagem); nenhum dado pessoal'],
+  // Adesão de grupos (docs/CONTRATO_ADESAO_GRUPOS.md 3): acompanhamento do PRÓPRIO pedido por token secreto de 256 bits no
+  // path (só o SHA-256 fica no banco). Devolve só status, nome do grupo, datas, motivo da recusa e o link do login; nunca
+  // e-mail, telefone, nome do solicitante, nota interna nem id. Token mal formado/inexistente = 404 idêntico. As rotas da
+  // equipe (/api/platform-group-applications/*) exigem PLATFORM (403 aqui).
+  ['/api/public/group-applications/:token', 'pública por token secreto do PRÓPRIO pedido de adesão: só status/grupo/datas/motivo/link do login; nenhum dado pessoal'],
 ]);
 
 function toArray(value: unknown): string[] {

@@ -262,6 +262,11 @@ export const AuditAction = {
   PLATFORM_FINANCE_SETTINGS_UPDATE: 'PLATFORM_FINANCE_SETTINGS_UPDATE',
   // Exportacao CSV do livro-caixa (contem as descriptions privadas): so o mes filtrado e a contagem de linhas.
   PLATFORM_FINANCE_EXPORT: 'PLATFORM_FINANCE_EXPORT',
+  // Adesao de grupos (docs/CONTRATO_ADESAO_GRUPOS.md 4): decisao do SUPER ADMIN sobre um pedido publico (entidade
+  // group_application). meta SO com ids e status: NUNCA senha/hash/token, e-mail, nome, motivo ou nota interna (texto livre).
+  // O pedido publico em si (POST /public/group-applications) NAO e auditado (anonimo; sem IP guardado).
+  GROUP_APPLICATION_APPROVE: 'GROUP_APPLICATION_APPROVE',
+  GROUP_APPLICATION_REJECT: 'GROUP_APPLICATION_REJECT',
 } as const;
 
 export type AuditActionCode = (typeof AuditAction)[keyof typeof AuditAction];
@@ -318,4 +323,5 @@ export const AuditEntity = {
   LEDGER_ENTRY: 'ledger_entry',
   TRANSPARENCY_MONTH: 'transparency_month',
   TRANSPARENCY_SETTING: 'transparency_setting',
+  GROUP_APPLICATION: 'group_application',
 } as const;
