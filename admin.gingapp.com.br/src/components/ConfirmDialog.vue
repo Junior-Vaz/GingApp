@@ -63,26 +63,26 @@ function onKeydown(event: KeyboardEvent): void {
 </script>
 
 <template>
-  <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4" @keydown="onKeydown">
+  <div v-if="open" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 px-4" @keydown="onKeydown">
     <div
       ref="dialog"
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
-      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 shadow-xl"
+      class="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-5 shadow-xl sm:p-6"
       data-testid="confirm-dialog"
     >
-      <h2 id="confirm-dialog-title" class="text-lg font-semibold text-slate-900">{{ title }}</h2>
+      <h2 id="confirm-dialog-title" class="text-lg font-extrabold text-slate-900">{{ title }}</h2>
       <div class="mt-3 space-y-3 text-sm text-slate-700">
         <slot />
       </div>
-      <p v-if="error" role="alert" class="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700" data-testid="confirm-error">{{ error }}</p>
-      <div class="mt-5 flex justify-end gap-2">
+      <p v-if="error" role="alert" class="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800" data-testid="confirm-error">{{ error }}</p>
+      <div class="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <button
           type="button"
           data-cancel
           :disabled="busy"
-          class="rounded-md px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+          class="btn btn-ghost"
           @click="emit('cancel')"
         >
           {{ cancelLabel }}
@@ -91,8 +91,8 @@ function onKeydown(event: KeyboardEvent): void {
           type="button"
           data-testid="confirm-ok"
           :disabled="busy || confirmDisabled"
-          class="rounded-md px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-          :class="danger ? 'bg-red-700 hover:bg-red-800' : 'bg-slate-900 hover:bg-slate-800'"
+          class="btn"
+          :class="danger ? 'btn-danger' : 'btn-primary'"
           @click="emit('confirm')"
         >
           {{ busy ? 'Aguarde…' : confirmLabel }}

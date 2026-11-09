@@ -26,49 +26,117 @@ export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 
 // ---------------------------------------------------------------- status e cargo
 
-export type GroupApplicationStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
+/**
+ * `UNVERIFIED` = pedido criado, e-mail do solicitante ainda não confirmado (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md §1).
+ * Só vira `PENDING` quando ele confirma; vence em 3 dias. Não conta no contador de pendentes e não pode ser aprovado.
+ */
+export type GroupApplicationStatus = 'UNVERIFIED' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED'
+
+/** Situação da confirmação do e-mail: `SKIPPED` = envio de e-mails desligado no servidor (nunca confirmado). */
+export type EmailVerification = 'VERIFIED' | 'PENDING' | 'SKIPPED'
 
 export type ApplicantRole = 'MESTRE' | 'CONTRAMESTRE' | 'PROFESSOR' | 'INSTRUTOR' | 'MONITOR' | 'OUTRO'
+
+/** Mesmos tons do `StatusChip` (components/ui). */
+export type StatusTone = 'success' | 'warning' | 'danger' | 'info' | 'neutral'
 
 export interface StatusMeta {
   label: string
   /** Aba/filtro da lista (plural). */
   tabLabel: string
   hint: string
-  classes: string
+  tone: StatusTone
 }
 
 export const STATUS_META: Record<GroupApplicationStatus, StatusMeta> = {
+  UNVERIFIED: {
+    label: 'Aguardando e-mail',
+    tabLabel: 'Aguardando e-mail',
+    hint: 'O solicitante ainda não confirmou o e-mail. Se não confirmar em 3 dias, o pedido expira.',
+    tone: 'info',
+  },
   PENDING: {
     label: 'Pendente',
     tabLabel: 'Pendentes',
     hint: 'Aguardando a decisão da equipe.',
-    classes: 'bg-amber-100 text-amber-900 ring-amber-300',
+    tone: 'warning',
   },
   APPROVED: {
     label: 'Aprovado',
     tabLabel: 'Aprovados',
     hint: 'O grupo e a conta do administrador foram criados.',
-    classes: 'bg-emerald-100 text-emerald-900 ring-emerald-300',
+    tone: 'success',
   },
   REJECTED: {
     label: 'Não aprovado',
     tabLabel: 'Não aprovados',
     hint: 'A equipe não aprovou este pedido; o motivo foi mostrado ao solicitante.',
-    classes: 'bg-red-100 text-red-900 ring-red-300',
+    tone: 'danger',
   },
   EXPIRED: {
     label: 'Expirado',
     tabLabel: 'Expirados',
-    hint: 'Ficou mais de 60 dias sem decisão e foi encerrado automaticamente.',
-    classes: 'bg-slate-100 text-slate-700 ring-slate-300',
+    hint: 'Ficou sem confirmação do e-mail (3 dias) ou sem decisão (60 dias) e foi encerrado automaticamente.',
+    tone: 'neutral',
   },
 }
 
-/** Abas da tela, na ordem do contrato (Pendentes é a padrão). */
+/** Abas da tela: Pendentes é a padrão; "Aguardando e-mail" fica logo depois dela. */
 export const STATUS_TABS: ReadonlyArray<{ key: GroupApplicationStatus; label: string }> = (
-  ['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED'] as const
+  ['PENDING', 'UNVERIFIED', 'APPROVED', 'REJECTED', 'EXPIRED'] as const
 ).map((key) => ({ key, label: STATUS_META[key].tabLabel }))
+
+// ---------------------------------------------------------------- confirmação do e-mail (contrato do e-mail §1)
+
+export interface VerificationMeta {
+  label: string
+  hint: string
+  tone: StatusTone
+}
+
+export const EMAIL_VERIFICATION_META: Record<EmailVerification, VerificationMeta> = {
+  VERIFIED: { label: 'E-mail confirmado', hint: 'O solicitante abriu o link enviado para o e-mail dele.', tone: 'success' },
+  SKIPPED: {
+    label: 'E-mail não confirmado (envio desligado)',
+    hint: 'O envio de e-mails estava desligado quando o pedido foi feito, então não houve confirmação. Confira o pedido com mais cuidado.',
+    tone: 'warning',
+  },
+  PENDING: { label: 'Aguardando confirmação', hint: 'O solicitante ainda não abriu o link de confirmação.', tone: 'info' },
+}
+
+/** Selo de verificação do e-mail; valor ausente/desconhecido (servidor antigo) = sem selo. */
+export function emailVerificationMeta(value: string | null | undefined): VerificationMeta | null {
+  return value && Object.hasOwn(EMAIL_VERIFICATION_META, value) ? EMAIL_VERIFICATION_META[value as EmailVerification] : null
+}
+
+/** Dica do botão Aprovar desabilitado quando o e-mail ainda não foi confirmado. */
+export const APPROVE_BLOCKED_HINT = 'Disponível depois que o solicitante confirmar o e-mail.'
+
+/** Aviso do detalhe: o e-mail confirmado só prova que o solicitante recebe mensagens nele, não que o grupo existe. */
+export const INSTAGRAM_CHECK_HINT = 'Confira o perfil antes de aprovar: o e-mail só prova que o solicitante recebe mensagens nele.'
+
+/** Pedido ainda sem e-mail confirmado: o servidor recusa a aprovação (409 EMAIL_NOT_VERIFIED). */
+export function isAwaitingEmail(app: Pick<GroupApplication, 'status'>): boolean {
+  return app.status === 'UNVERIFIED'
+}
+
+// ---------------------------------------------------------------- Instagram (contrato do e-mail §7)
+
+/** Handle já normalizado pelo servidor: minúsculas, números, ponto e sublinhado, 1..30. */
+export const INSTAGRAM_HANDLE_PATTERN = /^[a-z0-9._]{1,30}$/
+
+/** Handle válido para virar link: o padrão do contrato, sem `..` seguidos e sem terminar em `.` (regras do servidor). */
+export function isInstagramHandle(value: unknown): value is string {
+  return typeof value === 'string' && INSTAGRAM_HANDLE_PATTERN.test(value) && !value.includes('..') && !value.endsWith('.')
+}
+
+/**
+ * Link do perfil montado SÓ a partir do handle validado aqui no cliente (o texto do servidor nunca vira `href`).
+ * Qualquer outra coisa (vazio, `@x`, URL, `javascript:`, espaços) devolve `null`: a tela mostra o texto, sem link.
+ */
+export function instagramUrl(handle: unknown): string | null {
+  return isInstagramHandle(handle) ? `https://www.instagram.com/${handle}/` : null
+}
 
 export function statusLabel(status: string): string {
   return STATUS_META[status as GroupApplicationStatus]?.label ?? status
@@ -105,6 +173,11 @@ export interface GroupApplication {
   estimatedStudents: number | null
   /** Texto livre do solicitante (até 500). */
   message: string | null
+  /** Confirmação do e-mail do solicitante (aprovar exige `VERIFIED` ou `SKIPPED`). */
+  emailVerification: EmailVerification
+  emailVerifiedAt: string | null
+  /** Handle do Instagram já normalizado pelo servidor (sem `@`), ou null. SÓ a equipe vê; nunca é URL digitada. */
+  instagram: string | null
   createdAt: string
   decidedAt: string | null
   decidedBy: { id: number; name: string } | null
@@ -237,7 +310,11 @@ function isSlugConflict(error: ApiError): boolean {
 export function applicationErrorText(error: unknown, context: DecisionContext, slugSent = false): string {
   if (!(error instanceof ApiError)) return FALLBACKS[context]
   // O servidor pode mandar o código em `code` ou repeti-lo em `message`.
-  const code = error.code ?? (error.message === 'NOT_PENDING' || error.message === 'EMAIL_TAKEN' ? error.message : undefined)
+  const code =
+    error.code ?? (error.message === 'NOT_PENDING' || error.message === 'EMAIL_TAKEN' || error.message === 'EMAIL_NOT_VERIFIED' ? error.message : undefined)
+  if (code === 'EMAIL_NOT_VERIFIED') {
+    return 'O solicitante ainda não confirmou o e-mail, então o pedido não pode ser aprovado. Aguarde a confirmação (o link vale 24 horas); se ele não confirmar em 3 dias, o pedido expira sozinho.'
+  }
   if (code === 'NOT_PENDING') {
     return 'Este pedido já foi decidido (talvez por outra pessoa da equipe) ou expirou. Atualize a lista para ver a situação atual.'
   }

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PaginationBar from '@/components/PaginationBar.vue'
@@ -331,20 +332,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Equipe</h1>
-        <p class="mt-1 text-sm text-slate-500">Equipe interna da plataforma GingApp.</p>
-      </div>
-      <button
-        v-if="canManage"
-        type="button"
-        class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
-        @click="openCreate"
-      >
+    <PageHeader title="Equipe" description="Equipe interna da plataforma GingApp.">
+      <button v-if="canManage" type="button" class="btn btn-primary" @click="openCreate">
         + Novo usuário
       </button>
-    </div>
+    </PageHeader>
 
     <p
       v-if="!canManage"

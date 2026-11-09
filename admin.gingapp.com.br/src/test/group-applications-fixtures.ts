@@ -1,6 +1,9 @@
 import type { ApproveResult, GroupApplication } from '@/utils/groupApplications'
 
-/** Formato EXATO do contrato (docs/CONTRATO_ADESAO_GRUPOS.md §4). Nunca tem senha nem token. */
+/**
+ * Formato EXATO do contrato (docs/CONTRATO_ADESAO_GRUPOS.md §4 + CONTRATO_ADESAO_GRUPOS_EMAIL.md §1 e §7).
+ * Nunca tem senha nem token. Padrão: PENDING com e-mail confirmado e Instagram já normalizado (sem @).
+ */
 export function application(overrides: Partial<GroupApplication> = {}): GroupApplication {
   return {
     id: 5,
@@ -15,6 +18,9 @@ export function application(overrides: Partial<GroupApplication> = {}): GroupApp
     state: 'GO',
     estimatedStudents: 40,
     message: 'Somos um núcleo com 12 anos de roda de rua.',
+    emailVerification: 'VERIFIED',
+    emailVerifiedAt: '2026-11-07T12:30:00.000Z',
+    instagram: 'nucleo.raizes',
     createdAt: '2026-11-07T12:00:00.000Z',
     decidedAt: null,
     decidedBy: null,
@@ -23,6 +29,29 @@ export function application(overrides: Partial<GroupApplication> = {}): GroupApp
     organization: null,
     ...overrides,
   }
+}
+
+/** Aguardando a confirmação do e-mail (aba "Aguardando e-mail"): não pode ser aprovado. */
+export function unverified(overrides: Partial<GroupApplication> = {}): GroupApplication {
+  return application({
+    id: 8,
+    status: 'UNVERIFIED',
+    groupName: 'Grupo Sem Confirmar',
+    emailVerification: 'PENDING',
+    emailVerifiedAt: null,
+    ...overrides,
+  })
+}
+
+/** Nasceu PENDING com o envio de e-mails desligado: nunca teve confirmação (selo de aviso). */
+export function skipped(overrides: Partial<GroupApplication> = {}): GroupApplication {
+  return application({
+    id: 9,
+    groupName: 'Grupo Sem Envio',
+    emailVerification: 'SKIPPED',
+    emailVerifiedAt: null,
+    ...overrides,
+  })
 }
 
 export function approved(overrides: Partial<GroupApplication> = {}): GroupApplication {

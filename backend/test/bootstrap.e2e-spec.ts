@@ -187,6 +187,9 @@ describe('Bootstrap de produção (e2e, bancos isolados)', () => {
     const res = boot(urls.A, withAdmin());
     mustSucceed('bootstrap A', res);
     assert.match(res.output, /Super admin PLATFORM criado: root\.ops@example\.test/);
+    // diagnóstico (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 3): só o tamanho da senha; sem "$" = sem o aviso
+    assert.match(res.output, /senha recebida em SUPER_ADMIN_PASSWORD: 17 caractere\(s\) \/ 17 byte\(s\)/);
+    assert.doesNotMatch(res.output, /contém o caractere "\$"/);
 
     const a = await matrixOf(dbA);
     const b = await matrixOf(dbB);
@@ -259,6 +262,9 @@ describe('Bootstrap de produção (e2e, bancos isolados)', () => {
     const res = boot(urls.A, withAdmin());
     mustSucceed('bootstrap A (2x)', res);
     assert.match(res.output, /já existe .* NADA alterado/);
+    // diagnóstico: a MESMA senha da env confere com a conta existente (bcrypt.compare; só o resultado no log)
+    assert.match(res.output, /a senha de SUPER_ADMIN_PASSWORD CONFERE com a senha atual de root\.ops@example\.test/);
+    assert.doesNotMatch(res.output, /NÃO CONFERE/);
     assert.match(res.output, new RegExp(`0 criada\\(s\\), ${oracleRows.length} já existia\\(m\\)`));
     assert.match(res.output, /Geografia: 0 estado\(s\) e 0 cidade\(s\) criado\(s\)/);
 
@@ -273,6 +279,12 @@ describe('Bootstrap de produção (e2e, bancos isolados)', () => {
     const res = boot(urls.A, withAdmin(otherPassword, SUPER_EMAIL.toUpperCase()));
     mustSucceed('bootstrap e-mail existente', res);
     assert.match(res.output, /já existe/);
+    // diagnóstico: a senha NOVA da env NÃO vale para a conta existente, e o log diz o que fazer
+    assert.match(
+      res.output,
+      /AVISO: a senha de SUPER_ADMIN_PASSWORD NÃO CONFERE com a senha atual de root\.ops@example\.test: o bootstrap não altera senha existente; use Equipe > Redefinir senha no admin/,
+    );
+    assert.doesNotMatch(res.output, /CONFERE com a senha atual de root\.ops@example\.test\./);
 
     const userAfter = await dbA.user.findUniqueOrThrow({ where: { email: SUPER_EMAIL } });
     assert.deepEqual(userAfter, userBefore, 'usuário existente foi alterado');
@@ -401,6 +413,28 @@ describe('Bootstrap de produção (e2e, bancos isolados)', () => {
       'Goiânia do seed não pode ser recriada',
     );
     assert.equal(await dbB.organization.count(), orgsBefore);
+  });
+
+  it('senha com "$": AVISO da interpolação do Compose/Easypanel (também quando recusada), com tamanho em caracteres/bytes e sem a senha', async () => {
+    // recusada (curta) em C: o diagnóstico sai ANTES da validação e nada é gravado
+    const refused = boot(urls.C, withAdmin('Ab$1xyz'));
+    assert.notEqual(refused.status, 0);
+    assert.match(refused.output, /senha recebida em SUPER_ADMIN_PASSWORD: 7 caractere\(s\) \/ 7 byte\(s\)/);
+    assert.match(refused.output, /AVISO: SUPER_ADMIN_PASSWORD contém o caractere "\$".*Docker Compose\/Easypanel.*"\$\$"/);
+    assert.match(refused.output, /pelo menos 12 caracteres/);
+    assert.equal(await dbC.user.count(), 0);
+
+    // aceita (com multibyte: caracteres ≠ bytes) em A: cria o admin e avisa; depois o usuário é removido
+    const email = 'dollar.ops@example.test';
+    const created = boot(urls.A, withAdmin('Cifr$o-Fórte#2026', email));
+    mustSucceed('bootstrap com "$"', created);
+    assert.match(created.output, /senha recebida em SUPER_ADMIN_PASSWORD: 17 caractere\(s\) \/ 18 byte\(s\)/);
+    assert.match(created.output, /AVISO: SUPER_ADMIN_PASSWORD contém o caractere "\$"/);
+    assert.match(created.output, /Super admin PLATFORM criado: dollar\.ops@example\.test/);
+    const user = await dbA.user.findUniqueOrThrow({ where: { email } });
+    assert.equal(await bcrypt.compare('Cifr$o-Fórte#2026', user.passwordHash), true, 'o "$" chega intacto quando a env não passa pelo compose');
+    assert.ok(!created.output.includes(user.passwordHash), 'hash na saída');
+    await dbA.user.delete({ where: { id: user.id } });
   });
 
   it('nenhuma senha (nem hash) aparece em NENHUMA saída do bootstrap', async () => {

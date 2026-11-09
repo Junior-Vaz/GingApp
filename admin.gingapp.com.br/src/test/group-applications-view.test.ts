@@ -1,8 +1,8 @@
 import type { VueWrapper } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AuditView from '@/views/AuditView.vue'
 import GroupApplicationsView from '@/views/GroupApplicationsView.vue'
-import { application, approved, approveResult, rejected } from './group-applications-fixtures'
+import { application, approved, approveResult, rejected, skipped, unverified } from './group-applications-fixtures'
 import { flushPromises, makeUser, mockFetch, mountView, type Call, type MockReply } from './helpers'
 import { listReply } from './sponsors-fixtures'
 
@@ -30,6 +30,7 @@ function handler(over: Overrides = {}) {
     PENDING: [application()],
     APPROVED: [approved()],
     REJECTED: [rejected()],
+    UNVERIFIED: [],
     EXPIRED: [],
     ...over.byStatus,
   }
@@ -42,9 +43,13 @@ function handler(over: Overrides = {}) {
   }
 }
 
+// Desmonta tudo no fim de cada teste: o contador agora tem timer e listener de visibilidade (stopPolling no unmount).
+const mountedWrappers: VueWrapper[] = []
+
 async function mountApplications(over: Overrides = {}, user = makeUser()) {
   const { calls } = mockFetch(handler(over))
   const mounted = await mountView(GroupApplicationsView, user)
+  mountedWrappers.push(mounted.wrapper)
   return { ...mounted, calls }
 }
 
@@ -53,13 +58,16 @@ async function click(wrapper: VueWrapper, css: string) {
   await flushPromises()
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  while (mountedWrappers.length) mountedWrappers.pop()!.unmount()
+  vi.unstubAllGlobals()
+})
 
 describe('GroupApplicationsView — lista', () => {
   it('abre em Pendentes (status=PENDING na query) e mostra data, grupo, cidade/UF, solicitante, cargo e status', async () => {
     const { wrapper, calls } = await mountApplications()
     expect(wrapper.get('h1').text()).toBe('Pedidos de adesão')
-    expect(wrapper.findAll('[role="tab"]').map((b) => norm(b.text()))).toEqual(['Pendentes(1)', 'Aprovados', 'Não aprovados', 'Expirados'])
+    expect(wrapper.findAll('[role="tab"]').map((b) => norm(b.text()))).toEqual(['Pendentes(1)', 'Aguardando e-mail', 'Aprovados', 'Não aprovados', 'Expirados'])
     expect(wrapper.get('[data-testid="tab-PENDING"]').attributes('aria-selected')).toBe('true')
     expect(Object.fromEntries(listCalls(calls)[0].query)).toEqual({ status: 'PENDING', limit: '20', offset: '0' })
 
@@ -348,6 +356,397 @@ describe('GroupApplicationsView — não aprovar', () => {
     await wrapper.get('[data-testid="reject-reason"]').setValue('Dados insuficientes')
     await click(wrapper, '[data-testid="confirm-ok"]')
     expect(t(wrapper, 'confirm-error')).toBe('Só o super admin pode aprovar ou não aprovar pedidos.')
+  })
+})
+
+const VERIFIED_LABEL = 'E-mail confirmado'
+const SKIPPED_LABEL = 'E-mail não confirmado (envio desligado)'
+const WAITING_LABEL = 'Aguardando confirmação'
+const BLOCKED_HINT = 'Disponível depois que o solicitante confirmar o e-mail.'
+const row = (w: VueWrapper, id: number) => w.get(`[data-testid="application-${id}"]`)
+const badge = (w: VueWrapper, id: number) => row(w, id).get('[data-testid="email-verification"]')
+
+describe('GroupApplicationsView — aba "Aguardando e-mail" (UNVERIFIED)', () => {
+  it('a aba existe logo depois de Pendentes, filtra por status=UNVERIFIED e o pedido não aparece em Pendentes', async () => {
+    const { wrapper, calls } = await mountApplications({ byStatus: { UNVERIFIED: [unverified()] } })
+    expect(has(wrapper, 'application-8')).toBe(false) // Pendentes: só o confirmado
+    expect(wrapper.findAll('[role="tab"]').map((b) => b.attributes('data-testid'))).toEqual([
+      'tab-PENDING',
+      'tab-UNVERIFIED',
+      'tab-APPROVED',
+      'tab-REJECTED',
+      'tab-EXPIRED',
+    ])
+
+    await click(wrapper, '[data-testid="tab-UNVERIFIED"]')
+    expect(listCalls(calls).at(-1)!.query.get('status')).toBe('UNVERIFIED')
+    expect(wrapper.get('[data-testid="tab-UNVERIFIED"]').attributes('aria-selected')).toBe('true')
+    expect(has(wrapper, 'application-5')).toBe(false)
+    const text = norm(t(wrapper, 'application-8'))
+    expect(text).toContain('Grupo Sem Confirmar')
+    expect(text).toContain('Aguardando e-mail') // chip da situação
+    expect(badge(wrapper, 8).text()).toBe(WAITING_LABEL)
+    // O contador do menu/aba Pendentes não conta os não confirmados (o servidor já exclui): continua (1).
+    expect(t(wrapper, 'tab-pending-count')).toBe('(1)')
+    expect(wrapper.get('[data-testid="tab-UNVERIFIED"]').text()).toBe('Aguardando e-mail')
+  })
+
+  it('aba vazia tem texto próprio; setas do teclado percorrem as 5 abas', async () => {
+    const { wrapper } = await mountApplications()
+    await click(wrapper, '[data-testid="tab-UNVERIFIED"]')
+    expect(t(wrapper, 'empty')).toBe('Nenhum pedido aguardando a confirmação do e-mail.')
+
+    await wrapper.get('[data-testid="applications-tabs"]').trigger('keydown', { key: 'ArrowLeft' })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="tab-PENDING"]').attributes('aria-selected')).toBe('true')
+    await wrapper.get('[data-testid="applications-tabs"]').trigger('keydown', { key: 'ArrowRight' })
+    await wrapper.get('[data-testid="applications-tabs"]').trigger('keydown', { key: 'ArrowRight' })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="tab-APPROVED"]').attributes('aria-selected')).toBe('true')
+  })
+})
+
+describe('GroupApplicationsView — selo de verificação do e-mail', () => {
+  it('tabela: confirmado (verde), envio desligado (aviso, âmbar) e aguardando (informativo)', async () => {
+    const { wrapper } = await mountApplications({ byStatus: { PENDING: [application(), skipped()], UNVERIFIED: [unverified()] } })
+    expect(badge(wrapper, 5).text()).toBe(VERIFIED_LABEL)
+    expect(badge(wrapper, 5).classes()).toContain('chip-success')
+    expect(badge(wrapper, 9).text()).toBe(SKIPPED_LABEL)
+    expect(badge(wrapper, 9).classes()).toContain('chip-warning')
+    expect(badge(wrapper, 9).attributes('data-verification')).toBe('SKIPPED')
+
+    await click(wrapper, '[data-testid="tab-UNVERIFIED"]')
+    expect(badge(wrapper, 8).text()).toBe(WAITING_LABEL)
+    expect(badge(wrapper, 8).classes()).toContain('chip-info')
+  })
+
+  it('detalhe: selo ao lado do e-mail; "em <data>" só para confirmado', async () => {
+    const { wrapper } = await mountApplications({ byStatus: { PENDING: [application(), skipped()] } })
+    await click(wrapper, '[data-testid="application-5"] [data-action="open"]')
+    const dialog = wrapper.get('[data-testid="application-detail"]')
+    expect(dialog.get('[data-testid="email-verification"]').text()).toBe(VERIFIED_LABEL)
+    expect(norm(t(wrapper, 'detail-email-verified-at'))).toMatch(/^em 0?[78]\/11\/2026/)
+    await click(wrapper, '[data-testid="detail-close"]')
+
+    await click(wrapper, '[data-testid="application-9"] [data-action="open"]')
+    expect(wrapper.get('[data-testid="application-detail"] [data-testid="email-verification"]').text()).toBe(SKIPPED_LABEL)
+    expect(has(wrapper, 'detail-email-verified-at')).toBe(false)
+  })
+
+  it('resposta de servidor antigo (sem os campos novos) não quebra: sem selo e Instagram "não informado"', async () => {
+    const { emailVerification, emailVerifiedAt, instagram, ...legacy } = application()
+    void emailVerification, void emailVerifiedAt, void instagram
+    const { wrapper } = await mountApplications({ byStatus: { PENDING: [legacy] } })
+    expect(row(wrapper, 5).find('[data-testid="email-verification"]').exists()).toBe(false)
+    expect(row(wrapper, 5).get('[data-testid="instagram-empty"]').text()).toBe('não informado')
+    expect(row(wrapper, 5).find('[data-action="approve"]').exists()).toBe(true)
+  })
+})
+
+describe('GroupApplicationsView — Aprovar bloqueado para UNVERIFIED e erro 409 EMAIL_NOT_VERIFIED', () => {
+  async function mountUnverified(user = makeUser()) {
+    const mounted = await mountApplications({ byStatus: { UNVERIFIED: [unverified()] } }, user)
+    await click(mounted.wrapper, '[data-testid="tab-UNVERIFIED"]')
+    return mounted
+  }
+
+  it('na tabela: Aprovar desabilitado com a dica; clicar não abre diálogo nem chama a API; sem "Não aprovar"', async () => {
+    const { wrapper, calls } = await mountUnverified()
+    const approve = row(wrapper, 8).get('[data-action="approve"]')
+    expect(approve.attributes('disabled')).toBeDefined()
+    expect(approve.attributes('aria-disabled')).toBe('true')
+    expect(approve.attributes('title')).toBe(BLOCKED_HINT)
+    expect(approve.attributes('aria-label')).toContain('indisponível até o solicitante confirmar o e-mail')
+    expect(row(wrapper, 8).find('[data-action="reject"]').exists()).toBe(false)
+
+    await approve.trigger('click')
+    await flushPromises()
+    expect(has(wrapper, 'confirm-dialog')).toBe(false)
+    expect(nonGet(calls)).toHaveLength(0)
+  })
+
+  it('no detalhe: Aprovar desabilitado, dica visível e ligada ao botão por aria-describedby', async () => {
+    const { wrapper, calls } = await mountUnverified()
+    await click(wrapper, '[data-testid="application-8"] [data-action="open"]')
+    const approve = wrapper.get('[data-testid="detail-approve"]')
+    expect(approve.attributes('disabled')).toBeDefined()
+    expect(t(wrapper, 'detail-approve-blocked')).toBe(BLOCKED_HINT)
+    expect(approve.attributes('aria-describedby')).toBe(wrapper.get('[data-testid="detail-approve-blocked"]').attributes('id'))
+    expect(has(wrapper, 'detail-reject')).toBe(false)
+    expect(has(wrapper, 'detail-decision')).toBe(false) // ainda sem decisão: nada de "Decidido em —"
+
+    await approve.trigger('click')
+    await flushPromises()
+    expect(has(wrapper, 'confirm-dialog')).toBe(false)
+    expect(has(wrapper, 'application-detail')).toBe(true)
+    expect(nonGet(calls)).toHaveLength(0)
+  })
+
+  it('PLATFORM comum (não super): nenhum botão de decisão no pedido não confirmado', async () => {
+    const { wrapper, calls } = await mountUnverified(nonSuper())
+    expect(row(wrapper, 8).find('[data-action="approve"]').exists()).toBe(false)
+    await click(wrapper, '[data-testid="application-8"] [data-action="open"]')
+    expect(has(wrapper, 'detail-approve')).toBe(false)
+    expect(has(wrapper, 'detail-approve-blocked')).toBe(false)
+    expect(nonGet(calls)).toHaveLength(0)
+  })
+
+  it('409 EMAIL_NOT_VERIFIED (corrida: o servidor ainda o vê sem confirmação): mensagem em português, diálogo aberto, lista recarregada', async () => {
+    const { wrapper, calls } = await mountApplications({
+      approve: () => ({ status: 409, body: { statusCode: 409, code: 'EMAIL_NOT_VERIFIED', message: 'EMAIL_NOT_VERIFIED' } }),
+    })
+    await click(wrapper, '[data-testid="application-5"] [data-action="approve"]')
+    const listsBefore = listCalls(calls).length
+    await click(wrapper, '[data-testid="confirm-ok"]')
+    expect(has(wrapper, 'confirm-dialog')).toBe(true)
+    const message = t(wrapper, 'confirm-error')
+    expect(message).toMatch(/ainda não confirmou o e-mail/)
+    expect(message).not.toMatch(/EMAIL_NOT_VERIFIED|NOT_PENDING|EMAIL_TAKEN/)
+    expect(nonGet(calls)).toHaveLength(1)
+    expect(listCalls(calls).length).toBe(listsBefore + 1)
+  })
+})
+
+describe('GroupApplicationsView — Instagram', () => {
+  it('tabela: link montado só do handle, em nova aba com rel="noopener noreferrer"', async () => {
+    const { wrapper } = await mountApplications()
+    expect(wrapper.findAll('thead th').map((th) => th.text())).toContain('Instagram')
+    const link = row(wrapper, 5).get('[data-testid="instagram-link"]')
+    expect(link.attributes('href')).toBe('https://www.instagram.com/nucleo.raizes/')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toBe('noopener noreferrer')
+    expect(link.text()).toBe('@nucleo.raizes')
+  })
+
+  it('vazio (null) mostra "não informado", sem link — na tabela, no detalhe e no diálogo de aprovar', async () => {
+    const { wrapper } = await mountApplications({ byStatus: { PENDING: [application({ instagram: null })] } })
+    expect(row(wrapper, 5).find('a').exists()).toBe(false)
+    expect(row(wrapper, 5).get('[data-testid="instagram-empty"]').text()).toBe('não informado')
+
+    await click(wrapper, '[data-testid="application-5"] [data-action="open"]')
+    expect(t(wrapper, 'detail-instagram')).toBe('não informado')
+    await click(wrapper, '[data-testid="detail-approve"]')
+    expect(norm(t(wrapper, 'approve-instagram'))).toContain('não informado')
+    expect(wrapper.find('[data-testid="approve-instagram"] a').exists()).toBe(false)
+  })
+
+  const INVALID = [
+    'javascript:alert(1)',
+    'JAVASCRIPT:alert(document.cookie)',
+    'javascript:alert(1)//x',
+    '@meugrupo',
+    'https://www.instagram.com/meugrupo/',
+    'instagram.com/meugrupo',
+    '//evil.example/x',
+    'meu grupo',
+    'MeuGrupo',
+    'a'.repeat(31),
+    '../../evil',
+    'a..b',
+    'meugrupo.',
+    'grupo/perfil',
+    'grupo?x=1',
+    '"><img src=x onerror=alert(1)>',
+    '<script>alert(1)</script>',
+    'é-acentuado',
+  ]
+
+  it.each(INVALID)('handle inválido %j NUNCA vira link (aparece só como texto, escapado), em tabela, detalhe e diálogo de aprovar', async (bad) => {
+    const { wrapper } = await mountApplications({ byStatus: { PENDING: [application({ instagram: bad })] } })
+    const cell = row(wrapper, 5).get('[data-testid="application-instagram"]')
+    expect(cell.find('a').exists()).toBe(false)
+    expect(cell.get('[data-testid="instagram-text"]').text()).toBe(bad)
+    expect(cell.find('img, script').exists()).toBe(false)
+
+    await click(wrapper, '[data-testid="application-5"] [data-action="open"]')
+    expect(wrapper.get('[data-testid="detail-instagram"]').find('a').exists()).toBe(false)
+    await click(wrapper, '[data-testid="detail-approve"]')
+    expect(wrapper.get('[data-testid="approve-instagram"]').find('a').exists()).toBe(false)
+
+    // Em nenhum lugar da página há âncora que não seja https://www.instagram.com/<handle>/ nem href javascript:.
+    expect(wrapper.findAll('a[href]').filter((a) => /^\s*javascript:/i.test(a.attributes('href') ?? ''))).toHaveLength(0)
+    expect(wrapper.findAll('a[href]')).toHaveLength(0)
+    expect(wrapper.html()).not.toMatch(/href="javascript/i)
+  })
+
+  it.each(['a', 'meu_grupo', 'meu.grupo', 'grupo2026', '9', 'a'.repeat(30)])('handle válido %j vira link https://www.instagram.com/<handle>/', async (handle) => {
+    const { wrapper } = await mountApplications({ byStatus: { PENDING: [application({ instagram: handle })] } })
+    const link = row(wrapper, 5).get('[data-testid="instagram-link"]')
+    expect(link.attributes('href')).toBe(`https://www.instagram.com/${handle}/`)
+    expect(link.attributes('rel')).toBe('noopener noreferrer')
+    expect(link.attributes('target')).toBe('_blank')
+  })
+
+  it('detalhe: link + aviso para conferir o perfil antes de aprovar (só em pedido ainda sem decisão)', async () => {
+    const { wrapper } = await mountApplications({ byStatus: { UNVERIFIED: [unverified()] } })
+    await click(wrapper, '[data-testid="application-5"] [data-action="open"]')
+    const link = wrapper.get('[data-testid="detail-instagram"] a')
+    expect(link.attributes('href')).toBe('https://www.instagram.com/nucleo.raizes/')
+    expect(link.attributes('rel')).toBe('noopener noreferrer')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(t(wrapper, 'detail-check-hint')).toBe('Confira o perfil antes de aprovar: o e-mail só prova que o solicitante recebe mensagens nele.')
+    await click(wrapper, '[data-testid="detail-close"]')
+
+    await click(wrapper, '[data-testid="tab-UNVERIFIED"]')
+    await click(wrapper, '[data-testid="application-8"] [data-action="open"]')
+    expect(has(wrapper, 'detail-check-hint')).toBe(true) // aguardando e-mail também é pedido em aberto
+    await click(wrapper, '[data-testid="detail-close"]')
+
+    await click(wrapper, '[data-testid="tab-APPROVED"]')
+    await click(wrapper, '[data-testid="application-6"] [data-action="open"]')
+    expect(has(wrapper, 'detail-check-hint')).toBe(false) // já decidido: sem aviso
+  })
+
+  it('diálogo de aprovar: mostra o Instagram (link com rel) e o selo do e-mail para conferir na hora', async () => {
+    const { wrapper } = await mountApplications({ byStatus: { PENDING: [skipped({ instagram: 'raizes.go' })] } })
+    await click(wrapper, '[data-testid="application-9"] [data-action="approve"]')
+    const block = wrapper.get('[data-testid="approve-instagram"]')
+    const link = block.get('a')
+    expect(link.attributes('href')).toBe('https://www.instagram.com/raizes.go/')
+    expect(link.attributes('target')).toBe('_blank')
+    expect(link.attributes('rel')).toBe('noopener noreferrer')
+    expect(block.get('[data-testid="email-verification"]').text()).toBe(SKIPPED_LABEL)
+  })
+
+  it('o corpo enviado ao aprovar nunca leva Instagram (a decisão só manda slug e nota)', async () => {
+    const { wrapper, calls } = await mountApplications()
+    await click(wrapper, '[data-testid="application-5"] [data-action="approve"]')
+    await click(wrapper, '[data-testid="confirm-ok"]')
+    expect(JSON.stringify(nonGet(calls).map((c) => c.body))).not.toMatch(/instagram|nucleo\.raizes/i)
+  })
+})
+
+describe('GroupApplicationsView — contador de pendentes: atualização a cada 60 s e título', () => {
+  const countCalls = (calls: Call[]) => calls.filter((c) => c.path === '/platform-group-applications/pending-count')
+
+  function setVisibility(state: 'visible' | 'hidden') {
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state })
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => state === 'hidden' })
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
+
+  beforeEach(() => {
+    // Só o setInterval é falso: promessas, fetch e flushPromises seguem reais.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    document.title = ''
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    delete (document as unknown as Record<string, unknown>).visibilityState
+    delete (document as unknown as Record<string, unknown>).hidden
+  })
+
+  async function tick(ms: number) {
+    vi.advanceTimersByTime(ms)
+    await flushPromises()
+  }
+
+  it('consulta o contador ao abrir e depois a cada 60 s (nem um instante antes); o número vai para a aba e o título', async () => {
+    const reply: MockReply = { body: { count: 2 } }
+    const { wrapper, calls } = await mountApplications({ pendingCount: reply })
+    expect(countCalls(calls)).toHaveLength(1)
+    expect(t(wrapper, 'tab-pending-count')).toBe('(2)')
+    expect(document.title).toBe('(2) Pedidos de adesão · Admin GingApp')
+
+    reply.body = { count: 5 }
+    await tick(59_999)
+    expect(countCalls(calls)).toHaveLength(1)
+    await tick(1)
+    expect(countCalls(calls)).toHaveLength(2)
+    expect(countCalls(calls)[1].method).toBe('GET')
+    expect(t(wrapper, 'tab-pending-count')).toBe('(5)')
+    expect(document.title).toBe('(5) Pedidos de adesão · Admin GingApp')
+
+    await tick(120_000)
+    expect(countCalls(calls)).toHaveLength(4)
+  })
+
+  it('zero pendentes: título e aba sem número', async () => {
+    const reply: MockReply = { body: { count: 3 } }
+    const { wrapper } = await mountApplications({ pendingCount: reply })
+    expect(document.title).toBe('(3) Pedidos de adesão · Admin GingApp')
+    reply.body = { count: 0 }
+    await tick(60_000)
+    expect(document.title).toBe('Pedidos de adesão · Admin GingApp')
+    expect(has(wrapper, 'tab-pending-count')).toBe(false)
+  })
+
+  it('falha na atualização periódica mantém o último número bom (não zera nem quebra)', async () => {
+    const reply: MockReply = { body: { count: 4 } }
+    const { wrapper, calls } = await mountApplications({ pendingCount: reply })
+    reply.status = 500
+    reply.body = { message: 'boom' }
+    await tick(60_000)
+    expect(countCalls(calls)).toHaveLength(2)
+    expect(t(wrapper, 'tab-pending-count')).toBe('(4)')
+    expect(document.title).toBe('(4) Pedidos de adesão · Admin GingApp')
+    expect(has(wrapper, 'list-error')).toBe(false)
+  })
+
+  it('aba do navegador oculta: para de consultar; ao voltar a ficar visível atualiza na hora e retoma o ritmo de 60 s', async () => {
+    const reply: MockReply = { body: { count: 1 } }
+    const { calls } = await mountApplications({ pendingCount: reply })
+    expect(countCalls(calls)).toHaveLength(1)
+
+    setVisibility('hidden')
+    await tick(10 * 60_000)
+    expect(countCalls(calls)).toHaveLength(1) // nada em segundo plano
+    expect(vi.getTimerCount()).toBe(0)
+
+    reply.body = { count: 6 }
+    setVisibility('visible')
+    await flushPromises()
+    expect(countCalls(calls)).toHaveLength(2) // atualização imediata ao voltar
+    expect(document.title).toBe('(6) Pedidos de adesão · Admin GingApp')
+
+    await tick(59_999)
+    expect(countCalls(calls)).toHaveLength(2)
+    await tick(1)
+    expect(countCalls(calls)).toHaveLength(3)
+  })
+
+  it('abrir a tela com a aba já oculta não arma o timer', async () => {
+    setVisibility('hidden')
+    const { calls } = await mountApplications()
+    expect(countCalls(calls)).toHaveLength(1) // a carga inicial da tela continua
+    expect(vi.getTimerCount()).toBe(0)
+    await tick(5 * 60_000)
+    expect(countCalls(calls)).toHaveLength(1)
+  })
+
+  it('ao desmontar: timer e listener são limpos (nenhuma consulta depois) e o título volta ao normal', async () => {
+    const { wrapper, calls } = await mountApplications({ pendingCount: { body: { count: 2 } } })
+    expect(vi.getTimerCount()).toBe(1)
+    expect(document.title).toBe('(2) Pedidos de adesão · Admin GingApp')
+    wrapper.unmount()
+    mountedWrappers.length = 0
+    expect(vi.getTimerCount()).toBe(0)
+    expect(document.title).toBe('Pedidos de adesão · Admin GingApp')
+
+    const before = countCalls(calls).length
+    await tick(5 * 60_000)
+    setVisibility('hidden')
+    setVisibility('visible')
+    await flushPromises()
+    expect(countCalls(calls)).toHaveLength(before)
+  })
+
+  it('ao desmontar NÃO pisa no título da próxima tela (o roteador já o trocou)', async () => {
+    const { wrapper } = await mountApplications({ pendingCount: { body: { count: 2 } } })
+    document.title = 'Financeiro · Admin GingApp'
+    wrapper.unmount()
+    mountedWrappers.length = 0
+    expect(document.title).toBe('Financeiro · Admin GingApp')
+  })
+
+  it('decidir um pedido atualiza o contador na hora (sem esperar os 60 s) e o título', async () => {
+    const reply: MockReply = { body: { count: 2 } }
+    const { wrapper } = await mountApplications({ pendingCount: reply })
+    reply.body = { count: 1 }
+    await click(wrapper, '[data-testid="application-5"] [data-action="approve"]')
+    await click(wrapper, '[data-testid="confirm-ok"]')
+    expect(t(wrapper, 'tab-pending-count')).toBe('(1)')
+    expect(document.title).toBe('(1) Pedidos de adesão · Admin GingApp')
   })
 })
 

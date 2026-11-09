@@ -3,17 +3,24 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import ApplicationDetailDialog from '@/components/groupApplications/ApplicationDetailDialog.vue'
 import ApplicationStatusChip from '@/components/groupApplications/ApplicationStatusChip.vue'
 import ApproveDialog from '@/components/groupApplications/ApproveDialog.vue'
+import EmailVerificationBadge from '@/components/groupApplications/EmailVerificationBadge.vue'
+import InstagramLink from '@/components/groupApplications/InstagramLink.vue'
 import RejectDialog from '@/components/groupApplications/RejectDialog.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
+import EmptyState from '@/components/ui/EmptyState.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import Skeleton from '@/components/ui/Skeleton.vue'
 import { usePendingApplicationsStore } from '@/stores/pendingApplications'
 import { useAuthStore } from '@/stores/auth'
 import { ApiError, errorMessage } from '@/utils/api'
 import { formatDateTime } from '@/utils/format'
 import {
+  APPROVE_BLOCKED_HINT,
   applicationErrorText,
   claimedRoleText,
   DECISION_ONLY_SUPER_HINT,
   decisionServerErrors,
+  isAwaitingEmail,
   isStaleListError,
   STATUS_TABS,
   type GroupApplication,
@@ -50,6 +57,7 @@ let searchTimer: ReturnType<typeof setTimeout> | null = null
 
 const inputClass =
   'w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-600 focus:ring-2 focus:ring-slate-400'
+const COLUMNS = 8
 const tabBase = 'rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900'
 
 async function load(): Promise<void> {
@@ -109,7 +117,8 @@ function resetDecision(): void {
 }
 
 function openApprove(app: GroupApplication): void {
-  if (!canDecide.value) return
+  // E-mail ainda não confirmado: o botão está desabilitado e o servidor recusaria (409 EMAIL_NOT_VERIFIED).
+  if (!canDecide.value || isAwaitingEmail(app)) return
   detail.value = null
   resetDecision()
   approveTarget.value = app
@@ -185,30 +194,39 @@ const emptyText = computed(() => {
   if (search.value.trim()) return 'Nenhum pedido encontrado para essa busca.'
   return {
     PENDING: 'Nenhum pedido pendente. Quando alguém pedir para cadastrar um grupo, ele aparece aqui.',
+    UNVERIFIED: 'Nenhum pedido aguardando a confirmação do e-mail.',
     APPROVED: 'Nenhum pedido aprovado ainda.',
     REJECTED: 'Nenhum pedido não aprovado.',
     EXPIRED: 'Nenhum pedido expirado.',
   }[status.value]
 })
 
+// Título da aba do navegador com o número de pendentes: "(2) Pedidos de adesão · Admin GingApp".
+const BASE_TITLE = 'Pedidos de adesão · Admin GingApp'
+const documentTitle = computed(() => (pending.count ? `(${pending.count}) ${BASE_TITLE}` : BASE_TITLE))
+watch(documentTitle, (title) => (document.title = title), { immediate: true })
+
 onMounted(() => {
   void load()
   void pending.refresh()
+  // Contador a cada 60 s enquanto a aba do navegador está visível (pausa quando oculta).
+  pending.startPolling()
 })
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer)
+  pending.stopPolling()
+  // Ao navegar, o roteador já pôs o título da próxima tela: só desfaz o número se o título ainda for o nosso.
+  if (document.title === documentTitle.value) document.title = BASE_TITLE
 })
 </script>
 
 <template>
   <div>
-    <div>
-      <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Pedidos de adesão</h1>
-      <p class="mt-1 text-sm text-slate-600">
-        Pedidos de cadastro de grupos feitos pelo site. O grupo só nasce depois que a equipe aprova; a senha escolhida pelo solicitante nunca aparece aqui.
-      </p>
-      <p v-if="!canDecide" class="mt-2 text-sm text-slate-600" data-testid="read-only-banner">{{ DECISION_ONLY_SUPER_HINT }}</p>
-    </div>
+    <PageHeader
+      title="Pedidos de adesão"
+      description="Pedidos de cadastro de grupos feitos pelo site. O grupo só nasce depois que a equipe aprova; a senha escolhida pelo solicitante nunca aparece aqui."
+    />
+    <p v-if="!canDecide" class="mt-2 text-sm text-slate-600" data-testid="read-only-banner">{{ DECISION_ONLY_SUPER_HINT }}</p>
 
     <div class="mt-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div role="tablist" aria-label="Situação dos pedidos" class="flex w-full max-w-full gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1 sm:w-fit" data-testid="applications-tabs" @keydown="onTabKeydown">
@@ -240,9 +258,9 @@ onBeforeUnmount(() => {
       <button type="button" class="ml-2 font-medium underline" data-testid="retry" @click="load">Tentar de novo</button>
     </p>
 
-    <div id="applications-panel" role="tabpanel" :aria-labelledby="`applications-tab-${status}`" class="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+    <div id="applications-panel" role="tabpanel" :aria-labelledby="`applications-tab-${status}`" class="card mt-4 overflow-hidden">
       <div class="overflow-x-auto">
-        <table class="w-full min-w-[860px] text-left text-sm" data-testid="applications-table">
+        <table class="w-full min-w-[1020px] text-left text-sm" data-testid="applications-table">
           <caption class="sr-only">Pedidos de adesão de grupos</caption>
           <thead class="border-b border-slate-200 bg-slate-50 text-xs uppercase tracking-wide text-slate-600">
             <tr>
@@ -251,16 +269,24 @@ onBeforeUnmount(() => {
               <th scope="col" class="px-4 py-3 font-medium">Cidade/UF</th>
               <th scope="col" class="px-4 py-3 font-medium">Solicitante</th>
               <th scope="col" class="px-4 py-3 font-medium">Cargo informado</th>
+              <th scope="col" class="px-4 py-3 font-medium">Instagram</th>
               <th scope="col" class="px-4 py-3 font-medium">Situação</th>
               <th scope="col" class="px-4 py-3 text-right font-medium">Ações</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            <tr v-if="isLoading">
-              <td colspan="7" class="px-4 py-8 text-center text-slate-600" data-testid="loading">Carregando…</td>
+            <tr v-if="isLoading" data-testid="loading">
+              <td :colspan="COLUMNS" class="px-4 py-5">
+                <span class="sr-only" role="status">Carregando…</span>
+                <div class="space-y-3">
+                  <Skeleton v-for="n in 4" :key="n" height="1.25rem" />
+                </div>
+              </td>
             </tr>
             <tr v-else-if="items.length === 0 && !listError">
-              <td colspan="7" class="px-4 py-8 text-center text-slate-600" data-testid="empty">{{ emptyText }}</td>
+              <td :colspan="COLUMNS" class="p-0">
+                <EmptyState data-testid="empty" :title="emptyText" />
+              </td>
             </tr>
             <tr v-for="app in isLoading ? [] : items" :key="app.id" :data-testid="`application-${app.id}`" class="align-top hover:bg-slate-50">
               <td class="whitespace-nowrap px-4 py-3 text-slate-800">{{ formatDateTime(app.createdAt) }}</td>
@@ -271,13 +297,32 @@ onBeforeUnmount(() => {
                 <span class="block break-all text-xs text-slate-600">{{ app.email }}</span>
               </td>
               <td class="whitespace-nowrap px-4 py-3 text-slate-800">{{ claimedRoleText(app) }}</td>
-              <td class="px-4 py-3"><ApplicationStatusChip :status="app.status" /></td>
+              <td class="max-w-[12rem] px-4 py-3 text-slate-800" data-testid="application-instagram"><InstagramLink :handle="app.instagram" /></td>
+              <td class="px-4 py-3">
+                <div class="flex flex-col items-start gap-1">
+                  <ApplicationStatusChip :status="app.status" />
+                  <EmailVerificationBadge :verification="app.emailVerification" />
+                </div>
+              </td>
               <td class="whitespace-nowrap px-4 py-3 text-right">
-                <button type="button" data-action="open" class="rounded px-2 py-1 text-sm font-medium text-slate-800 underline hover:bg-slate-100" :aria-label="`Ver detalhes do pedido de ${app.groupName}`" @click="detail = app">Detalhes</button>
+                <button type="button" data-action="open" class="btn btn-secondary btn-sm" :aria-label="`Ver detalhes do pedido de ${app.groupName}`" @click="detail = app">Detalhes</button>
                 <template v-if="canDecide && app.status === 'PENDING'">
-                  <button type="button" data-action="approve" class="ml-1 rounded px-2 py-1 text-sm font-medium text-emerald-800 underline hover:bg-emerald-50" :aria-label="`Aprovar o pedido de ${app.groupName}`" @click="openApprove(app)">Aprovar</button>
-                  <button type="button" data-action="reject" class="ml-1 rounded px-2 py-1 text-sm font-medium text-red-700 underline hover:bg-red-50" :aria-label="`Não aprovar o pedido de ${app.groupName}`" @click="openReject(app)">Não aprovar</button>
+                  <button type="button" data-action="approve" class="btn btn-primary btn-sm ml-1" :aria-label="`Aprovar o pedido de ${app.groupName}`" @click="openApprove(app)">Aprovar</button>
+                  <button type="button" data-action="reject" class="btn btn-ghost btn-sm ml-1 text-red-700" :aria-label="`Não aprovar o pedido de ${app.groupName}`" @click="openReject(app)">Não aprovar</button>
                 </template>
+                <!-- E-mail ainda não confirmado: Aprovar fica desabilitado com a dica (o servidor recusaria com 409 EMAIL_NOT_VERIFIED). -->
+                <button
+                  v-else-if="canDecide && isAwaitingEmail(app)"
+                  type="button"
+                  disabled
+                  aria-disabled="true"
+                  data-action="approve"
+                  class="btn btn-primary btn-sm ml-1"
+                  :title="APPROVE_BLOCKED_HINT"
+                  :aria-label="`Aprovar o pedido de ${app.groupName}: indisponível até o solicitante confirmar o e-mail`"
+                >
+                  Aprovar
+                </button>
               </td>
             </tr>
           </tbody>

@@ -1,1 +1,383 @@
 @import "tailwindcss";
+
+/*
+  Identidade do admin: mesma familia visual do painel e do app (fundo branco, verde GingApp, DM Sans/Manrope),
+  mas com cara de ferramenta interna: densa, clara e sem enfeite.
+
+  Em vez de trocar as ~1.500 classes `slate-*` das telas, a escala `slate` do Tailwind e redefinida aqui com a paleta
+  da marca: `slate-900` = verde primario (botoes e titulos), `slate-50..300` = neutros esverdeados (fundos e bordas)
+  e `slate-400..700` = textos secundarios, todos com contraste AA sobre branco. Telas novas devem preferir os tokens
+  semanticos (`bg-primary`, `text-muted-foreground`, `border-border`, `bg-secondary`...).
+*/
+
+@theme {
+  --font-sans: 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Manrope', 'DM Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* Raios: cantos discretos, como no painel (8px) com cartoes um pouco mais suaves. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 14px;
+
+  /* Sombras leves, esverdeadas. */
+  --shadow-sm: 0 1px 2px oklch(0.2 0.03 155 / 0.06);
+  --shadow: 0 1px 3px oklch(0.2 0.03 155 / 0.08), 0 1px 2px oklch(0.2 0.03 155 / 0.05);
+  --shadow-md: 0 4px 14px oklch(0.2 0.03 155 / 0.08);
+  --shadow-xl: 0 20px 50px oklch(0.2 0.03 155 / 0.22);
+
+  /* Escala "slate" recolorida (neutros esverdeados da marca). */
+  --color-slate-50: oklch(0.985 0.004 150);
+  --color-slate-100: oklch(0.962 0.008 150);
+  --color-slate-200: oklch(0.922 0.01 150);
+  --color-slate-300: oklch(0.86 0.013 150);
+  --color-slate-400: oklch(0.56 0.017 155);
+  --color-slate-500: oklch(0.52 0.018 155);
+  --color-slate-600: oklch(0.47 0.02 155);
+  --color-slate-700: oklch(0.42 0.03 156);
+  --color-slate-800: oklch(0.4 0.062 158);
+  --color-slate-900: oklch(0.34 0.062 158);
+  --color-slate-950: oklch(0.25 0.04 157);
+
+  /* Tokens semanticos (mesmos nomes do painel/app). */
+  --color-background: oklch(1 0 0);
+  --color-foreground: oklch(0.25 0.022 155);
+  --color-card: oklch(1 0 0);
+  --color-primary: oklch(0.365 0.067 158);
+  --color-primary-hover: oklch(0.31 0.062 158);
+  --color-primary-foreground: oklch(0.99 0.005 150);
+  --color-secondary: oklch(0.938 0.025 147);
+  --color-muted: oklch(0.962 0.008 150);
+  --color-muted-foreground: oklch(0.5 0.018 155);
+  --color-border: oklch(0.9 0.01 150);
+  --color-ring: oklch(0.52 0.1 158);
+  --color-highlight: oklch(0.89 0.12 120);
+  --color-warning: oklch(0.65 0.135 70);
+  --color-destructive: oklch(0.57 0.18 25);
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --sidebar-width: 15.5rem;
+  }
+  * {
+    border-color: var(--color-border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    overflow-x: clip;
+  }
+  body {
+    margin: 0;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button,
+  a {
+    touch-action: manipulation;
+  }
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+  ::selection {
+    background: var(--color-secondary);
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------
+   Componentes reutilizaveis (camada `components`: as utilitarias do Tailwind ainda podem sobrescrever)
+   ------------------------------------------------------------------------------------------------ */
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: var(--radius-md);
+    border: 1px solid transparent;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+    white-space: nowrap;
+    transition:
+      background-color 0.15s,
+      border-color 0.15s,
+      color 0.15s,
+      box-shadow 0.15s;
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .btn-primary {
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+  }
+  .btn-primary:not(:disabled):hover {
+    background: var(--color-primary-hover);
+  }
+  .btn-secondary {
+    background: var(--color-card);
+    border-color: var(--color-slate-300);
+    color: var(--color-slate-700);
+  }
+  .btn-secondary:not(:disabled):hover {
+    background: var(--color-muted);
+    color: var(--color-slate-900);
+  }
+  .btn-ghost {
+    color: var(--color-slate-600);
+  }
+  .btn-ghost:not(:disabled):hover {
+    background: var(--color-muted);
+    color: var(--color-slate-900);
+  }
+  .btn-danger {
+    background: var(--color-red-700);
+    color: #fff;
+  }
+  .btn-danger:not(:disabled):hover {
+    background: var(--color-red-800);
+  }
+  .btn-sm {
+    padding: 0.25rem 0.625rem;
+    font-size: 0.8125rem;
+  }
+
+  /* Cartao padrao do admin. */
+  .card {
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-sm);
+  }
+
+  /* Chips de status: tons consistentes (fundo claro + texto escuro >= 4.5:1). */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 9999px;
+    padding: 0.125rem 0.625rem;
+    font-size: 0.75rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .chip-success {
+    background: var(--color-emerald-100);
+    color: var(--color-emerald-900);
+  }
+  .chip-warning {
+    background: var(--color-amber-100);
+    color: var(--color-amber-900);
+  }
+  .chip-danger {
+    background: var(--color-red-100);
+    color: var(--color-red-900);
+  }
+  .chip-info {
+    background: var(--color-sky-100);
+    color: var(--color-sky-900);
+  }
+  .chip-neutral {
+    background: var(--color-slate-100);
+    color: var(--color-slate-700);
+  }
+
+  /* Skeleton (carregando): pulsa devagar; parado com prefers-reduced-motion. */
+  .skeleton {
+    border-radius: var(--radius-md);
+    background: linear-gradient(90deg, var(--color-slate-100), var(--color-slate-200), var(--color-slate-100));
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  }
+}
+
+/* ------------------------------------------------------------------------------------------------
+   Regras globais fora de @layer de proposito: vencem as utilitarias dos varios campos/botoes das telas.
+   ------------------------------------------------------------------------------------------------ */
+
+/* Foco sempre visivel (teclado). Campos: anel + borda; demais: contorno. */
+:where(a, button, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 0;
+  border-color: var(--color-primary);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-slate-400);
+  opacity: 1;
+}
+input:disabled,
+select:disabled,
+textarea:disabled {
+  background-color: var(--color-slate-50);
+  color: var(--color-slate-500);
+}
+
+/* Cantos/tabelas: dentro do conteudo do admin. */
+.app-main h1 {
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.app-main table thead th {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.app-main table tbody td {
+  vertical-align: middle;
+}
+@media (min-width: 1024px) {
+  .app-main table tbody td {
+    padding-top: 0.8rem;
+    padding-bottom: 0.8rem;
+  }
+}
+.app-main table tbody tr {
+  transition: background-color 0.12s;
+}
+/* Tabela cujo invólucro esconde o excesso: no celular rola na horizontal em vez de cortar colunas. */
+.app-main div:has(> table) {
+  overflow-x: auto;
+}
+.app-main details > summary {
+  cursor: pointer;
+}
+
+/* Dialogos (modais): entrada leve. O fundo escurecido e o proprio contêiner `fixed inset-0`. */
+.app-root [role='dialog'] {
+  animation: dialog-in 0.18s var(--ease-out);
+}
+.app-root [role='dialog'] :is(h2, h3):first-child {
+  font-weight: 800;
+}
+.app-root .fixed.inset-0 {
+  backdrop-filter: blur(2px);
+  animation: overlay-in 0.18s ease-out;
+}
+
+/* Celular/tablet (< lg): alvos de toque >= 40px; campos com fonte >= 16px (o iOS da zoom abaixo disso). */
+@media (max-width: 1023px) {
+  select,
+  textarea,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']) {
+    font-size: 16px;
+  }
+  select,
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']):not([type='hidden']) {
+    min-height: 2.75rem;
+  }
+  button[class*='px-'][class*='py-'],
+  a[class*='px-'][class*='py-'],
+  .btn {
+    min-height: 2.5rem;
+  }
+  [role='checkbox'],
+  [role='switch'],
+  [role='radio'] {
+    position: relative;
+  }
+  [role='checkbox']::after,
+  [role='switch']::after,
+  [role='radio']::after {
+    content: '';
+    position: absolute;
+    inset: -0.75rem;
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 1.25rem;
+    height: 1.25rem;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.page-enter {
+  animation: page-in 0.28s var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* Impressao: sem menu lateral nem barra do topo. */
+@media print {
+  .app-chrome {
+    display: none !important;
+  }
+}

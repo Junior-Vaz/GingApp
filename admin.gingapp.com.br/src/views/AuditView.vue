@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { onMounted, reactive, ref } from 'vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import { api, errorMessage } from '@/utils/api'
@@ -89,8 +90,7 @@ onMounted(async () => {
 
 <template>
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Auditoria</h1>
-    <p class="mt-1 text-sm text-slate-500">Registro das ações sensíveis feitas na plataforma e nos grupos.</p>
+    <PageHeader title="Auditoria" description="Registro das ações sensíveis feitas na plataforma e nos grupos." />
 
     <form
       class="mt-6 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-6"
@@ -124,8 +124,8 @@ onMounted(async () => {
         <input v-model="filters.to" data-testid="filter-to" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
       </label>
       <div class="flex items-end gap-2">
-        <button type="submit" data-testid="filter-apply" class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Filtrar</button>
-        <button type="button" data-testid="filter-clear" class="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" @click="clearFilters">Limpar</button>
+        <button type="submit" data-testid="filter-apply" class="btn btn-primary">Filtrar</button>
+        <button type="button" data-testid="filter-clear" class="btn btn-secondary" @click="clearFilters">Limpar</button>
       </div>
     </form>
 

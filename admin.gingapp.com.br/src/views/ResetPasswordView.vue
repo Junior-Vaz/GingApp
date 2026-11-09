@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import AuthShell from '@/components/auth/AuthShell.vue'
+import PasswordField from '@/components/auth/PasswordField.vue'
+import AppIcon from '@/components/ui/AppIcon.vue'
 import {
   NEW_PASSWORD_MIN_LENGTH,
   PASSWORD_MAX_BYTES,
@@ -24,6 +27,7 @@ const error = ref('')
 const done = ref(false)
 
 onMounted(() => {
+  document.getElementById('reset-new-password')?.focus()
   if ('token' in route.query) {
     const { token: _removed, ...rest } = route.query
     void router.replace({ query: rest })
@@ -60,70 +64,69 @@ async function submit(): Promise<void> {
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-    <div class="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-      <div class="mb-6 text-center">
-        <img src="/logo.png" alt="GingApp" class="mx-auto h-12 w-auto object-contain" />
-        <h1 class="mt-3 text-lg font-semibold text-slate-900">Redefinir senha</h1>
-      </div>
+  <AuthShell>
+    <h1 class="text-xl font-extrabold text-slate-900">Redefinir senha</h1>
 
-      <div v-if="done" role="status" data-testid="reset-success" class="space-y-4">
-        <p class="text-sm text-slate-700">{{ RESET_PASSWORD_SUCCESS }}</p>
-        <RouterLink to="/login" data-testid="reset-login-link" class="text-sm text-slate-900 underline">
-          Ir para o login
-        </RouterLink>
-      </div>
-
-      <template v-else-if="!token && !error">
-        <p role="alert" data-testid="reset-missing" class="text-sm text-red-600">{{ RESET_LINK_MISSING }}</p>
-        <p class="mt-4 text-sm">
-          <RouterLink to="/esqueci-senha" class="text-slate-900 underline">Solicitar novo link</RouterLink>
-        </p>
-      </template>
-
-      <form v-else class="space-y-4" @submit.prevent="submit">
-        <div>
-          <label for="reset-new-password" class="mb-1 block text-sm font-medium text-slate-700">Nova senha</label>
-          <input
-            id="reset-new-password"
-            v-model="form.next"
-            type="password"
-            required
-            autocomplete="new-password"
-            class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
-          />
-          <p class="mt-1 text-xs text-slate-500">
-            Mínimo de {{ NEW_PASSWORD_MIN_LENGTH }} caracteres (máximo {{ PASSWORD_MAX_BYTES }} bytes).
-          </p>
-        </div>
-        <div>
-          <label for="reset-confirm-password" class="mb-1 block text-sm font-medium text-slate-700">
-            Confirmar nova senha
-          </label>
-          <input
-            id="reset-confirm-password"
-            v-model="form.confirm"
-            type="password"
-            required
-            autocomplete="new-password"
-            class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
-          />
-        </div>
-
-        <p v-if="error" role="alert" data-testid="reset-error" class="text-sm text-red-600">{{ error }}</p>
-
-        <button
-          type="submit"
-          :disabled="isSubmitting"
-          class="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {{ isSubmitting ? 'Salvando…' : 'Redefinir senha' }}
-        </button>
-
-        <p class="text-center text-sm">
-          <RouterLink to="/esqueci-senha" class="text-slate-600 underline">Solicitar novo link</RouterLink>
-        </p>
-      </form>
+    <div v-if="done" role="status" data-testid="reset-success" class="mt-4 space-y-4">
+      <p class="rounded-lg bg-secondary px-3 py-3 text-sm text-slate-800">{{ RESET_PASSWORD_SUCCESS }}</p>
+      <RouterLink to="/login" data-testid="reset-login-link" class="btn btn-primary min-h-11 w-full">
+        Ir para o login
+      </RouterLink>
     </div>
-  </div>
+
+    <template v-else-if="!token && !error">
+      <p role="alert" data-testid="reset-missing" class="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+        {{ RESET_LINK_MISSING }}
+      </p>
+      <p class="mt-4 text-sm">
+        <RouterLink to="/esqueci-senha" class="inline-flex min-h-10 items-center font-medium text-slate-900 underline">
+          Solicitar novo link
+        </RouterLink>
+      </p>
+    </template>
+
+    <form v-else class="mt-4 space-y-4" @submit.prevent="submit">
+      <div>
+        <label for="reset-new-password" class="mb-1.5 block text-sm font-medium text-slate-700">Nova senha</label>
+        <PasswordField
+          id="reset-new-password"
+          v-model="form.next"
+          required
+          autocomplete="new-password"
+          :aria-invalid="error ? true : undefined"
+          :aria-describedby="error ? 'reset-error' : undefined"
+        />
+        <p class="mt-1.5 text-xs text-slate-600">
+          Mínimo de {{ NEW_PASSWORD_MIN_LENGTH }} caracteres (máximo {{ PASSWORD_MAX_BYTES }} bytes).
+        </p>
+      </div>
+      <div>
+        <label for="reset-confirm-password" class="mb-1.5 block text-sm font-medium text-slate-700">
+          Confirmar nova senha
+        </label>
+        <PasswordField id="reset-confirm-password" v-model="form.confirm" required autocomplete="new-password" />
+      </div>
+
+      <p
+        v-if="error"
+        id="reset-error"
+        role="alert"
+        data-testid="reset-error"
+        class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800"
+      >
+        {{ error }}
+      </p>
+
+      <button type="submit" :disabled="isSubmitting" :aria-busy="isSubmitting" class="btn btn-primary min-h-11 w-full">
+        <AppIcon v-if="isSubmitting" name="loader" :size="16" class="animate-spin motion-reduce:animate-none" />
+        {{ isSubmitting ? 'Salvando…' : 'Redefinir senha' }}
+      </button>
+
+      <p class="text-center text-sm">
+        <RouterLink to="/esqueci-senha" class="inline-flex min-h-10 items-center font-medium text-slate-700 underline hover:text-slate-900">
+          Solicitar novo link
+        </RouterLink>
+      </p>
+    </form>
+  </AuthShell>
 </template>

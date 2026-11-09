@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { nextTick, reactive, ref, watch } from 'vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import EmailVerificationBadge from '@/components/groupApplications/EmailVerificationBadge.vue'
+import InstagramLink from '@/components/groupApplications/InstagramLink.vue'
 import FieldShell from '@/components/sponsors/FieldShell.vue'
 import {
   APPLICATION_LIMITS,
@@ -82,6 +84,11 @@ function onConfirm(): void {
       <p>
         Grupo <strong data-testid="approve-group">{{ application.groupName }}</strong> ({{ application.city }}/{{ application.state }}), pedido de
         <strong>{{ application.applicantName }}</strong>.
+      </p>
+      <p class="flex flex-wrap items-center gap-x-2 gap-y-1" data-testid="approve-instagram">
+        <span class="font-medium">Instagram:</span>
+        <InstagramLink :handle="application.instagram" />
+        <EmailVerificationBadge :verification="application.emailVerification" />
       </p>
       <p class="rounded-md bg-amber-50 px-3 py-2 text-amber-900" data-testid="approve-warning">{{ APPROVE_WARNING }}</p>
       <FieldShell

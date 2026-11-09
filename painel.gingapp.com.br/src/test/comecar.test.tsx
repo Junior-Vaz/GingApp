@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
 import { routeTree } from "@/routeTree.gen";
@@ -9,6 +9,7 @@ import {
   CLAIMED_ROLES,
   CLAIMED_ROLE_LABEL,
   GROUP_APPLICATION_UFS,
+  INSTAGRAM_MAX_LENGTH,
   groupApplicationSchema,
   emptyGroupApplicationForm,
   passwordStrength,
@@ -101,6 +102,26 @@ describe("lib/group-application", () => {
     expect(passwordIssue("a".repeat(73))).toMatch(/no máximo 72 bytes/);
     expect(passwordIssue("é".repeat(37))).toMatch(/no máximo 72 bytes/); // 37 x 2 bytes = 74
     expect(passwordIssue("Dev@12345abcdef")).toMatch(/senha padrão/);
+  });
+
+  it("instagram no schema: vazio ou @/usuário/link sem espaços passam; espaço ou comprimento absurdo não (rigor é do servidor)", () => {
+    const base = { ...emptyGroupApplicationForm, applicantName: "Maria", email: "m@e.com", claimedRole: "OUTRO", groupName: "Grupo", city: "Rio", state: "RJ", password: "Frase longa e segura 2026", adult: true, acceptTerms: true };
+    const issue = (instagram: string) =>
+      groupApplicationSchema.safeParse({ ...base, instagram }).error?.issues.find((i) => i.path[0] === "instagram")?.message;
+    for (const ok of ["", "   ", "@meugrupo", "meugrupo", "instagram.com/meugrupo", "https://www.instagram.com/meugrupo/?igsh=x"]) {
+      expect(issue(ok)).toBeUndefined();
+    }
+    expect(issue("meu grupo")).toBe("Informe o Instagram como @usuario ou o link do perfil.");
+    expect(issue("@meu\tgrupo")).toBe("Informe o Instagram como @usuario ou o link do perfil.");
+    expect(issue("a".repeat(INSTAGRAM_MAX_LENGTH))).toBeUndefined();
+    expect(issue("a".repeat(INSTAGRAM_MAX_LENGTH + 1))).toBe("Informe o Instagram como @usuario ou o link do perfil.");
+  });
+
+  it("payload: instagram só entra quando preenchido (aparado)", () => {
+    const values = { ...emptyGroupApplicationForm, applicantName: "Maria", email: "m@e.com", claimedRole: "MESTRE", groupName: "G", city: "Rio", state: "RJ", password: "Frase longa e segura 2026", adult: true, acceptTerms: true };
+    expect(toGroupApplicationPayload(values)).not.toHaveProperty("instagram");
+    expect(toGroupApplicationPayload({ ...values, instagram: "  " })).not.toHaveProperty("instagram");
+    expect(toGroupApplicationPayload({ ...values, instagram: " @meugrupo " }).instagram).toBe("@meugrupo");
   });
 
   it("força da senha é só dica (fraca/boa/forte)", () => {
@@ -273,6 +294,58 @@ describe("/comecar (página pública)", () => {
       adult: true,
       website: "",
     });
+  });
+
+  it("Instagram (opcional): rótulo e dica do contrato; vazio é omitido do corpo", async () => {
+    const calls = mockApi(() => json(201, { statusToken: TOKEN, status: "PENDING" }));
+    renderAt("/comecar");
+    await screen.findByRole("button", { name: "Enviar pedido" });
+    const field = screen.getByLabelText("Instagram do grupo (opcional)");
+    expect(field).toHaveValue("");
+    expect(field).toHaveAttribute("autocomplete", "off");
+    expect(screen.getByText("Ajuda a equipe a conferir seu pedido. Ex.: @meugrupo ou o link do perfil")).toBeInTheDocument();
+
+    fillRequired();
+    fireEvent.change(field, { target: { value: "   " } }); // só espaços = vazio
+    submit();
+    await screen.findByTestId("application-received");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.body).not.toHaveProperty("instagram");
+  });
+
+  it("Instagram preenchido é enviado como digitado (aparado): o servidor é quem normaliza para o handle", async () => {
+    const calls = mockApi(() => json(201, { statusToken: TOKEN, status: "PENDING" }));
+    renderAt("/comecar");
+    await screen.findByRole("button", { name: "Enviar pedido" });
+    fillRequired();
+    fireEvent.change(screen.getByLabelText("Instagram do grupo (opcional)"), {
+      target: { value: " https://www.instagram.com/Capoeira.Raiz/?igsh=abc " },
+    });
+    submit();
+    await screen.findByTestId("application-received");
+    expect((calls[0]!.body as { instagram?: string }).instagram).toBe("https://www.instagram.com/Capoeira.Raiz/?igsh=abc");
+
+    // e o handle simples também
+    const handle = mockApi(() => json(201, { statusToken: TOKEN, status: "PENDING" }));
+    cleanup();
+    renderAt("/comecar");
+    await screen.findByRole("button", { name: "Enviar pedido" });
+    fillRequired();
+    fireEvent.change(screen.getByLabelText("Instagram do grupo (opcional)"), { target: { value: "@meugrupo" } });
+    submit();
+    await screen.findByTestId("application-received");
+    expect((handle[0]!.body as { instagram?: string }).instagram).toBe("@meugrupo");
+  });
+
+  it("Instagram com espaço no meio não é enviado: mostra a mensagem do contrato", async () => {
+    const calls = mockApi(() => json(201, { statusToken: TOKEN, status: "PENDING" }));
+    renderAt("/comecar");
+    await screen.findByRole("button", { name: "Enviar pedido" });
+    fillRequired();
+    fireEvent.change(screen.getByLabelText("Instagram do grupo (opcional)"), { target: { value: "meu grupo" } });
+    submit();
+    expect(await screen.findByText("Informe o Instagram como @usuario ou o link do perfil.")).toBeInTheDocument();
+    expect(calls).toHaveLength(0);
   });
 
   it("honeypot: campo 'website' fora da vista (não display:none), fora do foco e dos leitores de tela, vazio no envio", async () => {

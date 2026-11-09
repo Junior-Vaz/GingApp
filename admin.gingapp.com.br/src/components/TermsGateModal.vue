@@ -29,7 +29,7 @@ async function accept(): Promise<void> {
 
 <template>
   <!-- Tela BLOQUEANTE de aceite dos Termos + Política (E10): sem botão de fechar; só aceitar ou sair. -->
-  <div class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/60 px-4" data-testid="terms-gate">
+  <div class="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-3 sm:px-4" data-testid="terms-gate">
     <div class="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl bg-white p-6 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="terms-gate-title">
       <h2 id="terms-gate-title" class="text-lg font-semibold text-slate-900">Termos de Uso e Política de Privacidade</h2>
       <p class="mt-1 text-sm text-slate-500">
@@ -45,14 +45,14 @@ async function accept(): Promise<void> {
       </label>
       <p v-if="error" role="alert" class="mt-2 text-sm text-red-600">{{ error }}</p>
       <div class="mt-4 flex justify-end gap-2">
-        <button type="button" class="rounded-md px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100" @click="emit('logout')">
+        <button type="button" class="btn btn-ghost" @click="emit('logout')">
           Sair
         </button>
         <button
           type="button"
           data-testid="terms-accept"
           :disabled="!agreed || isSubmitting"
-          class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          class="btn btn-primary"
           @click="accept"
         >
           {{ isSubmitting ? 'Registrando…' : 'Aceitar e continuar' }}

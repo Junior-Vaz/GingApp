@@ -1,29 +1,45 @@
 import 'reflect-metadata';
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { ApplicantRole, GroupApplicationStatus } from '@prisma/client';
+import { ApplicantRole, EmailVerification, GroupApplicationStatus } from '@prisma/client';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import {
+  adminApplicationsUrl,
   APPLICANT_ROLE_LABELS,
+  DEFAULT_ADMIN_URL,
   DEFAULT_PAINEL_URL,
   groupApplicationsPurgeMode,
   isHoneypotFilled,
   isWellFormedStatusToken,
+  MAX_VERIFY_SENDS,
+  normalizeInstagram,
+  OPEN_STATUSES,
   painelApplyUrl,
+  painelConfirmUrl,
   painelLoginUrl,
+  parseNotifyEmails,
   perEmailWindowStart,
+  resendBlock,
+  resendState,
   retentionAction,
   toAdminItem,
   toPublicStatus,
+  verifyExpiresAt,
 } from '../src/interface/http/group-applications/group-application-rules';
+import { superAdminPasswordDiagnostics } from '../prisma/bootstrap';
 import {
   ApproveGroupApplicationDto,
   CreateGroupApplicationDto,
   RejectGroupApplicationDto,
 } from '../src/interface/http/group-applications/dto/group-application.dto';
 import { AuditAction, AUDIT_ACTION_CODES, AuditEntity } from '../src/shared/audit/audit-actions';
-import { renderGroupApplicationApprovedMail, renderGroupApplicationRejectedMail } from '../src/shared/mail/mail-templates';
+import {
+  renderGroupApplicationApprovedMail,
+  renderGroupApplicationRejectedMail,
+  renderGroupApplicationTeamNoticeMail,
+  renderGroupApplicationVerifyMail,
+} from '../src/shared/mail/mail-templates';
 import { buildRequestLogLine } from '../src/shared/observability/request-log.middleware';
 import { generatePasswordToken } from '../src/shared/security/password-reset-token';
 
@@ -188,15 +204,18 @@ describe('Adesão de grupos: regras puras', () => {
     assert.ok(DEFAULT_PAINEL_URL.startsWith('https://'));
   });
 
-  it('status público: só as 6 chaves do contrato; motivo só em REJECTED, loginUrl só em APPROVED', () => {
-    const base = { groupName: 'G', createdAt: NOW, decidedAt: NOW, rejectionReason: 'motivo' };
+  it('status público: só as chaves do contrato (+ emailVerification; canResend/resendAvailableAt só em UNVERIFIED); motivo só em REJECTED, loginUrl só em APPROVED', () => {
+    const base = { groupName: 'G', createdAt: NOW, decidedAt: NOW, rejectionReason: 'motivo', emailVerification: EmailVerification.VERIFIED };
     const env = { PAINEL_URL: 'https://painel.x.com' };
-    const KEYS = ['createdAt', 'decidedAt', 'groupName', 'loginUrl', 'rejectionReason', 'status'];
+    const KEYS = ['createdAt', 'decidedAt', 'emailVerification', 'groupName', 'loginUrl', 'rejectionReason', 'status'];
+    const leaks = { email: 'x@y.z', passwordHash: 'h', id: 1, internalNote: 'n', instagram: 'meugrupo', verifyTokenHash: 'v', statusTokenHash: 's' };
     for (const status of Object.values(GroupApplicationStatus)) {
-      const out = toPublicStatus({ ...base, status, ...({ email: 'x@y.z', passwordHash: 'h', id: 1, internalNote: 'n' } as object) }, env);
-      assert.deepEqual(Object.keys(out).sort(), KEYS, status);
+      const out = toPublicStatus({ ...base, status, ...(leaks as object) }, env, { now: NOW });
+      const expected = status === 'UNVERIFIED' ? [...KEYS, 'canResend', 'resendAvailableAt'].sort() : KEYS;
+      assert.deepEqual(Object.keys(out).sort(), expected, status);
       assert.equal(out.rejectionReason, status === 'REJECTED' ? 'motivo' : null, status);
       assert.equal(out.loginUrl, status === 'APPROVED' ? 'https://painel.x.com/login' : null, status);
+      assert.ok(!JSON.stringify(out).includes('meugrupo'), 'instagram nunca no público');
     }
   });
 
@@ -205,12 +224,17 @@ describe('Adesão de grupos: regras puras', () => {
       id: 1, status: GroupApplicationStatus.PENDING, applicantName: 'A', email: 'a@b.c', phone: null, claimedRole: ApplicantRole.PROFESSOR,
       groupName: 'G', city: 'C', state: 'SP', estimatedStudents: null, message: null, createdAt: NOW, decidedAt: null,
       rejectionReason: null, internalNote: null, organization: null, passwordHash: '$2b$10$x', statusTokenHash: 'abc', decidedByUserId: 9,
+      emailVerification: EmailVerification.SKIPPED, emailVerifiedAt: null, instagram: 'meugrupo', verifyTokenHash: 'vth',
     };
     const item = toAdminItem(row, { id: 9, name: 'Equipe' });
     assert.deepEqual(Object.keys(item).sort(), [
-      'applicantName', 'city', 'claimedRole', 'claimedRoleLabel', 'createdAt', 'decidedAt', 'decidedBy', 'email', 'estimatedStudents',
-      'groupName', 'id', 'internalNote', 'message', 'organization', 'phone', 'rejectionReason', 'state', 'status',
+      'applicantName', 'city', 'claimedRole', 'claimedRoleLabel', 'createdAt', 'decidedAt', 'decidedBy', 'email', 'emailVerification',
+      'emailVerifiedAt', 'estimatedStudents', 'groupName', 'id', 'instagram', 'internalNote', 'message', 'organization', 'phone',
+      'rejectionReason', 'state', 'status',
     ]);
+    assert.equal(item.instagram, 'meugrupo');
+    assert.equal(item.emailVerification, 'SKIPPED');
+    assert.ok(!JSON.stringify(item).includes('vth'));
     assert.equal(item.claimedRoleLabel, 'Professor(a)');
     assert.deepEqual(item.decidedBy, { id: 9, name: 'Equipe' });
   });
@@ -225,7 +249,12 @@ describe('Adesão de grupos: auditoria, log e e-mails', () => {
 
   it('rotas públicas de adesão saem no log SEM userId e SEM ip; as da plataforma seguem normais', () => {
     const req = (route: string) => ({ method: 'POST', baseUrl: '', route: { path: route }, ip: '198.51.100.9', user: { id: 7 } });
-    for (const route of ['/api/public/group-applications', '/api/public/group-applications/:token']) {
+    for (const route of [
+      '/api/public/group-applications',
+      '/api/public/group-applications/:token',
+      '/api/public/group-applications/confirm',
+      '/api/public/group-applications/:token/resend',
+    ]) {
       const line = buildRequestLogLine(req(route) as never, { statusCode: 201 } as never, 'rid-123456', 1);
       assert.deepEqual([line.userId, line.ip], [null, null], route);
     }
@@ -244,5 +273,183 @@ describe('Adesão de grupos: auditoria, log e e-mails', () => {
     assert.ok(no.text.includes('Motivo: Faltou <b>cidade</b>'));
     assert.ok(no.html.includes('Faltou &lt;b&gt;cidade&lt;/b&gt;'));
     assert.ok(!no.html.includes('<b>cidade'));
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------
+// docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md (confirmacao do e-mail, aviso a equipe, Instagram, diagnostico do bootstrap)
+// ---------------------------------------------------------------------------------------------------------------
+
+describe('Adesão de grupos: Instagram (contrato de e-mail 7)', () => {
+  it('normaliza TODAS as formas aceitas para o handle puro, minúsculo e sem @', () => {
+    const accepted: Array<[string, string]> = [
+      ['@meugrupo', 'meugrupo'],
+      ['meugrupo', 'meugrupo'],
+      ['MeuGrupo', 'meugrupo'],
+      ['@Meu.Grupo_10', 'meu.grupo_10'],
+      ['  @meugrupo  ', 'meugrupo'],
+      ['instagram.com/meugrupo', 'meugrupo'],
+      ['instagram.com/meugrupo/', 'meugrupo'],
+      ['www.instagram.com/meugrupo', 'meugrupo'],
+      ['Instagram.com/MeuGrupo', 'meugrupo'],
+      ['instagr.am/meugrupo', 'meugrupo'],
+      ['https://www.instagram.com/meugrupo/?igsh=MTIzNDU2Nzg=', 'meugrupo'],
+      ['https://instagram.com/meugrupo', 'meugrupo'],
+      ['http://instagram.com/meugrupo/', 'meugrupo'],
+      ['https://www.instagram.com/meugrupo#bio', 'meugrupo'],
+      ['https://www.instagram.com/meugrupo///', 'meugrupo'],
+      ['HTTPS://WWW.INSTAGRAM.COM/MEUGRUPO/', 'meugrupo'],
+      ['https://instagr.am/meu_grupo', 'meu_grupo'],
+      ['https://www.instagram.com:443/meugrupo', 'meugrupo'],
+      [`@${'a'.repeat(30)}`, 'a'.repeat(30)],
+      ['@.meugrupo', '.meugrupo'],
+    ];
+    for (const [raw, handle] of accepted) assert.equal(normalizeInstagram(raw), handle, raw);
+  });
+
+  it('rejeita domínio estranho, javascript:, espaços, handle longo, caracteres estranhos e caminhos que não são perfil', () => {
+    const rejected = [
+      'https://evil.com/meugrupo',
+      'evil.com/meugrupo',
+      'https://instagram.com.evil.com/meugrupo',
+      'https://evil.com/instagram.com/meugrupo',
+      'https://notinstagram.com/meugrupo',
+      'https://m.instagram.com/meugrupo',
+      'javascript:alert(1)',
+      'JavaScript:alert(document.cookie)',
+      'data:text/html,<b>x</b>',
+      'ftp://instagram.com/meugrupo',
+      '//instagram.com/meugrupo',
+      'meu grupo',
+      '@meu grupo',
+      'https://www.instagram.com/meu grupo',
+      'meu\tgrupo',
+      'meu\ngrupo',
+      'Grupo de capoeira do bairro',
+      'a'.repeat(31),
+      `@${'a'.repeat(31)}`,
+      'meu..grupo',
+      'meugrupo.',
+      '@meugrupo.',
+      'meu-grupo',
+      'meugrupo!',
+      'meugrupó',
+      '@',
+      '@@meugrupo',
+      '<script>',
+      'https://www.instagram.com/',
+      'https://www.instagram.com',
+      'https://www.instagram.com/p/C0d3x/',
+      'https://www.instagram.com/meugrupo/reels',
+      'https://user:pass@instagram.com/meugrupo',
+      'https://evil.com@instagram.com/meugrupo',
+      'https://instagram.com:8080/meugrupo',
+      'https://instagram.com/../meugrupo',
+      'https://instagram.com/x/../meugrupo',
+      'https://instagram.com/./meugrupo',
+      'https://instagram.com\\meugrupo',
+      'https://instagram.com/meu%67rupo',
+      `https://instagram.com/${'a'.repeat(200)}`,
+    ];
+    for (const raw of rejected) assert.equal(normalizeInstagram(raw), undefined, raw);
+    assert.equal(normalizeInstagram(42), undefined);
+    assert.equal(normalizeInstagram({}), undefined);
+  });
+
+  it('opcional: ausente, null, vazio ou só espaços = null', () => {
+    for (const raw of [undefined, null, '', '   ']) assert.equal(normalizeInstagram(raw), null, String(raw));
+  });
+
+  it('DTO: grava só o handle normalizado; inválido = erro no campo com a mensagem única do contrato; vazio = ausente', async () => {
+    const ok = plainToInstance(CreateGroupApplicationDto, { ...validBody(), instagram: 'https://www.instagram.com/MeuGrupo/?igsh=x' });
+    assert.deepEqual(await validate(ok, { whitelist: true, forbidNonWhitelisted: true }), []);
+    assert.equal(ok.instagram, 'meugrupo');
+    const empty = plainToInstance(CreateGroupApplicationDto, { ...validBody(), instagram: '  ' });
+    assert.deepEqual(await validate(empty), []);
+    assert.equal(empty.instagram, undefined);
+    for (const bad of ['https://evil.com/x', 'javascript:alert(1)', 'meu grupo', 'a'.repeat(31), 5]) {
+      const errs = await validate(plainToInstance(CreateGroupApplicationDto, { ...validBody(), instagram: bad }));
+      assert.deepEqual(errs.map((e) => e.property), ['instagram'], String(bad));
+      assert.ok(Object.values(errs[0].constraints ?? {}).every((m) => m === 'Informe o Instagram como @usuario ou o link do perfil.'), String(bad));
+    }
+  });
+});
+
+describe('Adesão de grupos: confirmação do e-mail e aviso à equipe (contrato de e-mail 1 e 2)', () => {
+  const MIN = 60 * 1000;
+
+  it('reenvio: 3 envios por pedido (contando o 1º) e 1 a cada 5 min; resendAvailableAt só quando há espera', () => {
+    assert.equal(MAX_VERIFY_SENDS, 3);
+    assert.deepEqual(resendState({ verifySentAt: new Date(NOW.getTime() - 4 * MIN), verifySentCount: 1 }, NOW, true), {
+      canResend: false,
+      resendAvailableAt: new Date(NOW.getTime() + 1 * MIN),
+    });
+    assert.deepEqual(resendState({ verifySentAt: new Date(NOW.getTime() - 5 * MIN), verifySentCount: 2 }, NOW, true), { canResend: true, resendAvailableAt: null });
+    assert.deepEqual(resendState({ verifySentAt: new Date(NOW.getTime() - 60 * MIN), verifySentCount: 3 }, NOW, true), { canResend: false, resendAvailableAt: null });
+    assert.deepEqual(resendState({ verifySentAt: null, verifySentCount: 0 }, NOW, true), { canResend: true, resendAvailableAt: null });
+    assert.deepEqual(resendState({ verifySentAt: null, verifySentCount: 0 }, NOW, false), { canResend: false, resendAvailableAt: null }, 'e-mail desligado');
+    assert.equal(resendBlock({ verifySentAt: new Date(NOW.getTime() - 60 * MIN), verifySentCount: 3 }, NOW), 'LIMIT');
+    assert.equal(resendBlock({ verifySentAt: new Date(NOW.getTime() - 1 * MIN), verifySentCount: 1 }, NOW), 'COOLDOWN');
+    assert.equal(resendBlock({ verifySentAt: new Date(NOW.getTime() - 6 * MIN), verifySentCount: 1 }, NOW), null);
+  });
+
+  it('link vale 24 h; UNVERIFIED expira em 3 dias (limite exato); PENDING segue em 60', () => {
+    assert.equal(verifyExpiresAt(NOW).getTime(), NOW.getTime() + 24 * 60 * MIN);
+    const U = GroupApplicationStatus.UNVERIFIED;
+    assert.equal(retentionAction({ status: U, createdAt: ago(3), decidedAt: null }, NOW), 'keep');
+    assert.equal(retentionAction({ status: U, createdAt: ago(3, 1), decidedAt: null }, NOW), 'expire');
+    assert.equal(retentionAction({ status: GroupApplicationStatus.PENDING, createdAt: ago(4), decidedAt: null }, NOW), 'keep');
+  });
+
+  it('GROUP_APPLICATIONS_NOTIFY_EMAILS: vírgula/ponto e vírgula, aparado, minúsculo, sem duplicata, ignora o que não é e-mail', () => {
+    assert.deepEqual(parseNotifyEmails({}), []);
+    assert.deepEqual(parseNotifyEmails({ GROUP_APPLICATIONS_NOTIFY_EMAILS: '  ' }), []);
+    assert.deepEqual(
+      parseNotifyEmails({ GROUP_APPLICATIONS_NOTIFY_EMAILS: ' Equipe@GingApp.com.br , ops@x.com;equipe@gingapp.com.br, nao-e-email, ' }),
+      ['equipe@gingapp.com.br', 'ops@x.com'],
+    );
+  });
+
+  it('links: confirmação em <PAINEL_URL>/comecar/confirmar/<token>; aviso em <ADMIN_URL>/pedidos-de-adesao (padrão https seguro)', () => {
+    assert.equal(painelConfirmUrl('tok_-123', { PAINEL_URL: 'https://painel.x.com/' }), 'https://painel.x.com/comecar/confirmar/tok_-123');
+    assert.equal(adminApplicationsUrl({ ADMIN_URL: 'https://admin.x.com/' }), 'https://admin.x.com/pedidos-de-adesao');
+    assert.equal(adminApplicationsUrl({ ADMIN_URL: 'javascript:alert(1)' }), `${DEFAULT_ADMIN_URL}/pedidos-de-adesao`);
+    assert.ok(DEFAULT_ADMIN_URL.startsWith('https://'));
+  });
+
+  it('e-mails novos com TEXTO FIXO: confirmação só com o link (nunca senha); aviso à equipe sem nenhum dado do solicitante', () => {
+    const v = renderGroupApplicationVerifyMail({ link: 'https://painel.x.com/comecar/confirmar/abc', expiresInHours: 24 });
+    assert.ok(v.text.includes('Confirme seu e-mail para o pedido de cadastro do grupo no GingApp'));
+    assert.ok(v.text.includes('https://painel.x.com/comecar/confirmar/abc'));
+    assert.ok(v.text.includes('24 horas'));
+    assert.ok(!/senha/i.test(v.text), 'confirmação não fala de senha');
+    const t = renderGroupApplicationTeamNoticeMail({ link: 'https://admin.x.com/pedidos-de-adesao' });
+    assert.ok(t.text.includes('Há um novo pedido de adesão aguardando análise'));
+    assert.ok(t.text.includes('https://admin.x.com/pedidos-de-adesao'));
+    // as duas funções só recebem o link (+ validade): não há como passar nome, grupo, cidade, e-mail ou Instagram
+    assert.equal(renderGroupApplicationVerifyMail.length, 1);
+    assert.equal(renderGroupApplicationTeamNoticeMail.length, 1);
+  });
+
+  it('pedidos "em aberto" (1 por e-mail, exigem o hash da senha) = UNVERIFIED + PENDING', () => {
+    assert.deepEqual([...OPEN_STATUSES].sort(), ['PENDING', 'UNVERIFIED']);
+  });
+});
+
+describe('Bootstrap: diagnóstico da senha (contrato de e-mail 3)', () => {
+  it('loga tamanho em caracteres e bytes, avisa sobre "$" e NUNCA inclui a senha', () => {
+    const plain = 'Boot-Strap#2026xQ';
+    const d1 = superAdminPasswordDiagnostics(plain);
+    assert.match(d1.info.join(' '), /17 caractere\(s\) \/ 17 byte\(s\)/);
+    assert.deepEqual(d1.warn, []);
+    const withDollar = 'Pa$$wordé-Forte#1';
+    const d2 = superAdminPasswordDiagnostics(withDollar);
+    assert.match(d2.info.join(' '), /17 caractere\(s\) \/ 18 byte\(s\)/);
+    assert.equal(d2.warn.length, 1);
+    assert.match(d2.warn[0], /Docker Compose\/Easypanel/);
+    assert.match(d2.warn[0], /"\$\$"/);
+    for (const line of [...d1.info, ...d1.warn, ...d2.info, ...d2.warn]) {
+      assert.ok(!line.includes(plain) && !line.includes(withDollar) && !line.includes('Pa$$'), line);
+    }
   });
 });

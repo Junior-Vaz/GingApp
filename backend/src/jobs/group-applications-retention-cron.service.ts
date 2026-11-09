@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { GroupApplicationStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../shared/prisma/prisma.service';
-import { groupApplicationsPurgeMode, retentionCutoffs } from '../interface/http/group-applications/group-application-rules';
+import { groupApplicationsPurgeMode, OPEN_STATUSES, retentionCutoffs } from '../interface/http/group-applications/group-application-rules';
 
 /** Modo do job (SSOT em group-application-rules.ts; reexportado para o AppModule e os specs). */
 export { groupApplicationsPurgeMode };
@@ -16,6 +16,8 @@ export interface GroupApplicationsRetentionResult {
   dryRun: boolean;
   /** PENDING com mais de 60 dias (viram EXPIRED, senha apagada). */
   expired: number;
+  /** UNVERIFIED (e-mail nunca confirmado) com mais de 3 dias (viram EXPIRED, senha e hash do link apagados). */
+  expiredUnverified: number;
   /** REJECTED/EXPIRED com mais de 90 dias + APPROVED com mais de 180 dias (apagados). */
   deleted: number;
   /** Rede de seguranca: pedidos ja decididos que ainda tinham hash de senha (apagado). Esperado: 0. */
@@ -24,7 +26,8 @@ export interface GroupApplicationsRetentionResult {
 
 /**
  * Retencao dos pedidos de adesao (docs/CONTRATO_ADESAO_GRUPOS.md secao 2), diaria. GROUP_APPLICATIONS_PURGE = `true`
- * executa; `dry-run` (PADRAO) so conta e registra no log; `false` desliga. Idade de referencia: PENDING = createdAt;
+ * executa; `dry-run` (PADRAO) so conta e registra no log; `false` desliga. UNVERIFIED (e-mail nunca confirmado) com mais
+ * de 3 dias tambem expira (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 1). Idade de referencia: PENDING/UNVERIFIED = createdAt;
  * decididos/expirados = decidedAt (expirar grava decidedAt = agora), com createdAt na falta. Apagar o pedido APROVADO nao
  * toca no grupo nem na conta criados (a FK fica do lado do pedido). So contagens no log (nunca e-mail/nome).
  */
@@ -66,6 +69,11 @@ export class GroupApplicationsRetentionCronService {
       status: GroupApplicationStatus.PENDING,
       createdAt: { lt: c.expirePendingBefore },
     };
+    const expireUnverifiedWhere: Prisma.GroupApplicationWhereInput = {
+      ...scope,
+      status: GroupApplicationStatus.UNVERIFIED,
+      createdAt: { lt: c.expireUnverifiedBefore },
+    };
     const olderThan = (statuses: GroupApplicationStatus[], cutoff: Date): Prisma.GroupApplicationWhereInput[] => [
       { status: { in: statuses }, decidedAt: { lt: cutoff } },
       { status: { in: statuses }, decidedAt: null, createdAt: { lt: cutoff } },
@@ -77,35 +85,47 @@ export class GroupApplicationsRetentionCronService {
         ...olderThan([GroupApplicationStatus.APPROVED], c.deleteApprovedBefore),
       ],
     };
+    // Rede de seguranca: pedido FECHADO (nem UNVERIFIED nem PENDING) com hash de senha ou do link ainda gravado. Os
+    // pedidos em aberto ficam de fora (o CHECK do banco exige o hash da senha neles).
     const leftoverHashWhere: Prisma.GroupApplicationWhereInput = {
       ...scope,
-      status: { not: GroupApplicationStatus.PENDING },
-      passwordHash: { not: null },
+      status: { notIn: OPEN_STATUSES },
+      OR: [{ passwordHash: { not: null } }, { verifyTokenHash: { not: null } }],
     };
 
     let result: GroupApplicationsRetentionResult;
     if (dryRun) {
-      const [expired, deleted, hashesCleared] = await Promise.all([
+      const [expired, expiredUnverified, deleted, hashesCleared] = await Promise.all([
         this.prisma.groupApplication.count({ where: expireWhere }),
+        this.prisma.groupApplication.count({ where: expireUnverifiedWhere }),
         this.prisma.groupApplication.count({ where: deleteWhere }),
         this.prisma.groupApplication.count({ where: leftoverHashWhere }),
       ]);
-      result = { dryRun, expired, deleted, hashesCleared };
+      result = { dryRun, expired, expiredUnverified, deleted, hashesCleared };
     } else {
       // Apaga ANTES de expirar: o que expira agora ganha decidedAt = now e so sai daqui a 90 dias.
       const deleted = (await this.prisma.groupApplication.deleteMany({ where: deleteWhere })).count;
       const expired = (
         await this.prisma.groupApplication.updateMany({
           where: expireWhere,
-          data: { status: GroupApplicationStatus.EXPIRED, passwordHash: null, decidedAt: now },
+          data: { status: GroupApplicationStatus.EXPIRED, passwordHash: null, verifyTokenHash: null, decidedAt: now },
         })
       ).count;
-      const hashesCleared = (await this.prisma.groupApplication.updateMany({ where: leftoverHashWhere, data: { passwordHash: null } })).count;
-      result = { dryRun, expired, deleted, hashesCleared };
+      const expiredUnverified = (
+        await this.prisma.groupApplication.updateMany({
+          where: expireUnverifiedWhere,
+          data: { status: GroupApplicationStatus.EXPIRED, passwordHash: null, verifyTokenHash: null, verifyExpiresAt: null, decidedAt: now },
+        })
+      ).count;
+      const hashesCleared = (
+        await this.prisma.groupApplication.updateMany({ where: leftoverHashWhere, data: { passwordHash: null, verifyTokenHash: null } })
+      ).count;
+      result = { dryRun, expired, expiredUnverified, deleted, hashesCleared };
     }
     this.logger.log(
       `Retenção dos pedidos de adesão${dryRun ? ' (dry-run, nada alterado)' : ''}: ${result.expired} pendente(s) expirado(s), ` +
-        `${result.deleted} pedido(s) apagado(s), ${result.hashesCleared} hash(es) de senha remanescente(s) apagado(s).`,
+        `${result.expiredUnverified} sem confirmação de e-mail expirado(s), ` +
+        `${result.deleted} pedido(s) apagado(s), ${result.hashesCleared} hash(es) remanescente(s) apagado(s).`,
     );
     return result;
   }

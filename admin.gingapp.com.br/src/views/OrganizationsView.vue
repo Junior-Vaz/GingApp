@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import PageHeader from '@/components/ui/PageHeader.vue'
+import StatusChip from '@/components/ui/StatusChip.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
@@ -158,21 +160,11 @@ onMounted(() => {
 
 <template>
   <div>
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Grupos</h1>
-        <p class="mt-1 text-sm text-slate-500">Grupos de capoeira cadastrados na plataforma.</p>
-      </div>
-      <button
-        v-if="canCreate"
-        type="button"
-        data-testid="new-group"
-        class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
-        @click="openCreate"
-      >
+    <PageHeader title="Grupos" description="Grupos de capoeira cadastrados na plataforma.">
+      <button v-if="canCreate" type="button" data-testid="new-group" class="btn btn-primary" @click="openCreate">
         + Novo grupo
       </button>
-    </div>
+    </PageHeader>
 
     <p
       v-if="!canCreate"
@@ -215,12 +207,9 @@ onMounted(() => {
             <td class="px-4 py-3 text-slate-600">{{ org.slug }}</td>
             <td class="px-4 py-3 text-slate-600">{{ organizationTypeLabel(org.type) }}</td>
             <td class="px-4 py-3">
-              <span
-                class="rounded-full px-2 py-0.5 text-xs font-medium"
-                :class="org.status === 'ACTIVE' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'"
-              >
+              <StatusChip :tone="org.status === 'ACTIVE' ? 'success' : 'neutral'">
                 {{ entityStatusLabel(org.status) }}
-              </span>
+              </StatusChip>
             </td>
             <td class="px-4 py-3 text-right">
               <RouterLink

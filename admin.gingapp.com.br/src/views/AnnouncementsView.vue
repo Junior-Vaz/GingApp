@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { onMounted, reactive, ref } from 'vue'
 import { api, ApiError } from '@/utils/api'
 
@@ -115,19 +116,11 @@ onMounted(() => {
 
 <template>
   <div>
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Avisos</h1>
-        <p class="mt-1 text-sm text-slate-500">Avisos da equipe GingApp para os grupos.</p>
-      </div>
-      <button
-        type="button"
-        class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
-        @click="openCreateModal"
-      >
+    <PageHeader title="Avisos" description="Avisos da equipe GingApp para os grupos.">
+      <button type="button" class="btn btn-primary" @click="openCreateModal">
         + Novo aviso
       </button>
-    </div>
+    </PageHeader>
 
     <p v-if="listError" class="mt-4 text-sm text-red-600">{{ listError }}</p>
 

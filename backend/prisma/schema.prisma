@@ -2621,11 +2621,23 @@ model TransparencySetting {
 // equipe da plataforma (so super admin decide). Nenhuma conta nem grupo existe antes da aprovacao.
 // =============================================================================================================
 
+/// UNVERIFIED (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 1): pedido criado com o e-mail transacional LIGADO, aguardando o
+/// solicitante confirmar o e-mail (link unico de 24 h); confirmado vira PENDING. Vence em 3 dias (EXPIRED, senha apagada).
 enum GroupApplicationStatus {
+  UNVERIFIED
   PENDING
   APPROVED
   REJECTED
   EXPIRED
+}
+
+/// Verificacao do e-mail do solicitante: PENDING = link enviado, falta confirmar; VERIFIED = confirmado pelo link;
+/// SKIPPED = e-mail transacional DESLIGADO no servidor (pedido nasce PENDING sem confirmacao; a equipe confere com mais
+/// cuidado). Aprovar exige VERIFIED ou SKIPPED.
+enum EmailVerification {
+  VERIFIED
+  PENDING
+  SKIPPED
 }
 
 /// Cargo INFORMADO pelo solicitante (so informacao para a equipe: NAO concede nada; quem e aprovado vira OrgRole.MESTRE).
@@ -2640,8 +2652,9 @@ enum ApplicantRole {
 
 /// Pedido de adesao. passwordHash = bcrypt da senha escolhida (politica SSOT @IsNewPassword), apagado (null) ao aprovar,
 /// rejeitar, expirar ou purgar; PENDING exige o hash (CHECK). statusTokenHash = sha256 do token de acompanhamento (o
-/// token em claro so vai na resposta do POST). Sem IP nem User-Agent. 1 PENDING por e-mail: indice UNICO PARCIAL em
-/// lower(email) WHERE status = 'PENDING' (so no SQL da migration: o Prisma nao modela indice parcial/funcional).
+/// token em claro so vai na resposta do POST). Sem IP nem User-Agent. 1 pedido ABERTO por e-mail: indice UNICO PARCIAL em
+/// lower(email) WHERE status IN ('UNVERIFIED','PENDING') (so no SQL da migration 20261109000100: o Prisma nao modela
+/// indice parcial/funcional). UNVERIFIED tambem exige o hash da senha (CHECK).
 /// decidedByUserId sem FK (mesma convencao de LedgerEntry.createdByUserId). rejectionReason VAI para o solicitante;
 /// internalNote e so do admin.
 model GroupApplication {
@@ -2666,6 +2679,16 @@ model GroupApplication {
   rejectionReason   String?
   internalNote      String?
   organizationId    Int?                   @unique
+  /// Handle do Instagram JA NORMALIZADO (minusculo, sem @, ^[a-z0-9._]{1,30}$); nunca a URL digitada. So a equipe ve.
+  instagram         String?
+  /// Confirmacao do e-mail (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 1). verifyTokenHash = sha256 de um SEGUNDO token de
+  /// 256 bits (diferente do de acompanhamento), apagado ao confirmar/expirar; o token em claro so vai no e-mail.
+  emailVerification EmailVerification      @default(PENDING)
+  emailVerifiedAt   DateTime?
+  verifyTokenHash   String?                @unique
+  verifyExpiresAt   DateTime?
+  verifySentAt      DateTime?
+  verifySentCount   Int                    @default(0)
   createdAt         DateTime               @default(now())
   updatedAt         DateTime               @updatedAt
 

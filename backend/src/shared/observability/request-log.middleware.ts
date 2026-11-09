@@ -40,8 +40,10 @@ function routePattern(req: Request): string {
  * clique"; nenhum identificador pessoal em log): a linha sai SEM userId e SEM ip. As de plataforma (/api/platform-...)
  * seguem normais. Idem a pagina publica de transparencia (docs/CONTRATO_TRANSPARENCIA.md regra 6: nenhum IP/User-Agent
  * guardado ao servir): GET /api/transparency. Idem o pedido PUBLICO de adesao de grupo (docs/CONTRATO_ADESAO_GRUPOS.md
- * regra 4: "nao guardar IP nem User-Agent"): POST /api/public/group-applications e GET .../:token (o token so aparece como
- * o padrao `:token`, nunca o valor; o corpo, que leva a senha, nunca e logado por este middleware).
+ * regra 4: "nao guardar IP nem User-Agent"): POST /api/public/group-applications, GET .../:token e, da confirmacao do
+ * e-mail (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 1), POST .../confirm (token do link no CORPO) e POST .../:token/resend. O
+ * token de acompanhamento so aparece como o padrao `:token`, nunca o valor; o corpo (senha, token do link) nunca e logado
+ * por este middleware.
  */
 const ANONYMOUS_LOG_ROUTE = /^\/api\/(sponsors\/|transparency$|public\/group-applications(\/|$))/;
 

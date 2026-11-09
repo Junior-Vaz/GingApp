@@ -31,6 +31,13 @@ export const PHONE_PATTERN = /^\+?[0-9()\-.\s]{8,30}$/;
 export const MAX_ESTIMATED_STUDENTS = 100_000;
 export const MESSAGE_MAX_LENGTH = 500;
 
+/**
+ * Instagram do grupo/responsável (opcional; docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md, seção 7). O cliente só confere o básico
+ * (comprimento razoável e sem espaços): a normalização para o handle puro e a validação rigorosa são do servidor.
+ */
+export const INSTAGRAM_MAX_LENGTH = 200;
+export const INSTAGRAM_ERROR = "Informe o Instagram como @usuario ou o link do perfil.";
+
 /** Requisitos da senha mostrados no formulário (a política do painel, SSOT em `lib/password.ts`; "diferente da atual" não se aplica). */
 const SIGNUP_RULE_IDS = ["length", "bytes", "forbidden"] as const;
 export const signupPasswordRules = (password: string) =>
@@ -79,6 +86,10 @@ export const groupApplicationSchema = z.object({
       `Informe um número inteiro de 0 a ${String(MAX_ESTIMATED_STUDENTS)}.`,
     ),
   message: z.string().trim().max(MESSAGE_MAX_LENGTH, `Escreva no máximo ${String(MESSAGE_MAX_LENGTH)} caracteres.`),
+  instagram: z
+    .string()
+    .trim()
+    .refine((value) => value === "" || (value.length <= INSTAGRAM_MAX_LENGTH && !/\s/.test(value)), INSTAGRAM_ERROR),
   // Senhas NUNCA são aparadas: espaços podem fazer parte delas (mesma regra de lib/password.ts).
   password: z.string().superRefine((value, ctx) => {
     if (value === "") {
@@ -105,6 +116,7 @@ export const emptyGroupApplicationForm: GroupApplicationValues = {
   state: "",
   estimatedStudents: "",
   message: "",
+  instagram: "",
   password: "",
   adult: false,
   acceptTerms: false,
@@ -123,6 +135,8 @@ export interface GroupApplicationPayload {
   state: Uf;
   estimatedStudents?: number;
   message?: string;
+  /** Como foi digitado (@usuario, usuario ou link do perfil): o servidor normaliza para o handle. */
+  instagram?: string;
   acceptTerms: true;
   adult: true;
   website: string;
@@ -132,6 +146,7 @@ export function toGroupApplicationPayload(values: GroupApplicationValues): Group
   const phone = values.phone.trim();
   const students = values.estimatedStudents.trim();
   const message = values.message.trim();
+  const instagram = values.instagram.trim();
   return {
     applicantName: values.applicantName.trim(),
     email: values.email.trim(),
@@ -143,6 +158,7 @@ export function toGroupApplicationPayload(values: GroupApplicationValues): Group
     state: values.state as Uf,
     ...(students ? { estimatedStudents: Number(students) } : {}),
     ...(message ? { message } : {}),
+    ...(instagram ? { instagram } : {}),
     acceptTerms: true,
     adult: true,
     // Vazio para gente de verdade; o servidor descarta em silêncio qualquer valor preenchido por robô.
@@ -150,11 +166,23 @@ export function toGroupApplicationPayload(values: GroupApplicationValues): Group
   };
 }
 
-export type GroupApplicationStatusName = "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
+/** `UNVERIFIED`: pedido criado, e-mail do solicitante ainda não confirmado (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md, seção 1). */
+export type GroupApplicationStatusName = "UNVERIFIED" | "PENDING" | "APPROVED" | "REJECTED" | "EXPIRED";
+
+/** Situação da confirmação do e-mail: `SKIPPED` = envio de e-mail desligado no servidor (nada a confirmar). */
+export type EmailVerificationName = "VERIFIED" | "PENDING" | "SKIPPED";
+
+/** Limites do reenvio (o servidor é quem aplica; o painel só informa). */
+export const RESEND_MAX_SENDS = 3;
+export const RESEND_INTERVAL_MINUTES = 5;
+export const VERIFY_LINK_HOURS = 24;
 
 export interface GroupApplicationSubmitted {
   statusToken: string;
-  status: "PENDING";
+  /** `UNVERIFIED` com e-mail ligado, `PENDING` com e-mail desligado. Ausente em respostas antigas. */
+  status: "UNVERIFIED" | "PENDING";
+  /** `PENDING` (e-mail de confirmação enviado) ou `SKIPPED` (envio desligado). Ausente em respostas antigas = `SKIPPED`. */
+  emailVerification?: "PENDING" | "SKIPPED";
 }
 
 /** GET /public/group-applications/:token (nunca traz e-mail, telefone, nome do solicitante nem id). */
@@ -165,6 +193,11 @@ export interface GroupApplicationStatus {
   decidedAt: string | null;
   rejectionReason: string | null;
   loginUrl: string | null;
+  emailVerification?: EmailVerificationName;
+  /** Só com `UNVERIFIED`. */
+  canResend?: boolean;
+  /** ISO do próximo reenvio permitido; `null` sem espera (ou sem reenvios restantes, se `canResend` for false). */
+  resendAvailableAt?: string | null;
 }
 
 /**
@@ -210,7 +243,21 @@ export const fetchGroupApplicationStatus = (token: string) =>
     cache: "no-store",
   });
 
-export const SUBMIT_ERROR_FALLBACK = "Não foi possível enviar o pedido. Verifique sua conexão e tente novamente.";
+/** Reenvia o e-mail de confirmação (token de ACOMPANHAMENTO no path). Resposta neutra (204/200); 429 = limite do servidor. */
+export const resendGroupApplicationEmail = (statusToken: string) =>
+  publicRequest<undefined>(`/public/group-applications/${encodeURIComponent(statusToken)}/resend`, { method: "POST" });
+
+/**
+ * Confirma o e-mail. É POST (e só acontece por clique) para que leitores de e-mail que "abrem" links não consumam o token.
+ * O token de confirmação vem do path da página e segue no corpo, nunca em query string.
+ */
+export const confirmGroupApplicationEmail = (verifyToken: string) =>
+  publicRequest<{ status: GroupApplicationStatusName }>("/public/group-applications/confirm", {
+    method: "POST",
+    body: JSON.stringify({ token: verifyToken }),
+  });
+
+export const SUBMIT_ERROR_FALLBACK ="Não foi possível enviar o pedido. Verifique sua conexão e tente novamente.";
 
 export function submitErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
@@ -220,6 +267,31 @@ export function submitErrorMessage(error: unknown): string {
     return error.message;
   }
   return SUBMIT_ERROR_FALLBACK;
+}
+
+/** O limitador genérico responde em inglês ("ThrottlerException: Too Many Requests"); a mensagem do negócio vem em português. */
+const GENERIC_THROTTLE_MESSAGE = /throttler|too many requests/i;
+
+export function resendErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 429) {
+      return error.message && !GENERIC_THROTTLE_MESSAGE.test(error.message)
+        ? error.message
+        : "Muitos reenvios seguidos. Aguarde um pouco e tente novamente.";
+    }
+    if (error.status >= 500) return "O serviço está indisponível no momento. Tente novamente em alguns minutos.";
+    return error.message;
+  }
+  return "Não foi possível reenviar o e-mail. Verifique sua conexão e tente novamente.";
+}
+
+export function confirmErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.status === 429) return "Muitas tentativas deste dispositivo. Aguarde um pouco e tente novamente.";
+    if (error.status >= 500) return "O serviço está indisponível no momento. Tente novamente em alguns minutos.";
+    return error.message;
+  }
+  return "Não foi possível confirmar o e-mail. Verifique sua conexão e tente novamente.";
 }
 
 /**

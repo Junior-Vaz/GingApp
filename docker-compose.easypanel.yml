@@ -67,6 +67,9 @@ services:
       # EMAIL e PASSWORD juntos (ou nenhum). Senha: 12+ caracteres, 3 de 4 classes (minuscula,
       # maiuscula, digito, simbolo), sem conter o e-mail nem termos como dev@12345/senha/admin/gingapp.
       # Senha fraca ou so um dos dois = o backend NAO sobe (veja o log).
+      # AVISO: este arquivo INTERPRETA "$" nos valores do Environment ("$abc" vira outra variavel, ou vazio): senha com
+      # "$" chega ALTERADA. Evite "$" ou use "$$". O log do bootstrap mostra o tamanho da senha recebida, avisa do "$" e,
+      # com a conta ja existente, diz se a senha CONFERE (nunca altera senha existente: Equipe > Redefinir senha).
       SUPER_ADMIN_EMAIL: "${SUPER_ADMIN_EMAIL:-}"
       SUPER_ADMIN_PASSWORD: "${SUPER_ADMIN_PASSWORD:-}"
       SUPER_ADMIN_NAME: "${SUPER_ADMIN_NAME:-}"
@@ -180,6 +183,11 @@ services:
       # expira; decididos antigos sao apagados): dry-run (PADRAO: so log) | true | false. Limites por IP (padroes do
       # codigo): pedido 5/hora, acompanhamento 30/min. Links do e-mail/status: PAINEL_URL.
       GROUP_APPLICATIONS_PURGE: "${GROUP_APPLICATIONS_PURGE:-dry-run}"
+      # Confirmacao do e-mail do solicitante (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md; so com SMTP_*): link de 24 h, pedido
+      # sem confirmar expira em 3 dias; confirmar 20/min e reenviar 3/hora por IP (padroes do codigo). Aviso a equipe de
+      # pedido novo (texto fixo, link <ADMIN_URL>/pedidos-de-adesao, no maximo 1 a cada 10 min): lista separada por
+      # virgula; vazia = super admins PLATFORM ativos.
+      GROUP_APPLICATIONS_NOTIFY_EMAILS: "${GROUP_APPLICATIONS_NOTIFY_EMAILS:-}"
       # Feed do grupo (docs/EASYPANEL.md secao 27): fotos PRIVADAS dentro do volume persistente gingapp_private_uploads
       # (subpasta feed; nunca em UPLOADS_DIR, o boot falha se ficar la), servidas so por URL assinada (validade em horas).
       # Cotas diarias por usuario: posts e comentarios. FEED_MEDIA_CLEANUP=false desliga a limpeza (15 min + diaria).

@@ -4,6 +4,7 @@ import FinanceEntriesTab from '@/components/finance/FinanceEntriesTab.vue'
 import FinanceMonthsTab from '@/components/finance/FinanceMonthsTab.vue'
 import FinancePreviewTab from '@/components/finance/FinancePreviewTab.vue'
 import FinanceSettingsTab from '@/components/finance/FinanceSettingsTab.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { useAuthStore } from '@/stores/auth'
 import { WRITE_ONLY_SUPER_HINT } from '@/utils/finance'
 
@@ -55,11 +56,11 @@ function onTabKeydown(event: KeyboardEvent): void {
 
 <template>
   <div>
-    <div>
-      <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Financeiro</h1>
-      <p class="mt-1 text-sm text-slate-600">Livro-caixa da plataforma e transparência: quanto custa, de onde vem o dinheiro e o que fica público a cada mês.</p>
-      <p v-if="!canWrite" class="mt-2 text-sm text-slate-600" data-testid="read-only-banner">{{ WRITE_ONLY_SUPER_HINT }}</p>
-    </div>
+    <PageHeader
+      title="Financeiro"
+      description="Livro-caixa da plataforma e transparência: quanto custa, de onde vem o dinheiro e o que fica público a cada mês."
+    />
+    <p v-if="!canWrite" class="mt-2 text-sm text-slate-600" data-testid="read-only-banner">{{ WRITE_ONLY_SUPER_HINT }}</p>
 
     <div role="tablist" aria-label="Seções do Financeiro" class="mt-6 flex w-full max-w-full gap-1 overflow-x-auto rounded-lg bg-slate-100 p-1 sm:w-fit" data-testid="finance-tabs" @keydown="onTabKeydown">
       <button

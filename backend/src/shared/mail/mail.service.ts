@@ -4,6 +4,8 @@ import { readSmtpConfig } from './mail.config';
 import {
   renderGroupApplicationApprovedMail,
   renderGroupApplicationRejectedMail,
+  renderGroupApplicationTeamNoticeMail,
+  renderGroupApplicationVerifyMail,
   RegistrationNoticeKind,
   renderInviteMail,
   renderPasswordResetMail,
@@ -88,6 +90,16 @@ export class MailService {
   /** Pedido de adesão NÃO aprovado: o motivo escrito pela equipe. */
   sendGroupApplicationRejected(input: { to: string; reason: string; link: string }): Promise<boolean> {
     return this.deliver('group-application-rejected', input.to, renderGroupApplicationRejectedMail(input));
+  }
+
+  /** Confirmação do e-mail do pedido de adesão: texto fixo + link (nunca senha nem texto do solicitante). */
+  sendGroupApplicationVerify(input: { to: string; link: string; expiresInHours: number }): Promise<boolean> {
+    return this.deliver('group-application-verify', input.to, renderGroupApplicationVerifyMail(input));
+  }
+
+  /** Aviso à equipe de pedido novo aguardando análise: texto fixo, sem nenhum dado do solicitante. */
+  sendGroupApplicationTeamNotice(input: { to: string; link: string }): Promise<boolean> {
+    return this.deliver('group-application-team-notice', input.to, renderGroupApplicationTeamNoticeMail(input));
   }
 
   private async deliver(template: string, to: string, mail: RenderedMail): Promise<boolean> {

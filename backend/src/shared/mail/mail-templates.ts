@@ -153,6 +153,39 @@ export function renderGroupApplicationRejectedMail(input: { reason: string; link
   };
 }
 
+/**
+ * Confirmacao do e-mail do pedido de adesao (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 1). TEXTO FIXO: o e-mail ainda nao foi
+ * confirmado (pode ser de outra pessoa), entao nenhum texto digitado pelo solicitante (nome, grupo, mensagem, Instagram)
+ * entra aqui, e nunca a senha. So o link de confirmacao (a pagina confirma por POST ao clicar no botao, nunca ao abrir).
+ */
+export function renderGroupApplicationVerifyMail(input: { link: string; expiresInHours: number }): RenderedMail {
+  const hello = 'Olá!';
+  const intro = 'Confirme seu e-mail para o pedido de cadastro do grupo no GingApp.';
+  const how = 'Abra o link abaixo e toque em "Confirmar meu e-mail". Depois disso o pedido entra na fila de análise da equipe.';
+  const validity = `Este link vale por ${input.expiresInHours} horas e só pode ser usado uma vez.`;
+  const footer = 'Se você não fez este pedido, ignore este e-mail: sem a confirmação, o pedido é descartado.';
+  return {
+    subject: 'Confirme seu e-mail - GingApp',
+    text: [hello, '', intro, how, input.link, '', validity, footer].join('\n'),
+    html: layout('Confirme seu e-mail', [escapeHtml(hello), escapeHtml(intro), escapeHtml(how), escapeHtml(validity)], input.link, 'Confirmar meu e-mail', footer),
+  };
+}
+
+/**
+ * Aviso a EQUIPE da plataforma de que entrou pedido novo (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 2). TEXTO FIXO, sem
+ * NENHUM dado do solicitante (nem nome, grupo, cidade ou e-mail): so o link da tela de pedidos do admin.
+ */
+export function renderGroupApplicationTeamNoticeMail(input: { link: string }): RenderedMail {
+  const intro = 'Há um novo pedido de adesão aguardando análise.';
+  const how = 'Abra a tela "Pedidos de adesão" do admin para conferir e decidir.';
+  const footer = 'Aviso automático do GingApp para a equipe da plataforma. Avisos de pedidos que chegam em sequência são agrupados (no máximo um a cada 10 minutos).';
+  return {
+    subject: 'Novo pedido de adesão aguardando análise - GingApp',
+    text: ['Olá, equipe!', '', intro, how, input.link, '', footer].join('\n'),
+    html: layout('Novo pedido de adesão', ['Olá, equipe!', escapeHtml(intro), escapeHtml(how)], input.link, 'Ver pedidos de adesão', footer),
+  };
+}
+
 export function renderInviteMail(input: {
   name: string;
   groupName: string;

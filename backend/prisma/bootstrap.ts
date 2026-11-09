@@ -27,6 +27,9 @@
 //        é pelo próprio admin (/platform-team), não por aqui.
 //      - A senha só existe em memória para gerar o hash bcrypt (mesmo custo do PlatformTeamService);
 //        nem a senha nem o hash aparecem em log ou mensagem de erro.
+//      - Diagnóstico (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 3): loga o TAMANHO da senha recebida (caracteres/bytes),
+//        AVISA se ela contém "$" (o Docker Compose/Easypanel interpreta "$"; use "$$") e, quando a conta já existe,
+//        diz se a senha da env CONFERE ou NÃO com a senha atual (bcrypt.compare; só o resultado vai para o log).
 //
 // O QUE NÃO FAZ (de propósito — nada disso é necessário para um PLATFORM logar e operar o admin):
 //   - Organização "SYSTEM" id=1 (PLANO_PROJETO.md §2.2): nenhuma rota/guard depende dela —
@@ -197,6 +200,27 @@ export function readSuperAdminConfig(env: Env): SuperAdminConfig | null {
   return { email, password, name };
 }
 
+/**
+ * Diagnóstico da senha RECEBIDA (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 3), sem NUNCA expor a senha nem o hash: só o
+ * tamanho (caracteres e bytes UTF-8) e, se houver "$", o aviso da interpolação do Docker Compose/Easypanel ("$VAR" vira o
+ * valor de outra variável ou vazio; "$$" é o "$" literal). Serve para comparar com o tamanho da senha que a pessoa digitou.
+ */
+export function superAdminPasswordDiagnostics(password: string): { info: string[]; warn: string[] } {
+  const info = [
+    `senha recebida em SUPER_ADMIN_PASSWORD: ${[...password].length} caractere(s) / ${passwordByteLength(password)} byte(s) ` +
+      '(se não bate com a senha que você digitou, o valor foi alterado no caminho até o container).',
+  ];
+  const warn: string[] = [];
+  if (password.includes('$')) {
+    warn.push(
+      'SUPER_ADMIN_PASSWORD contém o caractere "$". O Docker Compose/Easypanel INTERPRETA "$" em variáveis ("$abc" vira o ' +
+        'valor de outra variável, ou vazio) e a senha que chega aqui pode não ser a que você digitou. Escreva "$$" no lugar ' +
+        'de cada "$" no compose/Easypanel, ou escolha uma senha sem "$".',
+    );
+  }
+  return { info, warn };
+}
+
 const key = (row: Pick<PermissionRow, 'role' | 'resource'>) =>
   `${row.role}/${row.resource}`;
 
@@ -261,6 +285,12 @@ export async function runBootstrap(
   env: Env = process.env,
   log: BootstrapLogger = consoleLogger,
 ): Promise<BootstrapResult> {
+  // Diagnóstico da senha recebida ANTES da validação (útil também quando ela é recusada). Nunca a senha nem o hash.
+  if (env.SUPER_ADMIN_PASSWORD) {
+    const diag = superAdminPasswordDiagnostics(env.SUPER_ADMIN_PASSWORD);
+    diag.info.forEach((m) => log.info(m));
+    diag.warn.forEach((m) => log.warn(m));
+  }
   const admin = readSuperAdminConfig(env); // lança antes de qualquer escrita
   const passwordHash = admin
     ? await bcrypt.hash(admin.password, BCRYPT_ROUNDS)
@@ -313,6 +343,7 @@ export async function runBootstrap(
                     userType: true,
                     isSuperAdmin: true,
                     status: true,
+                    passwordHash: true,
                   },
                 });
           if (current) {
@@ -321,6 +352,16 @@ export async function runBootstrap(
               `Usuário ${admin.email} já existe (id=${current.id}, userType=${current.userType}, ` +
                 `isSuperAdmin=${current.isSuperAdmin}, status=${current.status}) — NADA alterado (senha e flags preservadas).`,
             );
+            // Diagnóstico (contrato de e-mail 3): a senha da env vale para essa conta? Só o resultado vai para o log.
+            const matches = await bcrypt.compare(admin.password, current.passwordHash).catch(() => false);
+            if (matches) {
+              log.info(`a senha de SUPER_ADMIN_PASSWORD CONFERE com a senha atual de ${admin.email}.`);
+            } else {
+              log.warn(
+                `a senha de SUPER_ADMIN_PASSWORD NÃO CONFERE com a senha atual de ${admin.email}: o bootstrap não altera ` +
+                  'senha existente; use Equipe > Redefinir senha no admin (ou entre com a senha antiga).',
+              );
+            }
             if (
               current.userType !== UserType.PLATFORM ||
               !current.isSuperAdmin ||

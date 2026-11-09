@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import AuthShell from '@/components/auth/AuthShell.vue'
+import PasswordField from '@/components/auth/PasswordField.vue'
+import AppIcon from '@/components/ui/AppIcon.vue'
 import { useAuthStore } from '@/stores/auth'
 import { fetchPasswordResetByEmail } from '@/utils/password'
 import { codeProblem, isChallengeExpired, proofBody } from '@/utils/twoFactor'
@@ -21,8 +24,19 @@ const challengeToken = ref<string | null>(null)
 const useRecovery = ref(false)
 const twoFactorCode = ref('')
 
+// Foco automático: e-mail ao abrir; código ao chegar no 2º passo (o atributo `autofocus` não vale em tela trocada por JS).
+const emailInput = ref<HTMLInputElement | null>(null)
+const codeInput = ref<HTMLInputElement | null>(null)
+
 onMounted(async () => {
+  emailInput.value?.focus()
   canResetByEmail.value = await fetchPasswordResetByEmail()
+})
+
+watch(challengeToken, async (token, previous) => {
+  await nextTick()
+  if (token) codeInput.value?.focus()
+  else if (previous) emailInput.value?.focus()
 })
 
 async function handleSubmit(): Promise<void> {
@@ -59,6 +73,7 @@ function toggleRecovery(): void {
   useRecovery.value = !useRecovery.value
   twoFactorCode.value = ''
   errorMessage.value = ''
+  void nextTick(() => codeInput.value?.focus())
 }
 
 async function handleVerify(): Promise<void> {
@@ -85,113 +100,140 @@ async function handleVerify(): Promise<void> {
     isSubmitting.value = false
   }
 }
+
+const FIELD =
+  'w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 transition-colors hover:border-slate-400'
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-    <div class="w-full max-w-sm rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
-      <div class="mb-8 text-center">
-        <img src="/logo.png" alt="GingApp" class="mx-auto h-12 w-auto object-contain" />
-        <p class="mt-2 text-sm text-slate-500">Painel administrativo — equipe interna</p>
+  <AuthShell>
+    <div v-if="!challengeToken">
+      <h1 class="text-xl font-extrabold text-slate-900">Entrar no admin</h1>
+      <p class="mt-1 text-sm text-slate-600">Painel administrativo — equipe interna</p>
+    </div>
+    <div v-else class="flex items-center gap-2">
+      <span class="flex size-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
+        <AppIcon name="shield" :size="20" />
+      </span>
+      <h1 class="text-lg font-extrabold text-slate-900">Verificação em duas etapas</h1>
+    </div>
+
+    <p v-if="isDev" data-testid="dev-hint" class="mt-4 rounded-md bg-slate-50 px-3 py-2 text-center text-xs text-slate-600">
+      Dev: owner@gingapp.com.br / Dev@12345 (seed de desenvolvimento)
+    </p>
+
+    <form v-if="!challengeToken" class="mt-5 space-y-4" data-testid="login-form" @submit.prevent="handleSubmit">
+      <div>
+        <label for="email" class="mb-1.5 block text-sm font-medium text-slate-700">E-mail</label>
+        <input
+          id="email"
+          ref="emailInput"
+          v-model="email"
+          type="email"
+          required
+          autocomplete="email"
+          autocapitalize="none"
+          spellcheck="false"
+          :class="FIELD"
+          placeholder="equipe@gingapp.com.br"
+          :aria-invalid="errorMessage ? true : undefined"
+          :aria-describedby="errorMessage ? 'login-error' : undefined"
+        />
       </div>
 
-      <p v-if="isDev" data-testid="dev-hint" class="mb-4 text-center text-xs text-slate-400">
-        Dev: owner@gingapp.com.br / Dev@12345 (seed de desenvolvimento)
+      <div>
+        <div class="mb-1.5 flex items-center justify-between gap-2">
+          <label for="password" class="block text-sm font-medium text-slate-700">Senha</label>
+          <RouterLink
+            v-if="canResetByEmail"
+            to="/esqueci-senha"
+            data-testid="forgot-link"
+            class="-my-2 inline-flex min-h-10 items-center rounded text-sm font-semibold text-primary underline"
+          >
+            Esqueci minha senha
+          </RouterLink>
+        </div>
+        <PasswordField
+          id="password"
+          v-model="password"
+          required
+          autocomplete="current-password"
+          placeholder="••••••••"
+          :aria-invalid="errorMessage ? true : undefined"
+          :aria-describedby="errorMessage ? 'login-error' : undefined"
+        />
+      </div>
+
+      <p v-if="errorMessage" id="login-error" role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+        {{ errorMessage }}
       </p>
 
-      <form v-if="!challengeToken" class="space-y-4" data-testid="login-form" @submit.prevent="handleSubmit">
-        <div>
-          <label for="email" class="mb-1 block text-sm font-medium text-slate-700">E-mail</label>
-          <input
-            id="email"
-            v-model="email"
-            type="email"
-            required
-            autocomplete="email"
-            class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
-            placeholder="equipe@gingapp.com.br"
-          />
-        </div>
+      <button type="submit" :disabled="isSubmitting" :aria-busy="isSubmitting" class="btn btn-primary min-h-11 w-full">
+        <AppIcon v-if="isSubmitting" name="loader" :size="16" class="animate-spin motion-reduce:animate-none" />
+        {{ isSubmitting ? 'Entrando…' : 'Entrar' }}
+      </button>
+    </form>
 
-        <div>
-          <label for="password" class="mb-1 block text-sm font-medium text-slate-700">Senha</label>
-          <input
-            id="password"
-            v-model="password"
-            type="password"
-            required
-            autocomplete="current-password"
-            class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
-            placeholder="••••••••"
-          />
-        </div>
-
-        <p v-if="errorMessage" role="alert" class="text-sm text-red-600">{{ errorMessage }}</p>
-
-        <button
-          type="submit"
-          :disabled="isSubmitting"
-          class="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {{ isSubmitting ? 'Entrando…' : 'Entrar' }}
-        </button>
-      </form>
-
-      <form v-else class="space-y-4" data-testid="two-factor-form" @submit.prevent="handleVerify">
-        <p class="text-sm text-slate-600">
-          Verificação em duas etapas.
-          {{ useRecovery ? 'Digite um dos seus códigos de recuperação.' : 'Digite o código de 6 dígitos do seu aplicativo autenticador.' }}
-        </p>
-
-        <div>
-          <label for="two-factor-code" class="mb-1 block text-sm font-medium text-slate-700">
-            {{ useRecovery ? 'Código de recuperação' : 'Código de 6 dígitos' }}
-          </label>
-          <input
-            id="two-factor-code"
-            v-model="twoFactorCode"
-            type="text"
-            required
-            autofocus
-            autocomplete="one-time-code"
-            :inputmode="useRecovery ? 'text' : 'numeric'"
-            :maxlength="useRecovery ? 11 : 7"
-            class="w-full rounded-md border border-slate-300 px-3 py-2 text-sm tracking-widest text-slate-900 outline-none focus:border-slate-500 focus:ring-1 focus:ring-slate-500"
-            :placeholder="useRecovery ? 'xxxxx-xxxxx' : '000000'"
-          />
-        </div>
-
-        <p v-if="errorMessage" role="alert" class="text-sm text-red-600">{{ errorMessage }}</p>
-
-        <button
-          type="submit"
-          :disabled="isSubmitting"
-          class="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {{ isSubmitting ? 'Verificando…' : 'Verificar' }}
-        </button>
-
-        <div class="flex items-center justify-between text-sm">
-          <button type="button" data-testid="toggle-recovery" class="text-slate-600 underline" @click="toggleRecovery">
-            {{ useRecovery ? 'Usar código do autenticador' : 'Usar código de recuperação' }}
-          </button>
-          <button type="button" data-testid="two-factor-back" class="text-slate-600 underline" @click="backToCredentials">
-            Voltar
-          </button>
-        </div>
-      </form>
-
-      <p v-if="canResetByEmail && !challengeToken" class="mt-4 text-center text-sm">
-        <RouterLink to="/esqueci-senha" data-testid="forgot-link" class="text-slate-600 underline">
-          Esqueci minha senha
-        </RouterLink>
+    <form v-else class="mt-5 space-y-4" data-testid="two-factor-form" @submit.prevent="handleVerify">
+      <p class="text-sm text-slate-600">
+        {{ useRecovery ? 'Digite um dos seus códigos de recuperação.' : 'Digite o código de 6 dígitos do seu aplicativo autenticador.' }}
       </p>
 
-      <p data-testid="legal-links" class="mt-6 text-center text-xs text-slate-400">
-        <RouterLink to="/termos" class="underline">Termos de Uso</RouterLink>
+      <div>
+        <label for="two-factor-code" class="mb-1.5 block text-sm font-medium text-slate-700">
+          {{ useRecovery ? 'Código de recuperação' : 'Código de 6 dígitos' }}
+        </label>
+        <input
+          id="two-factor-code"
+          ref="codeInput"
+          v-model="twoFactorCode"
+          type="text"
+          required
+          autocomplete="one-time-code"
+          :inputmode="useRecovery ? 'text' : 'numeric'"
+          :maxlength="useRecovery ? 11 : 7"
+          :class="[FIELD, 'tracking-widest']"
+          :placeholder="useRecovery ? 'xxxxx-xxxxx' : '000000'"
+          :aria-invalid="errorMessage ? true : undefined"
+          :aria-describedby="errorMessage ? 'login-error' : undefined"
+        />
+      </div>
+
+      <p v-if="errorMessage" id="login-error" role="alert" class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800">
+        {{ errorMessage }}
+      </p>
+
+      <button type="submit" :disabled="isSubmitting" :aria-busy="isSubmitting" class="btn btn-primary min-h-11 w-full">
+        <AppIcon v-if="isSubmitting" name="loader" :size="16" class="animate-spin motion-reduce:animate-none" />
+        {{ isSubmitting ? 'Verificando…' : 'Verificar' }}
+      </button>
+
+      <div class="flex items-center justify-between gap-2 text-sm">
+        <button
+          type="button"
+          data-testid="toggle-recovery"
+          class="-mx-1 min-h-10 rounded px-1 font-medium text-slate-700 underline hover:text-slate-900"
+          @click="toggleRecovery"
+        >
+          {{ useRecovery ? 'Usar código do autenticador' : 'Usar código de recuperação' }}
+        </button>
+        <button
+          type="button"
+          data-testid="two-factor-back"
+          class="-mx-1 min-h-10 rounded px-1 font-medium text-slate-700 underline hover:text-slate-900"
+          @click="backToCredentials"
+        >
+          Voltar
+        </button>
+      </div>
+    </form>
+
+    <template #footer>
+      <p data-testid="legal-links" class="mt-5 text-center text-xs text-slate-600">
+        <RouterLink to="/termos" class="inline-flex min-h-8 items-center underline">Termos de Uso</RouterLink>
         ·
-        <RouterLink to="/privacidade" class="underline">Política de Privacidade</RouterLink>
+        <RouterLink to="/privacidade" class="inline-flex min-h-8 items-center underline">Política de Privacidade</RouterLink>
       </p>
-    </div>
-  </div>
+    </template>
+  </AuthShell>
 </template>

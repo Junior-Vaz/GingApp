@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
@@ -172,19 +173,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Campanhas</h1>
-        <p class="mt-1 text-sm text-slate-600">Anúncios “Patrocinado” do carrossel da Home. Só vai ao ar o que um super admin ativar.</p>
-      </div>
-      <RouterLink
-        to="/sponsors/campaigns/new"
-        data-testid="new-campaign"
-        class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-      >
+    <PageHeader
+      title="Campanhas"
+      description="Anúncios “Patrocinado” do carrossel da Home. Só vai ao ar o que um super admin ativar."
+    >
+      <RouterLink to="/sponsors/campaigns/new" data-testid="new-campaign" class="btn btn-primary">
         + Nova campanha
       </RouterLink>
-    </div>
+    </PageHeader>
 
     <SponsorsTabs class="mt-6" />
 

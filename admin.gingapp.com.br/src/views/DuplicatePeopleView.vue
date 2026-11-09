@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import EmptyState from '@/components/ui/EmptyState.vue'
+import PageHeader from '@/components/ui/PageHeader.vue'
+import Skeleton from '@/components/ui/Skeleton.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { api, ApiError } from '@/utils/api'
@@ -189,11 +192,11 @@ onMounted(() => {
 
 <template>
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Duplicatas de fichas</h1>
-    <p class="mt-1 text-sm text-slate-500">
-      Fichas únicas de capoeiristas que podem ser a mesma pessoa (mesmo nome e nascimento). Compare e mescle apenas quando tiver certeza.
-    </p>
-    <p class="mt-3 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" data-testid="irreversible-note">
+    <PageHeader
+      title="Duplicatas de fichas"
+      description="Fichas únicas de capoeiristas que podem ser a mesma pessoa (mesmo nome e nascimento). Compare e mescle apenas quando tiver certeza."
+    />
+    <p class="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800" data-testid="irreversible-note">
       A mescla é <strong>irreversível</strong>: não existe "desmesclar". A ficha mesclada deixa de existir e suas matrículas passam para a ficha mantida.
     </p>
     <p
@@ -212,14 +215,13 @@ onMounted(() => {
       </p>
       <p v-if="mergeError && !confirming" role="alert" data-testid="merge-error" class="mt-4 text-sm text-red-600">{{ mergeError }}</p>
 
-      <p v-if="isLoading" data-testid="loading" class="mt-8 text-center text-sm text-slate-400">Carregando…</p>
-      <p
-        v-else-if="!loadError && groups.length === 0"
-        data-testid="empty"
-        class="mt-8 rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-400"
-      >
-        Nenhuma duplicata encontrada.
-      </p>
+      <div v-if="isLoading" data-testid="loading" class="mt-6 space-y-2" aria-busy="true">
+        <span class="sr-only">Carregando…</span>
+        <Skeleton v-for="n in 4" :key="n" height="3.25rem" />
+      </div>
+      <div v-else-if="!loadError && groups.length === 0" data-testid="empty" class="card mt-6">
+        <EmptyState title="Nenhuma duplicata encontrada." description="Nenhuma ficha única parece repetida no momento." icon="duplicates" />
+      </div>
 
       <div v-else-if="groups.length > 0" class="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[18rem_1fr]">
         <ul class="space-y-2" data-testid="group-list">

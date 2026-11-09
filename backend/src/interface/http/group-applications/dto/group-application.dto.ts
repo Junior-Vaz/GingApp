@@ -18,6 +18,17 @@ import { BR_UFS } from '../../../../shared/geo/br-states';
 import { PageQueryDto } from '../../../../shared/pagination/pagination';
 import { IsNewPassword } from '../../../../shared/security/new-password.decorator';
 import { PHONE_PATTERN, SLUG_PATTERN, trim } from '../../organizations/dto/create-organization.dto';
+import { INSTAGRAM_HANDLE_PATTERN, INSTAGRAM_INVALID_MESSAGE, normalizeInstagram } from '../group-application-rules';
+
+/**
+ * Instagram: normalizado para o handle puro (SSOT normalizeInstagram); vazio vira ausente. INVALIDO fica com o valor
+ * recebido, que entao reprova no @Matches do handle (um texto que nao normaliza nunca casa com o padrao do handle).
+ */
+const instagram = ({ value }: { value: unknown }) => {
+  const normalized = normalizeInstagram(value);
+  if (normalized === null) return undefined;
+  return normalized === undefined ? value : normalized;
+};
 
 /** Sigla da UF: aparada e em maiusculas (aceita "sp"); qualquer outro tipo passa intacto (a validacao reprova). */
 const uf = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim().toUpperCase() : value);
@@ -92,6 +103,16 @@ export class CreateGroupApplicationDto {
   @Equals(true, { message: 'adult deve ser true (declaração de ter 18 anos ou mais).' })
   adult!: boolean;
 
+  /**
+   * Opcional (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 7): `@meugrupo`, `meugrupo` ou o link do perfil; grava so o handle. So
+   * a equipe ve (nunca na resposta publica nem em e-mail). Qualquer outra forma = 400 com mensagem unica.
+   */
+  @IsOptional()
+  @Transform(instagram)
+  @IsString({ message: INSTAGRAM_INVALID_MESSAGE })
+  @Matches(INSTAGRAM_HANDLE_PATTERN, { message: INSTAGRAM_INVALID_MESSAGE })
+  instagram?: string;
+
   /** Honeypot (campo invisivel do formulario): preenchido = robo (201 falso, nada gravado). Aceita qualquer texto curto. */
   @IsOptional()
   @IsString({ message: 'website deve ser um texto.' })
@@ -102,8 +123,18 @@ export class CreateGroupApplicationDto {
 /** GET /platform-group-applications?status=&q=&limit=&offset= */
 export class ListGroupApplicationsQueryDto extends PageQueryDto {
   @IsOptional()
-  @IsEnum(GroupApplicationStatus, { message: 'status deve ser PENDING, APPROVED, REJECTED ou EXPIRED.' })
+  @IsEnum(GroupApplicationStatus, { message: 'status deve ser UNVERIFIED, PENDING, APPROVED, REJECTED ou EXPIRED.' })
   status?: GroupApplicationStatus;
+}
+
+/**
+ * POST /public/group-applications/confirm `{ token }` (token do LINK do e-mail, no corpo; nunca em query). Token mal
+ * formado/inexistente/vencido/ja usado = o mesmo 404 (no service); aqui so o tipo e um teto de tamanho.
+ */
+export class ConfirmGroupApplicationEmailDto {
+  @IsString({ message: 'token é obrigatório.' })
+  @MaxLength(200, { message: 'token deve ter no máximo 200 caracteres.' })
+  token!: string;
 }
 
 /** POST /platform-group-applications/:id/approve */

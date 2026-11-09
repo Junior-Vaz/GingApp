@@ -2,12 +2,19 @@ import { describe, expect, it } from 'vitest'
 import { ApiError } from '@/utils/api'
 import { AUDIT_ACTION_LABELS, auditActionLabel, auditActionOptions } from '@/utils/audit'
 import {
+  APPROVE_BLOCKED_HINT,
+  EMAIL_VERIFICATION_META,
+  INSTAGRAM_CHECK_HINT,
   STATUS_META,
   STATUS_TABS,
   applicationErrorText,
   approvePayload,
   claimedRoleText,
+  emailVerificationMeta,
   formatPhone,
+  instagramUrl,
+  isAwaitingEmail,
+  isInstagramHandle,
   isStaleListError,
   reasonError,
   rejectPayload,
@@ -21,14 +28,35 @@ import { application } from './group-applications-fixtures'
 const apiError = (status: number, code?: string, message = 'texto do servidor') => new ApiError(message, status, { statusCode: status, ...(code ? { code } : {}), message })
 
 describe('status e cargo em português', () => {
-  it('rótulos dos 4 status e abas na ordem do contrato (Pendentes primeiro)', () => {
+  it('rótulos dos 5 status e abas na ordem do contrato (Pendentes primeiro, "Aguardando e-mail" logo depois)', () => {
     expect(statusLabel('PENDING')).toBe('Pendente')
+    expect(statusLabel('UNVERIFIED')).toBe('Aguardando e-mail')
     expect(statusLabel('APPROVED')).toBe('Aprovado')
     expect(statusLabel('REJECTED')).toBe('Não aprovado')
     expect(statusLabel('EXPIRED')).toBe('Expirado')
     expect(statusLabel('OUTRO_STATUS')).toBe('OUTRO_STATUS')
-    expect(STATUS_TABS.map((t) => t.label)).toEqual(['Pendentes', 'Aprovados', 'Não aprovados', 'Expirados'])
-    expect(Object.keys(STATUS_META)).toHaveLength(4)
+    expect(STATUS_TABS.map((t) => t.label)).toEqual(['Pendentes', 'Aguardando e-mail', 'Aprovados', 'Não aprovados', 'Expirados'])
+    expect(STATUS_TABS.map((t) => t.key)).toEqual(['PENDING', 'UNVERIFIED', 'APPROVED', 'REJECTED', 'EXPIRED'])
+    expect(Object.keys(STATUS_META)).toHaveLength(5)
+  })
+
+  it('só UNVERIFIED está aguardando e-mail (e por isso não pode ser aprovado)', () => {
+    expect(isAwaitingEmail({ status: 'UNVERIFIED' })).toBe(true)
+    for (const status of ['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED'] as const) expect(isAwaitingEmail({ status })).toBe(false)
+    expect(APPROVE_BLOCKED_HINT).toBe('Disponível depois que o solicitante confirmar o e-mail.')
+  })
+
+  it('selos da verificação do e-mail: textos do contrato e tons (envio desligado = aviso)', () => {
+    expect(EMAIL_VERIFICATION_META.VERIFIED).toMatchObject({ label: 'E-mail confirmado', tone: 'success' })
+    expect(EMAIL_VERIFICATION_META.SKIPPED).toMatchObject({ label: 'E-mail não confirmado (envio desligado)', tone: 'warning' })
+    expect(EMAIL_VERIFICATION_META.PENDING).toMatchObject({ label: 'Aguardando confirmação', tone: 'info' })
+    expect(emailVerificationMeta('SKIPPED')?.label).toBe('E-mail não confirmado (envio desligado)')
+    // ausente/desconhecido (servidor antigo): sem selo, nunca um texto inventado
+    for (const value of [undefined, null, '', 'OUTRO', 'toString', '__proto__']) expect(emailVerificationMeta(value as string | null | undefined)).toBeNull()
+  })
+
+  it('aviso do detalhe sobre conferir o perfil (texto do contrato)', () => {
+    expect(INSTAGRAM_CHECK_HINT).toBe('Confira o perfil antes de aprovar: o e-mail só prova que o solicitante recebe mensagens nele.')
   })
 
   it('cargo informado: usa o rótulo do servidor e cai no nosso; todos os 6 cargos têm texto', () => {
@@ -115,6 +143,16 @@ describe('mensagens de erro em português', () => {
     expect(applicationErrorText(apiError(409, undefined, 'Conflito.'), 'reject', true)).toBe('Conflito.')
   })
 
+  it('409 EMAIL_NOT_VERIFIED (por código ou só na message) em português, para aprovar', () => {
+    const text = applicationErrorText(apiError(409, 'EMAIL_NOT_VERIFIED'), 'approve')
+    expect(text).toMatch(/ainda não confirmou o e-mail/)
+    expect(text).not.toContain('EMAIL_NOT_VERIFIED')
+    expect(applicationErrorText(new ApiError('EMAIL_NOT_VERIFIED', 409), 'approve')).toBe(text)
+    // não confunde com os outros 409 conhecidos, nem é tratado como "slug em uso" mesmo com slug enviado
+    expect(applicationErrorText(apiError(409, 'EMAIL_NOT_VERIFIED'), 'approve', true)).toBe(text)
+    expect(text).not.toMatch(/já foi decidido|virou uma conta|slug/)
+  })
+
   it('403 e 404', () => {
     expect(applicationErrorText(apiError(403), 'approve')).toBe('Só o super admin pode aprovar ou não aprovar pedidos.')
     expect(applicationErrorText(apiError(404), 'reject')).toBe('Esse pedido não existe mais. Atualize a lista.')
@@ -131,6 +169,61 @@ describe('mensagens de erro em português', () => {
     expect(isStaleListError(apiError(404))).toBe(true)
     expect(isStaleListError(apiError(403))).toBe(false)
     expect(isStaleListError(new Error('x'))).toBe(false)
+  })
+})
+
+describe('Instagram: link só de handle validado no cliente', () => {
+  it.each(['a', '9', 'meugrupo', 'meu.grupo', 'meu_grupo', 'grupo2026', '_x_', 'a'.repeat(30)])('%j vira https://www.instagram.com/<handle>/', (handle) => {
+    expect(isInstagramHandle(handle)).toBe(true)
+    expect(instagramUrl(handle)).toBe(`https://www.instagram.com/${handle}/`)
+  })
+
+  it.each([
+    '',
+    ' ',
+    ' meugrupo',
+    'meugrupo ',
+    'meu grupo',
+    '@meugrupo',
+    'MeuGrupo',
+    'a'.repeat(31),
+    'a..b',
+    '..',
+    '.',
+    'meugrupo.',
+    'grupo-x',
+    'grupo/x',
+    'grupo?x=1',
+    'grupo#x',
+    'https://www.instagram.com/meugrupo/',
+    'instagram.com/meugrupo',
+    '//evil.example',
+    'javascript:alert(1)',
+    'JavaScript:alert(1)',
+    ' javascript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'vbscript:x',
+    '<script>alert(1)</script>',
+    '"><img src=x onerror=alert(1)>',
+    'é',
+    'a\nb',
+  ])('%j NUNCA vira link', (bad) => {
+    expect(isInstagramHandle(bad)).toBe(false)
+    expect(instagramUrl(bad)).toBeNull()
+  })
+
+  it('não-string (null, undefined, número, objeto) nunca vira link', () => {
+    for (const value of [null, undefined, 123, {}, [], ['meugrupo'], true]) expect(instagramUrl(value)).toBeNull()
+  })
+
+  it('o link montado nunca sai do host do Instagram', () => {
+    for (const handle of ['a', 'x.y', 'z_9', 'a'.repeat(30)]) {
+      const url = new URL(instagramUrl(handle)!)
+      expect(url.protocol).toBe('https:')
+      expect(url.host).toBe('www.instagram.com')
+      expect(url.pathname).toBe(`/${handle}/`)
+      expect(url.search + url.hash + url.username + url.password).toBe('')
+    }
   })
 })
 

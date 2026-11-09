@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import SidebarLayout from '@/components/layout/SidebarLayout.vue'
 import router, { routes } from '@/router'
 import { ApiError } from '@/utils/api'
 import { GROUP_APPLICATIONS_PATH, fetchPendingCount, groupApplicationsApi } from '@/utils/groupApplicationsApi'
-import { application, approveResult, rejected } from './group-applications-fixtures'
+import { PENDING_POLL_INTERVAL_MS, usePendingApplicationsStore } from '@/stores/pendingApplications'
+import { application, approveResult, rejected, unverified } from './group-applications-fixtures'
 import { loginAs, makeUser, mockFetch, mountView, flushPromises, type Call, type MockReply } from './helpers'
 import { listReply } from './sponsors-fixtures'
 
@@ -25,6 +26,14 @@ describe('groupApplicationsApi — prefixo e rotas do contrato §4', () => {
 
     await groupApplicationsApi.list({ status: '', q: '', limit: 20, offset: 0 })
     expect(Object.fromEntries(calls[1].query)).toEqual({ limit: '20', offset: '0' })
+  })
+
+  it('lista dos não confirmados: status=UNVERIFIED vai na query e os campos novos chegam intactos', async () => {
+    const { calls } = mockFetch(() => listReply([unverified()], 1))
+    loginAs()
+    const page = await groupApplicationsApi.list({ status: 'UNVERIFIED', limit: 20, offset: 0 })
+    expect(calls[0].query.get('status')).toBe('UNVERIFIED')
+    expect(page.items[0]).toMatchObject({ status: 'UNVERIFIED', emailVerification: 'PENDING', emailVerifiedAt: null, instagram: 'nucleo.raizes' })
   })
 
   it('contador e detalhe: GET /pending-count e GET /:id', async () => {
@@ -91,6 +100,36 @@ describe('fetchPendingCount', () => {
     mockFetch(() => reply)
     loginAs()
     await expect(fetchPendingCount()).resolves.toBeNull()
+  })
+})
+
+describe('store do contador — atualização periódica', () => {
+  afterEach(() => vi.useRealTimers())
+
+  it('o intervalo é de 60 s; startPolling é idempotente (um só timer) e stopPolling limpa tudo', async () => {
+    expect(PENDING_POLL_INTERVAL_MS).toBe(60_000)
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    const { calls } = mockFetch(() => ({ body: { count: 2 } }))
+    loginAs()
+    const store = usePendingApplicationsStore()
+
+    store.startPolling()
+    store.startPolling()
+    expect(vi.getTimerCount()).toBe(1)
+    vi.advanceTimersByTime(PENDING_POLL_INTERVAL_MS)
+    await flushPromises()
+    expect(calls.filter((c) => c.path.endsWith('/pending-count'))).toHaveLength(1) // não duplicou
+    expect(store.count).toBe(2)
+
+    store.stopPolling()
+    expect(vi.getTimerCount()).toBe(0)
+    vi.advanceTimersByTime(10 * PENDING_POLL_INTERVAL_MS)
+    await flushPromises()
+    expect(calls).toHaveLength(1)
+
+    store.startPolling() // pode religar depois de parar
+    expect(vi.getTimerCount()).toBe(1)
+    store.stopPolling()
   })
 })
 

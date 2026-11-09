@@ -17,7 +17,18 @@ import {
 export class MemoryMailTransport implements MailTransport {
   readonly sent: MailEnvelope[] = [];
   failNext = false;
+  /** true = os envios ficam PRESOS (simula SMTP lento) até `release()`; prova que a resposta HTTP não espera o envio. */
+  hold = false;
+  private held: Array<() => void> = [];
+  /** Solta os envios presos por `hold` (e desliga o hold). */
+  release(): void {
+    this.hold = false;
+    const pending = this.held;
+    this.held = [];
+    pending.forEach((resume) => resume());
+  }
   async sendMail(message: MailEnvelope): Promise<void> {
+    if (this.hold) await new Promise<void>((resume) => this.held.push(resume));
     if (this.failNext) {
       this.failNext = false;
       throw Object.assign(new Error('falha simulada'), { code: 'ESTUB' });

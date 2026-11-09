@@ -118,7 +118,12 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   // path (só o SHA-256 fica no banco). Devolve só status, nome do grupo, datas, motivo da recusa e o link do login; nunca
   // e-mail, telefone, nome do solicitante, nota interna nem id. Token mal formado/inexistente = 404 idêntico. As rotas da
   // equipe (/api/platform-group-applications/*) exigem PLATFORM (403 aqui).
-  ['/api/public/group-applications/:token', 'pública por token secreto do PRÓPRIO pedido de adesão: só status/grupo/datas/motivo/link do login; nenhum dado pessoal'],
+  // Confirmação do e-mail (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 1): o GET acima passa a levar também emailVerification e,
+  // em UNVERIFIED, canResend/resendAvailableAt (estado do reenvio; nunca o e-mail nem o Instagram). As rotas públicas novas
+  // são POST — POST /api/public/group-applications/confirm (token do LINK no corpo; 200 { status } ou 404 uniforme) e
+  // POST /api/public/group-applications/:token/resend (204 neutro ou 429) — e por isso ficam FORA desta varredura (só GET);
+  // nenhuma delas devolve dado pessoal (cobertas em group-applications.e2e-spec.ts).
+  ['/api/public/group-applications/:token', 'pública por token secreto do PRÓPRIO pedido de adesão: só status/grupo/datas/motivo/link do login/estado da verificação do e-mail e do reenvio; nenhum dado pessoal'],
 ]);
 
 function toArray(value: unknown): string[] {

@@ -17,7 +17,7 @@ const hasNext = computed(() => props.offset + props.limit < props.total)
 </script>
 
 <template>
-  <div class="flex items-center justify-between border-t border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+  <div class="flex items-center justify-between gap-2 border-t border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
     <span data-testid="page-range">{{ from }}–{{ to }} de {{ total }}</span>
     <div class="flex gap-2">
       <button

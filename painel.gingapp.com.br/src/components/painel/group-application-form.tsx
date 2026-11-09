@@ -21,6 +21,8 @@ import {
   submitErrorMessage,
   submitGroupApplication,
   toGroupApplicationPayload,
+  INSTAGRAM_MAX_LENGTH,
+  type GroupApplicationSubmitted,
   type GroupApplicationValues,
 } from "@/lib/group-application";
 import { cn } from "@/lib/utils";
@@ -67,7 +69,7 @@ function PasswordHints({ password }: { password: string }) {
  * Formulário público de pedido de cadastro de grupo (POST /public/group-applications). O pedido NÃO cria conta nem
  * grupo: a equipe da plataforma confere e aprova. Sucesso -> `onSubmitted(statusToken)`.
  */
-export function GroupApplicationForm({ onSubmitted }: { onSubmitted: (statusToken: string) => void }) {
+export function GroupApplicationForm({ onSubmitted }: { onSubmitted: (result: GroupApplicationSubmitted) => void }) {
   const [error, setError] = useState("");
   const form = useForm<GroupApplicationValues>({
     resolver: zodResolver(groupApplicationSchema),
@@ -87,7 +89,7 @@ export function GroupApplicationForm({ onSubmitted }: { onSubmitted: (statusToke
       saveApplicationToken(result.statusToken);
       // A senha não fica na memória do formulário depois do envio.
       form.reset(emptyGroupApplicationForm);
-      onSubmitted(result.statusToken);
+      onSubmitted(result);
     } catch (err) {
       setError(submitErrorMessage(err));
     }
@@ -211,6 +213,28 @@ export function GroupApplicationForm({ onSubmitted }: { onSubmitted: (statusToke
             )}
           />
         </div>
+        <FormField
+          control={form.control}
+          name="instagram"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Instagram do grupo (opcional)</FormLabel>
+              <FormControl>
+                <Input
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  maxLength={INSTAGRAM_MAX_LENGTH}
+                  placeholder="@meugrupo"
+                  {...field}
+                />
+              </FormControl>
+              <FormDescription>Ajuda a equipe a conferir seu pedido. Ex.: @meugrupo ou o link do perfil</FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
         <FormField
           control={form.control}
           name="estimatedStudents"

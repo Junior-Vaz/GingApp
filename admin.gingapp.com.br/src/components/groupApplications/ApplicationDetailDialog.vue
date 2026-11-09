@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import ApplicationStatusChip from '@/components/groupApplications/ApplicationStatusChip.vue'
-import { DECISION_ONLY_SUPER_HINT, claimedRoleText, formatPhone, type GroupApplication } from '@/utils/groupApplications'
+import EmailVerificationBadge from '@/components/groupApplications/EmailVerificationBadge.vue'
+import InstagramLink from '@/components/groupApplications/InstagramLink.vue'
+import {
+  APPROVE_BLOCKED_HINT,
+  DECISION_ONLY_SUPER_HINT,
+  INSTAGRAM_CHECK_HINT,
+  claimedRoleText,
+  formatPhone,
+  isAwaitingEmail,
+  type GroupApplication,
+} from '@/utils/groupApplications'
 import { formatDateTime } from '@/utils/format'
 
 /** Detalhe do pedido: todos os campos da resposta (a senha nunca existe nela). Decidir só para super admin. */
@@ -59,7 +69,7 @@ function onKeydown(event: KeyboardEvent): void {
       role="dialog"
       aria-modal="true"
       aria-labelledby="application-detail-title"
-      class="w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl"
+      class="card w-full max-w-2xl p-6 shadow-xl"
       data-testid="application-detail"
     >
       <div class="flex flex-wrap items-start justify-between gap-2">
@@ -85,6 +95,16 @@ function onKeydown(event: KeyboardEvent): void {
         <div>
           <dt class="text-xs font-medium uppercase tracking-wide text-slate-600">E-mail</dt>
           <dd class="break-all text-slate-900" data-testid="detail-email">{{ application.email }}</dd>
+          <dd class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <EmailVerificationBadge :verification="application.emailVerification" />
+            <span v-if="application.emailVerification === 'VERIFIED' && application.emailVerifiedAt" class="text-xs text-slate-600" data-testid="detail-email-verified-at">
+              em {{ formatDateTime(application.emailVerifiedAt) }}
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt class="text-xs font-medium uppercase tracking-wide text-slate-600">Instagram</dt>
+          <dd class="text-slate-900" data-testid="detail-instagram"><InstagramLink :handle="application.instagram" /></dd>
         </div>
         <div>
           <dt class="text-xs font-medium uppercase tracking-wide text-slate-600">Telefone</dt>
@@ -104,7 +124,15 @@ function onKeydown(event: KeyboardEvent): void {
         </div>
       </dl>
 
-      <dl v-if="application.status !== 'PENDING'" class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 border-t border-slate-200 pt-4 text-sm sm:grid-cols-2" data-testid="detail-decision">
+      <p
+        v-if="application.status === 'PENDING' || application.status === 'UNVERIFIED'"
+        class="mt-4 rounded-md bg-amber-50 px-3 py-2 text-sm text-amber-900"
+        data-testid="detail-check-hint"
+      >
+        {{ INSTAGRAM_CHECK_HINT }}
+      </p>
+
+      <dl v-if="application.status !== 'PENDING' && application.status !== 'UNVERIFIED'" class="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 border-t border-slate-200 pt-4 text-sm sm:grid-cols-2" data-testid="detail-decision">
         <div>
           <dt class="text-xs font-medium uppercase tracking-wide text-slate-600">Decidido em</dt>
           <dd class="text-slate-900" data-testid="detail-decided-at">{{ formatDateTime(application.decidedAt) }}</dd>
@@ -132,12 +160,27 @@ function onKeydown(event: KeyboardEvent): void {
 
       <p v-if="application.status === 'PENDING' && !canDecide" class="mt-4 text-sm text-slate-600" data-testid="detail-read-only">{{ DECISION_ONLY_SUPER_HINT }}</p>
 
+      <p v-if="canDecide && isAwaitingEmail(application)" id="application-detail-blocked" class="mt-4 text-sm text-slate-700" data-testid="detail-approve-blocked">{{ APPROVE_BLOCKED_HINT }}</p>
+
       <div class="mt-6 flex flex-wrap justify-end gap-2">
-        <button ref="closeButton" type="button" data-testid="detail-close" class="rounded-md px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" @click="emit('close')">Fechar</button>
+        <button ref="closeButton" type="button" data-testid="detail-close" class="btn btn-ghost" @click="emit('close')">Fechar</button>
         <template v-if="canDecide && application.status === 'PENDING'">
-          <button type="button" data-testid="detail-reject" class="rounded-md border border-red-300 px-4 py-2 text-sm font-medium text-red-800 hover:bg-red-50" @click="emit('reject')">Não aprovar</button>
-          <button type="button" data-testid="detail-approve" class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" @click="emit('approve')">Aprovar</button>
+          <button type="button" data-testid="detail-reject" class="btn btn-secondary border-red-300 text-red-800 hover:bg-red-50" @click="emit('reject')">Não aprovar</button>
+          <button type="button" data-testid="detail-approve" class="btn btn-primary" @click="emit('approve')">Aprovar</button>
         </template>
+        <!-- E-mail ainda não confirmado: o servidor recusaria (409 EMAIL_NOT_VERIFIED); o botão fica desabilitado com a dica. -->
+        <button
+          v-else-if="canDecide && isAwaitingEmail(application)"
+          type="button"
+          disabled
+          aria-disabled="true"
+          aria-describedby="application-detail-blocked"
+          :title="APPROVE_BLOCKED_HINT"
+          data-testid="detail-approve"
+          class="btn btn-primary"
+        >
+          Aprovar
+        </button>
       </div>
     </div>
   </div>

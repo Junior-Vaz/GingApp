@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import PaginationBar from '@/components/PaginationBar.vue'
@@ -187,20 +188,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Patrocinadores</h1>
-        <p class="mt-1 text-sm text-slate-600">Empresas que patrocinam o banner da Home do app. Os dados de contato, documento e observações são só do admin.</p>
-      </div>
-      <button
-        type="button"
-        data-testid="new-sponsor"
-        class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
-        @click="openForm(null)"
-      >
+    <PageHeader
+      title="Patrocinadores"
+      description="Empresas que patrocinam o banner da Home do app. Os dados de contato, documento e observações são só do admin."
+    >
+      <button type="button" data-testid="new-sponsor" class="btn btn-primary" @click="openForm(null)">
         + Novo patrocinador
       </button>
-    </div>
+    </PageHeader>
 
     <SponsorsTabs class="mt-6" />
 

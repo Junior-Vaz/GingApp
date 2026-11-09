@@ -45,6 +45,7 @@ import { Route as AppCertificadosModelosRouteImport } from './routes/_app.certif
 import { Route as AppFormulariosFormIdRouteImport } from './routes/_app.formularios_.$formId'
 import { Route as AppTurmasClassIdRouteImport } from './routes/_app.turmas_.$classId'
 import { Route as ComecarAcompanharTokenRouteImport } from './routes/comecar_.acompanhar.$token'
+import { Route as ComecarConfirmarTokenRouteImport } from './routes/comecar_.confirmar.$token'
 import { Route as AppCertificadosModelosIdRouteImport } from './routes/_app.certificados_.modelos_.$id'
 import { Route as AppCheckinKindIdRouteImport } from './routes/_app.checkin.$kind.$id'
 
@@ -227,6 +228,11 @@ const ComecarAcompanharTokenRoute = ComecarAcompanharTokenRouteImport.update({
   path: '/comecar/acompanhar/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ComecarConfirmarTokenRoute = ComecarConfirmarTokenRouteImport.update({
+  id: '/comecar_/confirmar/$token',
+  path: '/comecar/confirmar/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppCertificadosModelosIdRoute =
   AppCertificadosModelosIdRouteImport.update({
     id: '/certificados_/modelos_/$id',
@@ -275,6 +281,7 @@ export interface FileRoutesByFullPath {
   '/formularios/$formId': typeof AppFormulariosFormIdRoute
   '/turmas/$classId': typeof AppTurmasClassIdRoute
   '/comecar/acompanhar/$token': typeof ComecarAcompanharTokenRoute
+  '/comecar/confirmar/$token': typeof ComecarConfirmarTokenRoute
   '/certificados/modelos/$id': typeof AppCertificadosModelosIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
@@ -314,6 +321,7 @@ export interface FileRoutesByTo {
   '/formularios/$formId': typeof AppFormulariosFormIdRoute
   '/turmas/$classId': typeof AppTurmasClassIdRoute
   '/comecar/acompanhar/$token': typeof ComecarAcompanharTokenRoute
+  '/comecar/confirmar/$token': typeof ComecarConfirmarTokenRoute
   '/certificados/modelos/$id': typeof AppCertificadosModelosIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
@@ -355,6 +363,7 @@ export interface FileRoutesById {
   '/_app/formularios_/$formId': typeof AppFormulariosFormIdRoute
   '/_app/turmas_/$classId': typeof AppTurmasClassIdRoute
   '/comecar_/acompanhar/$token': typeof ComecarAcompanharTokenRoute
+  '/comecar_/confirmar/$token': typeof ComecarConfirmarTokenRoute
   '/_app/certificados_/modelos_/$id': typeof AppCertificadosModelosIdRoute
   '/_app/checkin/$kind/$id': typeof AppCheckinKindIdRoute
 }
@@ -396,6 +405,7 @@ export interface FileRouteTypes {
     | '/formularios/$formId'
     | '/turmas/$classId'
     | '/comecar/acompanhar/$token'
+    | '/comecar/confirmar/$token'
     | '/certificados/modelos/$id'
     | '/checkin/$kind/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -435,6 +445,7 @@ export interface FileRouteTypes {
     | '/formularios/$formId'
     | '/turmas/$classId'
     | '/comecar/acompanhar/$token'
+    | '/comecar/confirmar/$token'
     | '/certificados/modelos/$id'
     | '/checkin/$kind/$id'
   id:
@@ -475,6 +486,7 @@ export interface FileRouteTypes {
     | '/_app/formularios_/$formId'
     | '/_app/turmas_/$classId'
     | '/comecar_/acompanhar/$token'
+    | '/comecar_/confirmar/$token'
     | '/_app/certificados_/modelos_/$id'
     | '/_app/checkin/$kind/$id'
   fileRoutesById: FileRoutesById
@@ -489,6 +501,7 @@ export interface RootRouteChildren {
   RedefinirSenhaRoute: typeof RedefinirSenhaRoute
   TermosRoute: typeof TermosRoute
   ComecarAcompanharTokenRoute: typeof ComecarAcompanharTokenRoute
+  ComecarConfirmarTokenRoute: typeof ComecarConfirmarTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -745,6 +758,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ComecarAcompanharTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/comecar_/confirmar/$token': {
+      id: '/comecar_/confirmar/$token'
+      path: '/comecar/confirmar/$token'
+      fullPath: '/comecar/confirmar/$token'
+      preLoaderRoute: typeof ComecarConfirmarTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/certificados_/modelos_/$id': {
       id: '/_app/certificados_/modelos_/$id'
       path: '/certificados/modelos/$id'
@@ -838,6 +858,7 @@ const rootRouteChildren: RootRouteChildren = {
   RedefinirSenhaRoute: RedefinirSenhaRoute,
   TermosRoute: TermosRoute,
   ComecarAcompanharTokenRoute: ComecarAcompanharTokenRoute,
+  ComecarConfirmarTokenRoute: ComecarConfirmarTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

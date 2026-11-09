@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import { useAuthStore } from '@/stores/auth'
@@ -217,11 +218,11 @@ onMounted(async () => {
 
 <template>
   <div>
-    <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Pedidos LGPD</h1>
-    <p class="mt-1 text-sm text-slate-500">
-      Pedidos de exclusão/anonimização de dados feitos pelos próprios usuários (LGPD, art. 18).
-    </p>
-    <p class="mt-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="manual-note">
+    <PageHeader
+      title="Pedidos LGPD"
+      description="Pedidos de exclusão/anonimização de dados feitos pelos próprios usuários (LGPD, art. 18)."
+    />
+    <p class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" data-testid="manual-note">
       Marcar um pedido como <strong>Concluído</strong> apenas registra a decisão (data e nota): nada é apagado ou anonimizado
       automaticamente. A exclusão/anonimização é um processo manual, documentado em <code>docs/EASYPANEL.md</code>.
     </p>
@@ -261,8 +262,8 @@ onMounted(async () => {
         <input v-model="filters.to" data-testid="filter-to" type="date" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" />
       </label>
       <div class="flex items-end gap-2">
-        <button type="submit" data-testid="filter-apply" class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">Filtrar</button>
-        <button type="button" data-testid="filter-clear" class="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100" @click="clearFilters">Limpar</button>
+        <button type="submit" data-testid="filter-apply" class="btn btn-primary">Filtrar</button>
+        <button type="button" data-testid="filter-clear" class="btn btn-secondary" @click="clearFilters">Limpar</button>
       </div>
     </form>
 

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import PaginationBar from '@/components/PaginationBar.vue'
 import { api, errorMessage } from '@/utils/api'
@@ -197,19 +198,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div>
-    <div class="flex items-center justify-between">
-      <div>
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Configurações</h1>
-        <p class="mt-1 text-sm text-slate-500">Configurações globais da plataforma.</p>
-      </div>
-      <button
-        type="button"
-        class="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-slate-800"
-        @click="openCreateModal"
-      >
+    <PageHeader title="Configurações" description="Configurações globais da plataforma.">
+      <button type="button" class="btn btn-primary" @click="openCreateModal">
         + Nova configuração
       </button>
-    </div>
+    </PageHeader>
 
     <p
       role="note"

@@ -126,3 +126,9 @@ process.env.TRANSPARENCY_THROTTLE_LIMIT = '5000';
 process.env.GROUP_APPLICATION_SUBMIT_THROTTLE_LIMIT = '5000';
 process.env.GROUP_APPLICATION_STATUS_THROTTLE_LIMIT = '5000';
 process.env.GROUP_APPLICATIONS_PURGE = 'false';
+// Confirmacao do e-mail (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md): confirmar 20/min e reenviar 3/HORA por IP em producao; altos
+// nos e2e (o spec prova os 429 rebaixando os limites). Aviso a equipe: sem lista fixa (padrao = super admins PLATFORM ativos;
+// o spec liga a env quando precisa).
+process.env.GROUP_APPLICATION_CONFIRM_THROTTLE_LIMIT = '5000';
+process.env.GROUP_APPLICATION_RESEND_THROTTLE_LIMIT = '5000';
+process.env.GROUP_APPLICATIONS_NOTIFY_EMAILS = '';

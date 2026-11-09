@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageHeader from '@/components/ui/PageHeader.vue'
 import { computed, onMounted, ref } from 'vue'
 import SponsorsTabs from '@/components/sponsors/SponsorsTabs.vue'
 import { formatDateTime, formatInt } from '@/utils/format'
@@ -35,12 +36,10 @@ onMounted(() => void load())
 
 <template>
   <div>
-    <div>
-      <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Patrocínio dos grupos</h1>
-      <p class="mt-1 text-sm text-slate-600">
-        Grupos que cadastraram patrocinadores e campanhas locais. O conteúdo é do Mestre de cada grupo: aqui a plataforma só acompanha, suspende campanhas e bloqueia o uso.
-      </p>
-    </div>
+    <PageHeader
+      title="Patrocínio dos grupos"
+      description="Grupos que cadastraram patrocinadores e campanhas locais. O conteúdo é do Mestre de cada grupo: aqui a plataforma só acompanha, suspende campanhas e bloqueia o uso."
+    />
 
     <SponsorsTabs class="mt-6" />
 
