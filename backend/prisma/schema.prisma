@@ -506,6 +506,11 @@ model Organization {
   sponsorCampaigns        SponsorCampaign[]
   /// Pedido de adesao que deu origem a este grupo (docs/CONTRATO_ADESAO_GRUPOS.md); null nos criados pelo admin.
   groupApplication        GroupApplication?
+  /// Campeonatos ao vivo (docs/CONTRATO_CHAVEAMENTO.md): torneios, categorias, atletas e lutas do grupo.
+  tournaments             Tournament[]
+  tournamentCategories    TournamentCategory[]
+  tournamentCompetitors   TournamentCompetitor[]
+  tournamentMatches       TournamentMatch[]
 
   @@index([status])
 }
@@ -649,6 +654,7 @@ model Student {
   graduations         StudentGraduation[]
   financialRecords    FinancialRecord[]
   eventParticipations EventParticipant[]
+  tournamentEntries   TournamentCompetitor[]
   rodaParticipations  RodaParticipant[]
   publicProfile       PublicProfile?         @relation("PublicProfileStudent")
   certificates        Certificate[]
@@ -1421,6 +1427,8 @@ model Event {
   city              City?              @relation(fields: [cityId], references: [id])
   participants      EventParticipant[]
   registrationForms RegistrationForm[]
+  /// Chaveamento ao vivo (so eventos do tipo CAMPEONATO): no maximo um torneio por evento.
+  tournament        Tournament?
 
   @@index([organizationId, date])
   @@index([stateId, date])
@@ -1440,10 +1448,11 @@ model EventParticipant {
   status         ParticipantStatus @default(CONFIRMED)
   createdAt      DateTime          @default(now())
 
-  organization Organization @relation(fields: [organizationId], references: [id])
-  event        Event        @relation(fields: [eventId], references: [id])
-  student      Student?     @relation(fields: [studentId], references: [id])
-  user         User?        @relation("EventParticipantUser", fields: [userId], references: [id])
+  organization      Organization           @relation(fields: [organizationId], references: [id])
+  event             Event                  @relation(fields: [eventId], references: [id])
+  student           Student?               @relation(fields: [studentId], references: [id])
+  user              User?                  @relation("EventParticipantUser", fields: [userId], references: [id])
+  tournamentEntries TournamentCompetitor[]
 
   @@index([eventId])
   @@index([organizationId])
@@ -2695,4 +2704,195 @@ model GroupApplication {
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
+}
+
+// =========================================================================
+// CAMPEONATOS AO VIVO / CHAVEAMENTO (docs/CONTRATO_CHAVEAMENTO.md, fase 1)
+// Um Tournament por Event (type = 'CAMPEONATO'), com varias categorias; cada categoria tem seu formato, atletas e lutas.
+// Migration 20261110000000_tournaments (escrita a mao). Indices que o Prisma nao modela ficam SO no SQL da migration:
+//  - TournamentCategory: unico (tournamentId, lower(name)) - nome de categoria sem diferenciar maiusculas;
+//  - TournamentCompetitor: unicos PARCIAIS (categoryId, studentId) e (categoryId, eventParticipantId) quando nao nulos.
+// =========================================================================
+
+/// Formatos da fase 1. Dupla eliminacao/repescagem/suico = fase 2 (ADD VALUE em migration SEPARADA).
+enum TournamentFormat {
+  SINGLE_ELIMINATION
+  ROUND_ROBIN
+  GROUPS_KNOCKOUT
+}
+
+/// SETUP = cadastrando atletas; RUNNING = chave gerada; FINISHED = todas as lutas terminaram (volta a RUNNING se desfizer).
+enum TournamentCategoryStatus {
+  SETUP
+  RUNNING
+  FINISHED
+}
+
+enum TournamentMatchStage {
+  GROUP
+  MAIN
+  THIRD_PLACE
+}
+
+/// PENDING = falta atleta; READY = dois atletas; LIVE = em andamento; FINISHED = terminada (folga nasce FINISHED).
+enum TournamentMatchStatus {
+  PENDING
+  READY
+  LIVE
+  FINISHED
+}
+
+enum TournamentResultType {
+  NORMAL
+  WALKOVER
+  DISQUALIFICATION
+  DRAW
+}
+
+/// Faixa etaria do atleta: define se a foto pode aparecer no telao publico (ADULT, ou autorizada pelo responsavel).
+enum TournamentAgeGroup {
+  ADULT
+  MINOR
+  UNKNOWN
+}
+
+model Tournament {
+  id             Int      @id @default(autoincrement())
+  organizationId Int
+  /// Um torneio por evento.
+  eventId        Int      @unique
+  /// Segredo do link do telao (crypto.randomBytes, URL-safe). Nunca logado; rotacionar mata o link antigo na hora.
+  publicToken    String   @unique
+  publicEnabled  Boolean  @default(false)
+  /// Sobe a cada mutacao (ETag/SSE). Memoizacao do snapshot publico por (id, revision).
+  revision       Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization         @relation(fields: [organizationId], references: [id])
+  event        Event                @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  categories   TournamentCategory[]
+
+  @@index([organizationId])
+}
+
+model TournamentCategory {
+  id              Int                      @id @default(autoincrement())
+  organizationId  Int
+  tournamentId    Int
+  name            String
+  position        Int                      @default(0)
+  format          TournamentFormat
+  status          TournamentCategoryStatus @default(SETUP)
+  thirdPlace      Boolean                  @default(false)
+  groupCount      Int?
+  advancePerGroup Int?
+  /// Semente do sorteio (torna o sorteio reproduzivel); tambem usada para gerar o mata-mata dos grupos.
+  drawSeed        Int?
+  generatedAt     DateTime?
+  createdAt       DateTime                 @default(now())
+  updatedAt       DateTime                 @updatedAt
+
+  organization Organization           @relation(fields: [organizationId], references: [id])
+  tournament   Tournament             @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  competitors  TournamentCompetitor[]
+  matches      TournamentMatch[]
+
+  @@index([organizationId])
+  @@index([tournamentId, position])
+}
+
+model TournamentCompetitor {
+  id                  Int                @id @default(autoincrement())
+  organizationId      Int
+  categoryId          Int
+  displayName         String
+  /// Academia/grupo do atleta (exibido no telao).
+  groupName           String?
+  graduationLabel     String?
+  /// 1 = cabeca de chave.
+  seed                Int?
+  /// Indice do grupo (GROUPS_KNOCKOUT); preenchido ao gerar.
+  poolIndex           Int?
+  studentId           Int?
+  eventParticipantId  Int?
+  /// So de CONVIDADO (atleta ligado a aluno deriva a foto de Student.photo na leitura): `/api/uploads/<uuid>.<ext>` ou https.
+  photoUrl            String?
+  /// De convidado: informado pelo operador. De aluno: recalculado da data de nascimento na leitura (este valor e ignorado).
+  ageGroup            TournamentAgeGroup @default(UNKNOWN)
+  /// Autorizacao do responsavel para exibir a foto no telao publico (campo marcado pela equipe, sem documento anexado).
+  photoAuthorized     Boolean            @default(false)
+  /// Quem marcou (sem FK, como LedgerEntry.createdByUserId).
+  photoAuthorizedById Int?
+  photoAuthorizedAt   DateTime?
+  createdAt           DateTime           @default(now())
+
+  organization     Organization       @relation(fields: [organizationId], references: [id])
+  category         TournamentCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  student          Student?           @relation(fields: [studentId], references: [id], onDelete: SetNull)
+  eventParticipant EventParticipant?  @relation(fields: [eventParticipantId], references: [id], onDelete: SetNull)
+  slotAMatches     TournamentMatch[]  @relation("TournamentMatchSlotA")
+  slotBMatches     TournamentMatch[]  @relation("TournamentMatchSlotB")
+  wonMatches       TournamentMatch[]  @relation("TournamentMatchWinner")
+
+  @@index([organizationId])
+  @@index([categoryId])
+  @@index([studentId])
+  @@index([eventParticipantId])
+}
+
+model TournamentMatch {
+  id               Int                   @id @default(autoincrement())
+  organizationId   Int
+  categoryId       Int
+  /// Chave estavel e unica na categoria (ex.: MAIN-1-0, GROUP-0-2-1, THIRD_PLACE-3-0).
+  key              String
+  stage            TournamentMatchStage
+  /// 1-based.
+  round            Int
+  /// 0-based na rodada.
+  position         Int
+  groupIndex       Int?
+  slotAId          Int?
+  slotBId          Int?
+  /// Para onde o VENCEDOR vai (nextSlot = 'A' ou 'B'); loserNext* = para onde vai o PERDEDOR (semifinal -> 3o lugar).
+  nextMatchId      Int?
+  nextSlot         String?
+  loserNextMatchId Int?
+  loserNextSlot    String?
+  isBye            Boolean               @default(false)
+  status           TournamentMatchStatus @default(PENDING)
+  winnerId         Int?
+  scoreA           Int?
+  scoreB           Int?
+  resultType       TournamentResultType?
+  /// Nota interna do operador: NUNCA vai ao telao publico.
+  note             String?
+  /// Tatame (0..40) e ordem de chamada.
+  mat              Int?
+  queueOrder       Int?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  organization     Organization          @relation(fields: [organizationId], references: [id])
+  category         TournamentCategory    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  slotA            TournamentCompetitor? @relation("TournamentMatchSlotA", fields: [slotAId], references: [id], onDelete: SetNull)
+  slotB            TournamentCompetitor? @relation("TournamentMatchSlotB", fields: [slotBId], references: [id], onDelete: SetNull)
+  winner           TournamentCompetitor? @relation("TournamentMatchWinner", fields: [winnerId], references: [id], onDelete: SetNull)
+  nextMatch        TournamentMatch?      @relation("TournamentMatchNext", fields: [nextMatchId], references: [id], onDelete: SetNull)
+  previousMatches  TournamentMatch[]     @relation("TournamentMatchNext")
+  loserNextMatch   TournamentMatch?      @relation("TournamentMatchLoserNext", fields: [loserNextMatchId], references: [id], onDelete: SetNull)
+  loserFromMatches TournamentMatch[]     @relation("TournamentMatchLoserNext")
+
+  @@unique([categoryId, key])
+  @@index([organizationId])
+  @@index([categoryId, stage, round, position])
+  /// FKs com ON DELETE SET NULL: sem indice, cada exclusao de luta/atleta varreria a tabela inteira.
+  @@index([nextMatchId])
+  @@index([loserNextMatchId])
+  @@index([slotAId])
+  @@index([slotBId])
+  @@index([winnerId])
 }

@@ -132,3 +132,7 @@ process.env.GROUP_APPLICATIONS_PURGE = 'false';
 process.env.GROUP_APPLICATION_CONFIRM_THROTTLE_LIMIT = '5000';
 process.env.GROUP_APPLICATION_RESEND_THROTTLE_LIMIT = '5000';
 process.env.GROUP_APPLICATIONS_NOTIFY_EMAILS = '';
+// Campeonatos ao vivo (docs/CONTRATO_CHAVEAMENTO.md 5): telao publico 1200/min e abrir stream 120/min por IP em producao; altos nos e2e
+// (tournaments.e2e-spec.ts prova o 429 rebaixando o limite, lido a cada pedido).
+process.env.TOURNAMENT_PUBLIC_THROTTLE_LIMIT = '100000';
+process.env.TOURNAMENT_PUBLIC_STREAM_THROTTLE_LIMIT = '100000';

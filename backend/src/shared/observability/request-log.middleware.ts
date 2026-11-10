@@ -43,9 +43,10 @@ function routePattern(req: Request): string {
  * regra 4: "nao guardar IP nem User-Agent"): POST /api/public/group-applications, GET .../:token e, da confirmacao do
  * e-mail (docs/CONTRATO_ADESAO_GRUPOS_EMAIL.md 1), POST .../confirm (token do link no CORPO) e POST .../:token/resend. O
  * token de acompanhamento so aparece como o padrao `:token`, nunca o valor; o corpo (senha, token do link) nunca e logado
- * por este middleware.
+ * por este middleware. Idem o telao publico de campeonato (docs/CONTRATO_CHAVEAMENTO.md 5): GET /api/public/tournaments/:token e
+ * .../:token/stream saem sem userId/ip e com o token mascarado (`:token`).
  */
-const ANONYMOUS_LOG_ROUTE = /^\/api\/(sponsors\/|transparency$|public\/group-applications(\/|$))/;
+const ANONYMOUS_LOG_ROUTE = /^\/api\/(sponsors\/|transparency$|public\/group-applications(\/|$)|public\/tournaments(\/|$))/;
 
 export function buildRequestLogLine(req: Request, res: Response, requestId: string, ms: number): RequestLogLine {
   const status = res.statusCode;

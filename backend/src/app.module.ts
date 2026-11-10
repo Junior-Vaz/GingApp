@@ -67,6 +67,7 @@ import { isFeedMediaCleanupEnabled } from './jobs/feed-media-cleanup-cron.servic
 import { SponsorsModule } from './interface/http/sponsors/sponsors.module';
 import { TransparencyModule } from './interface/http/transparency/transparency.module';
 import { GroupApplicationsModule } from './interface/http/group-applications/group-applications.module';
+import { TournamentsModule } from './interface/http/tournaments/tournaments.module';
 import { groupApplicationsPurgeMode } from './jobs/group-applications-retention-cron.service';
 
 const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
@@ -138,6 +139,7 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     // Adesao de grupos (docs/CONTRATO_ADESAO_GRUPOS.md): /public/group-applications (pedido publico, sem login) e
     // /platform-group-applications (equipe da plataforma; decidir so super admin). Retencao (GROUP_APPLICATIONS_PURGE) no JobsModule.
     GroupApplicationsModule,
+    TournamentsModule,
 
     // Job diario de mensalidade vencida (03:00 America/Sao_Paulo). OVERDUE_CRON=false nao registra o agendador
     // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.

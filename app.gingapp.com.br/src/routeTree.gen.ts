@@ -32,6 +32,7 @@ import { Route as AppPerfilRouteImport } from './routes/_app.perfil'
 import { Route as AppRankingRouteImport } from './routes/_app.ranking'
 import { Route as AppRodasRouteImport } from './routes/_app.rodas'
 import { Route as AppTransferenciasRouteImport } from './routes/_app.transferencias'
+import { Route as AoVivoTokenRouteImport } from './routes/ao-vivo.$token'
 import { Route as ISlugRouteImport } from './routes/i.$slug'
 import { Route as VerificarPassaporteCodeRouteImport } from './routes/verificar-passaporte.$code'
 import { Route as VerificarCodeRouteImport } from './routes/verificar.$code'
@@ -150,6 +151,11 @@ const AppTransferenciasRoute = AppTransferenciasRouteImport.update({
   path: '/transferencias',
   getParentRoute: () => AppRoute,
 } as any)
+const AoVivoTokenRoute = AoVivoTokenRouteImport.update({
+  id: '/ao-vivo/$token',
+  path: '/ao-vivo/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ISlugRoute = ISlugRouteImport.update({
   id: '/i/$slug',
   path: '/i/$slug',
@@ -189,6 +195,7 @@ export interface FileRoutesByFullPath {
   '/ranking': typeof AppRankingRoute
   '/rodas': typeof AppRodasRoute
   '/transferencias': typeof AppTransferenciasRoute
+  '/ao-vivo/$token': typeof AoVivoTokenRoute
   '/i/$slug': typeof ISlugRoute
   '/verificar-passaporte/$code': typeof VerificarPassaporteCodeRoute
   '/verificar/$code': typeof VerificarCodeRoute
@@ -215,6 +222,7 @@ export interface FileRoutesByTo {
   '/ranking': typeof AppRankingRoute
   '/rodas': typeof AppRodasRoute
   '/transferencias': typeof AppTransferenciasRoute
+  '/ao-vivo/$token': typeof AoVivoTokenRoute
   '/i/$slug': typeof ISlugRoute
   '/verificar-passaporte/$code': typeof VerificarPassaporteCodeRoute
   '/verificar/$code': typeof VerificarCodeRoute
@@ -244,6 +252,7 @@ export interface FileRoutesById {
   '/_app/ranking': typeof AppRankingRoute
   '/_app/rodas': typeof AppRodasRoute
   '/_app/transferencias': typeof AppTransferenciasRoute
+  '/ao-vivo/$token': typeof AoVivoTokenRoute
   '/i/$slug': typeof ISlugRoute
   '/verificar-passaporte/$code': typeof VerificarPassaporteCodeRoute
   '/verificar/$code': typeof VerificarCodeRoute
@@ -274,6 +283,7 @@ export interface FileRouteTypes {
     | '/ranking'
     | '/rodas'
     | '/transferencias'
+    | '/ao-vivo/$token'
     | '/i/$slug'
     | '/verificar-passaporte/$code'
     | '/verificar/$code'
@@ -300,6 +310,7 @@ export interface FileRouteTypes {
     | '/ranking'
     | '/rodas'
     | '/transferencias'
+    | '/ao-vivo/$token'
     | '/i/$slug'
     | '/verificar-passaporte/$code'
     | '/verificar/$code'
@@ -328,6 +339,7 @@ export interface FileRouteTypes {
     | '/_app/ranking'
     | '/_app/rodas'
     | '/_app/transferencias'
+    | '/ao-vivo/$token'
     | '/i/$slug'
     | '/verificar-passaporte/$code'
     | '/verificar/$code'
@@ -343,6 +355,7 @@ export interface RootRouteChildren {
   RedefinirSenhaRoute: typeof RedefinirSenhaRoute
   TermosRoute: typeof TermosRoute
   TransparenciaRoute: typeof TransparenciaRoute
+  AoVivoTokenRoute: typeof AoVivoTokenRoute
   ISlugRoute: typeof ISlugRoute
   VerificarPassaporteCodeRoute: typeof VerificarPassaporteCodeRoute
   VerificarCodeRoute: typeof VerificarCodeRoute
@@ -511,6 +524,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppTransferenciasRouteImport
       parentRoute: typeof AppRoute
     }
+    '/ao-vivo/$token': {
+      id: '/ao-vivo/$token'
+      path: '/ao-vivo/$token'
+      fullPath: '/ao-vivo/$token'
+      preLoaderRoute: typeof AoVivoTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/i/$slug': {
       id: '/i/$slug'
       path: '/i/$slug'
@@ -582,6 +602,7 @@ const rootRouteChildren: RootRouteChildren = {
   RedefinirSenhaRoute: RedefinirSenhaRoute,
   TermosRoute: TermosRoute,
   TransparenciaRoute: TransparenciaRoute,
+  AoVivoTokenRoute: AoVivoTokenRoute,
   ISlugRoute: ISlugRoute,
   VerificarPassaporteCodeRoute: VerificarPassaporteCodeRoute,
   VerificarCodeRoute: VerificarCodeRoute,

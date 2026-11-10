@@ -16,6 +16,9 @@ async function bootstrap(): Promise<void> {
     app.set('trust proxy', trustProxy);
   }
 
+  // SIGTERM/SIGINT disparam os hooks de encerramento (ex.: o hub do telao ao vivo manda `event: closed` e libera as conexoes SSE).
+  app.enableShutdownHooks();
+
   app.setGlobalPrefix('api');
   // Corpo JSON: o padrão do Express (100 KB) não comporta a importação de alunos (até 500 linhas de CSV em
   // POST /students/import, ~100 KB). 1 MB cobre com folga e continua barrando payloads abusivos.

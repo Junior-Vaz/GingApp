@@ -48,6 +48,7 @@ import { Route as ComecarAcompanharTokenRouteImport } from './routes/comecar_.ac
 import { Route as ComecarConfirmarTokenRouteImport } from './routes/comecar_.confirmar.$token'
 import { Route as AppCertificadosModelosIdRouteImport } from './routes/_app.certificados_.modelos_.$id'
 import { Route as AppCheckinKindIdRouteImport } from './routes/_app.checkin.$kind.$id'
+import { Route as AppEventosIdChaveamentoRouteImport } from './routes/_app.eventos_.$id.chaveamento'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -244,6 +245,11 @@ const AppCheckinKindIdRoute = AppCheckinKindIdRouteImport.update({
   path: '/checkin/$kind/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const AppEventosIdChaveamentoRoute = AppEventosIdChaveamentoRouteImport.update({
+  id: '/eventos_/$id/chaveamento',
+  path: '/eventos/$id/chaveamento',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -284,6 +290,7 @@ export interface FileRoutesByFullPath {
   '/comecar/confirmar/$token': typeof ComecarConfirmarTokenRoute
   '/certificados/modelos/$id': typeof AppCertificadosModelosIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
+  '/eventos/$id/chaveamento': typeof AppEventosIdChaveamentoRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -324,6 +331,7 @@ export interface FileRoutesByTo {
   '/comecar/confirmar/$token': typeof ComecarConfirmarTokenRoute
   '/certificados/modelos/$id': typeof AppCertificadosModelosIdRoute
   '/checkin/$kind/$id': typeof AppCheckinKindIdRoute
+  '/eventos/$id/chaveamento': typeof AppEventosIdChaveamentoRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -366,6 +374,7 @@ export interface FileRoutesById {
   '/comecar_/confirmar/$token': typeof ComecarConfirmarTokenRoute
   '/_app/certificados_/modelos_/$id': typeof AppCertificadosModelosIdRoute
   '/_app/checkin/$kind/$id': typeof AppCheckinKindIdRoute
+  '/_app/eventos_/$id/chaveamento': typeof AppEventosIdChaveamentoRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -408,6 +417,7 @@ export interface FileRouteTypes {
     | '/comecar/confirmar/$token'
     | '/certificados/modelos/$id'
     | '/checkin/$kind/$id'
+    | '/eventos/$id/chaveamento'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -448,6 +458,7 @@ export interface FileRouteTypes {
     | '/comecar/confirmar/$token'
     | '/certificados/modelos/$id'
     | '/checkin/$kind/$id'
+    | '/eventos/$id/chaveamento'
   id:
     | '__root__'
     | '/'
@@ -489,6 +500,7 @@ export interface FileRouteTypes {
     | '/comecar_/confirmar/$token'
     | '/_app/certificados_/modelos_/$id'
     | '/_app/checkin/$kind/$id'
+    | '/_app/eventos_/$id/chaveamento'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -779,6 +791,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCheckinKindIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/eventos_/$id/chaveamento': {
+      id: '/_app/eventos_/$id/chaveamento'
+      path: '/eventos/$id/chaveamento'
+      fullPath: '/eventos/$id/chaveamento'
+      preLoaderRoute: typeof AppEventosIdChaveamentoRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -812,6 +831,7 @@ interface AppRouteChildren {
   AppTurmasClassIdRoute: typeof AppTurmasClassIdRoute
   AppCertificadosModelosIdRoute: typeof AppCertificadosModelosIdRoute
   AppCheckinKindIdRoute: typeof AppCheckinKindIdRoute
+  AppEventosIdChaveamentoRoute: typeof AppEventosIdChaveamentoRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -844,6 +864,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppTurmasClassIdRoute: AppTurmasClassIdRoute,
   AppCertificadosModelosIdRoute: AppCertificadosModelosIdRoute,
   AppCheckinKindIdRoute: AppCheckinKindIdRoute,
+  AppEventosIdChaveamentoRoute: AppEventosIdChaveamentoRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

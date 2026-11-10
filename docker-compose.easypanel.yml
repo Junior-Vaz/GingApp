@@ -188,6 +188,12 @@ services:
       # pedido novo (texto fixo, link <ADMIN_URL>/pedidos-de-adesao, no maximo 1 a cada 10 min): lista separada por
       # virgula; vazia = super admins PLATFORM ativos.
       GROUP_APPLICATIONS_NOTIFY_EMAILS: "${GROUP_APPLICATIONS_NOTIFY_EMAILS:-}"
+      # Campeonato ao vivo / telao publico (docs/CONTRATO_CHAVEAMENTO.md 5): limites por IP/min das rotas publicas
+      # (GET /api/public/tournaments/:token e abrir o stream SSE). Hub SSE em memoria: uma instancia do backend.
+      TOURNAMENT_PUBLIC_THROTTLE_LIMIT: "${TOURNAMENT_PUBLIC_THROTTLE_LIMIT:-6000}"
+      TOURNAMENT_PUBLIC_STREAM_THROTTLE_LIMIT: "${TOURNAMENT_PUBLIC_STREAM_THROTTLE_LIMIT:-120}"
+      # Teto de conexoes SSE por campeonato (sem limite por IP: o wi-fi do ginasio compartilha um); em campeonato grande, suba.
+      TOURNAMENT_MAX_VIEWERS: "${TOURNAMENT_MAX_VIEWERS:-300}"
       # Feed do grupo (docs/EASYPANEL.md secao 27): fotos PRIVADAS dentro do volume persistente gingapp_private_uploads
       # (subpasta feed; nunca em UPLOADS_DIR, o boot falha se ficar la), servidas so por URL assinada (validade em horas).
       # Cotas diarias por usuario: posts e comentarios. FEED_MEDIA_CLEANUP=false desliga a limpeza (15 min + diaria).

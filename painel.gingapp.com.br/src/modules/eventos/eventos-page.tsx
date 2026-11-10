@@ -14,6 +14,7 @@ import { events } from "./api";
 import { EventForm } from "./event-form";
 import { ParticipantsDialog } from "./participants-dialog";
 import { CheckinLink } from "@/modules/checkin/checkin-link";
+import { ChaveamentoLink } from "@/modules/chaveamento/chaveamento-link";
 import { EventFormLink } from "@/modules/formularios/event-form-link";
 import { EVENT_STATUS_LABEL, EVENT_TYPE_LABEL, EVENT_TYPES, type EventItem, type EventStatus } from "./types";
 
@@ -176,6 +177,7 @@ export function EventosPage() {
             <Button variant="ghost" size="sm" onClick={() => setViewing(e)} aria-label={`Participantes de ${e.title}`}>
               <Users /> Participantes
             </Button>
+            {e.type === "CAMPEONATO" && <ChaveamentoLink id={e.id} title={e.title} />}
             {canEdit && <CheckinLink kind="evento" id={e.id} label="QR de check-in" ariaLabel={`QR de check-in de ${e.title}`} />}
             {canEdit && <EventFormLink event={{ id: e.id, title: e.title }} />}
             {canEdit && (

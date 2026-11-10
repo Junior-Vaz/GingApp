@@ -124,6 +124,14 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   // POST /api/public/group-applications/:token/resend (204 neutro ou 429) — e por isso ficam FORA desta varredura (só GET);
   // nenhuma delas devolve dado pessoal (cobertas em group-applications.e2e-spec.ts).
   ['/api/public/group-applications/:token', 'pública por token secreto do PRÓPRIO pedido de adesão: só status/grupo/datas/motivo/link do login/estado da verificação do e-mail e do reenvio; nenhum dado pessoal'],
+  // Campeonato ao vivo (docs/CONTRATO_CHAVEAMENTO.md 5): o telão é PÚBLICO por token secreto (24 bytes aleatórios no path; nunca
+  // logado). O snapshot é montado campo a campo (lista branca): nome de exibição, grupo, graduação, semente, lutas, placares,
+  // classificação e pódio — nunca studentId/eventParticipantId/faixa etária/autorização/nascimento/e-mail/telefone/nota interna/
+  // organizationId/token; a foto só aparece para ADULTO ou com autorização registrada (menor/desconhecido = null). Token
+  // inexistente/desligado/evento rascunho, cancelado ou com mais de 30 dias = 404 idêntico. As rotas do operador
+  // (/api/events/:eventId/tournament/*) exigem equipe (MESTRE/PROFESSOR/INSTRUTOR/MONITOR): ALUNO/RESPONSAVEL = 403.
+  ['/api/public/tournaments/:token', 'pública por token secreto do campeonato: snapshot em lista branca (nome/grupo/graduação/lutas/classificação/pódio); foto só de adulto ou autorizada; sem ids de aluno, nascimento, contato, nota interna ou token'],
+  ['/api/public/tournaments/:token/stream', 'pública por token secreto (SSE): os mesmos snapshots em lista branca do GET /api/public/tournaments/:token, enviados a cada mudança; mesmo 404 uniforme'],
 ]);
 
 function toArray(value: unknown): string[] {
