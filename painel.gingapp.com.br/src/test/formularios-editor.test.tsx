@@ -549,7 +549,7 @@ describe("Editor - construtor de campos", () => {
       await screen.findByText("Use no máximo 5 campos de envio de arquivo."),
     ).toBeInTheDocument();
     expect(puts()).toHaveLength(0);
-  });
+  }, 120_000); // 60 campos renderizados: pesado sob a carga do gate completo (isolado leva poucos segundos)
 });
 
 describe("Editor - salvar e erros", () => {

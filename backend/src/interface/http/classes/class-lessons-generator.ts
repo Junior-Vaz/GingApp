@@ -33,6 +33,14 @@ export function civilDayString(date: Date): string {
 }
 
 /**
+ * Dia da semana (0 = domingo .. 6 = sábado) da data civil de uma aula: `getUTCDay()` da `Lesson.date` (meia-noite UTC).
+ * Convenção ÚNICA (SSOT) do gerador e da troca de dia da turma (class-weekday-change.ts) — nunca reescrever à mão.
+ */
+export function civilWeekdayOf(date: Date): number {
+  return date.getUTCDay();
+}
+
+/**
  * GERADOR ÚNICO (SSOT) de aulas da turma: uma Lesson para cada data de [from, to] (inclusivas, datas civis UTC —
  * meia-noite UTC, a mesma convenção de Lesson.date) cujo dia da semana é o `weekday` da turma. Copia unidade,
  * professor responsável e horário da turma. Usado por POST /classes/:id/generate-lessons (período explícito ou
@@ -55,7 +63,7 @@ export async function generateLessonsInRange(
   if (klass.weekday !== null) {
     for (let t = from.getTime(); t <= to.getTime(); t += DAY_MS) {
       const day = new Date(t);
-      if (day.getUTCDay() === klass.weekday) days.push(civilDayString(day));
+      if (civilWeekdayOf(day) === klass.weekday) days.push(civilDayString(day));
     }
   }
 

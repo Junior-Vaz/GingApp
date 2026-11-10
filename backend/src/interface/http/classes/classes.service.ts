@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, RecordStatus } from '@prisma/client';
 import { Page, pageArgs } from '../../../shared/pagination/pagination';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
@@ -33,6 +33,7 @@ import { ClassLessonsRollingService, lessonsHorizonDays, lessonsHorizonEnd } fro
 import { RankingService } from '../ranking/ranking.service';
 import { LEVEL_SELECT, withRope } from '../graduations/rope';
 import { enrollStudentInClass } from './class-enrollment';
+import { LessonsSync, planWeekdayChange, shouldSyncLessonsOnWeekdayChange } from './class-weekday-change';
 
 // Reexporta: specs e outros módulos importam estes nomes daqui desde antes do gerador virar um arquivo próprio.
 export { GENERATE_LESSONS_LOCK_NS, MAX_GENERATE_LESSONS_SPAN_DAYS };
@@ -92,6 +93,9 @@ export type ClassListItem = ClassView & {
   nextActiveLesson: { date: Date } | null;
 };
 
+/** Resposta de PATCH /classes/:id: o ClassView + `lessonsSync` SÓ quando a troca de dia da semana cancelou/gerou aulas. */
+export type ClassUpdateResult = ClassView & { lessonsSync?: LessonsSync };
+
 /** Resposta de POST /classes/:id/generate-lessons. */
 export interface GenerateLessonsResponse extends GenerateLessonsResult {
   /** true = modo contínuo (sem `to`): ligou autoGenerateLessons e gerou até o horizonte. */
@@ -128,6 +132,8 @@ export const ATTENDANCE_PERIOD_DAYS = 90;
 /** Turmas do grupo — CRUD completo, sempre isolado por organizationId. */
 @Injectable()
 export class ClassesService {
+  private readonly logger = new Logger(ClassesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly studentsService: StudentsService,
@@ -264,7 +270,7 @@ export class ClassesService {
     return toClassView(created);
   }
 
-  async update(organizationId: number, id: number, dto: UpdateClassDto, user?: AuthenticatedUser) {
+  async update(organizationId: number, id: number, dto: UpdateClassDto, user?: AuthenticatedUser): Promise<ClassUpdateResult> {
     const current = await this.findOne(organizationId, id, user); // 404 se não existir, for de outra organização ou de unidade fora do escopo
     assertUnitUpdate(await this.unitScope.resolve(user, organizationId), dto.unitId); // 403: não move para fora do escopo
 
@@ -310,30 +316,124 @@ export class ClassesService {
       },
       include: CLASS_INCLUDE,
     });
-    await this.audit.record({
-      organizationId,
-      action: dto.status === 'INACTIVE' ? AuditAction.CLASS_INACTIVATE : AuditAction.CLASS_UPDATE,
-      entity: AuditEntity.CLASS,
-      entityId: id,
-      meta: {
-        fields: Object.entries(dto)
-          .filter(([, value]) => value !== undefined)
-          .map(([key]) => key),
-        status: updated.status,
-      },
-    });
     // Aulas ja geradas copiam professor/horario/unidade da turma: ao mudar a turma, as aulas FUTURAS ATIVAS que ainda
     // carregam o valor antigo acompanham (aula editada a mao com outro valor fica como esta; nada e apagado).
-    await this.syncFutureLessons(organizationId, current, updated);
+    // A auditoria sai SEMPRE (finally): a turma ja foi gravada, mesmo que a sincronizacao das aulas lance excecao.
+    let lessonsSync: LessonsSync | undefined;
+    try {
+      await this.syncFutureLessons(organizationId, current, updated);
+      // Troca de dia da semana (docs/CONTRATO_TROCA_DIA_TURMA.md): cancela as aulas futuras do dia antigo que nao tem
+      // presenca/aviso/observacao e gera as do dia novo (aguardado). `undefined` = a regra nao vale (ou a etapa de
+      // cancelamento falhou e foi logada): segue o comportamento de sempre.
+      lessonsSync = shouldSyncLessonsOnWeekdayChange(current, updated)
+        ? await this.syncLessonsOnWeekdayChange(organizationId, id, current.weekday as number, updated.weekday as number)
+        : undefined;
+    } finally {
+      await this.audit.record({
+        organizationId,
+        action: dto.status === 'INACTIVE' ? AuditAction.CLASS_INACTIVATE : AuditAction.CLASS_UPDATE,
+        entity: AuditEntity.CLASS,
+        entityId: id,
+        meta: {
+          fields: Object.entries(dto)
+            .filter(([, value]) => value !== undefined)
+            .map(([key]) => key),
+          status: updated.status,
+          ...(lessonsSync ? { lessonsSync } : {}),
+        },
+      });
+    }
     // Aulas continuas: mexeu em dia/horario/status/autoGenerateLessons => garante o horizonte (nao apaga nada; turma
-    // inativa ou com autoGenerateLessons=false simplesmente nao gera).
+    // inativa ou com autoGenerateLessons=false simplesmente nao gera). Quando a troca de dia ja gerou (acima), nao repete.
     const touchesHorizon = [dto.weekday, dto.startTime, dto.endTime, dto.status, dto.autoGenerateLessons].some(
       (value) => value !== undefined,
     );
-    if (touchesHorizon && updated.status === 'ACTIVE' && updated.weekday !== null && updated.autoGenerateLessons) {
+    if (!lessonsSync && touchesHorizon && updated.status === 'ACTIVE' && updated.weekday !== null && updated.autoGenerateLessons) {
       this.rolling.queueEnsureHorizon(id);
     }
-    return toClassView(updated);
+    const view = toClassView(updated);
+    return lessonsSync ? { ...view, lessonsSync } : view;
+  }
+
+  /**
+   * Troca do DIA DA SEMANA da turma (a regra ja foi confirmada por shouldSyncLessonsOnWeekdayChange: de um dia (0..6)
+   * para outro, turma ACTIVE com aulas continuas). Dois passos, nenhum notifica ninguem:
+   *  1. CANCELA (soft: status INACTIVE + cancelledAt) as aulas da turma com date >= hoje (dia civil de Sao Paulo), ATIVAS,
+   *     do dia da semana ANTIGO (o lido ANTES da gravacao), sem presenca, sem aviso de ausencia e sem observacao — num unico
+   *     updateMany por (id, date) pre-selecionados, com as mesmas guardas re-checadas no `where` (uma presenca registrada
+   *     entre a leitura e o update segura a aula, e vira "mantida"; um PATCH concorrente nunca alcanca aula do dia novo).
+   *  2. GERA de novo: ensureHorizon({classId}) AGUARDADO. Falhou (excecao ou turma que falhou) => `created: null` e o job
+   *     diario completa; a turma e o cancelamento ja gravados permanecem e o PATCH nunca vira 5xx por causa disso.
+   * Retorna undefined se o proprio cancelamento falhar (logado): ai vale o comportamento antigo (queueEnsureHorizon).
+   */
+  private async syncLessonsOnWeekdayChange(
+    organizationId: number,
+    classId: number,
+    oldWeekday: number,
+    newWeekday: number,
+  ): Promise<LessonsSync | undefined> {
+    let cancelled = 0;
+    let kept = 0;
+    try {
+      const today = civilTodayStart();
+      const rows = await this.prisma.lesson.findMany({
+        where: { organizationId, classId, status: 'ACTIVE', date: { gte: today } },
+        select: {
+          id: true,
+          date: true,
+          status: true,
+          notes: true,
+          _count: { select: { attendances: true, attendanceNotices: true } },
+        },
+      });
+      const plan = planWeekdayChange(
+        rows.map((r) => ({
+          id: r.id,
+          date: r.date,
+          status: r.status,
+          notes: r.notes,
+          attendances: r._count.attendances,
+          attendanceNotices: r._count.attendanceNotices,
+        })),
+        oldWeekday,
+        today,
+      );
+      kept = plan.kept;
+      if (plan.cancel.length > 0) {
+        const result = await this.prisma.lesson.updateMany({
+          where: {
+            organizationId,
+            classId,
+            status: 'ACTIVE',
+            OR: plan.cancel.map((c) => ({ id: c.id, date: c.date })),
+            attendances: { none: {} },
+            attendanceNotices: { none: {} },
+            AND: [{ date: { gte: today } }, { OR: [{ notes: null }, { notes: '' }] }],
+          },
+          data: { status: 'INACTIVE', cancelledAt: new Date() },
+        });
+        cancelled = result.count;
+        kept += plan.cancel.length - result.count; // segurada por uma presenca/aviso/observacao surgida no meio
+      }
+    } catch (error) {
+      this.logger.error(
+        `Falha ao cancelar as aulas do dia antigo da turma ${classId} (troca de dia ${oldWeekday} -> ${newWeekday}).`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      return undefined;
+    }
+
+    let created: number | null = null;
+    try {
+      const generated = await this.rolling.ensureHorizon({ classId });
+      created = generated.failed > 0 ? null : generated.created; // ensureHorizon engole o erro da turma e conta em `failed`
+    } catch (error) {
+      this.logger.error(
+        `Falha ao gerar as aulas do dia novo da turma ${classId} (troca de dia ${oldWeekday} -> ${newWeekday}).`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+    return { cancelled, kept, created, oldWeekday, newWeekday };
   }
 
   /**
@@ -401,7 +501,7 @@ export class ClassesService {
    * Repassa a mudanca de professor responsavel, horario (inicio/fim) e unidade da turma para as aulas FUTURAS (hoje em
    * diante, dia civil de Sao Paulo) ATIVAS que ainda tem o valor ANTIGO copiado da turma. Valor antigo nulo = a aula ja
    * herda da turma (nada a fazer). Nao mexe em aula cancelada, passada, nem em aula cujo valor foi editado a mao.
-   * (Mudar o DIA DA SEMANA nao move/apaga aulas ja geradas: ver PLANO_PROJETO.md.)
+   * (O DIA DA SEMANA nao e copiado aqui: a troca de dia cancela/gera aulas em syncLessonsOnWeekdayChange.)
    */
   private async syncFutureLessons(
     organizationId: number,

@@ -29,7 +29,8 @@ import { NativeSelect } from "@/modules/alunos/native-select";
 import { OPTIONS_LIMIT, useTeacherOptions } from "@/modules/aulas/aulas-api";
 import { GenerateLessonsDialog } from "./generate-lessons-dialog";
 import { GeoCheckinFields } from "./geo-checkin-fields";
-import { classes, useClassDeleteImpact, useDeleteClass, useInactivateClass } from "./turmas-api";
+import { WEEKDAY_CHANGE_WARNING, shouldWarnWeekdayChange } from "./lessons-sync";
+import { classes, useClassDeleteImpact, useDeleteClass, useInactivateClass, useUpdateClass } from "./turmas-api";
 import { ClassStudentsDialog } from "./students-dialog";
 import {
   CLASS_STATUS_LABEL,
@@ -54,7 +55,7 @@ export function TurmasPage() {
   const lp = useListParams({ pageSize: 10, filters: { status: "", unitId: "" } });
   const list = classes.usePage(lp.params);
   const create = classes.useCreate();
-  const update = classes.useUpdate();
+  const update = useUpdateClass(); // PATCH + invalida aulas/"Próxima aula" + resumo da troca de dia (lessonsSync)
   const inactivate = useInactivateClass(); // Inativar = PATCH status INACTIVE (a turma e o histórico continuam)
   const deleteClass = useDeleteClass(); // Apagar = DELETE de verdade (só Mestre)
   const navigate = useNavigate();
@@ -380,6 +381,18 @@ export function TurmasPage() {
                         ))}
                       </NativeSelect>
                     </FormControl>
+                    {editing && editing !== "new" &&
+                      shouldWarnWeekdayChange({
+                        isEdit: true,
+                        originalWeekday: editing.weekday,
+                        newWeekday: form.watch("weekday"),
+                        autoGenerateLessons: form.watch("autoGenerateLessons"),
+                        status: form.watch("status"),
+                      }) && (
+                        <p data-testid="weekday-change-warning" role="note" className="text-xs text-amber-700 dark:text-amber-400">
+                          {WEEKDAY_CHANGE_WARNING}
+                        </p>
+                      )}
                     <FormMessage />
                   </FormItem>
                 )}
