@@ -20,7 +20,7 @@ export interface LayoutOptions {
   padding: number;
 }
 
-export const DEFAULT_LAYOUT: LayoutOptions = { cardW: 236, cardH: 92, colGap: 64, rowGap: 18, headerH: 34, padding: 12 };
+export const DEFAULT_LAYOUT: LayoutOptions = { cardW: 276, cardH: 96, colGap: 60, rowGap: 16, headerH: 38, padding: 12 };
 
 export interface BracketCard {
   matchId: number;
@@ -64,13 +64,17 @@ export interface BracketLayout {
   third: BracketCard | null;
 }
 
-/** "Final", "Semifinal", "Quartas de final", "Oitavas de final", "16 avos de final"..., senão "Rodada n". */
+/**
+ * Nome da rodada em português pela distância até a final: "Final", "Semifinais", "Quartas de final", "Oitavas de final",
+ * "16 avos de final", "32 avos de final". Em chaves muito grandes a 1ª rodada vira "1ª rodada" ("64 avos" não ajuda ninguém).
+ */
 export function roundLabel(round: number, lastRound: number): string {
   const fromEnd = lastRound - round;
   if (fromEnd === 0) return "Final";
-  if (fromEnd === 1) return "Semifinal";
+  if (fromEnd === 1) return "Semifinais";
   if (fromEnd === 2) return "Quartas de final";
   if (fromEnd === 3) return "Oitavas de final";
+  if (fromEnd >= 5 && round === 1) return "1ª rodada";
   if (fromEnd === 4) return "16 avos de final";
   if (fromEnd === 5) return "32 avos de final";
   return `Rodada ${round}`;
@@ -78,7 +82,8 @@ export function roundLabel(round: number, lastRound: number): string {
 
 const bySlotAnchor = (h: number, slot: Slot | null): number => (slot === "A" ? h * 0.27 : slot === "B" ? h * 0.73 : h / 2);
 
-export function computeBracketLayout(matches: readonly LayoutMatch[], options: Partial<LayoutOptions> = {}): BracketLayout {
+/** `meta.lastRound`: número da final da chave INTEIRA (para nomear as colunas quando só uma parte da chave é desenhada). */
+export function computeBracketLayout(matches: readonly LayoutMatch[], options: Partial<LayoutOptions> = {}, meta: { lastRound?: number } = {}): BracketLayout {
   const o: LayoutOptions = { ...DEFAULT_LAYOUT, ...options };
   const main = matches.filter((m) => m.stage === "MAIN");
   const thirdMatch = matches.find((m) => m.stage === "THIRD_PLACE") ?? null;
@@ -86,6 +91,7 @@ export function computeBracketLayout(matches: readonly LayoutMatch[], options: P
   const rounds = [...new Set(main.map((m) => m.round))].sort((a, b) => a - b);
   const columnOf = new Map(rounds.map((r, i) => [r, i]));
   const lastRound = rounds.length > 0 ? rounds[rounds.length - 1]! : 1;
+  const labelLast = meta.lastRound ?? lastRound;
 
   const mainIds = new Set(main.map((m) => m.id));
   // Quem alimenta cada luta (pelo nextMatchId).
@@ -175,7 +181,7 @@ export function computeBracketLayout(matches: readonly LayoutMatch[], options: P
     round,
     column: index,
     x: o.padding + index * (o.cardW + o.colGap),
-    label: roundLabel(round, lastRound),
+    label: roundLabel(round, labelLast),
   }));
 
   return { width, height, cards: [...cards.values(), ...(third ? [third] : [])], connectors, columns, third };

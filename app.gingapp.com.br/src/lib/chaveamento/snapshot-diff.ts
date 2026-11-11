@@ -1,4 +1,5 @@
-import type { PublicMatch, PublicSnapshot, ResultType, Slot } from "./types";
+import { matchStageLabel } from "./describe";
+import type { PublicCompetitor, PublicMatch, PublicSnapshot, ResultType, Slot } from "./types";
 
 /** Uma luta que virou FINISHED entre dois snapshots (insumo da animação do vencedor e do anúncio para leitor de tela). */
 export interface FinishedMatchEvent {
@@ -32,6 +33,21 @@ export interface StartedMatchEvent {
   mat: string | null;
 }
 
+/** Uma luta que virou LIVE, com tudo o que a abertura "VS" do telão precisa (só campos do snapshot público). */
+export interface IntroEvent {
+  categoryId: number;
+  categoryName: string;
+  matchId: number;
+  key: string;
+  stage: PublicMatch["stage"];
+  round: number;
+  /** "Final", "Semifinais", "Grupo A · Rodada 2"... */
+  stageLabel: string;
+  mat: string | null;
+  a: PublicCompetitor | null;
+  b: PublicCompetitor | null;
+}
+
 export interface SnapshotDiff {
   /** Primeiro snapshot recebido: NUNCA anima nem anuncia (a tela só aparece). */
   initial: boolean;
@@ -39,11 +55,13 @@ export interface SnapshotDiff {
   stale: boolean;
   finished: FinishedMatchEvent[];
   started: StartedMatchEvent[];
+  /** As mesmas lutas de `started`, com atletas e nome da rodada (abertura "VS"); luta de folga nunca entra. */
+  intros: IntroEvent[];
   /** Categorias que passaram a FINISHED agora (confete do pódio). */
   categoriesFinished: number[];
 }
 
-const EMPTY: Omit<SnapshotDiff, "initial" | "stale"> = { finished: [], started: [], categoriesFinished: [] };
+const EMPTY: Omit<SnapshotDiff, "initial" | "stale"> = { finished: [], started: [], intros: [], categoriesFinished: [] };
 
 /**
  * Compara o snapshot anterior com o novo (função pura). Regras:
@@ -58,6 +76,7 @@ export function diffSnapshots(prev: PublicSnapshot | null, next: PublicSnapshot)
 
   const finished: FinishedMatchEvent[] = [];
   const started: StartedMatchEvent[] = [];
+  const intros: IntroEvent[] = [];
   const categoriesFinished: number[] = [];
 
   const prevCategories = new Map(prev.categories.map((c) => [c.id, c]));
@@ -68,6 +87,8 @@ export function diffSnapshots(prev: PublicSnapshot | null, next: PublicSnapshot)
 
     const prevMatches = new Map(before.matches.map((m) => [m.id, m]));
     const names = new Map(category.competitors.map((c) => [c.id, c.name]));
+    const byId = new Map(category.competitors.map((c) => [c.id, c]));
+    const lastMainRound = category.matches.reduce((max, m) => (m.stage === "MAIN" ? Math.max(max, m.round) : max), 1);
     const nameOf = (id: number | null): string | null => (id === null ? null : (names.get(id) ?? null));
 
     for (const match of category.matches) {
@@ -97,10 +118,22 @@ export function diffSnapshots(prev: PublicSnapshot | null, next: PublicSnapshot)
         });
       } else if (match.status === "LIVE" && old.status !== "LIVE") {
         started.push({ categoryId: category.id, matchId: match.id, mat: match.mat });
+        intros.push({
+          categoryId: category.id,
+          categoryName: category.name,
+          matchId: match.id,
+          key: match.key,
+          stage: match.stage,
+          round: match.round,
+          stageLabel: matchStageLabel(match, lastMainRound),
+          mat: match.mat,
+          a: match.slotAId === null ? null : (byId.get(match.slotAId) ?? null),
+          b: match.slotBId === null ? null : (byId.get(match.slotBId) ?? null),
+        });
       }
     }
   }
-  return { initial: false, stale: false, finished, started, categoriesFinished };
+  return { initial: false, stale: false, finished, started, intros, categoriesFinished };
 }
 
 /** Frase para o leitor de tela: "Adulto até 70 kg: luta Atleta 1 contra Atleta 3 terminou. Atleta 1 venceu." */

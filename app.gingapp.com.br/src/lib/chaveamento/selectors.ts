@@ -1,3 +1,4 @@
+import { matchStageLabel } from "./describe";
 import type { PublicCategory, PublicCompetitor, PublicMatch, PublicSnapshot } from "./types";
 
 /** Atletas da categoria por id. */
@@ -36,6 +37,8 @@ export interface QueueEntry {
   categoryId: number;
   categoryName: string;
   match: PublicMatch;
+  /** Fase da luta ("Final", "Semifinais", "Grupo A · Rodada 2"...). */
+  stageLabel: string;
   a: PublicCompetitor | null;
   b: PublicCompetitor | null;
 }
@@ -76,12 +79,14 @@ export function selectNowPlaying(snapshot: PublicSnapshot, nextLimit = 4): NowPl
   const next: QueueEntry[] = [];
   for (const category of snapshot.categories) {
     const byId = competitorsById(category);
+    const lastRound = lastMainRound(category);
     for (const match of category.matches) {
       if (match.isBye) continue;
       const entry: QueueEntry = {
         categoryId: category.id,
         categoryName: category.name,
         match,
+        stageLabel: matchStageLabel(match, lastRound),
         a: match.slotAId === null ? null : (byId.get(match.slotAId) ?? null),
         b: match.slotBId === null ? null : (byId.get(match.slotBId) ?? null),
       };
@@ -92,4 +97,66 @@ export function selectNowPlaying(snapshot: PublicSnapshot, nextLimit = 4): NowPl
   live.sort(compareEntries);
   next.sort(compareEntries);
   return { live, next: next.slice(0, nextLimit) };
+}
+
+/* ------------------------------------------------ pódio / rodada atual ------------------------------------------------ */
+
+export interface PodiumView {
+  champion: PublicCompetitor | null;
+  second: PublicCompetitor | null;
+  /** Um 3º lugar (com disputa) ou dois (sem disputa de 3º: os dois semifinalistas derrotados). */
+  thirds: PublicCompetitor[];
+}
+
+/** Pódio da categoria já resolvido para atletas (entradas cujo atleta não existe na lista são ignoradas). */
+export function selectPodium(category: PublicCategory): PodiumView {
+  const byId = competitorsById(category);
+  const at = (place: 1 | 2 | 3): PublicCompetitor[] =>
+    category.podium
+      .filter((p) => p.place === place)
+      .map((p) => byId.get(p.competitorId))
+      .filter((c): c is PublicCompetitor => c !== undefined);
+  return { champion: at(1)[0] ?? null, second: at(2)[0] ?? null, thirds: at(3) };
+}
+
+/** Maior rodada do mata-mata (a final); 1 sem mata-mata. */
+export const lastMainRound = (category: PublicCategory): number =>
+  category.matches.reduce((max, m) => (m.stage === "MAIN" ? Math.max(max, m.round) : max), 1);
+
+/**
+ * Nome da fase em andamento para o cabeçalho ("Semifinais", "Final", "Grupo A · Rodada 2"): a luta AO VIVO mais adiantada;
+ * sem nenhuma ao vivo, a próxima pronta; categoria encerrada = "Encerrada"; sem lutas = null.
+ */
+export function currentStageLabel(category: PublicCategory): string | null {
+  if (category.status === "FINISHED") return "Encerrada";
+  const last = lastMainRound(category);
+  const real = category.matches.filter((m) => !m.isBye);
+  const weight = (m: PublicMatch): number => (m.stage === "THIRD_PLACE" ? m.round - 0.5 : m.round);
+  const pick = (status: PublicMatch["status"]): PublicMatch | undefined =>
+    real.filter((m) => m.status === status).sort((a, b) => weight(b) - weight(a))[0];
+  const live = pick("LIVE");
+  if (live) return matchStageLabel(live, last);
+  const ready = real.filter((m) => m.status === "READY").sort((a, b) => weight(a) - weight(b))[0];
+  return ready ? matchStageLabel(ready, last) : null;
+}
+
+/** Ids das próximas lutas (ordem de chamada) da categoria, na posição da fila global: id da luta -> 1, 2, 3... */
+export function nextQueueRanks(snapshot: PublicSnapshot, categoryId: number, limit = 3): Map<number, number> {
+  const ranks = new Map<number, number>();
+  selectNowPlaying(snapshot, limit).next.forEach((entry, index) => {
+    if (entry.categoryId === categoryId) ranks.set(entry.match.id, index + 1);
+  });
+  return ranks;
+}
+
+/** Atletas classificados ao mata-mata (quem já está num slot do mata-mata); vazio enquanto o mata-mata não foi sorteado. */
+export function qualifiedIds(category: PublicCategory): Set<number> {
+  const ids = new Set<number>();
+  if (category.format !== "GROUPS_KNOCKOUT") return ids;
+  for (const m of category.matches) {
+    if (m.stage !== "MAIN" || m.round !== 1) continue;
+    if (m.slotAId !== null) ids.add(m.slotAId);
+    if (m.slotBId !== null) ids.add(m.slotBId);
+  }
+  return ids;
 }

@@ -458,10 +458,14 @@ describe("chaveamento: bracket-layout (geometria pura)", () => {
 
   it("rótulos das rodadas e função de ajuste à tela", () => {
     expect(roundLabel(4, 4)).toBe("Final");
-    expect(roundLabel(3, 4)).toBe("Semifinal");
+    expect(roundLabel(3, 4)).toBe("Semifinais");
     expect(roundLabel(2, 4)).toBe("Quartas de final");
     expect(roundLabel(1, 4)).toBe("Oitavas de final");
-    expect(roundLabel(1, 7)).toBe("Rodada 1");
+    expect(roundLabel(1, 7)).toBe("1ª rodada");
+    expect(roundLabel(2, 7)).toBe("32 avos de final");
+    expect(roundLabel(1, 6)).toBe("1ª rodada");
+    expect(roundLabel(1, 5)).toBe("16 avos de final");
+    expect(roundLabel(1, 3)).toBe("Quartas de final");
     expect(fitScale({ width: 1000, height: 500 }, { width: 500, height: 500 })).toBe(0.5);
     expect(fitScale({ width: 100, height: 100 }, { width: 5000, height: 5000 })).toBe(1.6);
     expect(fitScale({ width: 100000, height: 100 }, { width: 100, height: 100 })).toBe(0.15);

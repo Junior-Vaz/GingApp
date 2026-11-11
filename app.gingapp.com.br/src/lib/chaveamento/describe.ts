@@ -1,4 +1,5 @@
-import type { PublicCompetitor, PublicMatch } from "./types";
+import { roundLabel } from "./bracket-layout";
+import type { PublicCategory, PublicCompetitor, PublicMatch } from "./types";
 
 /** Frase única da luta para o leitor de tela (o conteúdo visual do cartão fica fora da árvore de acessibilidade). */
 export function describeMatch(match: PublicMatch, byId: ReadonlyMap<number, PublicCompetitor>): string {
@@ -24,3 +25,28 @@ export function describeMatch(match: PublicMatch, byId: ReadonlyMap<number, Publ
 
 /** "Grupo A", "Grupo B"... (índice 0-based; passando de Z, "Grupo 27"). */
 export const groupLabel = (groupIndex: number): string => (groupIndex >= 0 && groupIndex < 26 ? `Grupo ${String.fromCharCode(65 + groupIndex)}` : `Grupo ${groupIndex + 1}`);
+
+/**
+ * Nome da fase de uma luta para o telão: "Final", "Semifinais", "Disputa de 3º lugar", "Grupo A · Rodada 2"...
+ * `lastMainRound` = número da final do mata-mata da categoria (para nomear as rodadas pela distância até a final).
+ */
+export function matchStageLabel(match: Pick<PublicMatch, "stage" | "round" | "groupIndex">, lastMainRound: number): string {
+  if (match.stage === "THIRD_PLACE") return "Disputa de 3º lugar";
+  if (match.stage === "GROUP") {
+    const round = `Rodada ${match.round}`;
+    return match.groupIndex === null ? round : `${groupLabel(match.groupIndex)} · ${round}`;
+  }
+  return roundLabel(match.round, lastMainRound);
+}
+
+/** Formato da categoria em português para o cartão-título. */
+export function formatLabel(format: PublicCategory["format"]): string {
+  switch (format) {
+    case "SINGLE_ELIMINATION":
+      return "Eliminatória";
+    case "ROUND_ROBIN":
+      return "Todos contra todos";
+    default:
+      return "Grupos + mata-mata";
+  }
+}

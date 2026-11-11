@@ -18,3 +18,10 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: () => {},
   }),
 });
+
+// jsdom não implementa <canvas>: sem isto `getContext` imprime "Not implemented" (o telão trata `null` como "sem confete").
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+  writable: true,
+  configurable: true,
+  value: () => null,
+});

@@ -151,3 +151,17 @@ export function useTvRotation({ enabled, paused, snapshot, currentId, seq, start
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seq]);
 }
+
+/** Tempo de cada página quando uma lista (grupos, rodadas) não cabe de uma vez no telão. */
+export const PAGE_MS = 10_000;
+
+/** Página atual de uma lista paginada: gira a cada `ms` quando `enabled` e há mais de uma página; o timer é cancelado ao desmontar. */
+export function useRotatingPage(count: number, enabled: boolean, ms = PAGE_MS): number {
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!enabled || count <= 1) return;
+    const timer = setInterval(() => setTick((value) => value + 1), ms);
+    return () => clearInterval(timer);
+  }, [enabled, count, ms]);
+  return count <= 1 ? 0 : tick % count;
+}

@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent } from "react";
+import { TrophyIcon } from "./icons";
 import { categoryHasLive } from "@/lib/chaveamento/selectors";
 import type { PublicCategory } from "@/lib/chaveamento/types";
 
@@ -48,7 +49,11 @@ export function CategoryTabs({ categories, selectedId, onSelect }: CategoryTabsP
             {live && <span className="cv-dot" aria-hidden="true" />}
             <span>{category.name}</span>
             {live && <span className="sr-only"> (luta ao vivo)</span>}
-            {category.status === "FINISHED" && <span className="cv-tab-done"> · encerrada</span>}
+            {category.status === "FINISHED" && (
+              <span className="cv-tab-done">
+                <TrophyIcon aria-hidden="true" /> encerrada
+              </span>
+            )}
           </button>
         );
       })}
