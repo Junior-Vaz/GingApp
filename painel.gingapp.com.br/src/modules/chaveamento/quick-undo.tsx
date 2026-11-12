@@ -3,6 +3,7 @@ import { CheckCircle2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAnnounce } from "./announce-context";
 import { useUndoMatch } from "./api";
+import { useOnline } from "./page-activity";
 import { QUICK_UNDO_MS, QuickUndoContext, useQuickUndo, type QuickUndoApi, type QuickUndoEntry } from "./quick-undo-context";
 import { shortcutKey, shouldIgnoreShortcut } from "./shortcuts";
 
@@ -49,9 +50,10 @@ export function UndoBar({ eventId }: { eventId: number }) {
   const { current, dismiss } = useQuickUndo();
   const undo = useUndoMatch(eventId);
   const announce = useAnnounce();
+  const online = useOnline();
 
   const run = useCallback(async () => {
-    if (!current || undo.isPending) return;
+    if (!current || undo.isPending || !online) return;
     const entry = current;
     dismiss();
     try {
@@ -60,7 +62,7 @@ export function UndoBar({ eventId }: { eventId: number }) {
     } catch {
       /* o toast do hook já mostrou a mensagem do `code` (ex.: a próxima luta já começou) */
     }
-  }, [announce, current, dismiss, undo]);
+  }, [announce, current, dismiss, online, undo]);
 
   // U desfaz na hora enquanto a janela vale (no desktop).
   useEffect(() => {
@@ -80,15 +82,15 @@ export function UndoBar({ eventId }: { eventId: number }) {
       role="region"
       aria-label="Desfazer o último resultado"
       data-testid="undo-bar"
-      className="chv-rise fixed inset-x-3 bottom-[calc(5.25rem+env(safe-area-inset-bottom))] z-[60] mx-auto w-auto max-w-md overflow-hidden rounded-xl border border-emerald-700/40 bg-card shadow-xl md:bottom-6"
+      className="chv-rise fixed inset-x-3 bottom-[calc(var(--chv-nav,4rem)+0.75rem+env(safe-area-inset-bottom))] z-[60] mx-auto w-auto max-w-md overflow-hidden rounded-xl border border-emerald-700/40 bg-card shadow-xl md:bottom-[calc(1.5rem+env(safe-area-inset-bottom))]"
     >
       <div className="flex items-center gap-3 p-3">
         <CheckCircle2 className="size-6 shrink-0 text-emerald-700" aria-hidden />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-extrabold">Resultado registrado</p>
-          <p className="truncate text-xs text-muted-foreground">{current.label}</p>
+          <p className="text-sm font-extrabold">{online ? "Resultado registrado" : "Sem conexão — desfazer indisponível"}</p>
+          <p className="truncate text-xs text-muted-foreground" title={current.label}>{current.label}</p>
         </div>
-        <Button type="button" variant="default" size="lg" className="h-11 shrink-0 gap-1.5 font-extrabold tracking-wide md:h-10" onClick={() => void run()}>
+        <Button type="button" variant="default" size="lg" className="h-12 shrink-0 gap-1.5 font-extrabold tracking-wide md:h-12" disabled={!online} onClick={() => void run()}>
           <Undo2 /> DESFAZER
         </Button>
       </div>

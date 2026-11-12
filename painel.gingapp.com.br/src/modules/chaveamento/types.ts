@@ -116,7 +116,12 @@ export interface OperatorCompetitor {
   poolIndex: number | null;
   studentId: number | null;
   eventParticipantId: number | null;
+  /** SÓ a foto do ALUNO (caminho `/api/uploads/...`); `null` para quem não é aluno. A foto PRÓPRIA do atleta vem por `GET .../photo`. */
   photoUrl: string | null;
+  /** O atleta tem foto própria (enviada ou tirada na hora, ou importada da inscrição)? */
+  hasOwnPhoto: boolean;
+  /** `photoUpdatedAt` em ms (quebra o cache do blob); `null` sem foto própria. */
+  photoVersion: number | null;
   ageGroup: AgeGroup;
   photoAuthorized: boolean;
   photoAuthorizedAt: string | null;
@@ -197,8 +202,15 @@ export interface OperatorCategory {
 export interface ImportResult {
   added: number;
   skipped: number;
+  /** Quantos atletas importados já vieram com a foto da inscrição (campo "Foto do participante"). */
+  photosImported: number;
+  /** Ids dos atletas criados nesta importação. */
+  addedCompetitorIds: number[];
   category: OperatorCategory;
 }
+
+/** POST /categories/:cid/competitors: a categoria completa + o id do atleta criado (a foto é enviada em seguida, por esse id). */
+export type AddCompetitorResult = OperatorCategory & { createdCompetitorId: number };
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Corpos das mutações
@@ -217,7 +229,6 @@ export interface GuestPayload {
   groupName?: string | undefined;
   graduationLabel?: string | undefined;
   ageGroup?: AgeGroup | undefined;
-  photoUrl?: string | undefined;
   /** 1..128; vai DENTRO de guest (seed no topo junto com guest = 400 INVALID_COMPETITOR). */
   seed?: number | undefined;
   photoAuthorized?: boolean | undefined;
@@ -236,7 +247,6 @@ export interface UpdateCompetitorPayload {
   seed?: number | null | undefined;
   ageGroup?: AgeGroup | undefined;
   photoAuthorized?: boolean | undefined;
-  photoUrl?: string | null | undefined;
 }
 
 export interface ResultPayload {
@@ -279,7 +289,7 @@ export type _CategoryKeysCoverAll = AssertNever<Exclude<keyof OperatorCategory, 
 
 export const COMPETITOR_KEYS = [
   "id", "displayName", "groupName", "graduationLabel", "seed", "poolIndex", "studentId", "eventParticipantId",
-  "photoUrl", "ageGroup", "photoAuthorized", "photoAuthorizedAt", "photoPublic", "createdAt",
+  "photoUrl", "hasOwnPhoto", "photoVersion", "ageGroup", "photoAuthorized", "photoAuthorizedAt", "photoPublic", "createdAt",
 ] as const satisfies readonly (keyof OperatorCompetitor)[];
 export type _CompetitorKeysCoverAll = AssertNever<Exclude<keyof OperatorCompetitor, (typeof COMPETITOR_KEYS)[number]>>;
 
@@ -296,6 +306,14 @@ export const STANDING_ROW_KEYS = [
 ] as const satisfies readonly (keyof StandingRow)[];
 export type _StandingRowKeysCoverAll = AssertNever<Exclude<keyof StandingRow, (typeof STANDING_ROW_KEYS)[number]>>;
 export const PODIUM_KEYS = ["place", "competitorId"] as const satisfies readonly (keyof PodiumEntry)[];
+
+export const IMPORT_RESULT_KEYS = [
+  "added", "skipped", "photosImported", "addedCompetitorIds", "category",
+] as const satisfies readonly (keyof ImportResult)[];
+export type _ImportKeysCoverAll = AssertNever<Exclude<keyof ImportResult, (typeof IMPORT_RESULT_KEYS)[number]>>;
+
+/** Chaves da resposta do POST de atleta: as da categoria + `createdCompetitorId`. */
+export const ADD_COMPETITOR_RESULT_KEYS = [...CATEGORY_KEYS, "createdCompetitorId"] as const;
 
 /** Corpo de erro do backend: `{ statusCode, message, code }` (validação de DTO vem sem `code`). */
 export const ERROR_BODY_KEYS = ["statusCode", "message", "code"] as const;

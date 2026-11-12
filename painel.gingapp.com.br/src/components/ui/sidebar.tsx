@@ -46,6 +46,11 @@ function useSidebar() {
   return context;
 }
 
+/** Como `useSidebar`, mas devolve `null` (em vez de lançar) fora de um SidebarProvider (páginas testadas isoladas). */
+function useOptionalSidebar() {
+  return React.useContext(SidebarContext);
+}
+
 const SidebarProvider = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div"> & {
@@ -740,5 +745,6 @@ export {
   SidebarRail,
   SidebarSeparator,
   SidebarTrigger,
+  useOptionalSidebar,
   useSidebar,
 };

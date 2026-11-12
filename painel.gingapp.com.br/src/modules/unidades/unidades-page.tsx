@@ -173,10 +173,9 @@ export function UnidadesPage() {
             />
             <ImageUploadField<UnitFormValues>
               name="photo"
-              label="Foto ou logo da unidade (URL)"
-              shape="square"
+              label="Foto ou logo da unidade"
+              shape="wide"
               previewAlt="Foto da unidade"
-              description="Opcional. Envie uma imagem (JPEG, PNG ou WebP até 5 MB) ou cole o link de uma imagem."
             />
             <FormField
               control={form.control}

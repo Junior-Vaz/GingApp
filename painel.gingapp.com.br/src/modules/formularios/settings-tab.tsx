@@ -133,7 +133,7 @@ export function SettingsTab({ draft, readOnly, onChange, errors, eventTitle }: S
           onChange={(bannerUrl) => onChange({ bannerUrl })}
           previewAlt="Pré-visualização do banner"
           disabled={readOnly}
-          description="Aparece no topo da página e na pré-visualização do WhatsApp. JPEG, PNG ou WebP até 5 MB."
+          description="Aparece no topo da página e na pré-visualização do WhatsApp. A imagem é reduzida automaticamente antes do envio."
         />
         <SelectField
           label="Evento"

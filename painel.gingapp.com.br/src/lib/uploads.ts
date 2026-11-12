@@ -32,8 +32,8 @@ export function imageSrc(value: string | null | undefined): string {
   return `${origin}${value}`;
 }
 
-/** Erro amigável (pt-BR) antes de gastar rede; `null` = ok. */
-export function validateImageFile(file: File): string | null {
+/** Erro amigável (pt-BR) antes de gastar rede; `null` = ok. Aceita o `File` escolhido ou o Blob já preparado (`PhotoPicker`). */
+export function validateImageFile(file: Blob): string | null {
   if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
     return "Formato não suportado: envie uma imagem JPEG, PNG ou WebP.";
   }
@@ -42,12 +42,23 @@ export function validateImageFile(file: File): string | null {
   return null;
 }
 
-/** Envia a imagem (POST /uploads) e devolve o caminho a gravar no campo (foto, logo, capa). */
-export async function uploadImage(file: File): Promise<string> {
+/** Nome do arquivo no multipart: o do `File` escolhido; um Blob já preparado vira `foto.webp` (ou .jpg/.png pelo tipo). */
+export function uploadFileName(file: Blob): string {
+  if (file instanceof File && file.name) return file.name;
+  if (file.type === "image/jpeg") return "foto.jpg";
+  if (file.type === "image/png") return "foto.png";
+  return "foto.webp";
+}
+
+/**
+ * Envia a imagem (POST /uploads) e devolve o caminho a gravar no campo (foto, logo, capa). Aceita o `File` ou o Blob
+ * que o `PhotoPicker`/`prepareImage` devolve (já recortado e comprimido, normalmente `foto.webp` abaixo de 400 KB).
+ */
+export async function uploadImage(file: Blob): Promise<string> {
   const invalid = validateImageFile(file);
   if (invalid) throw new ApiError(invalid, 400);
   const form = new FormData();
-  form.append("file", file);
+  form.append("file", file, uploadFileName(file));
   const result = await api.postForm<{ url: string }>("/uploads", form);
   return result.url;
 }

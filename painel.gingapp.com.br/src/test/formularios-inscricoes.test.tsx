@@ -988,3 +988,98 @@ describe("formatAnswer", () => {
     expect(formatAnswer({ type: "PHONE", value: "62999991001" })).toBe("(62) 99999-1001");
   });
 });
+
+describe("Inscrições - foto do participante (campo PHOTO)", () => {
+  /** Detalhe com o campo PHOTO respondido: o servidor manda a resposta como lista de anexos, como no FILE. */
+  const withPhoto = (over: Record<string, unknown> = {}) =>
+    detail({
+      answers: [
+        { fieldKey: "f_nome", label: "Nome completo", type: "SHORT_TEXT", archived: false, value: "Ana Souza" },
+        {
+          fieldKey: "f_foto",
+          label: "Foto do participante",
+          type: "PHOTO",
+          archived: false,
+          value: [{ fileId: "file9", originalName: "foto.webp", mimeType: "image/webp" }],
+        },
+      ],
+      files: [
+        { id: "file9", fieldKey: "f_foto", originalName: "foto.webp", mimeType: "image/webp", sizeBytes: 51200 },
+      ],
+      ...over,
+    });
+  const photoFile = () =>
+    new Response(new Blob(["webp"], { type: "image/webp" }), { status: 200, headers: { "Content-Type": "image/webp" } });
+
+  it("mostra a miniatura REDONDA ao lado do nome (baixada com Authorization) e amplia ao tocar; Baixar mantém o nome do arquivo", async () => {
+    overrides["GET /event-forms/f1/submissions/s1"] = () => json(200, withPhoto());
+    overrides["GET /event-forms/f1/submissions/s1/files/file9"] = photoFile;
+    const sheet = await openDetail();
+    const thumb = await within(sheet).findByTestId("submission-photo");
+    expect(thumb.className).toMatch(/rounded-full/);
+    expect(thumb.className).toMatch(/\bsize-14\b/); // alvo de toque >= 44 px (56 px)
+    expect(thumb).toHaveAccessibleName("Ampliar a foto de Ana Souza");
+    // ao lado do nome: o botão e o título estão no mesmo bloco do cabeçalho
+    expect(thumb.parentElement).toContainElement(within(sheet).getByRole("heading", { name: "Ana Souza" }));
+    await waitFor(() => expect(thumb.querySelector("img")).not.toBeNull());
+    expect(thumb.querySelector("img")).toHaveAttribute("src", "blob:mock-1");
+
+    fireEvent.click(thumb);
+    const viewer = await screen.findByTestId("file-viewer");
+    expect(within(viewer).getByRole("heading", { name: "Foto do participante" })).toBeInTheDocument();
+    expect(await within(viewer).findByAltText("Foto do participante ampliada")).toHaveAttribute("src", "blob:mock-1");
+    expect(within(viewer).getByRole("link", { name: /Baixar/ })).toHaveAttribute("download", "foto.webp");
+    // o download é autenticado e UM só (miniatura e ampliação dividem o mesmo cache)
+    const fileCalls = sent("GET", "/event-forms/f1/submissions/s1/files/file9");
+    expect(fileCalls).toHaveLength(1);
+    expect(fileCalls[0]!.headers["Authorization"]).toBe("Bearer tok");
+  });
+
+  it("a resposta PHOTO aparece em Respostas com Ver foto (não Ver comprovante)", async () => {
+    overrides["GET /event-forms/f1/submissions/s1"] = () => json(200, withPhoto());
+    overrides["GET /event-forms/f1/submissions/s1/files/file9"] = photoFile;
+    const sheet = await openDetail();
+    fireEvent.click(await within(sheet).findByRole("button", { name: "Ver foto foto.webp" }));
+    expect(await screen.findByTestId("file-viewer")).toBeInTheDocument();
+    expect(within(sheet).queryByRole("button", { name: /Ver comprovante/ })).toBeNull();
+  });
+
+  it("PROFESSOR (arquivos restritos): sem miniatura e sem baixar a foto", async () => {
+    loginAs("PROFESSOR");
+    overrides["GET /event-forms/f1/submissions/s1"] = () => json(200, withPhoto({ files: [], filesRestricted: true }));
+    const sheet = await openDetail();
+    await within(sheet).findByRole("heading", { name: "Ana Souza" });
+    expect(within(sheet).queryByTestId("submission-photo")).toBeNull();
+    expect(sent("GET", "/event-forms/f1/submissions/s1/files/file9")).toHaveLength(0);
+  });
+
+  it("inscrição anonimizada: a miniatura some junto com os arquivos", async () => {
+    overrides["GET /event-forms/f1/submissions/s1"] = () => json(200, anonymizedDetail());
+    const sheet = await openDetail();
+    await within(sheet).findByTestId("anonymized-notice");
+    expect(within(sheet).queryByTestId("submission-photo")).toBeNull();
+  });
+
+  it("falha ao baixar a foto: a miniatura mostra o ícone de imagem quebrada (sem travar a inscrição) e o visualizador oferece Tentar de novo", async () => {
+    overrides["GET /event-forms/f1/submissions/s1"] = () => json(200, withPhoto());
+    overrides["GET /event-forms/f1/submissions/s1/files/file9"] = () => json(500, { message: "Falhou" });
+    const sheet = await openDetail();
+    const thumb = await within(sheet).findByTestId("submission-photo");
+    await waitFor(() => expect(thumb.querySelector("svg.lucide-image-off")).not.toBeNull());
+    expect(thumb.querySelector("img")).toBeNull();
+    fireEvent.click(thumb);
+    const viewer = await screen.findByTestId("file-viewer");
+    expect(await within(viewer).findByRole("button", { name: "Tentar de novo" })).toBeInTheDocument();
+  });
+
+  it("a Blob URL da miniatura é revogada ao fechar a inscrição", async () => {
+    overrides["GET /event-forms/f1/submissions/s1"] = () => json(200, withPhoto());
+    overrides["GET /event-forms/f1/submissions/s1/files/file9"] = photoFile;
+    const sheet = await openDetail();
+    const thumb = await within(sheet).findByTestId("submission-photo");
+    await waitFor(() => expect(thumb.querySelector("img")).not.toBeNull());
+    fireEvent.keyDown(sheet, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("submission-sheet")).toBeNull());
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:mock-1");
+  });
+});

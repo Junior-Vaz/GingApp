@@ -10,18 +10,29 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { PhotoPicker } from "@/components/photo/photo-picker";
 import { cn } from "@/lib/utils";
 import { api, errorMessage } from "@/lib/api";
 import type { EventParticipant } from "@/modules/eventos/types";
 import { PARTICIPANT_STATUS_LABEL } from "@/modules/rodas/types";
-import { useAddCompetitor, useImportParticipants, useRemoveCompetitor, useUpdateCompetitor, chaveamentoKeys } from "./api";
+import {
+  chaveamentoKeys,
+  useAddCompetitor,
+  useCompetitorPhotoBlob,
+  useImportParticipants,
+  useRemoveCompetitor,
+  useRemoveCompetitorPhoto,
+  useSetCompetitorPhoto,
+  useUpdateCompetitor,
+} from "./api";
 import { CompetitorPhoto } from "./competitor-photo";
-import { chaveamentoErrorMessage, TOURNAMENT_ERROR_MESSAGES } from "./errors";
-import { authorizationText, isAcceptablePhotoUrl, needsPhotoAuthorization, parseOptionalInt, photoIndicatorText, seededCount } from "./helpers";
+import { chaveamentoErrorMessage } from "./errors";
+import { numericField, STICKY_FOOTER, textField } from "./fields";
+import { authorizationText, importResultText, needsPhotoAuthorization, parseOptionalInt, photoHiddenReason, photoIndicatorText, seededCount } from "./helpers";
 import { SETUP_STEPS } from "./setup-steps";
 import { StepsGuide } from "./steps-guide";
 import "./chaveamento.css";
-import { AGE_GROUP_LABEL, LIMITS, type AgeGroup, type OperatorCategory, type OperatorCompetitor } from "./types";
+import { AGE_GROUP_LABEL, LIMITS, type AgeGroup, type ImportResult, type OperatorCategory, type OperatorCompetitor } from "./types";
 
 const AGE_OPTIONS: AgeGroup[] = ["ADULT", "MINOR", "UNKNOWN"];
 
@@ -40,6 +51,7 @@ export function CompetitorsPanel({ eventId, category, canEdit }: CompetitorsPane
   const [removing, setRemoving] = useState<OperatorCompetitor | null>(null);
   const [quickId, setQuickId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [importNotice, setImportNotice] = useState<string | null>(null);
   const ordered = [...category.competitors].sort(
     (a, b) => (a.seed ?? Number.MAX_SAFE_INTEGER) - (b.seed ?? Number.MAX_SAFE_INTEGER) || a.displayName.localeCompare(b.displayName, "pt-BR"),
   );
@@ -82,6 +94,19 @@ export function CompetitorsPanel({ eventId, category, canEdit }: CompetitorsPane
         </p>
       )}
 
+      {importNotice && (
+        <p
+          role="status"
+          className="flex items-start justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 p-3 text-sm"
+          data-testid="import-notice"
+        >
+          <span>{importNotice}</span>
+          <Button type="button" variant="ghost" size="sm" className="-my-1.5 shrink-0" onClick={() => setImportNotice(null)} aria-label="Fechar aviso">
+            <X />
+          </Button>
+        </p>
+      )}
+
       {total >= 6 && (
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -89,6 +114,8 @@ export function CompetitorsPanel({ eventId, category, canEdit }: CompetitorsPane
             type="search"
             aria-label="Buscar atleta"
             placeholder="Buscar por nome ou academia"
+            autoComplete="off"
+            enterKeyHint="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -122,32 +149,32 @@ export function CompetitorsPanel({ eventId, category, canEdit }: CompetitorsPane
                 style={{ "--i": Math.min(index, 10) } as CSSProperties}
                 data-testid={`competitor-${String(c.id)}`}
               >
-                <CompetitorPhoto name={c.displayName} photoUrl={c.photoUrl} group={c.groupName} id={c.id} size="lg" />
-                <div className="min-w-0 flex-1 text-sm">
-                  <p className="flex min-w-0 items-center gap-2">
+                <CompetitorPhoto name={c.displayName} photoUrl={c.photoUrl} own={c} group={c.groupName} id={c.id} size="lg" />
+                <div className="min-w-0 flex-1 basis-36 text-sm">
+                  <p className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                     {c.seed !== null && (
-                      <span className="shrink-0 rounded-md bg-primary px-1.5 py-0.5 text-[11px] font-extrabold text-primary-foreground">Semente {c.seed}</span>
+                      <span className="shrink-0 rounded-md bg-primary px-1.5 py-0.5 text-xs font-extrabold text-primary-foreground">Semente {c.seed}</span>
                     )}
                     {canEdit ? (
                       <button
                         type="button"
                         onClick={() => setQuickId(c.id)}
                         aria-label={`Edição rápida de ${c.displayName}`}
-                        title="Toque para editar nome, grupo e semente aqui mesmo"
-                        className="min-w-0 truncate rounded text-left text-base font-extrabold underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        title={`${c.displayName} · toque para editar nome, grupo e semente aqui mesmo`}
+                        className="line-clamp-2 min-h-11 min-w-0 break-words rounded py-2 text-left text-base font-extrabold leading-tight underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
                         {c.displayName}
                       </button>
                     ) : (
-                      <span className="truncate text-base font-extrabold">{c.displayName}</span>
+                      <span className="line-clamp-2 break-words text-base font-extrabold leading-tight" title={c.displayName}>{c.displayName}</span>
                     )}
                   </p>
-                  <p className="truncate text-xs text-muted-foreground">
+                  <p className="line-clamp-2 break-words text-xs text-muted-foreground" title={[c.groupName, c.graduationLabel].filter(Boolean).join(" · ") || undefined}>
                     {[c.groupName, c.graduationLabel, c.studentId !== null ? "aluno" : "de fora"].filter(Boolean).join(" · ")}
                   </p>
                 </div>
                 {canEdit && (
-                  <div className="flex shrink-0 gap-1">
+                  <div className="ml-auto flex shrink-0 gap-2">
                     <Button variant="ghost" size="sm" onClick={() => setEditing(c)} aria-label={`Editar ${c.displayName}`}>
                       <Pencil /> <span className="max-sm:sr-only">Editar</span>
                     </Button>
@@ -173,25 +200,38 @@ export function CompetitorsPanel({ eventId, category, canEdit }: CompetitorsPane
                     {authorizationText(c)}
                   </Badge>
                 </p>
+                {photoHiddenReason(c) && (
+                  <p className="basis-full text-xs text-muted-foreground" data-testid={`photo-reason-${String(c.id)}`}>
+                    {photoHiddenReason(c)}
+                  </p>
+                )}
               </li>
             ),
           )}
         </ul>
       )}
 
-      <ImportFromEventDialog eventId={eventId} category={category} open={dialog === "event"} onClose={() => setDialog(null)} />
-      <AddStudentDialog eventId={eventId} category={category} open={dialog === "student"} onClose={() => setDialog(null)} />
-      <CompetitorFormDialog
-        key={editing ? `edit-${String(editing.id)}` : "new"}
+      <ImportFromEventDialog
         eventId={eventId}
         category={category}
-        editing={editing}
-        open={dialog === "guest" || editing !== null}
-        onClose={() => {
-          setDialog(null);
-          setEditing(null);
-        }}
+        open={dialog === "event"}
+        onClose={() => setDialog(null)}
+        onImported={(result) => setImportNotice(importResultText(result))}
       />
+      <AddStudentDialog eventId={eventId} category={category} open={dialog === "student"} onClose={() => setDialog(null)} />
+      {/* Montado só enquanto aberto: cada abertura começa limpa (sem nome nem foto do atleta anterior) e a Blob URL é revogada ao fechar. */}
+      {(dialog === "guest" || editing !== null) && (
+        <CompetitorFormDialog
+          key={editing ? `edit-${String(editing.id)}` : "new"}
+          eventId={eventId}
+          category={category}
+          editing={editing}
+          onClose={() => {
+            setDialog(null);
+            setEditing(null);
+          }}
+        />
+      )}
       <ConfirmDialog
         open={removing !== null}
         onOpenChange={(open) => !open && setRemoving(null)}
@@ -253,16 +293,16 @@ function QuickEditRow({ eventId, competitor, setup, onClose }: { eventId: number
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_2fr_6rem]">
         <div className="grid grid-cols-1 gap-1">
           <Label htmlFor={`q-name-${String(competitor.id)}`} className="text-xs">Nome</Label>
-          <Input id={`q-name-${String(competitor.id)}`} value={name} maxLength={LIMITS.nameMax} autoFocus onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} />
+          <Input id={`q-name-${String(competitor.id)}`} {...textField} value={name} maxLength={LIMITS.nameMax} autoFocus onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} />
         </div>
         <div className="grid grid-cols-1 gap-1">
           <Label htmlFor={`q-group-${String(competitor.id)}`} className="text-xs">Grupo / academia</Label>
-          <Input id={`q-group-${String(competitor.id)}`} value={group} maxLength={LIMITS.groupNameMax} onChange={(e) => setGroup(e.target.value)} onKeyDown={onKeyDown} />
+          <Input id={`q-group-${String(competitor.id)}`} {...textField} value={group} maxLength={LIMITS.groupNameMax} onChange={(e) => setGroup(e.target.value)} onKeyDown={onKeyDown} />
         </div>
         {setup && (
           <div className="grid grid-cols-1 gap-1">
             <Label htmlFor={`q-seed-${String(competitor.id)}`} className="text-xs">Semente</Label>
-            <Input id={`q-seed-${String(competitor.id)}`} inputMode="numeric" value={seed} placeholder="Sem" onChange={(e) => setSeed(e.target.value)} onKeyDown={onKeyDown} />
+            <Input id={`q-seed-${String(competitor.id)}`} {...numericField} value={seed} placeholder="Sem" onChange={(e) => setSeed(e.target.value)} onKeyDown={onKeyDown} />
           </div>
         )}
       </div>
@@ -290,11 +330,13 @@ function ImportFromEventDialog({
   category,
   open,
   onClose,
+  onImported,
 }: {
   eventId: number;
   category: OperatorCategory;
   open: boolean;
   onClose: () => void;
+  onImported: (result: ImportResult) => void;
 }) {
   const importer = useImportParticipants(eventId);
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -318,8 +360,9 @@ function ImportFromEventDialog({
 
   async function submit() {
     try {
-      await importer.mutateAsync({ categoryId: category.id, ids: [...selected] });
+      const result = await importer.mutateAsync({ categoryId: category.id, ids: [...selected] });
       setSelected(new Set());
+      onImported(result);
       onClose();
     } catch {
       /* toast mostrado pelo hook */
@@ -328,7 +371,7 @@ function ImportFromEventDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[92dvh] overscroll-contain overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Adicionar do evento</DialogTitle>
           <DialogDescription>Participantes confirmados ou com presença registrada neste evento.</DialogDescription>
@@ -346,7 +389,8 @@ function ImportFromEventDialog({
           </p>
         ) : (
           <>
-            <div className="flex items-center justify-between">
+            {/* "Selecionar todos" fica preso no topo (sticky) enquanto se rola a lista longa. */}
+            <div className="sticky -top-4 z-10 -mx-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b bg-background px-4 pb-2 pt-4 sm:-top-6 sm:-mx-6 sm:px-6 sm:pt-6" data-testid="import-toolbar">
               <Button
                 variant="ghost"
                 size="sm"
@@ -357,7 +401,7 @@ function ImportFromEventDialog({
               </Button>
               <span className="text-xs text-muted-foreground" aria-live="polite">{selected.size} de {available.length} {available.length === 1 ? "disponível" : "disponíveis"} selecionado(s)</span>
             </div>
-            <ul className="max-h-72 divide-y overflow-y-auto rounded-md border" data-testid="import-list">
+            <ul className="divide-y rounded-md border" data-testid="import-list">
               {eligible.map((p) => {
                 const taken = alreadyIn.has(p.id);
                 const id = `import-p-${String(p.id)}`;
@@ -370,8 +414,8 @@ function ImportFromEventDialog({
                       onCheckedChange={() => toggle(p.id)}
                       aria-label={`Selecionar ${participantName(p)}`}
                     />
-                    <Label htmlFor={id} className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-2">
-                      <span className="truncate">{participantName(p)}</span>
+                    <Label htmlFor={id} className="flex min-h-11 min-w-0 flex-1 cursor-pointer items-center justify-between gap-2 self-stretch">
+                      <span className="line-clamp-2 min-w-0 break-words" title={participantName(p)}>{participantName(p)}</span>
                       <span className="shrink-0 text-xs text-muted-foreground">
                         {taken ? "Já na categoria" : PARTICIPANT_STATUS_LABEL[p.status]}
                       </span>
@@ -382,7 +426,7 @@ function ImportFromEventDialog({
             </ul>
           </>
         )}
-        <DialogFooter className="gap-2">
+        <DialogFooter className={STICKY_FOOTER}>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button disabled={selected.size === 0 || importer.isPending} onClick={() => void submit()}>
             {importer.isPending ? "Importando…" : `Importar ${String(selected.size)}`}
@@ -430,14 +474,14 @@ function AddStudentDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[92dvh] overscroll-contain overflow-y-auto sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Adicionar aluno</DialogTitle>
           <DialogDescription>Busque um aluno do grupo pelo nome. A foto do cadastro é usada se a regra de privacidade permitir.</DialogDescription>
         </DialogHeader>
         <StudentPicker value={studentId} onChange={(s) => setStudentId(s?.id ?? null)} excludeIds={taken} />
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-        <DialogFooter className="gap-2">
+        <DialogFooter className={STICKY_FOOTER}>
           <Button variant="outline" onClick={onClose}>Cancelar</Button>
           <Button disabled={add.isPending} onClick={() => void submit()}>{add.isPending ? "Adicionando…" : "Adicionar"}</Button>
         </DialogFooter>
@@ -450,43 +494,71 @@ function AddStudentDialog({
 // Atleta de fora (convidado): adicionar e editar
 // ---------------------------------------------------------------------------------------------------------------------
 
+/** Atleta já gravado cuja foto ainda não foi enviada/removida: só falta repetir o passo da foto (nada de recriar nem repetir o PATCH). */
+interface SavedWithoutPhoto {
+  /** `null` = o servidor não informou o id do atleta criado (não dá para enviar a foto daqui). */
+  competitorId: number | null;
+  message: string;
+}
+
+const PHOTO_FALLBACK = "Não foi possível enviar a foto. Verifique a internet e tente de novo.";
+
 function CompetitorFormDialog({
   eventId,
   category,
   editing,
-  open,
   onClose,
 }: {
   eventId: number;
   category: OperatorCategory;
   editing: OperatorCompetitor | null;
-  open: boolean;
   onClose: () => void;
 }) {
   const add = useAddCompetitor(eventId);
   const update = useUpdateCompetitor(eventId);
+  const setPhoto = useSetCompetitorPhoto(eventId);
+  const removePhoto = useRemoveCompetitorPhoto(eventId);
   const setup = category.status === "SETUP";
   const linkedStudent = editing !== null && editing.studentId !== null;
+  const hasCurrentOwn = editing !== null && !linkedStudent && editing.hasOwnPhoto;
+  // Foto atual do atleta (rota privada): baixada com o token; o picker a mostra e, ao trocar, o Blob novo a substitui.
+  const current = useCompetitorPhotoBlob(eventId, category.id, editing?.id, editing?.photoVersion, hasCurrentOwn);
   const [name, setName] = useState(editing?.displayName ?? "");
   const [group, setGroup] = useState(editing?.groupName ?? "");
   const [graduation, setGraduation] = useState(editing?.graduationLabel ?? "");
   const [seed, setSeed] = useState(editing?.seed == null ? "" : String(editing.seed));
   const [ageGroup, setAgeGroup] = useState<AgeGroup>(editing?.ageGroup ?? "ADULT");
-  const [photoUrl, setPhotoUrl] = useState(editing?.photoUrl ?? "");
+  /** `undefined` = não mexeu na foto; `Blob` = foto nova pronta para enviar; `null` = remover a foto atual. */
+  const [photo, setPhotoValue] = useState<Blob | null | undefined>(undefined);
   const [authorized, setAuthorized] = useState(editing?.photoAuthorized ?? false);
   const [error, setError] = useState("");
-  const pending = add.isPending || update.isPending;
+  const [saved, setSaved] = useState<SavedWithoutPhoto | null>(null);
+  const photoBusy = setPhoto.isPending || removePhoto.isPending;
+  const pending = add.isPending || update.isPending || photoBusy;
   const askAuthorization = needsPhotoAuthorization({ ageGroup });
+  const shownPhoto: Blob | null = photo !== undefined ? photo : (current.data ?? null);
+  const hasAnyPhoto = shownPhoto !== null || hasCurrentOwn;
+
+  /** Envia/remove a foto do atleta `competitorId` (já gravado). Falhou: o atleta fica, e a tela oferece tentar de novo. */
+  async function applyPhoto(competitorId: number): Promise<boolean> {
+    try {
+      if (photo instanceof Blob) await setPhoto.mutateAsync({ categoryId: category.id, competitorId, photo });
+      else if (photo === null && hasCurrentOwn) await removePhoto.mutateAsync({ categoryId: category.id, competitorId });
+      return true;
+    } catch (e) {
+      setSaved({ competitorId, message: chaveamentoErrorMessage(e, PHOTO_FALLBACK) });
+      return false;
+    }
+  }
 
   async function submit() {
     setError("");
     const displayName = name.trim();
     if (displayName.length < 2) return setError("Informe o nome do atleta (mínimo 2 caracteres).");
-    const photo = photoUrl.trim();
-    if (!linkedStudent && photo !== "" && !isAcceptablePhotoUrl(photo)) return setError(TOURNAMENT_ERROR_MESSAGES.INVALID_PHOTO_URL);
     const seedValue = parseOptionalInt(seed, 1, LIMITS.seedMax);
     if (seedValue === undefined) return setError(`Semente: informe um número de 1 a ${String(LIMITS.seedMax)} (vazio = sem semente).`);
 
+    let competitorId: number | null;
     try {
       if (editing) {
         await update.mutateAsync({
@@ -496,13 +568,14 @@ function CompetitorFormDialog({
             groupName: group.trim() === "" ? null : group.trim(),
             graduationLabel: graduation.trim() === "" ? null : graduation.trim(),
             ...(setup ? { seed: seedValue } : {}),
-            ...(linkedStudent ? {} : { ageGroup, photoUrl: photo === "" ? null : photo }),
+            ...(linkedStudent ? {} : { ageGroup }),
             ...(askAuthorization ? { photoAuthorized: authorized } : {}),
           },
         });
+        competitorId = editing.id;
       } else {
-        // Um único POST com tudo (semente e autorização dentro de guest): sem PATCH de acompanhamento.
-        await add.mutateAsync({
+        // 1) cria o atleta (semente e autorização dentro de guest: sem PATCH de acompanhamento); a foto vai DEPOIS, pelo id devolvido.
+        const created = await add.mutateAsync({
           categoryId: category.id,
           body: {
             guest: {
@@ -510,22 +583,42 @@ function CompetitorFormDialog({
               ...(group.trim() ? { groupName: group.trim() } : {}),
               ...(graduation.trim() ? { graduationLabel: graduation.trim() } : {}),
               ageGroup,
-              ...(photo ? { photoUrl: photo } : {}),
               ...(seedValue !== null ? { seed: seedValue } : {}),
               ...(authorized && askAuthorization ? { photoAuthorized: true } : {}),
             },
           },
         });
+        competitorId = typeof created.createdCompetitorId === "number" ? created.createdCompetitorId : null;
       }
-      onClose();
     } catch (e) {
       setError(chaveamentoErrorMessage(e));
+      return;
     }
+
+    // 2) foto (só se houve mudança nela).
+    const photoChange = photo instanceof Blob || (photo === null && hasCurrentOwn);
+    if (!photoChange) return onClose();
+    if (competitorId === null) {
+      setSaved({
+        competitorId: null,
+        message: "O servidor não informou qual atleta foi criado, então a foto não pôde ser enviada. Abra Editar no atleta e envie a foto de lá.",
+      });
+      return;
+    }
+    if (await applyPhoto(competitorId)) onClose();
   }
 
+  async function retryPhoto() {
+    if (!saved || saved.competitorId === null) return;
+    setSaved(null);
+    if (await applyPhoto(saved.competitorId)) onClose();
+  }
+
+  const locked = saved !== null;
+
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md">
+    <Dialog open onOpenChange={(next) => !next && !photoBusy && onClose()}>
+      <DialogContent className="max-h-[92dvh] overscroll-contain overflow-y-auto sm:max-w-md" data-testid="competitor-dialog">
         <DialogHeader>
           <DialogTitle>{editing ? "Editar atleta" : "Adicionar de fora"}</DialogTitle>
           <DialogDescription>
@@ -533,62 +626,117 @@ function CompetitorFormDialog({
           </DialogDescription>
         </DialogHeader>
         <div className="grid grid-cols-1 gap-3">
-          <div className="grid grid-cols-1 gap-1.5">
-            <Label htmlFor="comp-name">Nome</Label>
-            <Input id="comp-name" value={name} maxLength={LIMITS.nameMax} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="grid grid-cols-1 gap-1.5">
-              <Label htmlFor="comp-group">Grupo / academia</Label>
-              <Input id="comp-group" value={group} maxLength={LIMITS.groupNameMax} onChange={(e) => setGroup(e.target.value)} />
-            </div>
-            <div className="grid grid-cols-1 gap-1.5">
-              <Label htmlFor="comp-grad">Graduação</Label>
-              <Input id="comp-grad" value={graduation} maxLength={LIMITS.graduationMax} onChange={(e) => setGraduation(e.target.value)} />
-            </div>
-          </div>
-          {(editing === null || setup) && (
-            <div className="grid grid-cols-1 gap-1.5">
-              <Label htmlFor="comp-seed">Semente (cabeça de chave, opcional)</Label>
-              <Input id="comp-seed" inputMode="numeric" value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="Sem semente" />
+          {saved && (
+            <div role="alert" className="grid grid-cols-1 gap-1 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm" data-testid="photo-failure">
+              <p className="font-semibold">
+                {editing ? "Os dados do atleta foram salvos" : "O atleta foi adicionado"}, mas a foto não.
+              </p>
+              <p className="text-destructive" data-testid="photo-failure-message">{saved.message}</p>
+              {saved.competitorId !== null && (
+                <p className="text-xs text-muted-foreground">Escolha outra foto abaixo, se quiser, e toque em “Tentar enviar a foto de novo”. Nada será recriado.</p>
+              )}
             </div>
           )}
-          {linkedStudent ? (
-            <p className="text-sm text-muted-foreground">
-              Faixa etária: <strong>{AGE_GROUP_LABEL[editing.ageGroup]}</strong> (calculada pela data de nascimento do aluno).
-            </p>
-          ) : (
-            <fieldset className="grid grid-cols-1 gap-1.5">
-              <legend className="mb-1 text-sm font-medium">Maior ou menor de idade?</legend>
-              <div className="flex flex-wrap gap-4 text-sm">
-                {AGE_OPTIONS.map((option) => (
-                  <label key={option} className="flex min-h-9 cursor-pointer items-center gap-2">
-                    <input type="radio" name="comp-age" checked={ageGroup === option} onChange={() => setAgeGroup(option)} />
-                    {AGE_GROUP_LABEL[option]}
-                  </label>
-                ))}
+          <fieldset disabled={locked} className="grid min-w-0 grid-cols-1 gap-3 border-0 p-0">
+            <div className="grid grid-cols-1 gap-1.5">
+              <Label htmlFor="comp-name">Nome</Label>
+              <Input id="comp-name" {...textField} value={name} maxLength={LIMITS.nameMax} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-1.5">
+                <Label htmlFor="comp-group">Grupo / academia</Label>
+                <Input id="comp-group" {...textField} value={group} maxLength={LIMITS.groupNameMax} onChange={(e) => setGroup(e.target.value)} />
               </div>
-            </fieldset>
-          )}
-          {!linkedStudent && (
-            <div className="grid grid-cols-1 gap-1.5">
-              <Label htmlFor="comp-photo">Foto (endereço https://, opcional)</Label>
-              <Input id="comp-photo" inputMode="url" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} placeholder="https://…" />
+              <div className="grid grid-cols-1 gap-1.5">
+                <Label htmlFor="comp-grad">Graduação</Label>
+                <Input id="comp-grad" {...textField} value={graduation} maxLength={LIMITS.graduationMax} onChange={(e) => setGraduation(e.target.value)} />
+              </div>
             </div>
-          )}
-          {askAuthorization && (
-            <div className="flex items-start gap-3 rounded-md border bg-muted/40 p-3">
-              <Checkbox id="comp-authorized" checked={authorized} onCheckedChange={(v) => setAuthorized(v === true)} className="mt-0.5" />
-              <Label htmlFor="comp-authorized" className="text-sm font-normal leading-snug">
-                Tenho autorização do responsável para exibir a foto no telão
-              </Label>
+            {(editing === null || setup) && (
+              <div className="grid grid-cols-1 gap-1.5">
+                <Label htmlFor="comp-seed">Semente (cabeça de chave, opcional)</Label>
+                <Input id="comp-seed" {...numericField} value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="Sem semente" />
+              </div>
+            )}
+            {linkedStudent ? (
+              <p className="text-sm text-muted-foreground">
+                Faixa etária: <strong>{AGE_GROUP_LABEL[editing.ageGroup]}</strong> (calculada pela data de nascimento do aluno).
+              </p>
+            ) : (
+              <fieldset className="grid grid-cols-1 gap-1.5">
+                <legend className="mb-1 text-sm font-medium">Maior ou menor de idade?</legend>
+                <div className="flex flex-wrap gap-4 text-sm">
+                  {AGE_OPTIONS.map((option) => (
+                    <label key={option} className="flex min-h-11 cursor-pointer items-center gap-2 pr-2">
+                      <input type="radio" name="comp-age" checked={ageGroup === option} onChange={() => setAgeGroup(option)} />
+                      {AGE_GROUP_LABEL[option]}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            )}
+            {askAuthorization && (
+              <div className="flex items-start gap-3 rounded-md border bg-muted/40 p-3">
+                <Checkbox id="comp-authorized" checked={authorized} onCheckedChange={(v) => setAuthorized(v === true)} className="mt-0.5" />
+                <Label htmlFor="comp-authorized" className="text-sm font-normal leading-snug">
+                  Tenho autorização do responsável para exibir a foto no telão
+                </Label>
+              </div>
+            )}
+          </fieldset>
+
+          {linkedStudent ? (
+            <div className="flex items-center gap-3 rounded-md border bg-muted/40 p-3" data-testid="student-photo-note">
+              <CompetitorPhoto name={editing.displayName} photoUrl={editing.photoUrl} group={editing.groupName} id={editing.id} size="xl" />
+              <p className="min-w-0 text-sm text-muted-foreground">
+                <strong className="text-foreground">A foto vem do cadastro do aluno.</strong> Para mudá-la, atualize a foto no cadastro do aluno.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-1.5" data-testid="competitor-photo-field">
+              <PhotoPicker
+                label="Foto do atleta"
+                value={shownPhoto}
+                onChange={(blob) => setPhotoValue(blob)}
+                shape="square"
+                camera
+                busy={photoBusy}
+                disabled={add.isPending || update.isPending}
+                previewAlt={`Foto de ${name.trim() || "atleta"}`}
+                description={
+                  hasCurrentOwn && current.isLoading
+                    ? "Carregando a foto atual…"
+                    : "Opcional. Tire a foto na hora ou envie uma imagem; ela é recortada em quadrado e reduzida antes de ir ao servidor."
+                }
+              />
+              {hasAnyPhoto && askAuthorization && !authorized && (
+                <p className="text-xs text-muted-foreground" data-testid="photo-minor-hint">
+                  Menor de idade (ou idade não informada): a foto só aparece no telão com a autorização do responsável.
+                </p>
+              )}
             </div>
           )}
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </div>
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose}>Cancelar</Button>
-          <Button disabled={pending} onClick={() => void submit()}>{pending ? "Salvando…" : editing ? "Salvar" : "Adicionar"}</Button>
+        {/* Com o aviso de foto, os dois botões têm texto longo: no celular ficam um sobre o outro (lado a lado estouravam a largura). */}
+        <DialogFooter className={cn(STICKY_FOOTER, saved && "max-sm:flex-col-reverse max-sm:[&>*]:flex-none")}>
+          {saved ? (
+            <>
+              <Button variant="outline" onClick={onClose} disabled={photoBusy}>Fechar sem a foto</Button>
+              {saved.competitorId !== null && (
+                <Button disabled={photoBusy} onClick={() => void retryPhoto()}>
+                  {photoBusy ? "Enviando a foto…" : "Tentar enviar a foto de novo"}
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              <Button variant="outline" onClick={onClose} disabled={photoBusy}>Cancelar</Button>
+              <Button disabled={pending} onClick={() => void submit()}>
+                {photoBusy ? "Enviando a foto…" : pending ? "Salvando…" : editing ? "Salvar" : "Adicionar"}
+              </Button>
+            </>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

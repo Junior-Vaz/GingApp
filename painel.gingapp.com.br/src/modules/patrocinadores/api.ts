@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, api, buildQuery, errorMessage } from "@/lib/api";
 import { saveBlob } from "@/lib/csv";
-import { isUploadPath, imageSrc as uploadImageSrc } from "@/lib/uploads";
+import { isUploadPath, imageSrc as uploadImageSrc, uploadFileName } from "@/lib/uploads";
 import {
   SPONSOR_LIMITS,
   reportCsvFilename,
@@ -206,11 +206,11 @@ export function useCampaignMutations() {
  * Envia a imagem do GRUPO (POST /uploads, multipart "file") e devolve o caminho `/api/uploads/<arquivo>` a gravar em
  * `logo`/`imageRef`. Recusa no navegador arquivo > 250 KB ou que não seja JPEG/PNG/WebP (o servidor confere de novo).
  */
-export async function uploadSponsorImage(file: File): Promise<string> {
+export async function uploadSponsorImage(file: Blob): Promise<string> {
   const invalid = validateSponsorImageFile(file);
   if (invalid) throw new ApiError(invalid, 400);
   const form = new FormData();
-  form.append("file", file);
+  form.append("file", file, uploadFileName(file));
   const result = await api.postForm<{ url: string }>(UPLOAD_PATH, form);
   return result.url;
 }

@@ -165,7 +165,7 @@ describe("EventosPage - criar / editar / excluir", () => {
     fireEvent.click(screen.getByRole("button", { name: /Novo evento/ }));
     fireEvent.change(await screen.findByLabelText("Título"), { target: { value: "Festival" } });
     fireEvent.change(screen.getByLabelText("Data e hora"), { target: { value: "2026-12-01T19:30" } });
-    fireEvent.change(screen.getByLabelText(/Imagem de capa/), { target: { value: "não é url" } });
+    fireEvent.change(screen.getByLabelText("Link da imagem: Imagem de capa"), { target: { value: "não é url" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     expect(await screen.findByText("Informe uma URL válida (http/https).")).toBeInTheDocument();
     expect(sent("POST", "/events")).toHaveLength(0);
@@ -184,7 +184,7 @@ describe("EventosPage - criar / editar / excluir", () => {
     fireEvent.change(screen.getByLabelText("Estado"), { target: { value: "1" } });
     await screen.findByRole("option", { name: "Santos" });
     fireEvent.change(screen.getByLabelText("Cidade"), { target: { value: "5" } });
-    fireEvent.change(screen.getByLabelText(/Imagem de capa/), { target: { value: "https://exemplo.com/f.jpg" } });
+    fireEvent.change(screen.getByLabelText("Link da imagem: Imagem de capa"), { target: { value: "https://exemplo.com/f.jpg" } });
     expect(screen.getByAltText("Pré-visualização da capa")).toHaveAttribute("src", "https://exemplo.com/f.jpg");
     fireEvent.click(screen.getByRole("switch"));
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
@@ -405,7 +405,7 @@ describe("EventosPage - limpar campos opcionais (null no PATCH)", () => {
     fireEvent.change(screen.getByLabelText("Local"), { target: { value: "  " } });
     fireEvent.change(screen.getByLabelText("Unidade"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Estado"), { target: { value: "" } }); // zera a cidade junto
-    fireEvent.change(screen.getByLabelText(/Imagem de capa/), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Link da imagem: Imagem de capa"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(sent("PATCH", "/events/7")).toHaveLength(1));
     const body = sent("PATCH", "/events/7")[0]!.body as Record<string, unknown>;

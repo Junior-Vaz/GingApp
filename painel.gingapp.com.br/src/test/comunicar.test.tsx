@@ -335,7 +335,7 @@ describe("Comunicar - enviar", () => {
     fillText("Treino extra", "Sábado às 9h.");
     fireEvent.change(await screen.findByRole("combobox", { name: "Turma" }), { target: { value: "21" } });
     await screen.findByTestId("comm-preview-count");
-    fireEvent.change(screen.getByLabelText("Imagem (opcional)"), { target: { value: "https://exemplo.com/treino.png" } });
+    fireEvent.change(screen.getByLabelText("Link da imagem: Imagem (opcional)"), { target: { value: "https://exemplo.com/treino.png" } });
     fireEvent.change(screen.getByLabelText("Pedir confirmação"), { target: { value: "READ" } });
     fireEvent.click(screen.getByRole("button", { name: "Enviar agora" }));
     const dialog = await screen.findByRole("alertdialog");
@@ -358,7 +358,7 @@ describe("Comunicar - enviar", () => {
     fillText();
     chooseScope("GROUP");
     await screen.findByTestId("comm-preview-count");
-    fireEvent.change(screen.getByLabelText("Imagem (opcional)"), { target: { value: "javascript:alert(1)" } });
+    fireEvent.change(screen.getByLabelText("Link da imagem: Imagem (opcional)"), { target: { value: "javascript:alert(1)" } });
     expect(screen.getByText("O link da imagem não é válido.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Enviar agora" })).toBeDisabled();
   });

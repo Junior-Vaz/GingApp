@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/api";
 import { useAnnounce } from "./announce-context";
-import { useCategory, useDeleteCategory, useSwapSlots } from "./api";
+import { useCategory, useDeleteCategory, useSwapSlots, useTournament } from "./api";
+import { CategoryLinkActions } from "./category-link";
 import { BracketView } from "./bracket-view";
 import { CategoryDialog } from "./category-dialog";
+import { PhotoScope } from "./competitor-photo";
 import { CompetitorsPanel } from "./competitors-panel";
 import { DrawCeremony } from "./draw-ceremony";
 import { DrawPanel } from "./draw-panel";
@@ -55,7 +57,11 @@ export function CategoryView({ eventId, categoryId, canEdit, onDeleted }: Catego
       </div>
     );
   }
-  return <CategoryBody eventId={eventId} category={query.data} canEdit={canEdit} onDeleted={onDeleted} />;
+  return (
+    <PhotoScope eventId={eventId} categoryId={query.data.id}>
+      <CategoryBody eventId={eventId} category={query.data} canEdit={canEdit} onDeleted={onDeleted} />
+    </PhotoScope>
+  );
 }
 
 function CategoryBody({
@@ -70,6 +76,7 @@ function CategoryBody({
   onDeleted: () => void;
 }) {
   const announce = useAnnounce();
+  const token = useTournament(eventId).data?.publicToken;
   const swap = useSwapSlots(eventId);
   const remove = useDeleteCategory(eventId);
   const [matchId, setMatchId] = useState<number | null>(null);
@@ -159,7 +166,7 @@ function CategoryBody({
     <div className="chv-in grid grid-cols-1 min-w-0 gap-5 [&>*]:min-w-0" data-testid="category-body">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="truncate text-xl font-extrabold">{category.name}</h2>
+          <h2 className="line-clamp-2 break-words text-xl font-extrabold" title={category.name}>{category.name}</h2>
           <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span>{FORMAT_LABEL[category.format]}</span>
             {config && <span>· {config}</span>}
@@ -168,7 +175,7 @@ function CategoryBody({
           </p>
         </div>
         {canEdit && (
-          <div className="flex gap-1">
+          <div className="flex gap-2">
             <Button variant="ghost" size="sm" onClick={() => setEditing(true)} aria-label={`Editar categoria ${category.name}`}>
               <Pencil /> Editar
             </Button>
@@ -178,6 +185,8 @@ function CategoryBody({
           </div>
         )}
       </div>
+
+      {token && <CategoryLinkActions token={token} categoryId={category.id} categoryName={category.name} />}
 
       {!canEdit && (
         <p className="rounded-md border bg-muted/40 p-3 text-sm text-muted-foreground" data-testid="readonly-note">

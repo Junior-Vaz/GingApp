@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { GitBranch } from "lucide-react";
+import { Camera, GitBranch } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -68,6 +68,19 @@ function PreviewField({ field, draft }: { field: BField; draft: Draft }) {
       break;
     case "FILE":
       control = <div className={INPUT}>Escolher arquivo (imagem ou PDF)</div>;
+      break;
+    case "PHOTO":
+      control = (
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden
+            className="grid size-16 shrink-0 place-items-center rounded-full border border-dashed border-input bg-muted/30 text-muted-foreground"
+          >
+            <Camera className="size-6" />
+          </span>
+          <span className={INPUT}>Tirar foto ou escolher imagem</span>
+        </div>
+      );
       break;
     case "DATE":
       control = <div className={INPUT}>dd/mm/aaaa</div>;

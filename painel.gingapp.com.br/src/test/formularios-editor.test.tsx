@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import {
   addField,
   allFields,
+  conditionSources,
+  duplicateField,
   fromDefinition,
   moveField,
   newFieldKey,
@@ -263,7 +265,7 @@ describe("Editor - construtor de campos", () => {
     await loaded();
     fireEvent.click(screen.getAllByRole("button", { name: "Adicionar campo" })[0]!);
     const picker = await screen.findByTestId("field-type-picker");
-    // os 13 tipos, com nome em português
+    // os 14 tipos, com nome em português
     for (const name of [
       "Texto curto",
       "Texto longo",
@@ -277,6 +279,7 @@ describe("Editor - construtor de campos", () => {
       "Lista suspensa",
       "Aceite de termo",
       "Envio de arquivo",
+      "Foto do participante",
       "Texto informativo",
     ]) {
       expect(within(picker).getByRole("button", { name })).toBeInTheDocument();
@@ -671,7 +674,7 @@ describe("Editor - configurações", () => {
       target: { value: "6" },
     });
     fireEvent.change(screen.getByLabelText("Texto de apresentação"), { target: { value: "" } });
-    fireEvent.change(screen.getByLabelText("Banner"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Link da imagem: Banner"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(puts()).toHaveLength(1));
     const body = lastPut();
@@ -1062,5 +1065,115 @@ describe("aviso ao sair com alterações não salvas (LeaveGuard)", () => {
     expect(await screen.findByText("Outra página")).toBeInTheDocument();
     expect(screen.queryByRole("alertdialog")).toBeNull();
     expect(router.state.location.pathname).toBe("/outra");
+  });
+});
+
+describe("Editor - campo Foto do participante (PHOTO)", () => {
+  const PHOTO_HELP =
+    "Foto de rosto, bem iluminada. Para menores de 18 anos, a foto deve ser tirada ou enviada pelo responsável.";
+
+  async function addPhotoField() {
+    await loaded();
+    fireEvent.click(screen.getAllByRole("button", { name: "Adicionar campo" })[0]!);
+    const picker = await screen.findByTestId("field-type-picker");
+    fireEvent.click(within(picker).getByRole("button", { name: "Foto do participante" }));
+    return screen.findByTestId("field-sheet");
+  }
+
+  it("adiciona o campo com rótulo e ajuda padrão sugeridos, SEM o seletor de ficha (mapsTo) e salva type PHOTO com mapsTo null", async () => {
+    const sheet = await addPhotoField();
+    expect(within(sheet).getByLabelText("Rótulo (a pergunta)")).toHaveValue("Foto do participante");
+    expect(within(sheet).getByLabelText("Texto de ajuda (opcional)")).toHaveValue(PHOTO_HELP);
+    expect(within(sheet).queryByLabelText("Este campo é")).toBeNull();
+    expect(within(sheet).getByTestId("photo-field-note")).toHaveTextContent("Só pode haver 1 campo de foto");
+    // não obrigatório por padrão
+    expect(within(sheet).getByRole("switch", { name: "Resposta obrigatória" })).not.toBeChecked();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Concluir" }));
+
+    expect(fieldRow("Foto do participante")).toHaveTextContent("Foto do participante");
+    expect(screen.getByTestId("builder-counters")).toHaveTextContent("5 de 60 campos");
+    // a foto NÃO conta como envio de arquivo (limite de 5 é só do FILE)
+    expect(screen.getByTestId("builder-counters")).toHaveTextContent("0 de 5 envios de arquivo");
+
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(puts()).toHaveLength(1));
+    const photo = lastPut().fields.find((f) => f["type"] === "PHOTO")!;
+    expect(photo).toMatchObject({ type: "PHOTO", label: "Foto do participante", helpText: PHOTO_HELP, mapsTo: null, showIf: null, options: null });
+  });
+
+  it("no máximo 1: com um campo de foto a opção fica desabilitada com a explicação; o campo não pode ser duplicado", async () => {
+    const sheet = await addPhotoField();
+    expect(within(sheet).getByRole("button", { name: /Duplicar/ })).toBeDisabled();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Concluir" }));
+    expect(screen.getByRole("button", { name: "Duplicar Foto do participante" })).toBeDisabled();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Adicionar campo" })[0]!);
+    const picker = await screen.findByTestId("field-type-picker");
+    expect(within(picker).getByRole("button", { name: "Foto do participante" })).toBeDisabled();
+    expect(within(picker).getByTestId("photo-type-hint")).toHaveTextContent("só pode haver 1");
+    // os demais tipos continuam disponíveis
+    expect(within(picker).getByRole("button", { name: "Envio de arquivo" })).toBeEnabled();
+  });
+
+  it("depois de remover o campo, a opção volta a ficar disponível", async () => {
+    const sheet = await addPhotoField();
+    fireEvent.click(within(sheet).getByRole("button", { name: "Concluir" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remover Foto do participante" }));
+    fireEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Remover" }));
+    await waitFor(() => expect(screen.queryByText("Foto do participante", { selector: "p" })).toBeNull());
+    fireEvent.click(screen.getAllByRole("button", { name: "Adicionar campo" })[0]!);
+    const picker = await screen.findByTestId("field-type-picker");
+    expect(within(picker).getByRole("button", { name: "Foto do participante" })).toBeEnabled();
+    expect(within(picker).queryByTestId("photo-type-hint")).toBeNull();
+  });
+
+  it("não é fonte de condição: o Mostrar este campo de um campo posterior não lista a foto", async () => {
+    definition = {
+      ...baseDefinition(),
+      fields: [
+        field({ key: "f_nome0001", type: "SHORT_TEXT", label: "Nome completo", required: true, mapsTo: "name" }),
+        field({ key: "f_foto0002", type: "PHOTO", label: "Foto do participante" }),
+        field({ key: "f_obs00003", type: "SHORT_TEXT", label: "Observação" }),
+      ],
+    };
+    renderEditor();
+    await screen.findByText("Observação", { selector: "p" });
+    fireEvent.click(screen.getByRole("button", { name: "Editar Observação" }));
+    const sheet = await screen.findByTestId("field-sheet");
+    const options = within(sheet).getByLabelText("Mostrar este campo");
+    const texts = Array.from(options.querySelectorAll("option")).map((o) => o.textContent);
+    expect(texts.some((t) => t?.includes("Nome completo"))).toBe(true);
+    expect(texts.some((t) => t?.includes("Foto do participante"))).toBe(false);
+  });
+
+  it("funções puras: 2 campos de foto é erro; o PHOTO nunca vai com mapsTo; condição que usa a foto é recusada; duplicar devolve null", () => {
+    const base = fromDefinition(baseDefinition() as unknown as FormDefinition);
+    const first = addField(base, base.sections[0]!.cid, "PHOTO");
+    const second = addField(first.draft, base.sections[0]!.cid, "PHOTO");
+    expect(validateDraft(first.draft).map((i) => i.message)).not.toContain("Use no máximo 1 campo de foto do participante.");
+    expect(validateDraft(second.draft).map((i) => i.message)).toContain("Use no máximo 1 campo de foto do participante.");
+    // mapsTo em PHOTO (rascunho adulterado) não chega ao servidor, e o cliente avisa
+    const tampered = {
+      ...first.draft,
+      sections: first.draft.sections.map((s) => ({
+        ...s,
+        fields: s.fields.map((f) => (f.type === "PHOTO" ? { ...f, mapsTo: "email" as const } : f)),
+      })),
+    };
+    expect(validateDraft(tampered).map((i) => i.message).join(" ")).toMatch(/não pode ser ligada à ficha/);
+    expect(toPayload(tampered).fields.find((f) => f.type === "PHOTO")!.mapsTo).toBeNull();
+    // condição apontando para a foto
+    const key = first.key;
+    const cond = {
+      ...first.draft,
+      sections: first.draft.sections.map((s, i) =>
+        i === 0
+          ? { ...s, fields: [...s.fields, { ...s.fields[0]!, key: "f_cond0001", label: "Depende", showIf: { fieldKey: key, equals: "x" } }] }
+          : s,
+      ),
+    };
+    expect(validateDraft(cond).map((i) => i.message).join(" ")).toMatch(/condição não pode depender de um campo de foto/);
+    expect(duplicateField(first.draft, key)).toBeNull();
+    expect(conditionSources(first.draft, "f_resp0003").map((f) => f.type)).not.toContain("PHOTO");
   });
 });

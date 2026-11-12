@@ -2,8 +2,11 @@ import { queryOptions, useMutation, useQueries, useQuery, useQueryClient, type Q
 import { toast } from "sonner";
 import { ApiError, api } from "@/lib/api";
 import { chaveamentoErrorMessage } from "./errors";
+import { importResultText } from "./helpers";
+import { usePageActive, useResumeEffect } from "./page-activity";
 import type {
   AddCompetitorPayload,
+  AddCompetitorResult,
   CategoryPayload,
   ImportResult,
   MatchSchedulePayload,
@@ -26,6 +29,39 @@ export const chaveamentoKeys = {
   participants: (eventId: number) => ["eventos", "participants", eventId] as const,
 };
 
+/**
+ * Chave do blob da foto PRÓPRIA do atleta. Raiz própria (e não `chaveamentoKeys.all`): o recarregamento geral depois de um
+ * erro de mutação não refaz o download de todas as fotos. A `version` (`photoVersion`) quebra o cache quando a foto muda.
+ */
+export const competitorPhotoKey = (eventId: number, categoryId: number, competitorId: number, version: number | null) =>
+  ["chaveamento-photo", eventId, categoryId, competitorId, version] as const;
+
+export const competitorPhotoPath = (eventId: number, categoryId: number, competitorId: number) =>
+  `${tournamentPath(eventId)}/categories/${String(categoryId)}/competitors/${String(competitorId)}/photo`;
+
+/**
+ * Foto própria do atleta como Blob: a rota é privada (`private, no-store`) e exige Authorization, então NÃO dá para usar
+ * `<img src>`: baixa com o token, guarda o Blob em cache pela `photoVersion` e quem exibe cria (e REVOGA) a Blob URL.
+ */
+export function useCompetitorPhotoBlob(
+  eventId: number | undefined,
+  categoryId: number | undefined,
+  competitorId: number | undefined,
+  version: number | null | undefined,
+  enabled: boolean,
+) {
+  const ready = enabled && eventId !== undefined && categoryId !== undefined && competitorId !== undefined;
+  return useQuery({
+    queryKey: competitorPhotoKey(eventId ?? 0, categoryId ?? 0, competitorId ?? 0, version ?? null),
+    queryFn: () => api.getBlob(competitorPhotoPath(eventId!, categoryId!, competitorId!)),
+    enabled: ready,
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: 5 * 60_000,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Consultas
 // ---------------------------------------------------------------------------------------------------------------------
@@ -47,20 +83,28 @@ export function useTournament(eventId: number) {
   });
 }
 
-/** Consulta da categoria completa (visão do operador): a MESMA chave serve à aba aberta e à mesa de controle. */
-const categoryQuery = (eventId: number, categoryId: number | null) =>
+/**
+ * Consulta da categoria completa (visão do operador): a MESMA chave serve à aba aberta e à mesa de controle.
+ * `polling` = visível E online: com a aba/app oculta ou sem internet NÃO há consulta periódica (poupa bateria e dados);
+ * a volta ao primeiro plano refaz a consulta na hora (`useCategory`/`useDeskCategories`).
+ */
+const categoryQuery = (eventId: number, categoryId: number | null, polling = true) =>
   queryOptions({
     queryKey: chaveamentoKeys.category(eventId, categoryId ?? 0),
     queryFn: () => api.get<OperatorCategory>(`${tournamentPath(eventId)}/categories/${String(categoryId)}`),
     enabled: categoryId !== null,
-    refetchInterval: CATEGORY_REFETCH_MS,
+    refetchInterval: polling ? CATEGORY_REFETCH_MS : false,
     refetchIntervalInBackground: false,
     retry: false,
   });
 
-/** Categoria completa (visão do operador), com consulta a cada 5 s enquanto a aba está aberta. */
+/** Categoria completa (visão do operador), com consulta a cada 5 s enquanto a aba está visível e online. */
 export function useCategory(eventId: number, categoryId: number | null) {
-  return useQuery(categoryQuery(eventId, categoryId));
+  const { active } = usePageActive();
+  const query = useQuery(categoryQuery(eventId, categoryId, active));
+  // Voltou ao primeiro plano (ou reconectou): atualiza agora, sem esperar o próximo ciclo (sem cancelar uma consulta em curso).
+  useResumeEffect(active, () => void query.refetch({ cancelRefetch: false }), categoryId !== null);
+  return query;
 }
 
 /**
@@ -68,15 +112,18 @@ export function useCategory(eventId: number, categoryId: number | null) {
  * Reaproveita as mesmas consultas (e o mesmo cache) das abas: abrir a categoria não duplica a chamada.
  */
 export function useDeskCategories(eventId: number, runningIds: readonly number[]) {
-  return useQueries({
-    queries: runningIds.map((id) => categoryQuery(eventId, id)),
+  const { active } = usePageActive();
+  const desk = useQueries({
+    queries: runningIds.map((id) => categoryQuery(eventId, id, active)),
     combine: (results) => ({
       categories: results.map((r) => r.data).filter((c): c is OperatorCategory => c !== undefined),
       loading: results.some((r) => r.isLoading),
       failed: results.filter((r) => r.isError).length,
-      refetch: () => results.forEach((r) => void r.refetch()),
+      refetch: () => results.forEach((r) => void r.refetch({ cancelRefetch: false })),
     }),
   });
+  useResumeEffect(active, desk.refetch, runningIds.length > 0);
+  return desk;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -110,6 +157,8 @@ interface MutationOptions<TVars, TData> {
   success?: string | ((data: TData, vars: TVars) => string);
   /** Mensagem usada quando o erro não tem `code` nem texto do servidor. */
   failure: string;
+  /** Quem chama mostra o erro na própria tela (ex.: foto com "tentar de novo"): sem toast de erro. */
+  silent?: boolean;
 }
 
 /** Mutação do operador: grava a resposta no cache, avisa por toast e, em erro, mostra a mensagem do `code` e recarrega. */
@@ -121,13 +170,16 @@ function useOperatorMutation<TVars, TData>(
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
+    // Nada de escrita "escondida" na fila quando cai a internet: a tentativa roda (e falha com aviso) na hora; os botões
+    // de resultado ficam desabilitados enquanto offline (`useOnline`), então o operador nem chega a tocar neles.
+    networkMode: "always",
     onSuccess: (data, vars) => {
       applyResponse(queryClient, eventId, data);
       const message = typeof options.success === "function" ? options.success(data, vars) : options.success;
       if (message) toast.success(message);
     },
     onError: (error) => {
-      toast.error(chaveamentoErrorMessage(error, options.failure));
+      if (!options.silent) toast.error(chaveamentoErrorMessage(error, options.failure));
       // O estado pode ter mudado no servidor (outro operador, 409): recarrega a verdade.
       void queryClient.invalidateQueries({ queryKey: chaveamentoKeys.all(eventId) });
     },
@@ -194,8 +246,37 @@ export function useAddCompetitor(eventId: number) {
   return useOperatorMutation(
     eventId,
     ({ categoryId, body }: { categoryId: number; body: AddCompetitorPayload }) =>
-      api.post<OperatorCategory>(`${base(eventId)}/categories/${String(categoryId)}/competitors`, body),
+      api.post<AddCompetitorResult>(`${base(eventId)}/categories/${String(categoryId)}/competitors`, body),
     { success: "Atleta adicionado.", failure: "Não foi possível adicionar o atleta." },
+  );
+}
+
+/** Nome do arquivo no multipart: o servidor só olha os bytes (magic bytes), o nome é só para o log. */
+const PHOTO_FILE_NAME = "foto.webp";
+
+/**
+ * Define/troca a foto PRÓPRIA do atleta (`POST .../photo`, multipart `file`). Resposta = categoria completa (vai para o
+ * cache). Sem toast de erro: a tela mostra a mensagem do código e oferece "tentar enviar de novo" sem recriar o atleta.
+ */
+export function useSetCompetitorPhoto(eventId: number) {
+  return useOperatorMutation(
+    eventId,
+    ({ categoryId, competitorId, photo }: { categoryId: number; competitorId: number; photo: Blob }) => {
+      const form = new FormData();
+      form.append("file", photo, PHOTO_FILE_NAME);
+      return api.postForm<OperatorCategory>(competitorPhotoPath(eventId, categoryId, competitorId), form);
+    },
+    { failure: "Não foi possível enviar a foto.", silent: true },
+  );
+}
+
+/** Remove a foto própria do atleta (idempotente no servidor). Resposta = categoria completa. */
+export function useRemoveCompetitorPhoto(eventId: number) {
+  return useOperatorMutation(
+    eventId,
+    ({ categoryId, competitorId }: { categoryId: number; competitorId: number }) =>
+      api.delete<OperatorCategory>(competitorPhotoPath(eventId, categoryId, competitorId)),
+    { failure: "Não foi possível remover a foto.", silent: true },
   );
 }
 
@@ -207,9 +288,7 @@ export function useImportParticipants(eventId: number) {
         eventParticipantIds: ids,
       }),
     {
-      success: (data) =>
-        `${String(data.added)} ${data.added === 1 ? "atleta adicionado" : "atletas adicionados"}` +
-        (data.skipped > 0 ? `, ${String(data.skipped)} já estavam na categoria ou não puderam entrar.` : "."),
+      success: (data) => importResultText(data),
       failure: "Não foi possível importar os participantes.",
     },
   );

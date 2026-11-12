@@ -14,7 +14,10 @@ import { useCreateTournament, useTournament } from "./api";
 import { CategoryDialog } from "./category-dialog";
 import { CategoryView } from "./category-view";
 import { ControlDesk } from "./control-desk";
+import { useCompactSidebar } from "./page-activity";
 import { QuickUndoProvider, UndoBar } from "./quick-undo";
+import { scrollIntoViewCentered } from "./fields";
+import { ScrollFade } from "./scroll-fade";
 import { SETUP_STEPS } from "./setup-steps";
 import { StepsGuide } from "./steps-guide";
 import { TournamentCard } from "./tournament-card";
@@ -40,6 +43,8 @@ export function ChaveamentoPage({ eventId, onBack }: ChaveamentoPageProps) {
     staleTime: 60_000,
   });
   const title = event.data?.title;
+
+  useCompactSidebar();
 
   // Marca a página (CSS): no celular os botões flutuantes globais saem da frente dos botões do placar.
   useEffect(() => {
@@ -152,7 +157,7 @@ function TournamentBody({ eventId, tournament, canEdit }: { eventId: number; tou
           </div>
         ) : (
           <>
-            <div role="tablist" aria-label="Categorias do campeonato" className="flex gap-1 overflow-x-auto rounded-xl bg-muted p-1">
+            <ScrollFade role="tablist" aria-label="Categorias do campeonato" className="flex gap-2 rounded-xl bg-muted p-1" data-testid="category-tabs">
               {categories.map((c, index) => {
                 const active = current?.id === c.id;
                 const Icon = STATUS_ICON[c.status];
@@ -165,23 +170,26 @@ function TournamentBody({ eventId, tournament, canEdit }: { eventId: number; tou
                     aria-selected={active}
                     aria-controls="cat-panel"
                     tabIndex={active ? 0 : -1}
-                    onClick={() => setSelected(c.id)}
+                    onClick={(e) => {
+                      setSelected(c.id);
+                      scrollIntoViewCentered(e.currentTarget);
+                    }}
                     onKeyDown={(e) => onTabKeyDown(e, index)}
                     className={cn(
                       "flex min-h-12 shrink-0 flex-col items-start justify-center rounded-lg px-3 py-1 text-left text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       active ? "bg-background text-foreground shadow" : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    <span className="max-w-48 truncate">{c.name}</span>
-                    <span className="flex items-center gap-1 text-[11px] font-normal">
+                    <span className="max-w-48 truncate" title={c.name}>{c.name}</span>
+                    <span className="flex items-center gap-1 text-xs font-normal">
                       <Icon className="size-3" aria-hidden />
                       {CATEGORY_STATUS_LABEL[c.status]} · {c.competitorsCount} atl.
-                      {c.liveMatchesCount > 0 && <Badge variant="destructive" className="px-1.5 py-0 text-[10px]">{c.liveMatchesCount} ao vivo</Badge>}
+                      {c.liveMatchesCount > 0 && <Badge variant="destructive" className="px-1.5 py-0 text-xs">{c.liveMatchesCount} ao vivo</Badge>}
                     </span>
                   </button>
                 );
               })}
-            </div>
+            </ScrollFade>
             <div role="tabpanel" id="cat-panel" aria-labelledby={current ? `cat-tab-${String(current.id)}` : undefined}>
               {current && (
                 <CategoryView

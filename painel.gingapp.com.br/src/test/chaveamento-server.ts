@@ -36,10 +36,14 @@ export interface Fake {
   calls: Call[];
   /** Respostas fixas por "MÉTODO /caminho" (tem prioridade). */
   overrides: Record<string, () => Response>;
+  /** Foto PRÓPRIA por id de atleta (o que o servidor guardou do `POST .../photo`). */
+  photos: Map<number, Blob>;
+  /** Cabeçalho `Authorization` de cada `GET .../photo` (a rota é privada). */
+  photoAuth: string[];
 }
 
 export function newFake(over: Partial<Fake> = {}): Fake {
-  return { tournament: null, category: null, participants: [], calls: [], overrides: {}, ...over };
+  return { tournament: null, category: null, participants: [], calls: [], overrides: {}, photos: new Map(), photoAuth: [], ...over };
 }
 
 const syncSummary = (fake: Fake) => {
@@ -50,7 +54,14 @@ export function installFakeBackend(fake: Fake): void {
   const handler = (input: string, init?: RequestInit): Response => {
     const [path = "", search = ""] = input.replace(/^https?:\/\/[^/]+\/api/, "").split("?");
     const method = init?.method ?? "GET";
-    const body = init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined;
+    // multipart (foto): registra só os metadados do arquivo; JSON: o corpo.
+    const form = init?.body instanceof FormData ? init.body : null;
+    const sentFile = form?.get("file");
+    const body = form
+      ? ({ file: sentFile instanceof Blob ? { name: sentFile instanceof File ? sentFile.name : "", type: sentFile.type, size: sentFile.size } : null } as Record<string, unknown>)
+      : init?.body
+        ? (JSON.parse(String(init.body)) as Record<string, unknown>)
+        : undefined;
     fake.calls.push({ method, path, query: new URLSearchParams(search), body });
     const key = `${method} ${path}`;
     const override = fake.overrides[key];
@@ -88,25 +99,62 @@ export function installFakeBackend(fake: Fake): void {
       if (key === `GET ${base}/categories/${String(cat.id)}`) return json(200, cat);
       if (key === `POST ${base}/categories/${String(cat.id)}/competitors`) {
         const guest = (body?.["guest"] ?? {}) as Record<string, unknown>;
+        // O backend real recusa `photoUrl` em QUALQUER valor (400 PHOTO_URL_NOT_ALLOWED): a foto é arquivo.
+        if ("photoUrl" in guest) return errorBody(400, "PHOTO_URL_NOT_ALLOWED", "photoUrl não é mais aceito.");
         const id = 100 + cat.competitors.length + 1;
         cat.competitors.push(
           mkCompetitor(id, String(guest["displayName"]), {
             ageGroup: (guest["ageGroup"] as "ADULT" | "MINOR" | "UNKNOWN" | undefined) ?? "UNKNOWN",
-            photoUrl: (guest["photoUrl"] as string | undefined) ?? null,
             seed: (guest["seed"] as number | undefined) ?? null,
             photoAuthorized: guest["photoAuthorized"] === true,
             photoPublic: guest["photoAuthorized"] === true,
           }),
         );
         syncSummary(fake);
-        return json(201, cat);
+        // Como o backend real: a categoria completa + o id do atleta criado.
+        return json(201, { ...cat, createdCompetitorId: id });
+      }
+      const photoRoute = /\/competitors\/(\d+)\/photo$/.exec(path);
+      if (photoRoute) {
+        const c = cat.competitors.find((x) => x.id === Number(photoRoute[1]));
+        if (!c) return errorBody(404, "COMPETITOR_NOT_FOUND");
+        if (method === "GET") {
+          fake.photoAuth.push(String((init?.headers as Record<string, string> | undefined)?.["Authorization"] ?? ""));
+          const stored = fake.photos.get(c.id);
+          if (!stored) return errorBody(404, "PHOTO_NOT_FOUND");
+          const response = new Response(stored, { status: 200, headers: { "Content-Type": "image/webp" } });
+          // jsdom e o `fetch` do Node têm classes `Blob` diferentes (num navegador é uma só): devolve o Blob do jsdom,
+          // senão `instanceof Blob` no PhotoPicker falharia só no teste.
+          response.blob = async () => stored;
+          return response;
+        }
+        if (c.studentId !== null) return errorBody(400, "PHOTO_FROM_STUDENT");
+        if (method === "POST") {
+          const file = form?.get("file");
+          if (!(file instanceof Blob)) return errorBody(400, "PHOTO_FILE_REQUIRED");
+          fake.photos.set(c.id, file);
+          c.hasOwnPhoto = true;
+          c.photoVersion = 1_794_000_000_000 + fake.photos.size * 1000 + (c.photoVersion === null ? 0 : 1);
+          c.photoPublic = c.ageGroup === "ADULT" || c.photoAuthorized;
+          cat.revision += 1;
+          return json(200, cat);
+        }
+        if (method === "DELETE") {
+          fake.photos.delete(c.id);
+          c.hasOwnPhoto = false;
+          c.photoVersion = null;
+          c.photoPublic = false;
+          cat.revision += 1;
+          return json(200, cat);
+        }
       }
       const comp = /\/competitors\/(\d+)$/.exec(path);
       if (method === "PATCH" && comp) {
+        if (body && "photoUrl" in body) return errorBody(400, "PHOTO_URL_NOT_ALLOWED", "photoUrl não é mais aceito.");
         const c = cat.competitors.find((x) => x.id === Number(comp[1]));
         if (c && body?.["photoAuthorized"] === true) {
           c.photoAuthorized = true;
-          c.photoPublic = true;
+          c.photoPublic = c.hasOwnPhoto || c.photoUrl !== null;
         }
         return json(200, cat);
       }

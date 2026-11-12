@@ -300,10 +300,9 @@ export function ProfessoresPage() {
             />
             <ImageUploadField<TeacherFormValues>
               name="photo"
-              label="Foto (URL)"
+              label="Foto do membro da equipe"
               shape="square"
               previewAlt="Foto do membro da equipe"
-              description="Opcional. Envie uma foto (JPEG, PNG ou WebP até 5 MB) ou cole o link de uma imagem."
             />
             <FormField
               control={form.control}

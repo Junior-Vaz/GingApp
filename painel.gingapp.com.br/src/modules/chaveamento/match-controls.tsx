@@ -7,8 +7,10 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { NativeSelect } from "@/modules/rodas/native-select";
 import { CompetitorPhoto } from "./competitor-photo";
+import { numericField } from "./fields";
 import { competitorMeta, scoreText } from "./helpers";
 import { useMatchActions } from "./match-actions";
+import { OfflineNotice } from "./offline-notice";
 import { useQuickUndo } from "./quick-undo-context";
 import { shortcutKey, shouldIgnoreShortcut } from "./shortcuts";
 import { LIMITS, MATCH_STATUS_LABEL, RESULT_TYPE_LABEL, type OperatorCategory, type OperatorCompetitor, type OperatorMatch, type ResultType, type Slot } from "./types";
@@ -38,7 +40,7 @@ function bumpScore(text: string, delta: number): string {
 
 function Kbd({ children }: { children: string }) {
   return (
-    <kbd className="hidden rounded border border-current/30 px-1.5 py-0.5 font-sans text-[11px] font-bold leading-none opacity-80 lg:inline">{children}</kbd>
+    <kbd className="hidden rounded border border-current/30 px-1.5 py-0.5 font-sans text-xs font-bold leading-none lg:inline">{children}</kbd>
   );
 }
 
@@ -107,7 +109,8 @@ export function MatchControls({ eventId, category, match, canEdit, variant, onDo
   const sideProps = { uid, busy, resultType, variant } as const;
 
   return (
-    <div className="grid grid-cols-1 gap-4" data-testid={variant === "desk" ? "desk-controls" : undefined}>
+    <div className="@container grid grid-cols-1 gap-4" data-testid={variant === "desk" ? "desk-controls" : undefined}>
+      {variant === "dialog" && <OfflineNotice />}
       {actions.error && (
         <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive" data-testid="match-error">
           {actions.error}
@@ -143,7 +146,9 @@ export function MatchControls({ eventId, category, match, canEdit, variant, onDo
       {canScore && (
         <fieldset className="grid grid-cols-1 gap-3" disabled={busy}>
           <legend className="sr-only">Registrar resultado</legend>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {/* Duas colunas só quando o PRÓPRIO cartão tem >= 32 rem (container query): em 320 px, no cartão estreito do
+              desktop de 2 cartões ou na folha do celular, os atletas empilham e os nomes ficam legíveis. */}
+          <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2">
             <SidePanel {...sideProps} slot="A" competitor={compA} title={titleA} score={scoreA} onScore={setScoreA} kbd="A" onWin={() => void winner("A")} />
             <SidePanel {...sideProps} slot="B" competitor={compB} title={titleB} score={scoreB} onScore={setScoreB} kbd="B" onWin={() => void winner("B")} />
           </div>
@@ -153,9 +158,9 @@ export function MatchControls({ eventId, category, match, canEdit, variant, onDo
             </Button>
           )}
           <details className="rounded-lg border bg-muted/30 px-3 text-sm" open={resultType !== "NORMAL" ? true : undefined}>
-            <summary className="flex min-h-11 cursor-pointer items-center gap-2 font-semibold">
+            <summary className="flex min-h-11 cursor-pointer items-center gap-2 py-1 font-semibold">
               <Footprints className="size-4" aria-hidden /> W.O., desclassificação ou empate
-              {resultType !== "NORMAL" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-900">{RESULT_TYPE_LABEL[resultType]}</span>}
+              {resultType !== "NORMAL" && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-xs font-bold text-amber-950">{RESULT_TYPE_LABEL[resultType]}</span>}
             </summary>
             <div className="grid grid-cols-1 gap-1.5 pb-3 pt-1">
               <Label htmlFor={`${uid}-type`}>Tipo de resultado</Label>
@@ -177,11 +182,11 @@ export function MatchControls({ eventId, category, match, canEdit, variant, onDo
           <div className="grid grid-cols-2 gap-3">
             <div className="grid grid-cols-1 gap-1.5">
               <Label htmlFor={`${uid}-mat`}>Tatame (0 a {LIMITS.matMax})</Label>
-              <Input id={`${uid}-mat`} inputMode="numeric" value={mat} onChange={(e) => setMat(e.target.value)} placeholder="Sem tatame" />
+              <Input id={`${uid}-mat`} {...numericField} value={mat} onChange={(e) => setMat(e.target.value)} placeholder="Sem tatame" />
             </div>
             <div className="grid grid-cols-1 gap-1.5">
               <Label htmlFor={`${uid}-queue`}>Ordem de chamada</Label>
-              <Input id={`${uid}-queue`} inputMode="numeric" value={queue} onChange={(e) => setQueue(e.target.value)} placeholder="Sem ordem" />
+              <Input id={`${uid}-queue`} {...numericField} value={queue} onChange={(e) => setQueue(e.target.value)} placeholder="Sem ordem" />
             </div>
           </div>
           <Button type="button" variant="secondary" onClick={() => void actions.onSaveSchedule(mat, queue)}>
@@ -196,8 +201,8 @@ export function MatchControls({ eventId, category, match, canEdit, variant, onDo
           <div className="flex flex-wrap gap-2">
             {[compA, compB].map((c) =>
               c ? (
-                <Button key={c.id} type="button" variant="outline" size="sm" onClick={() => onShowPath(c.id)}>
-                  <Route /> Destacar caminho de {c.displayName}
+                <Button key={c.id} type="button" variant="outline" size="sm" className="h-auto min-h-11 max-w-full whitespace-normal py-1.5 text-left" onClick={() => onShowPath(c.id)}>
+                  <Route /> <span className="min-w-0 break-words">Destacar caminho de {c.displayName}</span>
                 </Button>
               ) : null,
             )}
@@ -251,31 +256,32 @@ interface SidePanelProps {
 function SidePanel({ uid, busy, resultType, slot, competitor, title, score, onScore, kbd, onWin }: SidePanelProps) {
   const meta = competitorMeta(competitor);
   return (
-    <div className="grid grid-cols-1 content-start gap-3 rounded-xl border bg-card p-3" data-testid={`side-${slot}`}>
+    <div className="@container grid grid-cols-1 content-start gap-3 rounded-xl border bg-card p-3" data-testid={`side-${slot}`}>
       <div className="flex items-center gap-3">
-        <CompetitorPhoto name={title} photoUrl={competitor?.photoUrl ?? null} group={competitor?.groupName} id={competitor?.id} size="lg" />
-        <div className="min-w-0">
-          <p className="truncate text-base font-extrabold leading-tight">{title}</p>
-          <p className="truncate text-xs text-muted-foreground">{meta || "Sem grupo informado"}</p>
+        <CompetitorPhoto name={title} photoUrl={competitor?.photoUrl ?? null} own={competitor} group={competitor?.groupName} id={competitor?.id} size="lg" />
+        <div className="min-w-0 flex-1">
+          {/* nome longo (60+ caracteres): até 2 linhas, o resto vai para o `title`; o botão VENCEU nunca é empurrado */}
+          <p className="line-clamp-2 break-words text-base font-extrabold leading-tight" title={title}>{title}</p>
+          <p className="line-clamp-2 break-words text-xs text-muted-foreground" title={meta || undefined}>{meta || "Sem grupo informado"}</p>
         </div>
       </div>
       <div className="flex items-center justify-between gap-2">
         <Label htmlFor={`${uid}-score-${slot}`} className="sr-only">
           Placar de {title}
         </Label>
-        <Button type="button" variant="outline" size="icon" className="size-12 shrink-0" aria-label={`Diminuir placar de ${title}`} disabled={busy} onClick={() => onScore(bumpScore(score, -1))}>
+        <Button type="button" variant="outline" size="icon" className="size-[48px] shrink-0 md:size-[48px]" aria-label={`Diminuir placar de ${title}`} disabled={busy} onClick={() => onScore(bumpScore(score, -1))}>
           <Minus className="!size-5" />
         </Button>
         <Input
           id={`${uid}-score-${slot}`}
-          inputMode="numeric"
+          {...numericField}
           value={score}
           onChange={(e) => onScore(e.target.value)}
           placeholder="0"
           style={{ fontSize: "1.875rem" }}
-          className="h-12 min-w-0 flex-1 text-center font-black tabular-nums"
+          className="h-12 min-w-[3ch] flex-1 text-center font-black tabular-nums"
         />
-        <Button type="button" variant="outline" size="icon" className="size-12 shrink-0" aria-label={`Aumentar placar de ${title}`} disabled={busy} onClick={() => onScore(bumpScore(score, 1))}>
+        <Button type="button" variant="outline" size="icon" className="size-[48px] shrink-0 md:size-[48px]" aria-label={`Aumentar placar de ${title}`} disabled={busy} onClick={() => onScore(bumpScore(score, 1))}>
           <Plus className="!size-5" />
         </Button>
       </div>
@@ -284,16 +290,16 @@ function SidePanel({ uid, busy, resultType, slot, competitor, title, score, onSc
           type="button"
           size="lg"
           aria-label={`Vencedor: ${title}`}
-          className="h-auto min-h-14 w-full justify-between gap-3 whitespace-normal py-2 text-left"
+          className="h-auto min-h-14 w-full justify-between gap-3 whitespace-normal px-3 py-2 text-left md:h-auto"
           disabled={busy}
           onClick={onWin}
         >
-          <Trophy className="!size-5 shrink-0" aria-hidden />
+          <Trophy className="!size-5 shrink-0 @max-[14rem]:hidden" aria-hidden />
           <span className="min-w-0 flex-1 leading-tight">
-            <span className="block text-[10px] font-bold tracking-[0.2em] opacity-80">
+            <span className="block text-xs font-bold tracking-[0.14em] opacity-90">
               {resultType === "WALKOVER" ? "VENCEU POR W.O." : resultType === "DISQUALIFICATION" ? "VENCEU (DESCLASSIFICAÇÃO)" : "VENCEU"}
             </span>
-            <span className="block truncate text-base font-extrabold">{title}</span>
+            <span className="line-clamp-2 break-words text-base font-extrabold" title={title}>{title}</span>
           </span>
           <Kbd>{kbd}</Kbd>
         </Button>

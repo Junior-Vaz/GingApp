@@ -3,10 +3,17 @@ import { ImageOff, ImagePlus, Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { photoErrorMessage } from "@/lib/photo/messages";
+import { prepareImage } from "@/lib/photo/prepare-image";
 import { UPLOAD_ACCEPT } from "@/lib/uploads";
 import { cn } from "@/lib/utils";
 import { sponsorImageSrc, sponsorsErrorMessage, uploadSponsorImage } from "./api";
-import { SPONSOR_IMAGE_MAX_BYTES, SPONSOR_IMAGE_RECOMMENDED, validateSponsorImageFile } from "./sponsor-utils";
+import {
+  SPONSOR_IMAGE_COMPRESS_TARGET_BYTES,
+  SPONSOR_IMAGE_MAX_BYTES,
+  SPONSOR_IMAGE_RECOMMENDED,
+  validateSponsorImageFile,
+} from "./sponsor-utils";
 
 interface SponsorImageFieldProps {
   label: string;
@@ -21,14 +28,16 @@ interface SponsorImageFieldProps {
 }
 
 /**
- * Imagem do patrocinador: upload do GRUPO (POST /uploads) com pré-visualização e "Remover". Recusa NO NAVEGADOR arquivo
- * acima de 250 KB ou que não seja JPEG/PNG/WebP (com mensagem). Não aceita link externo: o servidor só aceita imagens enviadas
- * pelo próprio grupo.
+ * Imagem do patrocinador: upload do GRUPO (POST /uploads) com pré-visualização e "Remover". Imagem acima de 250 KB é
+ * COMPRIMIDA no navegador (alvo 240 KB, mantendo a proporção) antes de enviar; só quando nem assim cabe, mostra o erro
+ * claro. Formato fora de JPEG/PNG/WebP é recusado com mensagem. Não aceita link externo: o servidor só aceita imagens
+ * enviadas pelo próprio grupo. Imagem que já cabe (<= 250 KB) vai como está (preserva a transparência de logos em PNG).
  */
 export function SponsorImageField({ label, value, onChange, shape = "wide", hint, disabled, error, testId = "sponsor-image" }: SponsorImageFieldProps) {
   const id = useId();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [compressing, setCompressing] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const src = sponsorImageSrc(value);
@@ -37,7 +46,8 @@ export function SponsorImageField({ label, value, onChange, shape = "wide", hint
 
   async function handleFile(file: File | undefined) {
     if (!file) return;
-    const invalid = validateSponsorImageFile(file);
+    // O peso NÃO barra aqui (a compressão resolve): só o formato e o arquivo vazio.
+    const invalid = validateSponsorImageFile({ type: file.type, size: Math.min(file.size, SPONSOR_IMAGE_MAX_BYTES) });
     if (invalid) {
       setLocalError(invalid);
       toast.error(invalid);
@@ -47,7 +57,25 @@ export function SponsorImageField({ label, value, onChange, shape = "wide", hint
     setLocalError(null);
     setUploading(true);
     try {
-      onChange(await uploadSponsorImage(file));
+      let toSend: Blob = file;
+      if (file.size > SPONSOR_IMAGE_MAX_BYTES) {
+        setCompressing(true);
+        try {
+          toSend = await prepareImage(file, { shape: "wide", maxBytes: SPONSOR_IMAGE_COMPRESS_TARGET_BYTES });
+        } catch (e) {
+          // Não coube nem na menor dimensão: erro claro (o servidor recusaria o arquivo grande).
+          const message =
+            (e as { code?: unknown } | null)?.code === "ENCODE_FAILED"
+              ? `Não foi possível reduzir a imagem para menos de ${String(SPONSOR_IMAGE_MAX_BYTES / 1024)} KB. Use uma imagem menor ou mais simples (recomendado ${String(SPONSOR_IMAGE_RECOMMENDED.width)}×${String(SPONSOR_IMAGE_RECOMMENDED.height)} px).`
+              : photoErrorMessage(e);
+          setLocalError(message);
+          toast.error(message);
+          return;
+        } finally {
+          setCompressing(false);
+        }
+      }
+      onChange(await uploadSponsorImage(toSend));
     } catch (e) {
       const message = sponsorsErrorMessage(e, "Não foi possível enviar a imagem. Tente novamente.");
       setLocalError(message);
@@ -91,7 +119,7 @@ export function SponsorImageField({ label, value, onChange, shape = "wide", hint
           />
           <Button type="button" variant="outline" size="sm" disabled={disabled || uploading} onClick={() => fileRef.current?.click()}>
             {uploading ? <Loader2 className="animate-spin" /> : <ImagePlus />}
-            {uploading ? "Enviando…" : value ? "Trocar imagem" : "Enviar imagem"}
+            {compressing ? "Reduzindo…" : uploading ? "Enviando…" : value ? "Trocar imagem" : "Enviar imagem"}
           </Button>
           {value && (
             <Button
@@ -117,7 +145,7 @@ export function SponsorImageField({ label, value, onChange, shape = "wide", hint
       )}
       <p id={hintId} className="text-xs text-muted-foreground">
         {hint ??
-          `JPEG, PNG ou WebP, até ${String(SPONSOR_IMAGE_MAX_BYTES / 1024)} KB (recomendado ${String(SPONSOR_IMAGE_RECOMMENDED.width)}×${String(SPONSOR_IMAGE_RECOMMENDED.height)} px).`}
+          `JPEG, PNG ou WebP (recomendado ${String(SPONSOR_IMAGE_RECOMMENDED.width)}×${String(SPONSOR_IMAGE_RECOMMENDED.height)} px). Imagens acima de ${String(SPONSOR_IMAGE_MAX_BYTES / 1024)} KB são reduzidas automaticamente.`}
       </p>
       {shownError && (
         <p id={errorId} role="alert" className="text-sm font-medium text-destructive">

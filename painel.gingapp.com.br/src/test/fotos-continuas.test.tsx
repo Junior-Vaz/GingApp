@@ -2,12 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearSession, loginAs } from "./login-as";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { AlunosPage } from "@/modules/alunos/alunos-page";
 import { AulasPage } from "@/modules/aulas/aulas-page";
 import { ProfessoresPage } from "@/modules/professores/professores-page";
 import { TurmasPage } from "@/modules/turmas/turmas-page";
 import { UnidadesPage } from "@/modules/unidades/unidades-page";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+
+// Compressão/recorte (canvas) não existe no jsdom: o teste controla o que `prepareImage` devolve.
+const prepareMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/photo/prepare-image", () => ({ prepareImage: prepareMock }));
+import { PREPARED, chooseInPicker, installPhotoMocks, pickSquarePhoto, restorePhotoMocks } from "./photo-flow";
 
 type Call = { method: string; path: string; query: URLSearchParams; body: unknown };
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
@@ -16,6 +22,9 @@ const page = <T,>(rows: T[]) => json(200, rows, { "X-Total-Count": String(rows.l
 
 const UPLOADED = "/api/uploads/3f2b8c1e-5d4a-4c3b-9a7e-1b2c3d4e5f60.webp";
 const PHOTO_URL = "https://exemplo.com/turma.jpg";
+/** FormData de cada POST /uploads (preenchido pelo `mockApi`). */
+let uploads: FormData[] = [];
+const fetchUploads = () => uploads;
 const fileOf = () => new File([new Uint8Array(10)], "foto.png", { type: "image/png" });
 
 /** fetch falso: roteia por "METHOD /caminho" (sem prefixo da API NEM query) e registra as chamadas. */
@@ -27,6 +36,7 @@ function mockApi(routes: Record<string, (call: Call) => Response> = {}) {
       const [path = "", search = ""] = url.replace(/^https?:\/\/[^/]+\/api/, "").split("?");
       const method = init.method ?? "GET";
       const isForm = init.body instanceof FormData;
+      if (isForm && path === "/uploads") uploads.push(init.body as FormData);
       calls.push({
         method,
         path,
@@ -49,8 +59,15 @@ function renderUi(ui: React.ReactElement) {
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
-beforeEach(() => loginAs("MESTRE"));
+beforeEach(() => {
+  loginAs("MESTRE");
+  uploads = [];
+  installPhotoMocks();
+  prepareMock.mockReset();
+  prepareMock.mockImplementation(async () => PREPARED());
+});
 afterEach(() => {
+  restorePhotoMocks();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   clearSession();
@@ -68,8 +85,11 @@ describe("Fotos nos formulários", () => {
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Juvenil" } });
     expect(within(dialog).getByRole("switch", { name: "Contínuo (sem data final)" })).toBeChecked();
     expect(within(dialog).getByText(/mantém ~60 dias de aulas à frente automaticamente/)).toBeInTheDocument();
-    fireEvent.change(within(dialog).getByTestId("image-file-input"), { target: { files: [fileOf()] } });
+    // logo/capa/foto de turma = `wide`: SÓ comprime (sem câmera nem recorte) e envia o Blob pronto
+    expect(within(dialog).queryByRole("button", { name: /Tirar foto/ })).not.toBeInTheDocument();
+    chooseInPicker(fileOf(), dialog);
     await waitFor(() => expect(calls.some((c) => c.path === "/uploads")).toBe(true));
+    expect(prepareMock).toHaveBeenCalledWith(expect.any(File), expect.objectContaining({ shape: "wide" }));
     await waitFor(() => expect(within(dialog).getByAltText("Foto da turma")).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/classes")).toBe(true));
@@ -104,7 +124,7 @@ describe("Fotos nos formulários", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Nova unidade/ }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Filial Sul" } });
-    fireEvent.change(within(dialog).getByLabelText("Foto ou logo da unidade (URL)"), { target: { value: PHOTO_URL } });
+    fireEvent.change(within(dialog).getByLabelText("Link da imagem: Foto ou logo da unidade"), { target: { value: PHOTO_URL } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/units")).toBe(true));
     expect(calls.find((c) => c.method === "POST" && c.path === "/units")!.body).toMatchObject({ name: "Filial Sul", photo: PHOTO_URL });
@@ -118,11 +138,38 @@ describe("Fotos nos formulários", () => {
     fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Prof Novo" } });
     fireEvent.change(within(dialog).getByLabelText("E-mail"), { target: { value: "novo@x.com" } });
     fireEvent.change(within(dialog).getByLabelText("Senha inicial"), { target: { value: "123456" } });
-    fireEvent.change(within(dialog).getByTestId("image-file-input"), { target: { files: [fileOf()] } });
+    // foto de pessoa = `square`: câmera + recorte, depois o Blob pronto sobe por POST /uploads
+    expect(within(dialog).getByRole("button", { name: /Tirar foto/ })).toBeInTheDocument();
+    await pickSquarePhoto(fileOf(), dialog);
     await waitFor(() => expect(within(dialog).getByAltText("Foto do membro da equipe")).toBeInTheDocument());
     fireEvent.click(within(dialog).getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/teachers")).toBe(true));
     expect(calls.find((c) => c.method === "POST" && c.path === "/teachers")!.body).toMatchObject({ name: "Prof Novo", photo: UPLOADED });
+    // sobe o Blob já preparado (recortado e comprimido), nunca o arquivo original escolhido
+    const upload = fetchUploads()[0]!;
+    expect(upload.get("file")).toMatchObject({ name: "foto.webp", type: "image/webp", size: 1500 });
+  });
+
+  it("Aluno: foto por câmera/recorte (sem campo de link) sobe como foto.webp por POST /uploads e vai em `photo` no POST /students", async () => {
+    localStorage.setItem("painel:alunos:view", "table");
+    const calls = mockApi({
+      "GET /students": () => page([]),
+      "POST /students": () => json(201, { id: 3 }),
+    });
+    renderUi(<AlunosPage />);
+    fireEvent.click(await screen.findByRole("button", { name: /Novo aluno/ }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Nome"), { target: { value: "Carlos Lima" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Mais dados" })); // a foto fica em "Mais dados"
+    expect(await within(dialog).findByRole("button", { name: /Tirar foto/ })).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText(/Link da imagem/)).not.toBeInTheDocument(); // foto de pessoa: sem URL digitável
+    await pickSquarePhoto(fileOf(), dialog);
+    await waitFor(() => expect(within(dialog).getByAltText("Foto do aluno")).toBeInTheDocument());
+    expect(prepareMock).toHaveBeenCalledWith(expect.any(File), expect.objectContaining({ shape: "square" }));
+    expect(fetchUploads()[0]!.get("file")).toMatchObject({ name: "foto.webp", type: "image/webp" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cadastrar" }));
+    await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/students")).toBe(true));
+    expect(calls.find((c) => c.method === "POST" && c.path === "/students")!.body).toMatchObject({ name: "Carlos Lima", photo: UPLOADED });
   });
 });
 

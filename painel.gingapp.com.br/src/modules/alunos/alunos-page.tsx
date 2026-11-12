@@ -505,10 +505,9 @@ export function AlunosPage() {
             />
             <ImageUploadField<StudentFormValues>
               name="photo"
-              label="Foto (URL)"
+              label="Foto do aluno"
               shape="square"
               previewAlt="Foto do aluno"
-              description="Opcional. Envie uma foto (JPEG, PNG ou WebP até 5 MB) ou cole o link de uma imagem."
             />
             <FormField
               control={form.control}

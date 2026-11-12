@@ -21,6 +21,7 @@ import {
   fieldCount,
   fileFieldCount,
   mapsToLabel,
+  photoFieldCount,
   moveField,
   moveFieldToSection,
   moveSection,
@@ -60,6 +61,7 @@ export function FieldsTab({
   const [removingSection, setRemovingSection] = useState<string | null>(null);
 
   const total = fieldCount(draft);
+  const hasPhotoField = photoFieldCount(draft) >= LIMITS.photos;
   const removingField = removingKey
     ? allFields(draft).find((f) => f.key === removingKey)
     : undefined;
@@ -158,19 +160,30 @@ export function FieldsTab({
             <DialogDescription>Escolha o tipo de resposta que você quer receber.</DialogDescription>
           </DialogHeader>
           <ul className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {FIELD_TYPES.map((info) => (
-              <li key={info.type}>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-auto min-h-11 w-full justify-start gap-2 whitespace-normal py-2 text-left"
-                  onClick={() => pick(info.type)}
-                >
-                  <info.icon aria-hidden /> {info.label}
-                </Button>
-              </li>
-            ))}
+            {FIELD_TYPES.map((info) => {
+              // "Foto do participante": no máximo 1 por formulário (o servidor recusa o segundo).
+              const blocked = info.type === "PHOTO" && hasPhotoField;
+              return (
+                <li key={info.type}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-auto min-h-11 w-full justify-start gap-2 whitespace-normal py-2 text-left"
+                    disabled={blocked}
+                    aria-describedby={blocked ? "photo-type-hint" : undefined}
+                    onClick={() => pick(info.type)}
+                  >
+                    <info.icon aria-hidden /> {info.label}
+                  </Button>
+                </li>
+              );
+            })}
           </ul>
+          {hasPhotoField && (
+            <p id="photo-type-hint" className="text-xs text-muted-foreground" data-testid="photo-type-hint">
+              “Foto do participante” já está neste formulário: só pode haver 1. Para trocar, remova o campo atual.
+            </p>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -434,7 +447,8 @@ function FieldRow({
               variant="ghost"
               size="icon"
               aria-label={`Duplicar ${name}`}
-              disabled={atFieldLimit}
+              disabled={atFieldLimit || field.type === "PHOTO"}
+              title={field.type === "PHOTO" ? "Só pode haver 1 campo de foto por formulário." : undefined}
               onClick={onDuplicate}
             >
               <CopyPlus />

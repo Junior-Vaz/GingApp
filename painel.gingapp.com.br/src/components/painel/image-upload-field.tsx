@@ -1,32 +1,37 @@
-import { useEffect, useId, useRef, useState } from "react";
-import { ImageOff, ImagePlus, Loader2, Trash2 } from "lucide-react";
+import { useId, useState } from "react";
 import { useFormContext, type FieldValues, type Path } from "react-hook-form";
-import { Button } from "@/components/ui/button";
+import { PhotoPicker } from "@/components/photo/photo-picker";
 import { FormField, FormItem, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { notifyError } from "@/lib/crud";
-import { UPLOAD_ACCEPT, imageSrc, isImageRef, uploadImage, validateImageFile } from "@/lib/uploads";
-import { cn } from "@/lib/utils";
+import { DEFAULT_MAX_BYTES } from "@/lib/photo/types";
+import { imageSrc, isImageRef, uploadImage } from "@/lib/uploads";
+
+/** Teto do arquivo de logo/capa/banner depois da compressão (maior que o de rosto: tem mais detalhe e texto). */
+export const WIDE_IMAGE_MAX_BYTES = 800 * 1024;
 
 interface ImageUploaderProps {
   value: string;
   onChange: (value: string) => void;
-  /** Rótulo do campo (liga ao campo de URL manual). */
+  /** Rótulo do campo. */
   label: string;
   description?: string;
   /** Texto alternativo da pré-visualização. */
   previewAlt?: string;
-  /** "wide" = capa (faixa larga); "square" = foto/logo. */
+  /**
+   * `square` = FOTO DE PESSOA (aluno, professor): câmera + recorte quadrado, sem link manual.
+   * `wide` (padrão) = logo/capa/banner: só compressão antes do envio, com o link manual opcional.
+   */
   shape?: "wide" | "square";
   disabled?: boolean;
   invalid?: boolean;
 }
 
 /**
- * Campo de imagem reutilizável: botão "Enviar imagem" (POST /uploads, JPEG/PNG/WebP até 5 MB) com
- * pré-visualização e "Remover", e o campo de URL manual continua disponível (opcional) logo abaixo.
- * O valor é uma string: o caminho `/api/uploads/<arquivo>` devolvido pelo envio ou uma URL http(s).
+ * Campo de imagem reutilizável, em cima do `PhotoPicker`: a imagem é preparada NO NAVEGADOR (recorte e/ou compressão, o
+ * que acaba com o 413/5 MB) e enviada por POST /uploads como `foto.webp`. O valor continua sendo uma string: o caminho
+ * `/api/uploads/<arquivo>` devolvido pelo envio (ou, só em `wide`, uma URL http(s) colada no campo de link).
  */
 export function ImageUploader({
   value,
@@ -38,85 +43,63 @@ export function ImageUploader({
   disabled,
   invalid,
 }: ImageUploaderProps) {
-  const inputId = useId();
-  const fileRef = useRef<HTMLInputElement>(null);
+  const linkId = useId();
   const [uploading, setUploading] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const src = imageSrc(value.trim());
-  const showPreview = value.trim() !== "" && isImageRef(value.trim());
-  useEffect(() => setFailed(false), [src]);
+  const person = shape === "square";
+  const current = value.trim();
+  const shown = current !== "" && isImageRef(current) ? imageSrc(current) : null;
 
-  async function handleFile(file: File | undefined) {
-    if (!file) return;
-    const invalidFile = validateImageFile(file);
-    if (invalidFile) return notifyError(new Error(invalidFile), invalidFile);
+  async function handlePhoto(photo: Blob | null) {
+    if (photo === null) {
+      onChange("");
+      return;
+    }
     setUploading(true);
     try {
-      onChange(await uploadImage(file));
+      onChange(await uploadImage(photo));
     } catch (error) {
       notifyError(error, "Não foi possível enviar a imagem. Tente novamente.");
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = ""; // permite escolher o mesmo arquivo de novo
     }
   }
 
   return (
     <div className="space-y-2" data-testid="image-uploader">
-      <Label htmlFor={inputId}>{label}</Label>
-      <div className="flex flex-wrap items-start gap-3">
-        <div
-          className={cn(
-            "flex shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted/40",
-            shape === "wide" ? "h-28 w-full sm:w-52" : "size-24",
-          )}
-        >
-          {showPreview && !failed ? (
-            <img src={src} alt={previewAlt} className="size-full object-cover" onError={() => setFailed(true)} />
-          ) : (
-            <ImagePlus className="size-6 text-muted-foreground" aria-hidden />
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <input
-            ref={fileRef}
-            type="file"
-            accept={UPLOAD_ACCEPT}
-            className="sr-only"
-            aria-label="Escolher arquivo de imagem"
-            data-testid="image-file-input"
-            tabIndex={-1}
-            disabled={disabled || uploading}
-            onChange={(e) => void handleFile(e.target.files?.[0])}
-          />
-          <Button type="button" variant="outline" size="sm" disabled={disabled || uploading} onClick={() => fileRef.current?.click()}>
-            {uploading ? <Loader2 className="animate-spin" /> : <ImagePlus />}
-            {uploading ? "Enviando…" : value ? "Trocar imagem" : "Enviar imagem"}
-          </Button>
-          {value && (
-            <Button type="button" variant="ghost" size="sm" disabled={disabled || uploading} onClick={() => onChange("")}>
-              <Trash2 /> Remover
-            </Button>
-          )}
-        </div>
-      </div>
-      {showPreview && failed && (
-        <p className="flex items-center gap-2 text-xs text-muted-foreground" data-testid="image-failed">
-          <ImageOff className="size-4" /> Não foi possível carregar a imagem.
-        </p>
-      )}
-      <Input
-        id={inputId}
-        placeholder="ou cole o link: https://..."
-        inputMode="url"
-        value={value}
-        aria-invalid={invalid || undefined}
-        disabled={disabled || uploading}
-        onChange={(e) => onChange(e.target.value)}
+      <PhotoPicker
+        value={shown}
+        onChange={(photo) => void handlePhoto(photo)}
+        shape={shape}
+        camera={person}
+        label={label}
+        previewAlt={previewAlt}
+        busy={uploading}
+        disabled={disabled}
+        invalid={invalid}
+        maxBytes={person ? DEFAULT_MAX_BYTES : WIDE_IMAGE_MAX_BYTES}
+        description={
+          description ??
+          (person
+            ? "Opcional. Tire a foto na hora ou envie uma imagem: ela é recortada em quadrado e reduzida antes do envio."
+            : "Opcional. Envie uma imagem (ela é reduzida automaticamente) ou cole o link de uma imagem já hospedada.")
+        }
       />
-      <p className="text-xs text-muted-foreground">
-        {description ?? "Opcional. JPEG, PNG ou WebP até 5 MB, ou o link de uma imagem já hospedada."}
-      </p>
+      {!person && (
+        <div className="space-y-1">
+          <Label htmlFor={linkId} className="sr-only">
+            Link da imagem: {label}
+          </Label>
+          <Input
+            id={linkId}
+            placeholder="ou cole o link: https://..."
+            inputMode="url"
+            value={value}
+            aria-invalid={invalid || undefined}
+            disabled={disabled || uploading}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        </div>
+      )}
     </div>
   );
 }

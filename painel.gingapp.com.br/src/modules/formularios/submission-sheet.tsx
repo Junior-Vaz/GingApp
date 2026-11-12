@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, EyeOff, Link2, Paperclip, ShieldOff, UserCheck } from "lucide-react";
+import { Camera, Eye, EyeOff, ImageOff, Link2, Paperclip, ShieldOff, UserCheck } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { StrongConfirmDialog } from "@/components/painel/strong-confirm-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -20,8 +20,10 @@ import {
   useSaveInternalNote,
   useSubmission,
   useSubmissionAction,
+  useSubmissionFile,
 } from "./api";
 import { FileViewer } from "./file-viewer";
+import { useBlobUrl } from "./use-blob-url";
 import { TextAreaField } from "./form-controls";
 import {
   availableActions,
@@ -159,7 +161,10 @@ function SubmissionBody({
   const answeredKeys = new Set(data.answers.map((a) => a.fieldKey));
   const looseFiles = data.files.filter((f) => !answeredKeys.has(f.fieldKey));
   const student = data.suggestedStudent ?? null;
-  const hasFileAnswers = data.answers.some((a) => a.type === "FILE" && a.value);
+  const hasFileAnswers = data.answers.some((a) => (a.type === "FILE" || a.type === "PHOTO") && a.value);
+  // "Foto do participante" (campo PHOTO): a imagem vira miniatura redonda ao lado do nome (os arquivos só vêm para o Mestre).
+  const photoKeys = new Set(data.answers.filter((a) => a.type === "PHOTO").map((a) => a.fieldKey));
+  const photoFile = data.files.find((f) => photoKeys.has(f.fieldKey)) ?? null;
   // Só quem não é Mestre (ou o servidor marcou `filesRestricted`) e só quando há anexo a esconder.
   const filesNote = !anonymized && hasFileAnswers && (data.filesRestricted === true || !isMestre);
 
@@ -176,11 +181,24 @@ function SubmissionBody({
   return (
     <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <SheetHeader>
-        <SheetTitle className="break-words">{data.name}</SheetTitle>
-        <SheetDescription>
-          Protocolo <span className="font-mono">{data.protocol}</span> · enviada em{" "}
-          {formatDateTime(data.createdAt)}
-        </SheetDescription>
+        <div className="flex items-start gap-3">
+          {photoFile && !anonymized && (
+            <ParticipantPhoto
+              formId={formId}
+              submissionId={submissionId}
+              file={photoFile}
+              name={data.name}
+              onOpen={() => setViewing(photoFile)}
+            />
+          )}
+          <div className="grid min-w-0 gap-1.5">
+            <SheetTitle className="break-words">{data.name}</SheetTitle>
+            <SheetDescription>
+              Protocolo <span className="font-mono">{data.protocol}</span> · enviada em{" "}
+              {formatDateTime(data.createdAt)}
+            </SheetDescription>
+          </div>
+        </div>
         <div className="flex flex-wrap gap-1.5 pt-1">
           <Badge variant={SUBMISSION_STATUS_VARIANT[data.status]}>
             {SUBMISSION_STATUS_LABEL[data.status]}
@@ -266,8 +284,13 @@ function SubmissionBody({
                 <div key={answer.fieldKey} className="grid gap-0.5" data-testid="submission-answer">
                   <dt className="text-xs text-muted-foreground">{answer.label}</dt>
                   <dd className="min-w-0 break-words text-sm">
-                    {answer.type === "FILE" && files.length > 0 ? (
-                      <FileList files={files} canView={isMestre} onView={setViewing} />
+                    {(answer.type === "FILE" || answer.type === "PHOTO") && files.length > 0 ? (
+                      <FileList
+                        files={files}
+                        canView={isMestre}
+                        onView={setViewing}
+                        viewLabel={answer.type === "PHOTO" ? "Ver foto" : "Ver comprovante"}
+                      />
                     ) : (
                       <span className="whitespace-pre-line">{formatAnswer(answer)}</span>
                     )}
@@ -370,6 +393,7 @@ function SubmissionBody({
         formId={formId}
         submissionId={submissionId}
         file={viewing}
+        kind={viewing && photoKeys.has(viewing.fieldKey) ? "photo" : "proof"}
         onClose={() => setViewing(null)}
       />
 
@@ -474,15 +498,52 @@ function Identification({ data }: { data: SubmissionDetail }) {
   );
 }
 
+/** Miniatura redonda da foto do participante (baixada com a sessão; a rota é privada). Toque = ampliar. */
+function ParticipantPhoto({
+  formId,
+  submissionId,
+  file,
+  name,
+  onOpen,
+}: {
+  formId: Id;
+  submissionId: Id;
+  file: SubmissionFile;
+  name: string;
+  onOpen: () => void;
+}) {
+  const query = useSubmissionFile(formId, submissionId, file.id);
+  const url = useBlobUrl(query.data, file.mimeType);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`Ampliar a foto de ${name}`}
+      data-testid="submission-photo"
+      className="grid size-14 shrink-0 place-items-center overflow-hidden rounded-full border bg-muted text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {url ? (
+        <img src={url} alt="" className="size-full object-cover" />
+      ) : query.isError ? (
+        <ImageOff className="size-5" aria-hidden />
+      ) : (
+        <Camera className="size-5" aria-hidden />
+      )}
+    </button>
+  );
+}
+
 function FileList({
   files,
   canView,
   onView,
+  viewLabel = "Ver comprovante",
 }: {
   files: SubmissionFile[];
   /** Só o Mestre baixa/abre comprovantes (os demais recebem 403). */
   canView: boolean;
   onView: (file: SubmissionFile) => void;
+  viewLabel?: string;
 }) {
   return (
     <ul className="grid gap-1.5">
@@ -503,10 +564,10 @@ function FileList({
               type="button"
               variant="outline"
               size="sm"
-              aria-label={`Ver comprovante ${file.originalName}`}
+              aria-label={`${viewLabel} ${file.originalName}`}
               onClick={() => onView(file)}
             >
-              <Eye /> Ver comprovante
+              <Eye /> {viewLabel}
             </Button>
           )}
         </li>

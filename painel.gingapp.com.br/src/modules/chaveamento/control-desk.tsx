@@ -5,11 +5,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { useAnnounce } from "./announce-context";
 import { useDeskCategories, useStartMatch } from "./api";
-import { CompetitorPhoto } from "./competitor-photo";
+import { CompetitorPhoto, PhotoScope } from "./competitor-photo";
 import { collectDesk, type DeskEntry, type MatFilter } from "./desk";
 import { competitorMap, competitorMeta, EMPTY_SLOT, lastMainRound, matLabel, sideName, stageLabel } from "./helpers";
 import { MatchControls } from "./match-controls";
 import { MatchDialog } from "./match-dialog";
+import { OfflineNotice } from "./offline-notice";
+import { useOnline } from "./page-activity";
+import { ScrollFade } from "./scroll-fade";
 import { shortcutKey, shouldIgnoreShortcut } from "./shortcuts";
 import "./chaveamento.css";
 
@@ -32,6 +35,7 @@ export function ControlDesk({ eventId, runningIds, canEdit }: ControlDeskProps) 
   const { categories, loading, failed, refetch } = useDeskCategories(eventId, runningIds);
   const announce = useAnnounce();
   const start = useStartMatch(eventId);
+  const online = useOnline();
   const [filter, setFilter] = useState<MatFilter>("all");
   const [focusId, setFocusId] = useState<number | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -62,14 +66,14 @@ export function ControlDesk({ eventId, runningIds, canEdit }: ControlDeskProps) 
   useEffect(() => {
     if (!canEdit || first === null) return;
     const onKey = (event: KeyboardEvent) => {
-      if (shouldIgnoreShortcut(event) || shortcutKey(event) !== "i" || start.isPending) return;
+      if (shouldIgnoreShortcut(event) || shortcutKey(event) !== "i" || start.isPending || !online) return;
       event.preventDefault();
       void startEntry(first);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canEdit, first, start.isPending]);
+  }, [canEdit, first, start.isPending, online]);
 
   const openedCategory = opened ? (categories.find((c) => c.id === opened.categoryId) ?? null) : null;
   const visibleNext = showAll ? desk.next : desk.next.slice(0, NEXT_VISIBLE);
@@ -86,7 +90,7 @@ export function ControlDesk({ eventId, runningIds, canEdit }: ControlDeskProps) 
           <RadioTower className="size-5 text-primary" aria-hidden /> Mesa de controle
         </h2>
         {matOptions.length > 1 && (
-          <div role="radiogroup" aria-label="Filtrar por tatame" className="flex max-w-full gap-1 overflow-x-auto rounded-xl bg-muted p-1">
+          <ScrollFade role="radiogroup" aria-label="Filtrar por tatame" className="flex max-w-full gap-2 rounded-xl bg-muted p-1" data-testid="mat-filter">
             {matOptions.map((o) => {
               const active = o.value === filter;
               return (
@@ -97,7 +101,7 @@ export function ControlDesk({ eventId, runningIds, canEdit }: ControlDeskProps) 
                   aria-checked={active}
                   onClick={() => setFilter(o.value)}
                   className={cn(
-                    "min-h-11 shrink-0 rounded-lg px-3 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:min-h-9",
+                    "min-h-11 shrink-0 rounded-lg px-3 text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:min-h-9 pointer-coarse:md:min-h-11",
                     active ? "bg-primary text-primary-foreground shadow" : "text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -105,9 +109,11 @@ export function ControlDesk({ eventId, runningIds, canEdit }: ControlDeskProps) 
                 </button>
               );
             })}
-          </div>
+          </ScrollFade>
         )}
       </header>
+
+      <OfflineNotice />
 
       {loading && categories.length === 0 ? (
         <div className="grid grid-cols-1 gap-3" data-testid="desk-loading">
@@ -134,20 +140,21 @@ export function ControlDesk({ eventId, runningIds, canEdit }: ControlDeskProps) 
             ) : (
               <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                 {desk.live.map((entry) => (
-                  <LiveCard
-                    key={entry.match.id}
-                    eventId={eventId}
-                    entry={entry}
-                    canEdit={canEdit}
-                    focused={focused?.match.id === entry.match.id}
-                    multiple={desk.live.length > 1}
-                    onFocus={() => setFocusId(entry.match.id)}
-                  />
+                  <PhotoScope key={entry.match.id} eventId={eventId} categoryId={entry.category.id}>
+                    <LiveCard
+                      eventId={eventId}
+                      entry={entry}
+                      canEdit={canEdit}
+                      focused={focused?.match.id === entry.match.id}
+                      multiple={desk.live.length > 1}
+                      onFocus={() => setFocusId(entry.match.id)}
+                    />
+                  </PhotoScope>
                 ))}
               </div>
             )}
             {canEdit && desk.live.length > 0 && (
-              <p className="hidden items-center gap-2 text-xs text-muted-foreground lg:flex" data-testid="desk-shortcuts">
+              <p className="hidden items-center gap-2 text-xs text-muted-foreground pointer-fine:lg:flex" data-testid="desk-shortcuts">
                 <Keyboard className="size-4" aria-hidden />
                 Atalhos{desk.live.length > 1 ? " (na luta marcada)" : ""}: <b>A</b> ou <b>B</b> = vencedor · <b>U</b> = desfazer · <b>I</b> = iniciar a próxima
               </p>
@@ -166,17 +173,18 @@ export function ControlDesk({ eventId, runningIds, canEdit }: ControlDeskProps) 
             ) : (
               <ol className="grid grid-cols-1 gap-2" data-testid="desk-next-list">
                 {visibleNext.map((entry, index) => (
-                  <NextRow
-                    key={entry.match.id}
-                    entry={entry}
-                    index={index}
-                    featured={index === 0}
-                    canEdit={canEdit}
-                    starting={start.isPending && start.variables === entry.match.id}
-                    anyStarting={start.isPending}
-                    onStart={() => void startEntry(entry)}
-                    onOpen={() => setOpened({ categoryId: entry.category.id, matchId: entry.match.id })}
-                  />
+                  <PhotoScope key={entry.match.id} eventId={eventId} categoryId={entry.category.id}>
+                    <NextRow
+                      entry={entry}
+                      index={index}
+                      featured={index === 0}
+                      canEdit={canEdit}
+                      starting={start.isPending && start.variables === entry.match.id}
+                      anyStarting={start.isPending}
+                      onStart={() => void startEntry(entry)}
+                      onOpen={() => setOpened({ categoryId: entry.category.id, matchId: entry.match.id })}
+                    />
+                  </PhotoScope>
                 ))}
               </ol>
             )}
@@ -190,7 +198,11 @@ export function ControlDesk({ eventId, runningIds, canEdit }: ControlDeskProps) 
         </>
       )}
 
-      {openedCategory && <MatchDialog eventId={eventId} category={openedCategory} matchId={opened?.matchId ?? null} canEdit={canEdit} onClose={() => setOpened(null)} />}
+      {openedCategory && (
+        <PhotoScope eventId={eventId} categoryId={openedCategory.id}>
+          <MatchDialog eventId={eventId} category={openedCategory} matchId={opened?.matchId ?? null} canEdit={canEdit} onClose={() => setOpened(null)} />
+        </PhotoScope>
+      )}
     </section>
   );
 }
@@ -235,7 +247,7 @@ function LiveCard({
       data-focused={focused ? "true" : undefined}
       onPointerDownCapture={onFocus}
       onFocusCapture={onFocus}
-      className="chv-in relative rounded-2xl border-2 border-red-600 bg-red-50/70 p-3 sm:p-4 dark:bg-red-950/30"
+      className="chv-in @container relative rounded-2xl border-2 border-red-600 bg-red-50/70 p-3 sm:p-4 dark:bg-red-950/30"
     >
       <span className="chv-halo pointer-events-none absolute -inset-1.5 rounded-[20px] ring-2 ring-red-500/70" aria-hidden />
       <div className="relative grid grid-cols-1 gap-3">
@@ -244,19 +256,21 @@ function LiveCard({
             <span className="chv-dot size-1.5 rounded-full bg-white" aria-hidden /> AO VIVO
           </span>
           {mat && <span className="rounded-md border bg-card px-2 py-1 text-xs font-bold">{mat}</span>}
-          <span className="min-w-0 flex-1 truncate text-xs font-semibold text-muted-foreground">{entryLine({ ...entry, match: { ...match, mat: null } })}</span>
-          {multiple && focused && canEdit && <span className="rounded-md bg-primary px-2 py-1 text-[10px] font-extrabold uppercase tracking-wider text-primary-foreground">Atalhos aqui</span>}
+          <span className="line-clamp-2 min-w-32 flex-1 basis-32 break-words text-xs font-semibold text-muted-foreground" title={entryLine(entry)}>
+            {entryLine({ ...entry, match: { ...match, mat: null } })}
+          </span>
+          {multiple && focused && canEdit && <span className="rounded-md bg-primary px-2 py-1 text-xs font-extrabold uppercase tracking-wider text-primary-foreground">Atalhos aqui</span>}
         </div>
         {canEdit ? (
           <MatchControls eventId={eventId} category={category} match={match} canEdit variant="desk" shortcuts={focused} />
         ) : (
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
             {[a, b].map((c, i) => (
               <div key={i} className="flex items-center gap-3 rounded-xl border bg-card p-3">
-                <CompetitorPhoto name={c?.displayName ?? EMPTY_SLOT} photoUrl={c?.photoUrl ?? null} group={c?.groupName} id={c?.id} size="lg" />
+                <CompetitorPhoto name={c?.displayName ?? EMPTY_SLOT} photoUrl={c?.photoUrl ?? null} own={c} group={c?.groupName} id={c?.id} size="lg" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-extrabold">{c?.displayName ?? EMPTY_SLOT}</p>
-                  <p className="truncate text-xs text-muted-foreground">{competitorMeta(c)}</p>
+                  <p className="line-clamp-2 break-words font-extrabold" title={c?.displayName ?? EMPTY_SLOT}>{c?.displayName ?? EMPTY_SLOT}</p>
+                  <p className="line-clamp-2 break-words text-xs text-muted-foreground">{competitorMeta(c)}</p>
                 </div>
                 <span className="text-3xl font-black tabular-nums">{(i === 0 ? match.scoreA : match.scoreB) ?? 0}</span>
               </div>
@@ -288,6 +302,7 @@ function NextRow({
   onOpen: () => void;
 }) {
   const { a, b, nameA, nameB } = entryNames(entry);
+  const offline = !useOnline();
   return (
     <li
       data-testid={`desk-next-${String(entry.match.id)}`}
@@ -299,20 +314,20 @@ function NextRow({
           {index + 1}
         </span>
         <div className="flex shrink-0 -space-x-2" aria-hidden>
-          <CompetitorPhoto name={nameA} photoUrl={a?.photoUrl ?? null} group={a?.groupName} id={a?.id} size={featured ? "lg" : "sm"} />
-          <CompetitorPhoto name={nameB} photoUrl={b?.photoUrl ?? null} group={b?.groupName} id={b?.id} size={featured ? "lg" : "sm"} />
+          <CompetitorPhoto name={nameA} photoUrl={a?.photoUrl ?? null} own={a} group={a?.groupName} id={a?.id} size={featured ? "lg" : "sm"} />
+          <CompetitorPhoto name={nameB} photoUrl={b?.photoUrl ?? null} own={b} group={b?.groupName} id={b?.id} size={featured ? "lg" : "sm"} />
         </div>
         <div className="min-w-0 flex-1 basis-40">
-          {featured && <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-emerald-800 dark:text-emerald-300">Próxima luta</p>}
-          <p className={cn("truncate font-extrabold leading-tight", featured ? "text-base sm:text-lg" : "text-sm")}>
+          {featured && <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-emerald-800 dark:text-emerald-300">Próxima luta</p>}
+          <p className={cn("line-clamp-2 break-words font-extrabold leading-tight", featured ? "text-base sm:text-lg" : "text-sm")} title={`${nameA} x ${nameB}`}>
             {nameA} <span className="font-normal text-muted-foreground">x</span> {nameB}
           </p>
-          <p className="truncate text-xs text-muted-foreground">{entryLine(entry)}</p>
+          <p className="line-clamp-2 break-words text-xs text-muted-foreground" title={entryLine(entry)}>{entryLine(entry)}</p>
         </div>
         {!featured && (
-          <div className="flex shrink-0 items-center gap-1 max-sm:w-full max-sm:[&>*]:flex-1">
+          <div className="flex shrink-0 items-center gap-2 max-sm:w-full max-sm:[&>*]:flex-1">
             {canEdit && (
-              <Button type="button" size="sm" disabled={anyStarting} onClick={onStart} aria-label={`Iniciar luta: ${nameA} contra ${nameB}`}>
+              <Button type="button" size="sm" disabled={anyStarting || offline} onClick={onStart} aria-label={`Iniciar luta: ${nameA} contra ${nameB}`}>
                 <Play /> Iniciar
               </Button>
             )}
@@ -325,12 +340,12 @@ function NextRow({
       {featured && (
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
           {canEdit && (
-            <Button type="button" size="lg" className="h-14 gap-2 text-base font-extrabold" disabled={anyStarting} onClick={onStart} aria-label={`Iniciar luta: ${nameA} contra ${nameB}`}>
+            <Button type="button" size="lg" className="h-14 gap-2 text-base font-extrabold md:h-14" disabled={anyStarting || offline} onClick={onStart} aria-label={`Iniciar luta: ${nameA} contra ${nameB}`}>
               <Play className="!size-5" /> {starting ? "Iniciando…" : "Iniciar luta"}
-              <kbd className="hidden rounded border border-current/30 px-1.5 py-0.5 font-sans text-[11px] font-bold leading-none opacity-80 lg:inline">I</kbd>
+              <kbd className="hidden rounded border border-current/30 px-1.5 py-0.5 font-sans text-xs font-bold leading-none lg:inline">I</kbd>
             </Button>
           )}
-          <Button type="button" variant="outline" className="h-11 sm:h-14" onClick={onOpen} aria-label={`Abrir a luta ${nameA} contra ${nameB}`}>
+          <Button type="button" variant="outline" className="h-11 sm:h-14 md:h-14" onClick={onOpen} aria-label={`Abrir a luta ${nameA} contra ${nameB}`}>
             Abrir
           </Button>
         </div>

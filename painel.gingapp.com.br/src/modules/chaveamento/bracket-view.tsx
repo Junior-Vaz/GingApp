@@ -75,25 +75,25 @@ function Row({ match, slot, competitors }: { match: OperatorMatch; slot: Slot; c
   const loser = match.status === "FINISHED" && id !== null && match.winnerId !== null && match.winnerId !== id;
   const label = name ?? (match.isBye ? BYE_LABEL : EMPTY_SLOT);
   return (
-    <span className={cn("flex h-11 items-center gap-2 px-2", winner && "bg-emerald-500/10", loser && "opacity-60")}>
+    <span className={cn("flex h-11 items-center gap-2 px-2", winner && "bg-emerald-500/10")}>
       {name === null ? (
         <span className="grid size-8 shrink-0 place-items-center rounded-full border-2 border-dashed border-muted-foreground/40" aria-hidden />
       ) : (
-        <CompetitorPhoto name={name} photoUrl={competitor?.photoUrl ?? null} group={competitor?.groupName} id={competitor?.id} size="sm" />
+        <CompetitorPhoto name={name} photoUrl={competitor?.photoUrl ?? null} own={competitor} group={competitor?.groupName} id={competitor?.id} size="sm" className={cn(loser && "opacity-60")} />
       )}
       <span className="min-w-0 flex-1 leading-tight">
-        <span className={cn("block truncate text-[13px]", name === null ? "italic text-muted-foreground" : winner ? "font-extrabold" : "font-semibold")}>{label}</span>
-        {competitor?.groupName && <span className="block truncate text-[11px] text-muted-foreground">{competitor.groupName}</span>}
+        <span className={cn("block truncate text-[13px]", name === null || loser ? "text-muted-foreground" : "", name === null && "italic", winner ? "font-extrabold" : "font-semibold")} title={label}>{label}</span>
+        {competitor?.groupName && <span className="block truncate text-xs text-muted-foreground" title={competitor.groupName}>{competitor.groupName}</span>}
       </span>
       {winner && <Check className="size-4 shrink-0 text-emerald-700" aria-hidden />}
-      {score !== null && <span className={cn("w-7 shrink-0 text-right text-lg tabular-nums", winner ? "font-black" : "font-bold")}>{score}</span>}
+      {score !== null && <span className={cn("w-7 shrink-0 text-right text-lg tabular-nums", winner ? "font-black" : "font-bold", loser && "text-muted-foreground")}>{score}</span>}
     </span>
   );
 }
 
 function Footer({ match }: { match: OperatorMatch }) {
   return (
-    <span className={cn("flex items-center gap-1.5 px-2 text-[10px] font-extrabold uppercase tracking-wider", FOOT[match.status])} style={{ height: FOOT_H }}>
+    <span className={cn("flex items-center gap-1.5 truncate whitespace-nowrap px-2 text-xs font-extrabold uppercase tracking-wide", FOOT[match.status])} style={{ height: FOOT_H }}>
       {match.status === "LIVE" && <span className="chv-dot size-1.5 rounded-full bg-white" aria-hidden />}
       {footText(match)}
     </span>
@@ -122,7 +122,8 @@ function MatchCard({
   const m = node.match;
   const swapping = swap?.active === true && isSwappableMatch(m, swap.firstRound);
   const title = `${stageLabel(m, lastRound)}: ${matchTitle(m, competitors)}. ${statusText(m)}.`;
-  const frame = cn("overflow-hidden rounded-xl border-2 text-left shadow-sm", FRAME[m.status], m.isBye && "opacity-70");
+  // Folga: sem `opacity` (derrubaria o contraste do texto); o fundo cinza e o tracejado já a distinguem.
+  const frame = cn("overflow-hidden rounded-xl border-2 text-left shadow-sm", FRAME[m.status], m.isBye && "border-dashed bg-muted/60");
   const style = { left: node.x, top: node.y, width: CARD_W, height: CARD_H } as const;
   const live = m.status === "LIVE";
   const halo = live ? <span className="chv-halo pointer-events-none absolute -inset-1 rounded-[14px] ring-2 ring-red-500" aria-hidden /> : null;
@@ -248,13 +249,13 @@ export function BracketView({ matches, competitors, onSelectMatch, swap, pathId:
   return (
     <div className="grid grid-cols-1 gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <p>Toque no avatar para destacar o caminho do atleta. Toque na luta para abrir.</p>
+        <p className="min-w-0 flex-1 basis-48">Toque no avatar para destacar o caminho do atleta. Toque na luta para abrir.</p>
         {wide && (
-          <div className="flex items-center gap-1" role="group" aria-label="Zoom da chave">
+          <div className="flex items-center gap-2" role="group" aria-label="Zoom da chave">
             <Button type="button" variant="outline" size="icon" aria-label="Reduzir a chave" disabled={zoomIndex === 0} onClick={() => setZoomIndex((z) => Math.max(z - 1, 0))}>
               <ZoomOut />
             </Button>
-            <span className="w-10 text-center font-bold tabular-nums" aria-live="polite">{Math.round(zoom * 100)}%</span>
+            <span className="w-11 text-center font-bold tabular-nums text-foreground" aria-live="polite">{Math.round(zoom * 100)}%</span>
             <Button type="button" variant="outline" size="icon" aria-label="Ampliar a chave" disabled={zoomIndex === ZOOMS.length - 1} onClick={() => setZoomIndex((z) => Math.min(z + 1, ZOOMS.length - 1))}>
               <ZoomIn />
             </Button>
@@ -291,7 +292,7 @@ export function BracketView({ matches, competitors, onSelectMatch, swap, pathId:
             return (
               <div
                 key={c.round}
-                className="chv-snap absolute top-0 flex h-10 items-center justify-between gap-2 text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground"
+                className="chv-snap absolute top-0 flex h-10 items-center justify-between gap-2 text-xs font-extrabold uppercase tracking-wider text-muted-foreground"
                 style={{ left: c.x * zoom, width: CARD_W * zoom }}
               >
                 <span className="truncate text-foreground">{c.label}</span>
@@ -334,7 +335,7 @@ export function BracketView({ matches, competitors, onSelectMatch, swap, pathId:
             ))}
             {layout.third && layout.thirdLabelY !== null && (
               <>
-                <p className="absolute flex items-center gap-1.5 text-[11px] font-extrabold uppercase tracking-wider text-muted-foreground" style={{ left: layout.third.x, top: layout.thirdLabelY - 6 }}>
+                <p className="absolute flex items-center gap-1.5 text-xs font-extrabold uppercase tracking-wider text-muted-foreground" style={{ left: layout.third.x, top: layout.thirdLabelY - 6 }}>
                   <Medal className="size-4" aria-hidden /> Disputa de 3º lugar
                 </p>
                 <MatchCard

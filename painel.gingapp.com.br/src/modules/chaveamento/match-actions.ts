@@ -3,13 +3,14 @@ import { useAnnounce } from "./announce-context";
 import { useRecordResult, useStartMatch, useUndoMatch, useUpdateMatch } from "./api";
 import { chaveamentoErrorMessage } from "./errors";
 import { competitorMap, EMPTY_SLOT, parseOptionalInt, sideName } from "./helpers";
+import { useOnline } from "./page-activity";
 import { useQuickUndo } from "./quick-undo-context";
 import { LIMITS, type OperatorCategory, type OperatorMatch, type ResultType } from "./types";
 
 /**
  * Ações do operador sobre UMA luta (iniciar, resultado, desfazer, tatame/ordem), compartilhadas pela ação rápida (bottom
  * sheet) e pela mesa de controle: mesma validação, mesmas mensagens, mesmo anúncio para leitor de tela. O resultado
- * salvo abre a janela do "desfazer rápido" (barra por ~10 s).
+ * salvo abre a janela do "desfazer rápido" (barra por ~10 s). Offline: `busy` fica ligado (botões desabilitados).
  */
 export function useMatchActions(eventId: number, category: OperatorCategory, match: OperatorMatch) {
   const announce = useAnnounce();
@@ -19,7 +20,9 @@ export function useMatchActions(eventId: number, category: OperatorCategory, mat
   const undo = useUndoMatch(eventId);
   const update = useUpdateMatch(eventId);
   const [error, setError] = useState("");
-  const busy = start.isPending || record.isPending || undo.isPending || update.isPending;
+  // Sem internet NÃO há botão de resultado ativo (e nenhuma escrita fica na fila): `busy` já desabilita tudo.
+  const offline = !useOnline();
+  const busy = start.isPending || record.isPending || undo.isPending || update.isPending || offline;
 
   const competitors = competitorMap(category);
   const titleA = sideName(competitors, match.slotAId) ?? EMPTY_SLOT;
@@ -99,5 +102,5 @@ export function useMatchActions(eventId: number, category: OperatorCategory, mat
     return Boolean(done);
   }
 
-  return { error, setError, busy, titleA, titleB, competitors, onStart, onWinner, onDraw, onUndo, onSaveSchedule };
+  return { error, setError, busy, offline, titleA, titleB, competitors, onStart, onWinner, onDraw, onUndo, onSaveSchedule };
 }

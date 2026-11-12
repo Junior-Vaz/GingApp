@@ -1,12 +1,4 @@
-import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -28,9 +20,17 @@ import { PageHeader } from "@/components/painel/page-header";
 import { RoleBadges } from "@/components/painel/role-badges";
 import { TwoFactorButton } from "@/components/painel/two-factor-dialog";
 import { UserAvatar } from "@/components/painel/user-avatar";
+import { PhotoPicker } from "@/components/photo/photo-picker";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -51,7 +51,7 @@ import {
 } from "@/lib/profile";
 import { ROLE_LABEL, useSessionUser } from "@/lib/session";
 import { ME_QUERY_KEY, fetchMe } from "@/lib/two-factor";
-import { UPLOAD_ACCEPT, uploadImage, validateImageFile } from "@/lib/uploads";
+import { imageSrc, uploadImage } from "@/lib/uploads";
 
 /** Cartão de seção: título + descrição curta e o conteúdo. Mobile-first (nada de largura fixa). */
 function Section({
@@ -84,12 +84,11 @@ const ACCOUNT_BUTTONS =
  */
 function ProfileHero({ person }: { person: MyPerson | null | undefined }) {
   const user = useSessionUser();
-  const inputId = useId();
-  const fileRef = useRef<HTMLInputElement>(null);
+  const [photoOpen, setPhotoOpen] = useState(false);
   const invalidate = useInvalidateProfile();
 
   const savePhoto = useMutation({
-    mutationFn: async (file: File | null) => {
+    mutationFn: async (file: Blob | null) => {
       const photo = file ? await uploadImage(file) : null;
       await updateAccountPhoto(photo);
       // Com ficha de pessoa, a foto também vale na ficha/matrículas (mesma foto em todo lugar).
@@ -98,20 +97,12 @@ function ProfileHero({ person }: { person: MyPerson | null | undefined }) {
     },
     onSuccess: (photo) => {
       invalidate();
+      setPhotoOpen(false);
       toast.success(photo ? "Foto atualizada." : "Foto removida.");
     },
     onError: (error) =>
       toast.error(errorMessage(error, "Não foi possível salvar a foto. Tente novamente.")),
   });
-
-  function handleFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = ""; // permite escolher o mesmo arquivo de novo
-    if (!file) return;
-    const invalid = validateImageFile(file);
-    if (invalid) return void toast.error(invalid);
-    savePhoto.mutate(file);
-  }
 
   if (!user) return null;
   const groupName = user.organizationName?.trim() || user.organizationSlug;
@@ -128,7 +119,7 @@ function ProfileHero({ person }: { person: MyPerson | null | undefined }) {
               aria-label="Trocar foto de perfil"
               data-testid="profile-photo-button"
               disabled={savePhoto.isPending}
-              onClick={() => fileRef.current?.click()}
+              onClick={() => setPhotoOpen(true)}
               className="group relative block rounded-full ring-4 ring-card outline-none focus-visible:ring-primary"
             >
               <UserAvatar className="size-24 text-2xl sm:size-28 sm:text-3xl" />
@@ -150,17 +141,6 @@ function ProfileHero({ person }: { person: MyPerson | null | undefined }) {
                 <Camera className="size-4" />
               )}
             </span>
-            <input
-              id={inputId}
-              ref={fileRef}
-              type="file"
-              accept={UPLOAD_ACCEPT}
-              className="sr-only"
-              tabIndex={-1}
-              aria-label="Escolher foto de perfil"
-              data-testid="profile-photo-input"
-              onChange={handleFile}
-            />
           </div>
           <div className="min-w-0 sm:pb-1">
             <h2
@@ -206,6 +186,29 @@ function ProfileHero({ person }: { person: MyPerson | null | undefined }) {
           </div>
         )}
       </div>
+      <Dialog open={photoOpen} onOpenChange={(open) => !savePhoto.isPending && setPhotoOpen(open)}>
+        <DialogContent
+          className="max-h-[92dvh] overflow-y-auto sm:max-w-sm"
+          data-testid="profile-photo-dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>Foto de perfil</DialogTitle>
+            <DialogDescription>
+              Tire uma foto na hora ou envie uma imagem. Ela é recortada em quadrado e reduzida antes de
+              ser salva.
+            </DialogDescription>
+          </DialogHeader>
+          <PhotoPicker
+            label="Sua foto"
+            value={user.photo ? imageSrc(user.photo) : null}
+            onChange={(photo) => savePhoto.mutate(photo)}
+            shape="square"
+            camera
+            busy={savePhoto.isPending}
+            previewAlt="Sua foto de perfil"
+          />
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

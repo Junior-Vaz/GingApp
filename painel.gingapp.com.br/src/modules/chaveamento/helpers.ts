@@ -1,6 +1,6 @@
 import { appOrigin } from "@/lib/format";
 import { isUploadPath } from "@/lib/uploads";
-import { MATCH_STATUS_LABEL, RESULT_TYPE_LABEL, type OperatorCategory, type OperatorCompetitor, type OperatorMatch } from "./types";
+import { MATCH_STATUS_LABEL, RESULT_TYPE_LABEL, type ImportResult, type OperatorCategory, type OperatorCompetitor, type OperatorMatch } from "./types";
 
 export type CompetitorMap = ReadonlyMap<number, OperatorCompetitor>;
 
@@ -85,6 +85,19 @@ export const photoIndicatorText = (c: Pick<OperatorCompetitor, "photoPublic">): 
   `Foto no telão: ${c.photoPublic ? "sim" : "não"}`;
 
 /**
+ * Por que a foto NÃO vai ao telão (só quando `photoPublic` é falso; senão `null`). A regra em si é do servidor: aqui só se
+ * explica ao operador o motivo mais provável, para ele saber o que fazer (marcar a autorização do responsável, enviar a foto).
+ */
+export function photoHiddenReason(c: Pick<OperatorCompetitor, "photoPublic" | "hasOwnPhoto" | "photoUrl" | "ageGroup" | "photoAuthorized">): string | null {
+  if (c.photoPublic) return null;
+  if (!c.hasOwnPhoto && !c.photoUrl) return "Sem foto cadastrada: o telão mostra as iniciais.";
+  if (needsPhotoAuthorization(c) && !c.photoAuthorized) {
+    return "Menor de idade (ou idade não informada) sem autorização do responsável: a foto não vai ao telão. Marque a autorização em Editar.";
+  }
+  return "A foto não aparece no telão agora.";
+}
+
+/**
  * Foto aceita (mesma regra do backend): caminho de upload do GingApp ou `https://`. Qualquer outra coisa
  * (`javascript:`, `data:`, `http:`) NUNCA vai para um `<img src>`.
  */
@@ -100,6 +113,9 @@ export function isAcceptablePhotoUrl(value: string | null | undefined): value is
 
 /** Endereço público do telão (`?tv=1` liga o modo telão). */
 export const liveUrl = (token: string, tv = false): string => `${appOrigin()}/ao-vivo/${token}${tv ? "?tv=1" : ""}`;
+
+/** Endereço do telão já aberto numa categoria: `<APP_URL>/ao-vivo/<token>?categoria=<id da categoria>` (o app público o aceita). */
+export const categoryLiveUrl = (token: string, categoryId: number): string => `${liveUrl(token)}?categoria=${String(categoryId)}`;
 
 export const chaveamentoHref = (eventId: number): string => `/eventos/${String(eventId)}/chaveamento`;
 
@@ -141,3 +157,18 @@ export function authorizationText(c: Pick<OperatorCompetitor, "ageGroup" | "phot
   if (!needsPhotoAuthorization(c)) return "Autorização do responsável: não se aplica";
   return `Autorização do responsável: ${c.photoAuthorized ? "sim" : "não"}`;
 }
+
+/** "N fotos importadas das inscrições" (singular/plural). */
+export const importedPhotosText = (count: number): string =>
+  `${String(count)} ${count === 1 ? "foto importada" : "fotos importadas"} das inscrições`;
+
+/** "6 atletas adicionados. 2 fotos importadas das inscrições." (aviso fixo na lista; o toast some sozinho). */
+export function importResultText(result: Pick<ImportResult, "added" | "skipped" | "photosImported">): string {
+  return (
+    `${String(result.added)} ${result.added === 1 ? "atleta adicionado" : "atletas adicionados"}` +
+    (result.skipped > 0 ? `, ${String(result.skipped)} já estavam na categoria ou não puderam entrar` : "") +
+    "." +
+    (result.photosImported > 0 ? ` ${importedPhotosText(result.photosImported)}.` : "")
+  );
+}
+

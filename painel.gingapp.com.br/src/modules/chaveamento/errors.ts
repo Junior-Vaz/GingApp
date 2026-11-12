@@ -34,7 +34,16 @@ export const TOURNAMENT_ERROR_MESSAGES = {
   INVALID_RESULT: "Resultado inválido. Escolha o vencedor entre os dois atletas; o placar vai de 0 a 999 e, em empate, os dois lados devem ser iguais. Empate só vale na fase de grupos.",
   INVALID_COMPETITOR: "Atleta inválido. Escolha dois atletas diferentes desta categoria.",
   AGE_GROUP_FROM_STUDENT: "A faixa etária deste atleta vem do cadastro do aluno e não pode ser alterada aqui.",
-  INVALID_PHOTO_URL: "Endereço de foto inválido. Use um link que comece com https:// ou uma foto enviada pelo GingApp.",
+  INVALID_PHOTO_URL: "Endereço de foto inválido. A foto do atleta agora é enviada como arquivo (ou tirada na hora), não por link.",
+  PHOTO_URL_NOT_ALLOWED: "A foto do atleta não pode mais ser informada por endereço (link). Envie a foto como arquivo ou tire-a na hora.",
+  PHOTO_FROM_STUDENT: "A foto deste atleta vem do cadastro do aluno e não pode ser trocada aqui. Para mudá-la, atualize a foto no cadastro do aluno.",
+  PHOTO_FILE_REQUIRED: "Nenhuma foto foi enviada. Escolha uma imagem ou tire a foto e tente de novo.",
+  PHOTO_TOO_LARGE: "A foto é grande demais (limite de 5 MB). Escolha outra foto ou tire a foto na hora: o painel já a reduz sozinho.",
+  PHOTO_TYPE_NOT_ALLOWED: "Formato de foto não aceito. Envie uma imagem JPG, PNG ou WebP (HEIC, GIF e SVG não valem); ou tire a foto na hora.",
+  PHOTO_UNREADABLE: "Não foi possível abrir esta imagem: o arquivo pode estar danificado. Escolha outra foto ou tire uma na hora.",
+  PHOTO_QUOTA: "O espaço de fotos de atletas do grupo está cheio. Remova fotos de atletas de campeonatos antigos ou peça ao suporte para aumentar o limite.",
+  PHOTO_PROCESSING_UNAVAILABLE: "O servidor não conseguiu processar a foto agora (indisponível ou ocupado). Tente enviar a foto de novo em instantes; o atleta já está salvo.",
+  PHOTO_NOT_FOUND: "Este atleta não tem foto própria. Envie uma foto para cadastrá-la.",
   PARTICIPANT_NOT_ELIGIBLE: "Só participantes confirmados ou com presença registrada podem entrar na chave. Confirme a inscrição em Eventos > Participantes.",
   STUDENT_NOT_ELIGIBLE: "Este aluno não pode entrar na chave (cadastro inativo ou de outro grupo). Confira o cadastro do aluno.",
   TOO_MANY_VIEWERS: "Muitas pessoas estão assistindo agora. Tente de novo em instantes.",
@@ -61,6 +70,8 @@ export function chaveamentoErrorMessage(error: unknown, fallback = "Não foi pos
   const code = tournamentErrorCode(error);
   if (code) return TOURNAMENT_ERROR_MESSAGES[code];
   if (error instanceof ApiError) {
+    // Corte do proxy/servidor ANTES do código de negócio (sem corpo JSON): o texto do status ainda orienta.
+    if (error.status === 413) return TOURNAMENT_ERROR_MESSAGES.PHOTO_TOO_LARGE;
     if (error.status === 403) return "Você não tem permissão para alterar o chaveamento. Peça a um professor ou ao mestre.";
     if (error.status === 401) return error.message;
     if (error.status >= 500) return fallback;

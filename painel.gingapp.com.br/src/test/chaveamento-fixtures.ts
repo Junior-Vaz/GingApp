@@ -17,6 +17,8 @@ export function mkCompetitor(id: number, name: string, over: Partial<OperatorCom
     studentId: null,
     eventParticipantId: null,
     photoUrl: null,
+    hasOwnPhoto: false,
+    photoVersion: null,
     ageGroup: "ADULT",
     photoAuthorized: false,
     photoAuthorizedAt: null,

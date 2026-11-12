@@ -25,11 +25,18 @@ import {
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
+// A compressão (canvas) não existe no jsdom: o teste controla o que `prepareImage` devolve.
+const prepareMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/photo/prepare-image", () => ({ prepareImage: prepareMock }));
+const SMALL_BLOB = () => new Blob([new Uint8Array(100 * 1024)], { type: "image/webp" });
+
 const SLOW = 30_000; // telas pesadas (Sheet/Dialog do Radix): o gate completo roda sob carga
 
 beforeEach(() => {
   loginAs("MESTRE");
   updateSessionUser({ organizationName: "Grupo Cordão" });
+  prepareMock.mockReset();
+  prepareMock.mockImplementation(async () => SMALL_BLOB());
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -541,22 +548,39 @@ describe("formulário de campanha", () => {
   );
 
   it(
-    "imagem: recusa > 250 KB e formato errado NO NAVEGADOR (mensagem, sem upload); válida sobe por /group-sponsor-uploads e aparece na pré-visualização",
+    "imagem: formato errado é recusado NO NAVEGADOR (sem upload); > 250 KB é COMPRIMIDA (alvo 240 KB) e sobe por /group-sponsor-uploads; só erra se a compressão não resolver",
     async () => {
       const calls = await openNewForm(baseRoutes({ "POST /group-sponsor-uploads": () => json(201, { url: UPLOADED }) }));
       const input = screen.getByTestId("campaign-image-file");
-      fireEvent.change(input, { target: { files: [fileOf("grande.png", "image/png", 250 * 1024 + 1)] } });
-      expect(await within(dialog()).findByText(/limite é 250 KB/)).toBeInTheDocument();
       fireEvent.change(input, { target: { files: [fileOf("a.gif", "image/gif")] } });
       expect(await within(dialog()).findByText(/Formato não aceito/)).toBeInTheDocument();
       expect(sent(calls, "POST", "/group-sponsor-uploads")).toHaveLength(0);
+      expect(prepareMock).not.toHaveBeenCalled();
       expect(screen.queryByTestId("preview-image")).not.toBeInTheDocument();
 
-      fireEvent.change(input, { target: { files: [fileOf("ok.webp", "image/webp", 100 * 1024)] } });
+      // a compressão NÃO resolve: erro claro, sem upload do arquivo grande
+      const huge = fileOf("grande.png", "image/png", 250 * 1024 + 1);
+      prepareMock.mockRejectedValueOnce(Object.assign(new Error("x"), { code: "ENCODE_FAILED" }));
+      fireEvent.change(input, { target: { files: [huge] } });
+      expect(await within(dialog()).findByText(/Não foi possível reduzir a imagem para menos de 250 KB/)).toBeInTheDocument();
+      expect(sent(calls, "POST", "/group-sponsor-uploads")).toHaveLength(0);
+
+      // a compressão resolve: o que sobe é o Blob comprimido (e a mensagem de "excede" não aparece)
+      fireEvent.change(input, { target: { files: [huge] } });
       await waitFor(() => expect(sent(calls, "POST", "/group-sponsor-uploads")).toHaveLength(1));
-      expect(((sent(calls, "POST", "/group-sponsor-uploads")[0]!.body) as FormData).get("file")).toBeInstanceOf(File);
+      expect(prepareMock).toHaveBeenLastCalledWith(huge, { shape: "wide", maxBytes: 240 * 1024 });
+      const sentFile = (sent(calls, "POST", "/group-sponsor-uploads")[0]!.body as FormData).get("file") as File;
+      expect(sentFile.name).toBe("foto.webp");
+      expect(sentFile.size).toBe(100 * 1024);
+      expect(within(dialog()).queryByText(/limite é 250 KB/)).not.toBeInTheDocument();
       const preview = await screen.findByTestId("preview-image");
       expect(preview.getAttribute("src")).toMatch(/\/api\/uploads\/3f2b8c1e-5d4a-4c3b-9a7e-1b2c3d4e5f60\.webp$/);
+
+      // imagem que já cabe vai COMO ESTÁ (sem recomprimir: preserva a transparência de logos)
+      prepareMock.mockClear();
+      fireEvent.change(input, { target: { files: [fileOf("ok.webp", "image/webp", 100 * 1024)] } });
+      await waitFor(() => expect(sent(calls, "POST", "/group-sponsor-uploads")).toHaveLength(2));
+      expect(prepareMock).not.toHaveBeenCalled();
     },
     SLOW,
   );
@@ -665,14 +689,12 @@ describe("patrocinadores do grupo", () => {
   );
 
   it(
-    "logo: > 250 KB ou formato inválido é recusado no navegador (sem upload); válido sobe pelo /group-sponsor-uploads e vai no corpo",
+    "logo: formato inválido é recusado no navegador (sem upload); > 250 KB é comprimida; válido sobe pelo /group-sponsor-uploads e vai no corpo",
     async () => {
       const calls = await openSponsors(baseRoutes({ "POST /group-sponsor-uploads": () => json(201, { url: UPLOADED }), "POST /group-sponsors": () => json(201, SPONSORS[0]) }));
       fireEvent.click(screen.getByRole("button", { name: "Novo patrocinador" }));
       const form = await screen.findByTestId("sponsor-form");
       const input = screen.getByTestId("sponsor-logo-file");
-      fireEvent.change(input, { target: { files: [fileOf("logo.png", "image/png", 251 * 1024)] } });
-      expect(await within(form).findByText(/limite é 250 KB/)).toBeInTheDocument();
       fireEvent.change(input, { target: { files: [fileOf("logo.svg", "image/svg+xml")] } });
       expect(await within(form).findByText(/Formato não aceito/)).toBeInTheDocument();
       expect(sent(calls, "POST", "/group-sponsor-uploads")).toHaveLength(0);

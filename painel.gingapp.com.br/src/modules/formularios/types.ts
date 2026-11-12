@@ -1,6 +1,7 @@
 import {
   AlignLeft,
   Calendar,
+  Camera,
   CheckSquare,
   CircleDot,
   FileUp,
@@ -61,6 +62,7 @@ export type FieldType =
   | "SELECT"
   | "CONSENT"
   | "FILE"
+  | "PHOTO"
   | "INFO";
 
 export interface FieldTypeInfo {
@@ -83,6 +85,7 @@ export const FIELD_TYPES: readonly FieldTypeInfo[] = [
   { type: "SELECT", label: "Lista suspensa", icon: ScrollText },
   { type: "CONSENT", label: "Aceite de termo", icon: CheckSquare },
   { type: "FILE", label: "Envio de arquivo", icon: FileUp },
+  { type: "PHOTO", label: "Foto do participante", icon: Camera },
   { type: "INFO", label: "Texto informativo", icon: Info },
 ];
 
@@ -120,7 +123,11 @@ export const MAPS_TO_OPTIONS: readonly { value: MapsTo; label: string }[] = [
 ];
 
 /** Limites do contrato (o servidor valida de novo). */
-export const LIMITS = { fields: 60, sections: 12, options: 40, files: 5 } as const;
+export const LIMITS = { fields: 60, sections: 12, options: 40, files: 5, photos: 1 } as const;
+
+/** Texto de ajuda sugerido ao criar o campo "Foto do participante" (o mesmo do modelo Campeonato). */
+export const PHOTO_HELP_TEXT =
+  "Foto de rosto, bem iluminada. Para menores de 18 anos, a foto deve ser tirada ou enviada pelo responsável.";
 
 export type TemplateKey = "CAMPEONATO" | "BATIZADO" | "CURSO" | "RODA" | "SIMPLES";
 
@@ -135,7 +142,7 @@ export const FALLBACK_TEMPLATES: readonly FormTemplate[] = [
   {
     key: "CAMPEONATO",
     name: "Campeonato",
-    description: "Dados do competidor, graduação, grupo, categoria, termo e pagamento.",
+    description: "Dados do competidor, foto, graduação, grupo, categoria, termo e pagamento.",
   },
   {
     key: "BATIZADO",
@@ -329,7 +336,7 @@ export interface SubmissionsPage {
   offset: number;
 }
 
-/** Resposta de FILE: lista de anexos `{ fileId, originalName, mimeType }`; CPF vem mascarado; vazio = `null`. */
+/** Resposta de FILE e PHOTO: lista de anexos `{ fileId, originalName, mimeType }`; CPF vem mascarado; vazio = `null`. */
 export interface SubmissionFileRef {
   fileId: Id;
   originalName: string;

@@ -120,7 +120,8 @@ function FieldEditor({
   const usedMaps = new Map<MapsTo, string>();
   for (const other of allFields(draft))
     if (other.mapsTo && other.key !== field.key) usedMaps.set(other.mapsTo, other.label);
-  const canMap = !["INFO", "FILE", "CONSENT", "LONG_TEXT", "MULTI_CHOICE"].includes(field.type);
+  const canMap = !["INFO", "FILE", "PHOTO", "CONSENT", "LONG_TEXT", "MULTI_CHOICE"].includes(field.type);
+  const isPhoto = field.type === "PHOTO";
   const atFieldLimit = allFields(draft).length >= LIMITS.fields;
 
   const setOption = (index: number, value: string) =>
@@ -185,6 +186,17 @@ function FieldEditor({
             disabled={readOnly}
             onCheckedChange={(required) => onChange({ required })}
           />
+        )}
+
+        {isPhoto && (
+          <p
+            className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground"
+            data-testid="photo-field-note"
+          >
+            Quem se inscreve tira a foto na hora ou envia uma imagem; ela é recortada em quadrado e
+            reduzida. Só pode haver 1 campo de foto por formulário. A foto vai para o chaveamento do
+            campeonato (como imagem do atleta no telão) e não é ligada à ficha da pessoa.
+          </p>
         )}
 
         {choice && (
@@ -388,7 +400,13 @@ function FieldEditor({
         </Button>
         {!readOnly && (
           <div className="grid grid-cols-2 gap-2">
-            <Button type="button" variant="outline" disabled={atFieldLimit} onClick={onDuplicate}>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={atFieldLimit || isPhoto}
+              title={isPhoto ? "Só pode haver 1 campo de foto por formulário." : undefined}
+              onClick={onDuplicate}
+            >
               <CopyPlus /> Duplicar
             </Button>
             <Button

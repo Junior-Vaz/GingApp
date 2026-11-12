@@ -12,6 +12,11 @@ vi.mock("sonner", async (importOriginal) => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
+// Recorte/compressão (canvas) não existem no jsdom: o teste controla o que `prepareImage` devolve.
+const prepareMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/photo/prepare-image", () => ({ prepareImage: prepareMock }));
+import { PREPARED, installPhotoMocks, pickSquarePhoto, restorePhotoMocks } from "./photo-flow";
+
 type Call = { method: string; path: string; body: unknown };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
 const UPLOADED = "/api/uploads/11111111-2222-4333-8444-555555555555.webp";
@@ -77,8 +82,14 @@ const ficha = (over: Record<string, unknown> = {}) => ({
   },
 });
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  installPhotoMocks();
+  prepareMock.mockReset();
+  prepareMock.mockImplementation(async () => PREPARED());
+});
 afterEach(() => {
+  restorePhotoMocks();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   clearSession();
@@ -243,12 +254,19 @@ describe("Tela de perfil", () => {
     );
     openPanel("/perfil", makeUser());
     await screen.findByDisplayValue("Bimba");
-    const input = screen.getByTestId("profile-photo-input");
-    fireEvent.change(input, {
-      target: { files: [new File([new Uint8Array([1, 2, 3])], "eu.png", { type: "image/png" })] },
-    });
+    // o avatar abre o diálogo "Foto de perfil" (PhotoPicker: tirar foto ou enviar, recorte quadrado)
+    fireEvent.click(screen.getByTestId("profile-photo-button"));
+    const photoDialog = await screen.findByTestId("profile-photo-dialog");
+    expect(within(photoDialog).getByRole("button", { name: /Tirar foto/ })).toBeInTheDocument();
+    await pickSquarePhoto(
+      new File([new Uint8Array([1, 2, 3])], "eu.png", { type: "image/png" }),
+      photoDialog,
+    );
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Foto atualizada."));
-    expect(calls.find((c) => c.method === "POST" && c.path === "/uploads")).toBeDefined();
+    const upload = calls.find((c) => c.method === "POST" && c.path === "/uploads");
+    expect(upload).toBeDefined();
+    // sobe o Blob já preparado (foto.webp), nunca a original
+    expect((upload!.body as FormData).get("file")).toMatchObject({ name: "foto.webp", type: "image/webp" });
     expect(calls.find((c) => c.method === "PATCH" && c.path === "/auth/me/profile")?.body).toEqual({
       photo: UPLOADED,
     });
@@ -261,7 +279,7 @@ describe("Tela de perfil", () => {
     );
   });
 
-  it("recusa arquivo que não é imagem (sem rede) e remove a foto com null", async () => {
+  it("arquivo que não é imagem é recusado pelo PhotoPicker (sem rede) e remove a foto com null", async () => {
     const calls = mockApi(
       baseRoutes({
         "PATCH /auth/me/profile": () => json(200, { ...makeUser(), photo: null }),
@@ -270,11 +288,20 @@ describe("Tela de perfil", () => {
     );
     openPanel("/perfil", makeUser({ photo: "https://x.test/eu.png" }));
     await screen.findByDisplayValue("Bimba");
-    fireEvent.change(screen.getByTestId("profile-photo-input"), {
+    fireEvent.click(screen.getByTestId("profile-photo-button"));
+    const photoDialog = await screen.findByTestId("profile-photo-dialog");
+    // PDF: o recorte abre, a imagem não carrega e "Usar esta foto" fica bloqueado; nada vai para a rede
+    fireEvent.change(within(photoDialog).getByTestId("photo-file-input"), {
       target: { files: [new File(["x"], "doc.pdf", { type: "application/pdf" })] },
     });
-    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    fireEvent.error(await screen.findByTestId("crop-image"));
+    expect(await screen.findByTestId("crop-error")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Usar esta foto" })).toBeDisabled();
     expect(calls.some((c) => c.method === "POST" && c.path === "/uploads")).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByTestId("crop-image")).not.toBeInTheDocument());
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("profile-photo-dialog")).not.toBeInTheDocument());
 
     fireEvent.click(screen.getByTestId("profile-photo-remove"));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Foto removida."));
@@ -338,9 +365,11 @@ describe("Tela de perfil", () => {
       expect(screen.getByTestId("profile-2fa-status")).toHaveTextContent("ligada"),
     );
 
-    fireEvent.change(screen.getByTestId("profile-photo-input"), {
-      target: { files: [new File([new Uint8Array([1])], "eu.png", { type: "image/png" })] },
-    });
+    fireEvent.click(screen.getByTestId("profile-photo-button"));
+    await pickSquarePhoto(
+      new File([new Uint8Array([1])], "eu.png", { type: "image/png" }),
+      await screen.findByTestId("profile-photo-dialog"),
+    );
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Foto atualizada."));
     expect(calls.find((c) => c.method === "PATCH" && c.path === "/auth/me/profile")?.body).toEqual({
       photo: UPLOADED,

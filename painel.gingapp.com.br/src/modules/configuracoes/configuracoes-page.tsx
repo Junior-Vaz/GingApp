@@ -352,9 +352,9 @@ function OrganizationCard() {
               <ImageUploadField<OrganizationFormValues>
                 name="logo"
                 label="Logomarca"
-                shape="square"
+                shape="wide"
                 previewAlt="Logomarca do grupo"
-                description="Envie a logomarca (JPEG, PNG ou WebP até 5 MB) ou cole o link de uma imagem já publicada."
+                description="Envie a logomarca (ela é reduzida automaticamente) ou cole o link de uma imagem já publicada."
               />
               <FormField
                 control={form.control}

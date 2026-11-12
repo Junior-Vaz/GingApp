@@ -34,6 +34,8 @@ export const DEFAULT_CTA_LABEL = "Conhecer";
 
 /** Peso final máximo da imagem/logo de patrocinador (contrato do grupo §3: 250 KB). */
 export const SPONSOR_IMAGE_MAX_BYTES = 250 * 1024;
+/** Alvo da compressão no navegador: um pouco abaixo do teto, para o arquivo nunca ficar no limite exato. */
+export const SPONSOR_IMAGE_COMPRESS_TARGET_BYTES = 240 * 1024;
 export const SPONSOR_IMAGE_RECOMMENDED = { width: 1200, height: 630 } as const;
 export const SPONSOR_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 

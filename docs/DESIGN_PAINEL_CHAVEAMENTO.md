@@ -23,3 +23,16 @@ O operador está de pé num ginásio, com o celular numa mão, pressionado, às 
 
 ## 4. Entrega visual (obrigatória)
 Rodar o painel no navegador (dev server + mock local FORA do repositório em `D:\tmp\painel-mock\`: login simulado, `/events`, `/students` mínimos e os endpoints de torneio em memória, com respostas no formato REAL de `D:\tmp\chaveamento-capture`, simulando a progressão), capturar em `D:\tmp\painel-shots\` (390×844 celular e 1440×900 desktop; claro e escuro quando fizer diferença) e iterar com autocrítica rigorosa em pelo menos 2 rodadas: mesa de controle, luta em andamento com botões de vencedor, barra de desfazer, chave com destaque de caminho, lista de atletas, sorteio (meio da animação), cartão do telão, estados vazios.
+
+
+## 5. Responsividade e operação no celular (rodada 2026-11-12)
+Matriz medida (script `D:\tmp\painel-mock\resp.mjs`, 11 viewports x 20 estados + `resp-extra.mjs`): 320x568, 360x740, 390x844, 412x915, 430x932, 844x390, 740x360, 768x1024, 1024x768, 1280x720, 1440x900; texto a 200% (rem de 32 px) em 390x844; `prefers-reduced-motion`; teclado virtual emulado (viewport pela metade); offline; aba oculta.
+
+Regras que valem daqui em diante:
+- **Toque** (`pointer: coarse`, também tablet): alvo >= 44 px e campos com 16 px, por CSS escopado em `body[data-chaveamento]` (`chaveamento.css`); o menu lateral do shell fica de fora. Botões de ícone adjacentes com >= 8 px. Exceção justificada: as duas "áreas de avatar" (destacar caminho) do mesmo cartão da chave ficam coladas (cada uma 48x44; o alvo principal é o cartão inteiro).
+- **Chrome fixo**: botões flutuantes globais somem nesta página; a barra "Resultado registrado · DESFAZER" usa `bottom: calc(var(--chv-nav) + 0.75rem + env(safe-area-inset-bottom))` (acima da barra inferior e do home indicator); em paisagem de celular (< md e altura <= 500 px) o topo deixa de ser fixo e a barra inferior fica com 48 px (`--chv-nav: 3rem`). Tablet e celular deitado (>= 768 px, toque, < 1100 px): o menu lateral abre recolhido enquanto se está no chaveamento e volta ao sair (`useCompactSidebar`).
+- **Mesa**: as colunas de atletas do cartão ao vivo usam container query (`@lg`, 32 rem do PRÓPRIO cartão): em 320 px, na folha do celular e no cartão estreito do desktop os atletas empilham; nomes: `line-clamp-2` + `title`; o VENCEU esconde o troféu abaixo de 14 rem de largura.
+- **Campos**: `fields.ts` (`numericField`, `textField`, `STICKY_FOOTER`): `inputMode`/`pattern`/`enterKeyHint="done"`/`autoComplete="off"`, rolagem até o campo ao focar (teclado virtual), rodapé de diálogo sticky e lado a lado.
+- **Consulta periódica** (`page-activity.ts`): a cada 5 s só com a aba visível e online; oculta/offline = nenhuma consulta; ao voltar, refetch imediato. Mutações com `networkMode: "always"` (nada fica na fila) e botões de resultado/iniciar/desfazer desabilitados offline, com o aviso "Sem conexão — as ações ficam indisponíveis."
+- **Texto**: mínimo de 12 px; `--muted-foreground` mais escuro no tema claro (AA sobre cinza); linhas "perdedoras" e folgas da chave sem `opacity` (o contraste caía para ~2,7:1).
+- **Link da categoria**: `categoryLiveUrl(token, id)` = `<APP_URL>/ao-vivo/<token>?categoria=<id>`; "Copiar link desta categoria" e "Compartilhar" (`navigator.share`, com plano B de copiar) na categoria aberta e, com seletor, no cartão do telão.

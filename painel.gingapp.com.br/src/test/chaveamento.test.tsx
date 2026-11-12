@@ -200,15 +200,25 @@ describe("chaveamento: atletas, sorteio e luta", () => {
     expect(await screen.findByText(TOURNAMENT_ERROR_MESSAGES.SEED_TAKEN)).toBeInTheDocument();
   });
 
-  it("rejeita foto fora do padrão antes de chamar a API", async () => {
+  it("a foto do atleta de fora NÃO é digitável: não há campo de endereço, só enviar/tirar foto (PhotoPicker)", async () => {
     withCategory(mkCategory());
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: /Adicionar de fora/ }));
+    const dialog = await screen.findByTestId("competitor-dialog");
+    expect(within(dialog).getByTestId("photo-picker")).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Enviar foto" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: /Tirar foto/ })).toBeInTheDocument();
+    // nenhum campo de texto/URL ligado a foto
+    expect(dialog.querySelector("input[type=url]")).toBeNull();
+    expect(dialog.querySelector("input[inputmode=url]")).toBeNull();
+    expect(within(dialog).queryByPlaceholderText(/https/)).toBeNull();
+    expect(within(dialog).queryByLabelText(/endereço/i)).toBeNull();
+    // o cadastro sem foto não manda `photoUrl` (o backend real recusa com 400 PHOTO_URL_NOT_ALLOWED)
     fireEvent.change(screen.getByLabelText("Nome"), { target: { value: "Fulano" } });
-    fireEvent.change(screen.getByLabelText(/Foto/), { target: { value: "javascript:alert(1)" } });
     fireEvent.click(screen.getByRole("button", { name: "Adicionar" }));
-    expect(await screen.findByText(TOURNAMENT_ERROR_MESSAGES.INVALID_PHOTO_URL)).toBeInTheDocument();
-    expect(sent(fake, "POST", "/competitors")).toHaveLength(0);
+    await waitFor(() => expect(sent(fake, "POST", "/competitors")).toHaveLength(1));
+    expect(JSON.stringify(sent(fake, "POST", "/competitors")[0]!.body)).not.toContain("photoUrl");
+    expect(sent(fake, "POST", "/photo")).toHaveLength(0); // sem foto escolhida: nada de envio de foto
   });
 
   it("com menos de 2 atletas o botão Gerar chave fica desabilitado", async () => {
@@ -546,6 +556,9 @@ describe("chaveamento: mapa de erros", () => {
     "MATCH_ALREADY_FINISHED", "MATCH_NOT_READY", "MATCH_IS_BYE", "NOTHING_TO_UNDO", "DEPENDENT_MATCH_PLAYED",
     "INCONSISTENT_STATE", "INVALID_GROUP_CONFIG", "INVALID_RESULT", "INVALID_COMPETITOR", "INVALID_PHOTO_URL",
     "PARTICIPANT_NOT_ELIGIBLE", "STUDENT_NOT_ELIGIBLE", "AGE_GROUP_FROM_STUDENT",
+    // foto do atleta (docs/CONTRATO_FOTO_UPLOAD_CAMERA.md 6 e 9): TODOS precisam de mensagem acionável
+    "PHOTO_URL_NOT_ALLOWED", "PHOTO_FROM_STUDENT", "PHOTO_TOO_LARGE", "PHOTO_TYPE_NOT_ALLOWED", "PHOTO_UNREADABLE",
+    "PHOTO_QUOTA", "PHOTO_PROCESSING_UNAVAILABLE", "PHOTO_NOT_FOUND", "PHOTO_FILE_REQUIRED",
     // existem no backend além da lista do briefing:
     "NOT_GENERATED", "TOO_MANY_VIEWERS",
   ];

@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Download, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,37 +10,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { FORBIDDEN_MESSAGE, formsErrorMessage, useSubmissionFile } from "./api";
 import { formatBytes } from "./submission-utils";
+import { IMAGE_TYPES, PDF_TYPE, safeBlobType, useBlobUrl } from "./use-blob-url";
 import type { Id, SubmissionFile } from "./types";
-
-/** Tipos que o navegador pode mostrar sem executar nada. Qualquer outro vira download (nunca é aberto na origem do painel). */
-const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
-const PDF_TYPE = "application/pdf";
-
-/** Tipo SEGURO do blob: o que o servidor declarou só vale se estiver na lista; o resto é binário opaco. */
-function safeBlobType(mimeType: string): string {
-  const type = mimeType.toLowerCase();
-  return (IMAGE_TYPES as readonly string[]).includes(type) || type === PDF_TYPE
-    ? type
-    : "application/octet-stream";
-}
-
-/**
- * URL temporária (blob) do arquivo baixado com o token; revogada ao trocar/fechar. O blob é recriado com o tipo da
- * lista segura, para que HTML/SVG disfarçado de comprovante nunca seja interpretado pelo navegador.
- */
-function useBlobUrl(blob: Blob | undefined, mimeType: string | undefined): string | null {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!blob) {
-      setUrl(null);
-      return;
-    }
-    const created = URL.createObjectURL(new Blob([blob], { type: safeBlobType(mimeType ?? "") }));
-    setUrl(created);
-    return () => URL.revokeObjectURL(created);
-  }, [blob, mimeType]);
-  return url;
-}
 
 /**
  * Visualizador do comprovante: baixa o arquivo PRIVADO com a sessão do painel (a rota exige Authorization) e mostra a
@@ -53,11 +23,14 @@ export function FileViewer({
   submissionId,
   file,
   onClose,
+  kind = "proof",
 }: {
   formId: Id;
   submissionId: Id;
   file: SubmissionFile | null;
   onClose: () => void;
+  /** `photo` = "Foto do participante" (campo PHOTO): a imagem aparece ampliada como foto, não como comprovante. */
+  kind?: "proof" | "photo";
 }) {
   const query = useSubmissionFile(formId, submissionId, file?.id ?? null);
   const url = useBlobUrl(query.data, file?.mimeType);
@@ -72,7 +45,9 @@ export function FileViewer({
         data-testid="file-viewer"
       >
         <DialogHeader>
-          <DialogTitle className="break-all">{file?.originalName ?? "Arquivo"}</DialogTitle>
+          <DialogTitle className="break-all">
+            {kind === "photo" ? "Foto do participante" : (file?.originalName ?? "Arquivo")}
+          </DialogTitle>
           <DialogDescription>
             {file ? `${file.mimeType} · ${formatBytes(file.sizeBytes)}` : ""} · Arquivo privado: só
             quem gerencia o formulário vê.
@@ -109,8 +84,9 @@ export function FileViewer({
             {isImage ? (
               <img
                 src={url}
-                alt={`Comprovante: ${file.originalName}`}
+                alt={kind === "photo" ? "Foto do participante ampliada" : `Comprovante: ${file.originalName}`}
                 className="max-h-[60dvh] w-full rounded-md border object-contain"
+                data-testid="file-viewer-image"
               />
             ) : (
               <p

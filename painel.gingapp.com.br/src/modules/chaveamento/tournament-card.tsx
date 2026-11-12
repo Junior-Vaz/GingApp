@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/modules/formularios/share";
 import { useRotateToken, useSetPublic } from "./api";
+import { CategoryLinkPicker } from "./category-link";
 import { liveUrl } from "./helpers";
 import type { TournamentSummary } from "./types";
 
@@ -78,12 +79,11 @@ export function TournamentCard({ eventId, tournament, canEdit }: { eventId: numb
             {on ? "NO AR" : "FORA DO AR"}
           </span>
         </h2>
-        <div className="flex items-center gap-2">
-          <Label htmlFor={switchId} className="text-sm">
-            {on ? "Ligado" : "Desligado"}
-          </Label>
+        {/* O rótulo envolve o botão: o toque em qualquer ponto da faixa (>= 44 px de altura) liga/desliga. */}
+        <Label htmlFor={switchId} className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
+          {on ? "Ligado" : "Desligado"}
           <Switch id={switchId} checked={on} disabled={!canEdit || setPublic.isPending} onCheckedChange={(next) => setPublic.mutate(next)} aria-label="Telão público ligado" />
-        </div>
+        </Label>
       </div>
 
       <p className="text-sm text-muted-foreground" data-testid="tournament-privacy">
@@ -94,12 +94,14 @@ export function TournamentCard({ eventId, tournament, canEdit }: { eventId: numb
       <div className="grid grid-cols-1 gap-1.5">
         <Label htmlFor="tournament-live-link">Link do telão</Label>
         <div className="flex gap-2">
-          <Input id="tournament-live-link" readOnly value={url} onFocus={(e) => e.currentTarget.select()} className="min-w-0 flex-1 text-xs" />
+          <Input id="tournament-live-link" readOnly value={url} onFocus={(e) => e.currentTarget.select()} autoComplete="off" className="min-w-0 flex-1 text-base md:text-xs" />
           <Button type="button" variant="outline" size="icon" aria-label="Copiar link do telão" onClick={() => void copyText(url)}>
             <Copy />
           </Button>
         </div>
       </div>
+
+      <CategoryLinkPicker token={tournament.publicToken} categories={tournament.categories} />
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:flex-wrap">
         <Button asChild variant="default" size="lg" className="h-12 lg:h-10">
@@ -126,11 +128,11 @@ export function TournamentCard({ eventId, tournament, canEdit }: { eventId: numb
         <div className="grid grid-cols-1 gap-4 pt-3 lg:grid-cols-[auto_1fr]">
           <div className="grid place-items-center">
             {qr ? (
-              <img src={qr} alt="QR Code do telão" width={144} height={144} className="size-36 rounded-md border bg-white p-1" />
+              <img src={qr} alt="QR Code do telão" width={176} height={176} className="size-44 max-w-full rounded-md border bg-white p-1" />
             ) : qrFailed ? (
-              <p role="alert" className="max-w-36 text-xs text-destructive">Não foi possível gerar o QR Code. Copie o link.</p>
+              <p role="alert" className="max-w-44 text-xs text-destructive">Não foi possível gerar o QR Code. Copie o link.</p>
             ) : (
-              <Skeleton className="size-36" />
+              <Skeleton className="size-44" />
             )}
           </div>
           <div className="grid grid-cols-1 content-start gap-2">

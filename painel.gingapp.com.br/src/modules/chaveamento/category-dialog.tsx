@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect } from "@/modules/rodas/native-select";
 import { useCreateCategory, useUpdateCategory } from "./api";
 import { chaveamentoErrorMessage } from "./errors";
+import { numericField, STICKY_FOOTER, textField } from "./fields";
 import { FORMATS, FORMAT_LABEL, LIMITS, type CategoryPayload, type OperatorCategory, type TournamentFormat, type TournamentCategorySummary } from "./types";
 
 type Editable = Pick<OperatorCategory, "id" | "name" | "format" | "status" | "thirdPlace" | "groupCount" | "advancePerGroup"> | TournamentCategorySummary;
@@ -23,7 +24,7 @@ interface CategoryDialogProps {
 export function CategoryDialog({ eventId, editing, onClose, onCreated }: CategoryDialogProps) {
   return (
     <Dialog open={editing !== null} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-md">
+      <DialogContent className="max-h-[92dvh] overscroll-contain overflow-y-auto sm:max-w-md">
         {editing !== null && <CategoryForm key={editing === "new" ? "new" : editing.id} eventId={eventId} editing={editing} onClose={onClose} {...(onCreated ? { onCreated } : {})} />}
       </DialogContent>
     </Dialog>
@@ -106,7 +107,7 @@ function CategoryForm({
       <div className="grid gap-3">
         <div className="grid gap-1.5">
           <Label htmlFor="cat-name">Nome da categoria</Label>
-          <Input id="cat-name" value={name} maxLength={LIMITS.nameMax} onChange={(e) => setName(e.target.value)} />
+          <Input id="cat-name" {...textField} value={name} maxLength={LIMITS.nameMax} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="cat-format">Formato</Label>
@@ -117,26 +118,26 @@ function CategoryForm({
           </NativeSelect>
         </div>
         {hasThird && (
-          <div className="flex items-center gap-3">
+          <div className="flex min-h-11 items-center gap-3">
             <Checkbox id="cat-third" checked={thirdPlace} disabled={locked} onCheckedChange={(v) => setThirdPlace(v === true)} />
-            <Label htmlFor="cat-third" className="font-normal">Disputa de 3º lugar</Label>
+            <Label htmlFor="cat-third" className="flex min-h-11 flex-1 cursor-pointer items-center font-normal">Disputa de 3º lugar</Label>
           </div>
         )}
         {isGroups && (
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
               <Label htmlFor="cat-groups">Número de grupos</Label>
-              <Input id="cat-groups" inputMode="numeric" value={groupCount} disabled={locked} onChange={(e) => setGroupCount(e.target.value)} />
+              <Input id="cat-groups" {...numericField} value={groupCount} disabled={locked} onChange={(e) => setGroupCount(e.target.value)} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="cat-advance">Classificados por grupo</Label>
-              <Input id="cat-advance" inputMode="numeric" value={advance} disabled={locked} onChange={(e) => setAdvance(e.target.value)} />
+              <Input id="cat-advance" {...numericField} value={advance} disabled={locked} onChange={(e) => setAdvance(e.target.value)} />
             </div>
           </div>
         )}
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
       </div>
-      <DialogFooter className="gap-2">
+      <DialogFooter className={STICKY_FOOTER}>
         <Button variant="outline" onClick={onClose}>Cancelar</Button>
         <Button disabled={pending} onClick={() => void submit()}>{pending ? "Salvando…" : isNew ? "Criar categoria" : "Salvar"}</Button>
       </DialogFooter>

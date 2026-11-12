@@ -34,7 +34,7 @@ export function MatchRowButton({
   const winnerB = match.status === "FINISHED" && match.winnerId !== null && match.winnerId === match.slotBId;
   const side = (name: string, c: typeof compA, winner: boolean) => (
     <span className="flex min-w-0 items-center gap-2">
-      {c ? <CompetitorPhoto name={name} photoUrl={c.photoUrl} group={c.groupName} id={c.id} size="xs" /> : <span className="size-6 shrink-0 rounded-full border-2 border-dashed border-muted-foreground/40" aria-hidden />}
+      {c ? <CompetitorPhoto name={name} photoUrl={c.photoUrl} own={c} group={c.groupName} id={c.id} size="xs" /> : <span className="size-6 shrink-0 rounded-full border-2 border-dashed border-muted-foreground/40" aria-hidden />}
       <span className={cn("block truncate", winner && "font-extrabold", !c && "italic text-muted-foreground")}>{winner ? "✓ " : ""}{name}</span>
     </span>
   );
@@ -199,7 +199,7 @@ export function PodiumView({ podium, competitors }: { podium: readonly PodiumEnt
           const name = sideName(competitors, entry.competitorId) ?? "Atleta";
           return (
             <li key={`${String(entry.place)}-${String(entry.competitorId)}`} style={{ "--i": index } as CSSProperties} className={cn("chv-in flex items-center gap-3 rounded-xl border-2 p-3", PODIUM_STYLE[entry.place])}>
-              <CompetitorPhoto name={name} photoUrl={c?.photoUrl ?? null} group={c?.groupName} id={c?.id} size="lg" />
+              <CompetitorPhoto name={name} photoUrl={c?.photoUrl ?? null} own={c} group={c?.groupName} id={c?.id} size="lg" />
               <div className="min-w-0 text-sm">
                 <p className="flex items-center gap-1.5 font-extrabold">
                   <Medal className={cn("size-4", MEDAL_STYLE[entry.place])} aria-hidden />

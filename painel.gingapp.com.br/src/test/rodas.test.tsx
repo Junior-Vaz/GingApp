@@ -159,7 +159,7 @@ describe("RodasPage - criar / editar / excluir", () => {
     await screen.findByRole("option", { name: "Santos" });
     expect(calls.some((c) => c.path === "/rodas/reference/cities" && c.query.get("stateId") === "1")).toBe(true);
     fireEvent.change(screen.getByLabelText("Cidade"), { target: { value: "5" } });
-    fireEvent.change(screen.getByLabelText(/Imagem de capa/), { target: { value: "https://exemplo.com/n.jpg" } });
+    fireEvent.change(screen.getByLabelText("Link da imagem: Imagem de capa"), { target: { value: "https://exemplo.com/n.jpg" } });
     expect(screen.getByAltText("Pré-visualização da capa")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
 
@@ -177,7 +177,7 @@ describe("RodasPage - criar / editar / excluir", () => {
     fireEvent.click(screen.getByRole("button", { name: /Nova roda/ }));
     fireEvent.change(await screen.findByLabelText("Título"), { target: { value: "Roda X" } });
     fireEvent.change(screen.getByLabelText("Data e hora"), { target: { value: "2026-12-24T18:00" } });
-    fireEvent.change(screen.getByLabelText(/Imagem de capa/), { target: { value: "ftp://x" } });
+    fireEvent.change(screen.getByLabelText("Link da imagem: Imagem de capa"), { target: { value: "ftp://x" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     expect(await screen.findByText("Informe uma URL válida (http/https).")).toBeInTheDocument();
     expect(sent("POST", "/rodas")).toHaveLength(0);
@@ -289,7 +289,7 @@ describe("RodasPage - limpar campos opcionais (null no PATCH)", () => {
     fireEvent.change(screen.getByLabelText("Descrição"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Local"), { target: { value: " " } });
     fireEvent.change(screen.getByLabelText("Estado"), { target: { value: "" } }); // zera a cidade junto
-    fireEvent.change(screen.getByLabelText(/Imagem de capa/), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Link da imagem: Imagem de capa"), { target: { value: "" } });
     fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
     await waitFor(() => expect(sent("PATCH", "/rodas/1")).toHaveLength(1));
     const body = sent("PATCH", "/rodas/1")[0]!.body as Record<string, unknown>;

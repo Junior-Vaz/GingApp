@@ -3,6 +3,7 @@ import { centsToReais, reaisToCents } from "@/modules/eventos/event-schema";
 import {
   FIELD_TYPE_INFO,
   LIMITS,
+  PHOTO_HELP_TEXT,
   isChoiceType,
   type FieldType,
   type FormDefinition,
@@ -181,7 +182,8 @@ export function toPayload(draft: Draft) {
         options: isChoiceType(f.type) ? (f.options ?? []).map((o) => o.trim()) : null,
         validation: f.validation && Object.keys(f.validation).length > 0 ? f.validation : null,
         showIf: f.showIf,
-        mapsTo: f.mapsTo,
+        // A foto do participante nunca é um dado de identificação (o servidor recusaria).
+        mapsTo: f.type === "PHOTO" ? null : f.mapsTo,
       })),
     ),
   };
@@ -211,12 +213,17 @@ export function conditionSources(draft: Draft, key: string): BField[] {
   const at = flat.findIndex((f) => f.key === key);
   return flat
     .slice(0, at < 0 ? 0 : at)
-    .filter((f) => f.type !== "INFO" && f.type !== "FILE" && f.type !== "CONSENT");
+    .filter(
+      (f) => f.type !== "INFO" && f.type !== "FILE" && f.type !== "PHOTO" && f.type !== "CONSENT",
+    );
 }
 
 export const fieldCount = (draft: Draft): number => allFields(draft).length;
 export const fileFieldCount = (draft: Draft): number =>
   allFields(draft).filter((f) => f.type === "FILE").length;
+/** Campos "Foto do participante" (no máximo 1 por formulário: a foto vai para o chaveamento do campeonato). */
+export const photoFieldCount = (draft: Draft): number =>
+  allFields(draft).filter((f) => f.type === "PHOTO").length;
 
 /** Quantos campos (de outras posições) dependem de `key` em "Mostrar só se". */
 export const dependentsOf = (draft: Draft, key: string): BField[] =>
@@ -234,7 +241,7 @@ export function defaultField(type: FieldType, existingKeys: Iterable<string>): B
     key: newFieldKey(existingKeys),
     type,
     label: type === "CONSENT" ? "Li e aceito os termos" : info.label,
-    helpText: "",
+    helpText: type === "PHOTO" ? PHOTO_HELP_TEXT : "",
     required: type === "CONSENT",
     options: isChoiceType(type) ? ["Opção 1", "Opção 2"] : null,
     validation: null,
@@ -329,6 +336,8 @@ export function removeField(draft: Draft, key: string): Draft {
 export function duplicateField(draft: Draft, key: string): { draft: Draft; key: string } | null {
   const found = findField(draft, key);
   if (!found) return null;
+  // Só pode haver UMA "Foto do participante" por formulário: duplicá-la geraria um segundo campo de foto.
+  if (found.field.type === "PHOTO") return null;
   const copy: BField = {
     ...found.field,
     key: newFieldKey(allFields(draft).map((f) => f.key)),
@@ -440,6 +449,9 @@ export function validateDraft(draft: Draft): Issue[] {
   if (fileFieldCount(draft) > LIMITS.files)
     add("fields", `Use no máximo ${String(LIMITS.files)} campos de envio de arquivo.`);
 
+  if (photoFieldCount(draft) > LIMITS.photos)
+    add("fields", "Use no máximo 1 campo de foto do participante.");
+
   draft.sections.forEach((section, i) => {
     if (!section.title.trim()) add("fields", `A seção ${String(i + 1)} precisa de um título.`);
   });
@@ -477,7 +489,9 @@ export function validateDraft(draft: Draft): Issue[] {
         add("fields", `"${name}": escolha o valor da condição "mostrar só se".`, f.key);
       else {
         const source = flat.find((other) => other.key === f.showIf?.fieldKey);
-        if (
+        if (source?.type === "PHOTO") {
+          add("fields", `"${name}": a condição não pode depender de um campo de foto.`, f.key);
+        } else if (
           source?.options &&
           source.options.length > 0 &&
           !source.options.includes(f.showIf.equals)
@@ -490,7 +504,9 @@ export function validateDraft(draft: Draft): Issue[] {
         }
       }
     }
-    if (f.mapsTo) {
+    if (f.mapsTo && f.type === "PHOTO") {
+      add("fields", `"${name}": a foto do participante não pode ser ligada à ficha da pessoa.`, f.key);
+    } else if (f.mapsTo) {
       const other = seenMaps.get(f.mapsTo);
       if (other)
         add(

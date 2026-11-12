@@ -320,10 +320,9 @@ export function TurmasPage() {
             />
             <ImageUploadField<ClassFormValues>
               name="photo"
-              label="Foto da turma (URL)"
-              shape="square"
+              label="Foto da turma"
+              shape="wide"
               previewAlt="Foto da turma"
-              description="Opcional. Envie uma foto (JPEG, PNG ou WebP até 5 MB) ou cole o link de uma imagem."
             />
             <div className="grid grid-cols-2 gap-3">
               <FormField
