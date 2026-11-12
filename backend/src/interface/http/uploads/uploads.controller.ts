@@ -46,7 +46,10 @@ export class UploadsController {
     return this.uploads.save(file, organizationId, userId);
   }
 
-  /** Publico: o nome e' um uuid imprevisivel. Imutavel (nome novo a cada upload) => cache de 1 ano. */
+  /**
+   * Publico: o nome e' um uuid imprevisivel. LGPD: cache de 1 dia (era 1 ano `immutable`): foto apagada na anonimizacao
+   * some dos caches do navegador/CDN em ate 24 h (docs/CONTRATO_FOTO_UPLOAD_CAMERA.md secao 3).
+   */
   @Public()
   @Throttle(READ_THROTTLE)
   @Get(':file')
@@ -55,7 +58,7 @@ export class UploadsController {
     if (!found) throw new NotFoundException('Arquivo nao encontrado.');
     res.set({
       'Content-Type': found.contentType,
-      'Cache-Control': 'public, max-age=31536000, immutable',
+      'Cache-Control': 'public, max-age=86400',
       'X-Content-Type-Options': 'nosniff',
       'Content-Security-Policy': "default-src 'none'; sandbox",
       'Cross-Origin-Resource-Policy': 'cross-origin',

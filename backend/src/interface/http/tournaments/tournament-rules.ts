@@ -65,6 +65,15 @@ export const TournamentErrorCode = {
   INVALID_COMPETITOR: 'INVALID_COMPETITOR',
   INVALID_GROUP_CONFIG: 'INVALID_GROUP_CONFIG',
   INVALID_PHOTO_URL: 'INVALID_PHOTO_URL',
+  PHOTO_URL_NOT_ALLOWED: 'PHOTO_URL_NOT_ALLOWED',
+  PHOTO_FROM_STUDENT: 'PHOTO_FROM_STUDENT',
+  PHOTO_FILE_REQUIRED: 'PHOTO_FILE_REQUIRED',
+  PHOTO_TOO_LARGE: 'PHOTO_TOO_LARGE',
+  PHOTO_TYPE_NOT_ALLOWED: 'PHOTO_TYPE_NOT_ALLOWED',
+  PHOTO_UNREADABLE: 'PHOTO_UNREADABLE',
+  PHOTO_QUOTA: 'PHOTO_QUOTA',
+  PHOTO_PROCESSING_UNAVAILABLE: 'PHOTO_PROCESSING_UNAVAILABLE',
+  PHOTO_NOT_FOUND: 'PHOTO_NOT_FOUND',
   AGE_GROUP_FROM_STUDENT: 'AGE_GROUP_FROM_STUDENT',
   NOT_ENOUGH_COMPETITORS: 'NOT_ENOUGH_COMPETITORS',
   ALREADY_GENERATED: 'ALREADY_GENERATED',
@@ -90,6 +99,7 @@ export function tournamentError(status: HttpStatus, code: TournamentErrorCodeVal
 export const notFound = (code: TournamentErrorCodeValue, message: string) => tournamentError(HttpStatus.NOT_FOUND, code, message);
 export const conflict = (code: TournamentErrorCodeValue, message: string) => tournamentError(HttpStatus.CONFLICT, code, message);
 export const badRequest = (code: TournamentErrorCodeValue, message: string) => tournamentError(HttpStatus.BAD_REQUEST, code, message);
+export const unsupportedMedia = (code: TournamentErrorCodeValue, message: string) => tournamentError(HttpStatus.UNSUPPORTED_MEDIA_TYPE, code, message);
 
 /** 503: o torneio atingiu o limite de conexoes simultaneas do telao. */
 export const tooManyViewers = () =>
@@ -122,12 +132,13 @@ export function isWellFormedPublicToken(token: unknown): token is string {
 }
 
 // --------------------------------------------------------------------------------------------------------------
-// Foto (URL)
+// Foto (URL de aluno/evento; a foto de atleta de fora e arquivo proprio: tournament-photo-storage.ts)
 // --------------------------------------------------------------------------------------------------------------
 
 /**
- * Referencia de foto aceita na ENTRADA (convidado): `/api/uploads/<uuid>.<ext>` (POST /uploads) ou `https://...` (nunca
- * `http:` simples, `javascript:`, `data:` nem caminho relativo estranho). Sem espacos/controle, ate 500 caracteres.
+ * Referencia de foto validada (`/api/uploads/<uuid>.<ext>` ou `https://...`; nunca `http:`, `javascript:`, `data:` nem caminho
+ * relativo estranho). Sem espacos/controle, ate 500 caracteres. O convidado NAO envia mais photoUrl (docs/CONTRATO_FOTO_UPLOAD_CAMERA.md 1);
+ * isto serve para REAVALIAR a foto do aluno (Student.photo) e a imagem do evento na leitura publica.
  */
 export function isAllowedPhotoRef(value: unknown): value is string {
   if (typeof value !== 'string' || value.length === 0 || value.length > TOURNAMENT_LIMITS.photoUrlMax) return false;
@@ -142,8 +153,13 @@ export function isAllowedPhotoRef(value: unknown): value is string {
   }
 }
 
+/** Caminho publico da foto PROPRIA de um atleta: montado a cada resposta a partir do token (o nome do arquivo nunca vaza fora disto). */
+export function ownPhotoPublicPath(token: string, file: string): string {
+  return `/api/public/tournaments/${token}/photos/${file}`;
+}
+
 /**
- * Foto como o TELAO PUBLICO a entrega: SEMPRE reavalia a referencia (defesa em profundidade: a foto do aluno vem de
+ * Foto de ALUNO/EVENTO como o TELAO PUBLICO a entrega: SEMPRE reavalia a referencia (defesa em profundidade: a foto do aluno vem de
  * Student.photo, de outro modulo). Caminho de upload vira `/api/uploads/<uuid>.<ext>` (inclusive URL absoluta que termina nele);
  * `https://` valido passa; qualquer outra coisa = null.
  */

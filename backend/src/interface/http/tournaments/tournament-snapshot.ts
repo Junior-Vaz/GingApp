@@ -4,7 +4,7 @@ import type {
   TournamentMatch,
 } from '@prisma/client';
 import { computePodium, computeStandings, MatchResult, PodiumMatch, StandingRow } from './engine';
-import { AgeGroupValue, ageGroupFromBirthDates, photoVisibleOnPublic, publicPhotoRef } from './tournament-rules';
+import { AgeGroupValue, ageGroupFromBirthDates, ownPhotoPublicPath, photoVisibleOnPublic, publicPhotoRef } from './tournament-rules';
 
 /**
  * Montagem das VISOES de uma categoria a partir de dados em memoria (sem banco): a visao do OPERADOR
@@ -13,7 +13,9 @@ import { AgeGroupValue, ageGroupFromBirthDates, photoVisibleOnPublic, publicPhot
  * PRIVACIDADE (5): o snapshot publico e montado CAMPO A CAMPO (lista branca explicita; nunca `...entidade`). Nunca entram:
  * studentId, eventParticipantId, ageGroup, photoAuthorized*, data de nascimento, e-mail, telefone, note, organizationId,
  * publicToken, dados de responsavel. A foto publica so existe se o atleta for ADULT ou tiver a foto autorizada; a foto do
- * aluno e derivada de Student.photo na leitura e a faixa etaria dele e RECALCULADA da data de nascimento.
+ * aluno e derivada de Student.photo na leitura e a faixa etaria dele e RECALCULADA da data de nascimento. A foto PROPRIA do
+ * atleta de fora (photoFile) sai como `/api/public/tournaments/<token>/photos/<arquivo>`, montada a cada snapshot a partir do
+ * token; a coluna LEGADA photoUrl NAO e mais lida.
  */
 
 /** O que se le do aluno ligado ao atleta (somente o necessario para foto e faixa etaria). */
@@ -50,17 +52,36 @@ export function effectiveAgeGroup(data: CompetitorData, now: Date): AgeGroupValu
   return data.row.ageGroup;
 }
 
-/** Foto de origem (antes da regra de privacidade): do aluno (Student.photo, derivada na leitura) ou do convidado. */
-export function sourcePhoto(data: CompetitorData): string | null {
-  if (data.student) return data.student.anonymizedAt ? null : data.student.photo;
-  return data.row.photoUrl;
+/** Foto do ALUNO (Student.photo, derivada na leitura) de um atleta ligado a aluno; null para os demais (e aluno anonimizado). */
+export function studentPhoto(data: CompetitorData): string | null {
+  return data.student && !data.student.anonymizedAt ? data.student.photo : null;
 }
 
-/** A REGRA da foto publica: so ADULT ou autorizada; sempre reavaliada (URL invalida = null). */
-export function publicPhotoFor(data: CompetitorData, now: Date): string | null {
-  const age = effectiveAgeGroup(data, now);
-  if (!photoVisibleOnPublic(age, data.row.photoAuthorized)) return null;
-  return publicPhotoRef(sourcePhoto(data));
+/** O atleta tem foto PROPRIA (arquivo)? Atleta ligado a aluno nunca tem (a foto vem do cadastro do aluno). */
+export function hasOwnPhoto(row: Pick<TournamentCompetitor, 'photoFile' | 'studentId'>): boolean {
+  return row.studentId === null && !!row.photoFile;
+}
+
+/**
+ * A REGRA da foto publica (uma so, usada pelo snapshot, pelo SSE e pela rota do arquivo): so ADULT ou autorizada, avaliada
+ * AGORA (idade recalculada para aluno). `photoVisible` diz se a regra deixa; `publicPhotoFor` diz o que aparece.
+ */
+export function photoVisible(data: CompetitorData, now: Date): boolean {
+  return photoVisibleOnPublic(effectiveAgeGroup(data, now), data.row.photoAuthorized);
+}
+
+/** A foto APARECE no telao publico agora? (a regra + existir foto utilizavel); mesma conta do `publicPhotoFor`, sem precisar do token. */
+export function photoShownOnPublic(data: CompetitorData, now: Date): boolean {
+  if (!photoVisible(data, now)) return false;
+  if (data.student || data.row.studentId !== null) return publicPhotoRef(studentPhoto(data)) !== null;
+  return !!data.row.photoFile;
+}
+
+/** Foto que o telao publico mostra (ou null): do aluno (/api/uploads/...) ou a PROPRIA (rota publica com o token). */
+export function publicPhotoFor(data: CompetitorData, now: Date, token: string): string | null {
+  if (!photoVisible(data, now)) return null;
+  if (data.student || data.row.studentId !== null) return publicPhotoRef(studentPhoto(data));
+  return data.row.photoFile ? ownPhotoPublicPath(token, data.row.photoFile) : null;
 }
 
 export function displayNameOf(data: CompetitorData): string {
@@ -217,12 +238,16 @@ export function buildOperatorCategory(data: CategoryData, tournamentRevision: nu
         poolIndex: c.row.poolIndex,
         studentId: c.row.studentId,
         eventParticipantId: c.row.eventParticipantId,
-        photoUrl: publicPhotoRef(sourcePhoto(c)),
+        /** SO a foto do ALUNO (/api/uploads/...); atleta de fora usa GET .../photo. */
+        photoUrl: publicPhotoRef(studentPhoto(c)),
+        hasOwnPhoto: hasOwnPhoto(c.row),
+        /** Troca da foto propria (ms) para quebrar o cache do painel. */
+        photoVersion: hasOwnPhoto(c.row) && c.row.photoUpdatedAt ? c.row.photoUpdatedAt.getTime() : null,
         ageGroup: age,
         photoAuthorized: c.row.photoAuthorized,
         photoAuthorizedAt: c.row.photoAuthorizedAt,
         /** A foto aparece no telao publico? (adulto, ou menor/desconhecido com autorizacao) */
-        photoPublic: publicPhotoFor(c, now) !== null,
+        photoPublic: photoShownOnPublic(c, now),
         createdAt: c.row.createdAt,
       };
     }),
@@ -266,6 +291,8 @@ export interface PublicSnapshotInput {
   organizationName: string;
   categories: CategoryData<PublicMatchRow>[];
   now: Date;
+  /** Token do telao: entra SO na URL da foto propria (o snapshot memoizado e POR TOKEN; rotacionar invalida). */
+  publicToken: string;
 }
 
 /** Chaves de PRIMEIRO nivel e por objeto (usadas pelos testes de conformidade/privacidade). */
@@ -314,7 +341,7 @@ export function buildPublicSnapshotBody(input: PublicSnapshotInput) {
           name: displayNameOf(c),
           group: c.student?.anonymizedAt ? null : c.row.groupName,
           graduation: c.student?.anonymizedAt ? null : c.row.graduationLabel,
-          photoUrl: publicPhotoFor(c, now),
+          photoUrl: publicPhotoFor(c, now, input.publicToken),
           seed: c.row.seed,
           poolIndex: c.row.poolIndex,
         })),

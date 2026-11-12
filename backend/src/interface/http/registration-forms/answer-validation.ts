@@ -20,9 +20,9 @@ export interface AnswerField {
 export type AnswerValue = string | number | boolean | string[];
 
 export interface AnswerValidationResult {
-  /** Respostas normalizadas dos campos VISIVEIS (sem FILE/INFO). */
+  /** Respostas normalizadas dos campos VISIVEIS (sem FILE/PHOTO/INFO). */
   values: Record<string, AnswerValue>;
-  /** fieldKey -> token do anexo pendente (FILE visivel respondido). */
+  /** fieldKey -> token do anexo pendente (FILE/PHOTO visivel respondido). */
   fileTokens: Record<string, string>;
   errors: Record<string, string>;
   visible: Set<string>;
@@ -196,9 +196,12 @@ function validateOne(
       values[field.key] = [...new Set(raw as string[])];
       return null;
     }
-    case 'FILE': {
+    case 'FILE':
+    case 'PHOTO': {
       const token = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as { fileToken?: unknown }).fileToken : undefined;
-      if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{20,100}$/.test(token)) return 'Envie o arquivo novamente.';
+      if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{20,100}$/.test(token)) {
+        return field.type === 'PHOTO' ? 'Envie a foto novamente.' : 'Envie o arquivo novamente.';
+      }
       fileTokens[field.key] = token;
       return null;
     }

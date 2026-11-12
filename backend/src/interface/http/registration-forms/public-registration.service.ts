@@ -36,6 +36,7 @@ import {
   issueStartedToken,
   newFileToken,
   normalizeProtocol,
+  photoProcessingUnavailable,
   publicFormNotFound,
   SLUG_REGEX,
   tooManyRequests,
@@ -64,6 +65,7 @@ import {
   formsFileMaxBytes,
   resolvePrivateUploadsDir,
   sanitizeImage,
+  sanitizePhotoImage,
   sanitizeOriginalName,
   storePrivateFile,
 } from './private-storage';
@@ -75,6 +77,9 @@ export const PENDING_FILE_TTL_MS = 2 * 60 * 60 * 1000;
 /** Tempo minimo/maximo entre abrir a pagina e enviar (anti-robo), medido pelo relogio do SERVIDOR (startedToken). */
 export const MIN_FILL_MS = 2_000;
 export const MAX_FILL_MS = 24 * 60 * 60 * 1000;
+
+/** Namespace da trava consultiva (pg_advisory_xact_lock(int, int)) dos tetos de anexos pendentes, por grupo. */
+const PENDING_FILES_LOCK_NS = 7_411_001;
 
 const SPAM_MESSAGE = 'Não foi possível validar o envio. Recarregue a página e tente de novo.';
 
@@ -241,8 +246,9 @@ export class PublicRegistrationService implements OnModuleInit {
     const form = await this.loadPublicForm(slug);
     const { reason } = await this.closedReason(form);
     if (reason) throw formClosedError(reason);
-    const field = form.fields.find((f) => f.key === fieldKey && f.type === 'FILE');
+    const field = form.fields.find((f) => f.key === fieldKey && (f.type === 'FILE' || f.type === 'PHOTO'));
     if (!field) throw validationError({ fieldKey: 'Este campo não aceita arquivo.' });
+    const isPhoto = field.type === 'PHOTO';
     if (!file || !file.buffer || file.size === 0) throw validationError({ file: 'Envie o arquivo no campo "file".' });
     const max = formsFileMaxBytes();
     const tooLarge = () =>
@@ -256,55 +262,95 @@ export class PublicRegistrationService implements OnModuleInit {
         statusCode: 415,
         error: 'Unsupported Media Type',
         code: FormErrorCode.FILE_TYPE_NOT_ALLOWED,
-        message: 'Formato não aceito: envie uma imagem (JPG, PNG ou WEBP) ou um PDF.',
+        message: isPhoto
+          ? 'Formato não aceito: envie uma foto em JPG, PNG ou WEBP.'
+          : 'Formato não aceito: envie uma imagem (JPG, PNG ou WEBP) ou um PDF.',
       });
-    const type = detectPrivateFileType(file.buffer);
-    if (!type) throw notAllowed();
+    const detected = detectPrivateFileType(file.buffer);
+    // Foto do participante: SO imagem (PDF e qualquer outro tipo = 415 pelos magic bytes, nunca pelo mimetype informado).
+    if (!detected || (isPhoto && detected.mime === 'application/pdf')) throw notAllowed();
+    let type = detected;
 
     // Tetos de disco (anonimo): pendentes do formulario, do IP (/64) no formulario e BYTES pendentes do grupo. Contam
     // TAMBEM os expirados ainda nao apagados (a limpeza roda a cada 15 min): ocupam disco do mesmo jeito.
     const now = new Date();
     const ipHash = hashIp(ip);
-    const pendingWhere = { submissionId: null } as const;
-    const [pendingForm, pendingIp, pendingBytes] = await Promise.all([
-      this.prisma.registrationSubmissionFile.count({ where: { ...pendingWhere, formId: form.id } }),
-      ipHash ? this.prisma.registrationSubmissionFile.count({ where: { ...pendingWhere, formId: form.id, ipHash } }) : Promise.resolve(0),
-      this.prisma.registrationSubmissionFile.aggregate({ where: { ...pendingWhere, organizationId: form.organizationId }, _sum: { sizeBytes: true } }),
-    ]);
-    if (pendingForm >= pendingFilesCap() || pendingIp >= pendingFilesPerIpCap() || (pendingBytes._sum.sizeBytes ?? 0) + file.buffer.length > pendingBytesCap()) {
-      throw tooManyRequests('Muitos arquivos enviados agora. Envie a inscrição com os arquivos já anexados ou tente de novo mais tarde.');
-    }
+    const tooMany = () => tooManyRequests('Muitos arquivos enviados agora. Envie a inscrição com os arquivos já anexados ou tente de novo mais tarde.');
+    // Rejeicao barata ANTES de processar a imagem; a conferencia DEFINITIVA (atomica) e refeita sob trava ao gravar.
+    if (await this.pendingCapExceeded(this.prisma, form, ipHash, file.buffer.length)) throw tooMany();
 
-    // Imagem: reprocessada SEM metadados (EXIF/GPS). Nao decodifica = 415. PDF intocado.
-    const clean = await sanitizeImage(file.buffer, type);
-    if (!clean) throw notAllowed();
-    if (!clean.reprocessed && type.mime !== 'application/pdf') this.logger.warn('sharp indisponível: anexo de imagem gravado SEM remover EXIF/GPS.');
+    let clean: { buffer: Buffer; reprocessed: boolean } | null;
+    if (isPhoto) {
+      // Foto do participante: SEMPRE regravada como WebP (lado maior 1200, q82, sem EXIF/GPS). Sem o sharp = 503 e nada e
+      // gravado (o original poderia carregar a localizacao de um menor).
+      const photo = await sanitizePhotoImage(file.buffer);
+      if (photo.status === 'unavailable') {
+        this.logger.error('sharp indisponível: foto do participante recusada (503), nada foi gravado.');
+        throw photoProcessingUnavailable();
+      }
+      // Fila cheia: mesmo 503 do chaveamento (nao e abuso do cliente, e a capacidade do servidor).
+      if (photo.status === 'busy') throw photoProcessingUnavailable('Muitas fotos sendo processadas agora. Tente de novo em instantes.');
+      if (photo.status !== 'ok') throw notAllowed(); // 'unreadable'
+      clean = { buffer: photo.buffer, reprocessed: true };
+      type = { mime: 'image/webp', ext: 'webp' };
+    } else {
+      // Imagem: reprocessada SEM metadados (EXIF/GPS). Nao decodifica = 415. PDF intocado.
+      clean = await sanitizeImage(file.buffer, type);
+      if (!clean) throw notAllowed();
+      if (!clean.reprocessed && type.mime !== 'application/pdf') this.logger.warn('sharp indisponível: anexo de imagem gravado SEM remover EXIF/GPS.');
+    }
     if (clean.buffer.length > max) throw tooLarge();
 
     const stored = await storePrivateFile(form.organizationId, clean.buffer, type);
     const { token, hash } = newFileToken();
-    const originalName = sanitizeOriginalName(file.originalname, type.ext);
+    // Foto: nome fixo (o nome do arquivo do celular costuma trazer o nome da pessoa).
+    const originalName = isPhoto ? 'foto.webp' : sanitizeOriginalName(file.originalname, type.ext);
     try {
-      await this.prisma.registrationSubmissionFile.create({
-        data: {
-          formId: form.id,
-          organizationId: form.organizationId,
-          fieldKey: field.key,
-          storageKey: stored.storageKey,
-          originalName,
-          mimeType: type.mime,
-          sizeBytes: stored.sizeBytes,
-          sha256: stored.sha256,
-          pendingToken: hash,
-          expiresAt: new Date(now.getTime() + PENDING_FILE_TTL_MS),
-          ipHash,
-        },
+      // Contagem + insercao na MESMA transacao, sob trava consultiva do grupo (so dura a contagem e o insert): dois envios
+      // simultaneos nao passam juntos pelos tetos de pendentes (formulario, IP e bytes do grupo).
+      await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PENDING_FILES_LOCK_NS}::int, ${form.organizationId}::int)`;
+        if (await this.pendingCapExceeded(tx, form, ipHash, stored.sizeBytes)) throw tooMany();
+        await tx.registrationSubmissionFile.create({
+          data: {
+            formId: form.id,
+            organizationId: form.organizationId,
+            fieldKey: field.key,
+            storageKey: stored.storageKey,
+            originalName,
+            mimeType: type.mime,
+            sizeBytes: stored.sizeBytes,
+            sha256: stored.sha256,
+            pendingToken: hash,
+            expiresAt: new Date(now.getTime() + PENDING_FILE_TTL_MS),
+            ipHash,
+          },
+        });
       });
     } catch (error) {
       await deletePrivateFile(stored.storageKey).catch(() => undefined); // sem arquivo orfao
       throw error;
     }
     return { fileToken: token, originalName, mimeType: type.mime, sizeBytes: stored.sizeBytes };
+  }
+
+  /**
+   * Tetos de disco do anexo anonimo: pendentes do formulario, do IP (/64) no formulario e BYTES pendentes do grupo (somando
+   * `addBytes`). Contam TAMBEM os expirados ainda nao apagados (a limpeza roda a cada 15 min): ocupam disco do mesmo jeito.
+   */
+  private async pendingCapExceeded(
+    db: Pick<Prisma.TransactionClient, 'registrationSubmissionFile'>,
+    form: { id: number; organizationId: number },
+    ipHash: string | null,
+    addBytes: number,
+  ): Promise<boolean> {
+    const pendingWhere = { submissionId: null } as const;
+    const [pendingForm, pendingIp, pendingBytes] = await Promise.all([
+      db.registrationSubmissionFile.count({ where: { ...pendingWhere, formId: form.id } }),
+      ipHash ? db.registrationSubmissionFile.count({ where: { ...pendingWhere, formId: form.id, ipHash } }) : Promise.resolve(0),
+      db.registrationSubmissionFile.aggregate({ where: { ...pendingWhere, organizationId: form.organizationId }, _sum: { sizeBytes: true } }),
+    ]);
+    return pendingForm >= pendingFilesCap() || pendingIp >= pendingFilesPerIpCap() || (pendingBytes._sum.sizeBytes ?? 0) + addBytes > pendingBytesCap();
   }
 
   // -------------------------------------------------------------------------------------------------------------

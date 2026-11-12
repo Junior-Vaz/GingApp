@@ -11,6 +11,8 @@ import { generateGingappCode } from '../people/gingapp-code';
 import { deletePrivateFile } from '../registration-forms/private-storage';
 import { anonymizeSubmissions } from '../registration-forms/submission-purge';
 import { deleteFeedFiles } from '../feed/feed-media-storage';
+import { CompetitorAnonymizer } from '../../../shared/privacy/competitor-anonymizer';
+import { UploadReaper } from '../../../shared/uploads/upload-reaper.service';
 import { anonymizeFeedForUser, FeedAnonymizationResult } from '../feed/feed-purge';
 import { normalizeEmail } from '../../../shared/security/password-policy';
 import { OPEN_DELETION_STATUSES } from './deletion-request-status';
@@ -18,6 +20,14 @@ import { OPEN_DELETION_STATUSES } from './deletion-request-status';
 export const REMOVED_NAME = 'Pessoa removida';
 export const REMOVED_GUARDIAN_NAME = 'Responsável removido';
 export const REMOVED_TEXT = '[removido na anonimização]';
+
+/** O que a anonimizacao solta e que so pode ser tratado DEPOIS do commit (arquivos e atletas do chaveamento). */
+interface ReleasedByAnonymization {
+  /** Valores de colunas de imagem (`photo`/`coverPhoto`) zerados: candidatos a apagar do disco. */
+  photos: unknown[];
+  /** Alunos (matriculas) anonimizados. */
+  studentIds: number[];
+}
 
 export interface AnonymizationResult {
   personId: number | null;
@@ -47,6 +57,8 @@ export class AnonymizationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly uploadReaper: UploadReaper,
+    private readonly competitors: CompetitorAnonymizer,
   ) {}
 
   async anonymizeRequest(requestId: number, actorUserId: number, now = new Date()): Promise<AnonymizationResult> {
@@ -75,15 +87,27 @@ export class AnonymizationService {
     const passwordHash = await bcrypt.hash(randomBytes(32).toString('base64url'), BCRYPT_ROUNDS);
     // Inscricoes de formularios publicos do titular (mesmo e-mail ou CPF): anonimizadas na MESMA transacao; os anexos
     // saem do disco depois do commit.
-    const registrations = { count: 0, storageKeys: [] as string[] };
+    const registrations = { count: 0, storageKeys: [] as string[], eventParticipantIds: [] as number[] };
+    // Fotos (`/api/uploads/...`) soltas pela anonimizacao e alunos anonimizados: tratados DEPOIS do commit (LGPD).
+    const released: ReleasedByAnonymization = { photos: [], studentIds: [] };
     // Feed do grupo: posts/comentarios do titular perdem autor e texto; as fotos saem do disco depois do commit.
     const feed: FeedAnonymizationResult = { posts: 0, comments: 0, reactions: 0, media: 0, storageKeys: [] };
-    const result = await this.prisma.$transaction((tx) => this.run(tx, request.id, user.id, passwordHash, now, registrations, feed), {
+    const result = await this.prisma.$transaction((tx) => this.run(tx, request.id, user.id, passwordHash, now, registrations, feed, released), {
       timeout: 60_000,
       maxWait: 10_000,
     });
     for (const key of registrations.storageKeys) await deletePrivateFile(key).catch(() => undefined);
     await deleteFeedFiles(feed.storageKeys);
+    // Fotos de /api/uploads: some do disco (e a linha Upload) so o que NENHUMA outra coluna referencia mais; falha = log + GC semanal.
+    const photosReaped = await this.uploadReaper.deleteUnreferenced(released.photos);
+    // Atletas do chaveamento ligados aos alunos/participantes anonimizados perdem foto propria e nome.
+    // Tambem os participantes de evento ligados ao USUARIO (EventParticipant.userId): o atleta nasce com o nome do usuario e nao
+    // passa por inscricao de formulario nem por aluno.
+    const ownParticipants = await this.prisma.eventParticipant.findMany({ where: { userId: user.id }, select: { id: true } });
+    await this.competitors.anonymize({
+      studentIds: released.studentIds,
+      eventParticipantIds: [...registrations.eventParticipantIds, ...ownParticipants.map((p) => p.id)],
+    });
 
     await this.audit.record({
       organizationId: request.organizationId,
@@ -100,6 +124,8 @@ export class AnonymizationService {
         feedPostsAnonymized: feed.posts,
         feedCommentsAnonymized: feed.comments,
         feedMediaDeleted: feed.media,
+        uploadsDeleted: photosReaped.deleted,
+        uploadsKept: photosReaped.kept,
       },
     });
     return result;
@@ -131,8 +157,9 @@ export class AnonymizationService {
     userId: number,
     passwordHash: string,
     now: Date,
-    registrations: { count: number; storageKeys: string[] } = { count: 0, storageKeys: [] },
+    registrations: { count: number; storageKeys: string[]; eventParticipantIds: number[] } = { count: 0, storageKeys: [], eventParticipantIds: [] },
     feed?: FeedAnonymizationResult,
+    released: ReleasedByAnonymization = { photos: [], studentIds: [] },
   ): Promise<AnonymizationResult> {
     // Fichas do login e as mescladas nelas (cadeia).
     const personIds = new Set<number>((await tx.person.findMany({ where: { userId }, select: { id: true } })).map((p) => p.id));
@@ -149,15 +176,27 @@ export class AnonymizationService {
 
     const students = await tx.student.findMany({
       where: { OR: [{ userId }, ...(ids.length ? [{ personId: { in: ids } }] : [])] },
-      select: { id: true, status: true, leftAt: true, leftReason: true },
+      select: { id: true, status: true, leftAt: true, leftReason: true, photo: true, coverPhoto: true },
     });
     const studentIds = students.map((s) => s.id);
+    released.studentIds.push(...studentIds);
 
     // Formularios de inscricao: e-mails (login + fichas) e hash do CPF das fichas ANTES de apagar os dados delas.
-    const owner = await tx.user.findUnique({ where: { id: userId }, select: { email: true } });
+    const owner = await tx.user.findUnique({ where: { id: userId }, select: { email: true, photo: true } });
     const personRows = ids.length
-      ? await tx.person.findMany({ where: { id: { in: ids } }, select: { email: true, documentHash: true, documentKind: true } })
+      ? await tx.person.findMany({ where: { id: { in: ids } }, select: { email: true, documentHash: true, documentKind: true, photo: true } })
       : [];
+    // Fotos que esta anonimizacao vai soltar (lidas ANTES de zerar): o arquivo so some se nada mais as referenciar.
+    const profileRows = await tx.publicProfile.findMany({
+      where: { OR: [{ userId }, ...(studentIds.length ? [{ studentId: { in: studentIds } }] : [])] },
+      select: { photo: true },
+    });
+    released.photos.push(
+      owner?.photo,
+      ...personRows.map((p) => p.photo),
+      ...students.flatMap((s) => [s.photo, s.coverPhoto]),
+      ...profileRows.map((p) => p.photo),
+    );
     const emails = [...new Set([owner?.email, ...personRows.map((p) => p.email)].filter((e): e is string => !!e).map(normalizeEmail))];
     const documentHashes = personRows.filter((p) => p.documentKind === 'CPF' && p.documentHash).map((p) => p.documentHash as string);
     const registrationMatch = [
@@ -168,6 +207,7 @@ export class AnonymizationService {
       const purged = await anonymizeSubmissions(tx, { OR: registrationMatch }, now);
       registrations.count = purged.count;
       registrations.storageKeys = purged.storageKeys;
+      registrations.eventParticipantIds = purged.eventParticipantIds;
     }
     // Feed (contrato secao 4, LGPD): antes de soltar o vinculo Person.userId (os posts tambem casam pela ficha).
     const feedResult = await anonymizeFeedForUser(tx, userId, ids, now);

@@ -1,4 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
+import { TournamentsService } from '../tournaments/tournaments.service';
 import { EventStatus, OrgRole, ParticipantStatus, Prisma, UserType } from '@prisma/client';
 import { AuditAction, AuditEntity } from '../../../shared/audit/audit-actions';
 import { AuditService } from '../../../shared/audit/audit.service';
@@ -32,6 +34,7 @@ import { locationGeocodeParts } from '../../../shared/geo/location-text';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { AddEventParticipantDto } from './dto/add-event-participant.dto';
+import { deleteTournamentPhotoFiles } from '../tournaments/tournament-photo-storage';
 
 const ADMIN_ROLES: OrgRole[] = [OrgRole.MESTRE, OrgRole.PROFESSOR, OrgRole.INSTRUTOR];
 
@@ -62,6 +65,8 @@ export class EventsService {
     private readonly geocoding: GeocodingService,
     private readonly audit: AuditService,
     private readonly ranking: RankingService,
+    /** Resolve o chaveamento sob demanda (sem dependencia circular entre modulos). */
+    private readonly moduleRef: ModuleRef,
   ) {}
 
   /**
@@ -433,10 +438,16 @@ export class EventsService {
     const current = await this.findOne(organizationId, id, requester);
     assertUnitOwned(await this.unitScope.resolve(requester, organizationId), current.unitId);
 
+    // Chaveamento (cascata do banco): as fotos PROPRIAS dos atletas ficam em disco; localiza ANTES e apaga DEPOIS do commit.
+    const photos = await this.prisma.tournamentCompetitor.findMany({
+      where: { photoFile: { not: null }, category: { tournament: { eventId: id, organizationId } } },
+      select: { photoFile: true },
+    });
     await this.prisma.$transaction([
       this.prisma.eventParticipant.deleteMany({ where: { eventId: id } }),
       this.prisma.event.delete({ where: { id } }),
     ]);
+    await deleteTournamentPhotoFiles(photos.map((p) => p.photoFile));
   }
 
   /**
@@ -607,6 +618,10 @@ export class EventsService {
       }
     }
 
+    // Chaveamento (LGPD): a FK do atleta e SetNull; antes de apagar a inscricao, o atleta ligado so a ela sai da chave (categoria em
+    // SETUP) ou e anonimizado (chave ja sorteada). Falha aqui interrompe o cancelamento (nunca deixa atleta sem vinculo).
+    const tournaments = this.moduleRef.get(TournamentsService, { strict: false }) as TournamentsService | undefined;
+    if (tournaments) await tournaments.releaseParticipantCompetitors(participantId);
     await this.prisma.eventParticipant.delete({ where: { id: participantId } });
     // Liberou uma vaga: o primeiro da lista de espera e promovido (e avisado).
     if (occupiesSpot(participant.status)) await this.promoteWaitlist(organizationId, eventId);

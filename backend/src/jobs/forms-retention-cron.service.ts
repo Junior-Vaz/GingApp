@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { RegistrationFormStatus } from '@prisma/client';
 import { promises as fs } from 'node:fs';
@@ -6,6 +6,7 @@ import * as path from 'node:path';
 import { AuditAction, AuditEntity } from '../shared/audit/audit-actions';
 import { AuditService } from '../shared/audit/audit.service';
 import { PrismaService } from '../shared/prisma/prisma.service';
+import { CompetitorAnonymizer } from '../shared/privacy/competitor-anonymizer';
 import { deletePrivateFile, resolvePrivateUploadsDir, STORAGE_KEY_REGEX } from '../interface/http/registration-forms/private-storage';
 import {
   addMonths,
@@ -74,6 +75,8 @@ export class FormsRetentionCronService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    /** Ponte LGPD -> chaveamento (opcional: os specs antigos constroem o job so com prisma + audit). */
+    @Optional() private readonly competitors?: CompetitorAnonymizer,
   ) {}
 
   @Cron(FORMS_RETENTION_CRON_EXPRESSION, { name: FORMS_RETENTION_CRON_NAME, timeZone: FORMS_RETENTION_CRON_TIMEZONE })
@@ -184,6 +187,8 @@ export class FormsRetentionCronService {
       const purged = await this.prisma.$transaction((tx) => anonymizeSubmissions(tx, where, now), { timeout: 60_000, maxWait: 10_000 });
       let deleted = 0;
       for (const key of purged.storageKeys) if (await deletePrivateFile(key).catch(() => false)) deleted += 1;
+      // Atletas do chaveamento importados dos participantes convidados anonimizados: perdem foto e nome (LGPD), depois do commit.
+      await this.competitors?.anonymize({ eventParticipantIds: purged.eventParticipantIds });
       if (reference) await this.prisma.registrationForm.update({ where: { id: form.id }, data: { purgedAt: now } });
       result.submissionsAnonymized += purged.count;
       result.filesDeleted += deleted;

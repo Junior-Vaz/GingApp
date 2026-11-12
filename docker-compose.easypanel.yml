@@ -194,6 +194,15 @@ services:
       TOURNAMENT_PUBLIC_STREAM_THROTTLE_LIMIT: "${TOURNAMENT_PUBLIC_STREAM_THROTTLE_LIMIT:-120}"
       # Teto de conexoes SSE por campeonato (sem limite por IP: o wi-fi do ginasio compartilha um); em campeonato grande, suba.
       TOURNAMENT_MAX_VIEWERS: "${TOURNAMENT_MAX_VIEWERS:-300}"
+      # Foto do atleta de fora do chaveamento (docs/CONTRATO_FOTO_UPLOAD_CAMERA.md 1): arquivos PRIVADOS no volume persistente
+      # (subpasta tournament-photos; nunca em UPLOADS_DIR), cota por grupo em MB e os dois jobs (padrao dry-run: so registram no
+      # log; true apaga; false desliga): GC semanal de orfaos (dom 05:30) e expiracao 30 dias apos o evento (diaria 04:55).
+      TOURNAMENT_PHOTOS_DIR: "${TOURNAMENT_PHOTOS_DIR:-/app/private-uploads/tournament-photos}"
+      TOURNAMENT_PHOTOS_QUOTA_MB: "${TOURNAMENT_PHOTOS_QUOTA_MB:-200}"
+      TOURNAMENT_PHOTOS_GC: "${TOURNAMENT_PHOTOS_GC:-dry-run}"
+      TOURNAMENT_PHOTOS_PURGE: "${TOURNAMENT_PHOTOS_PURGE:-dry-run}"
+      # dry-run NAO expira fotos (de menores inclusive): o dono decide ligar em producao. Reconciliacao diaria da anonimizacao (padrao true).
+      TOURNAMENT_ANON_RECONCILE: "${TOURNAMENT_ANON_RECONCILE:-true}"
       # Feed do grupo (docs/EASYPANEL.md secao 27): fotos PRIVADAS dentro do volume persistente gingapp_private_uploads
       # (subpasta feed; nunca em UPLOADS_DIR, o boot falha se ficar la), servidas so por URL assinada (validade em horas).
       # Cotas diarias por usuario: posts e comentarios. FEED_MEDIA_CLEANUP=false desliga a limpeza (15 min + diaria).

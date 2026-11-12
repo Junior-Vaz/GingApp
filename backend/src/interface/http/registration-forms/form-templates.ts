@@ -73,6 +73,17 @@ function responsavelSection(autorizacao: string): TemplateSection {
     ],
   };
 }
+/**
+ * Foto do participante (campo PHOTO, no maximo 1 por formulario): opcional; vai para o chaveamento do campeonato. Para
+ * menores, quem tira/envia e o responsavel (LGPD art. 14).
+ */
+const fotoParticipante: TemplateField = {
+  key: 'foto_participante',
+  type: 'PHOTO',
+  label: 'Foto do participante',
+  helpText: 'Foto de rosto, bem iluminada. Para menores de 18 anos, a foto deve ser tirada ou enviada pelo responsável.',
+  required: false,
+};
 /** Uso de imagem: SEMPRE um aceite separado e OPCIONAL (nunca condicao para se inscrever). */
 const termoImagem: TemplateField = {
   key: 'termo_imagem',
@@ -90,7 +101,7 @@ export const FORM_TEMPLATES: Record<TemplateKey, FormTemplate> = {
     paid: true,
     intro: 'Preencha os dados abaixo para se inscrever no campeonato. Leia os termos com atenção e anexe o comprovante do Pix no final.',
     sections: [
-      { title: 'Dados do competidor', fields: [nome, apelido, nascimento, cpf, telefone, email, menorIdade] },
+      { title: 'Dados do competidor', fields: [nome, apelido, nascimento, cpf, telefone, email, menorIdade, fotoParticipante] },
       responsavelSection(
         'Sou o responsável legal pelo participante menor de idade e autorizo a participação dele no campeonato, assumindo a responsabilidade por ela.',
       ),

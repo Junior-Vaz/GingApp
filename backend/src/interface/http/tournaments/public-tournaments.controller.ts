@@ -54,6 +54,29 @@ export class PublicTournamentsController {
     await openTournamentStream(token, req, res, this.service, this.hub);
   }
 
+  /**
+   * Foto PROPRIA de atleta (docs/CONTRATO_FOTO_UPLOAD_CAMERA.md 1). So serve se o token resolve um torneio hoje visivel E a
+   * regra de privacidade permite a foto NAQUELE instante; todo outro caso (token errado/rotacionado, torneio de outro grupo,
+   * nome inexistente, menor sem autorizacao, autorizacao removida) = o MESMO 404 do snapshot, sem revelar o motivo.
+   */
+  @Public()
+  @Throttle(READ_THROTTLE)
+  @Get(':token/photos/:file')
+  async photo(@Param('token') token: string, @Param('file') file: string, @Res() res: Response): Promise<void> {
+    this.baseHeaders(res);
+    const image = await this.service.getPhoto(token, file);
+    res.set({
+      'Content-Type': 'image/webp',
+      'Cache-Control': 'public, max-age=300',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Cross-Origin-Resource-Policy': 'cross-origin',
+      'X-Robots-Tag': 'noindex',
+      'Content-Disposition': 'inline',
+    });
+    res.status(200).send(image);
+  }
+
   @Public()
   @Throttle(READ_THROTTLE)
   @Get(':token')

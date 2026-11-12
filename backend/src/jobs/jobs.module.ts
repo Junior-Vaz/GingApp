@@ -18,6 +18,8 @@ import { BirthdaysModule } from '../interface/http/birthdays/birthdays.module';
 import { BirthdaysCronService } from './birthdays-cron.service';
 import { FeedMediaCleanupCronService } from './feed-media-cleanup-cron.service';
 import { GroupApplicationsRetentionCronService } from './group-applications-retention-cron.service';
+import { TournamentPhotosCronService } from './tournament-photos-cron.service';
+import { CompetitorAnonymizer } from '../shared/privacy/competitor-anonymizer';
 
 /**
  * Jobs agendados. So entra no AppModule (junto com ScheduleModule.forRoot()) quando pelo menos um deles esta ligado
@@ -36,6 +38,8 @@ import { GroupApplicationsRetentionCronService } from './group-applications-rete
     PixReconcileCronService,
     // Retencao LGPD dos formularios de inscricao + limpeza de anexos pendentes (FORMS_RETENTION_PURGE).
     FormsRetentionCronService,
+    // Ponte LGPD -> chaveamento usada pela retencao dos formularios (anonimiza os atletas importados das inscricoes).
+    CompetitorAnonymizer,
     // Aniversariantes: resumo diario 07:30 aos gestores + varredura horaria dos parabens automaticos (BIRTHDAY_CRON).
     BirthdaysCronService,
     // Envia os comunicados agendados (Comunicar) a cada minuto (COMM_SCHEDULER).
@@ -44,6 +48,8 @@ import { GroupApplicationsRetentionCronService } from './group-applications-rete
     FeedMediaCleanupCronService,
     // Pedidos de adesao de grupo: PENDING > 60 dias expira; decididos antigos sao apagados, diario 05:30 (GROUP_APPLICATIONS_PURGE).
     GroupApplicationsRetentionCronService,
+    // Fotos proprias dos atletas do chaveamento: GC semanal de orfaos + expiracao 30 dias apos o evento (TOURNAMENT_PHOTOS_GC / _PURGE, padrao dry-run).
+    TournamentPhotosCronService,
   ],
 })
 export class JobsModule {}

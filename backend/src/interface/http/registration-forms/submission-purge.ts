@@ -34,26 +34,34 @@ export async function anonymizeSubmissions(
   tx: Prisma.TransactionClient,
   where: Prisma.RegistrationSubmissionWhereInput,
   now: Date,
-): Promise<{ count: number; storageKeys: string[]; participants: number }> {
+): Promise<{ count: number; storageKeys: string[]; participants: number; eventParticipantIds: number[] }> {
   const rows = await tx.registrationSubmission.findMany({
     where: { AND: [where, { anonymizedAt: null }] },
     select: { id: true, organizationId: true, eventParticipantId: true },
   });
-  if (rows.length === 0) return { count: 0, storageKeys: [], participants: 0 };
+  if (rows.length === 0) return { count: 0, storageKeys: [], participants: 0, eventParticipantIds: [] };
   const ids = rows.map((r) => r.id);
   const files = await tx.registrationSubmissionFile.findMany({ where: { submissionId: { in: ids } }, select: { id: true, storageKey: true } });
   if (files.length > 0) await tx.registrationSubmissionFile.deleteMany({ where: { id: { in: files.map((f) => f.id) } } });
   // Participante criado pela inscricao (id guardado na propria inscricao, mesmo grupo): so o de CONVIDADO tem o nome
   // copiado (guestName); o ligado a um aluno usa o nome da ficha, que tem o proprio fluxo de exclusao.
   let participants = 0;
+  // Ids dos participantes (convidados) anonimizados: o chaveamento anonimiza os atletas importados deles (LGPD, depois do commit).
+  const eventParticipantIds: number[] = [];
   for (const orgId of [...new Set(rows.map((r) => r.organizationId))]) {
     const pids = rows.filter((r) => r.organizationId === orgId && r.eventParticipantId).map((r) => r.eventParticipantId as number);
     if (pids.length === 0) continue;
-    const updated = await tx.eventParticipant.updateMany({
+    const guests = await tx.eventParticipant.findMany({
       where: { id: { in: pids }, organizationId: orgId, studentId: null, guestName: { not: null } },
+      select: { id: true },
+    });
+    if (guests.length === 0) continue;
+    const updated = await tx.eventParticipant.updateMany({
+      where: { id: { in: guests.map((g) => g.id) }, organizationId: orgId },
       data: { guestName: ANONYMIZED_PARTICIPANT_NAME },
     });
     participants += updated.count;
+    eventParticipantIds.push(...guests.map((g) => g.id));
   }
   await tx.registrationSubmission.updateMany({
     where: { id: { in: ids } },
@@ -76,7 +84,7 @@ export async function anonymizeSubmissions(
       anonymizedAt: now,
     },
   });
-  return { count: ids.length, storageKeys: files.map((f) => f.storageKey), participants };
+  return { count: ids.length, storageKeys: files.map((f) => f.storageKey), participants, eventParticipantIds };
 }
 
 /** now >= base + N meses (calendario UTC). */

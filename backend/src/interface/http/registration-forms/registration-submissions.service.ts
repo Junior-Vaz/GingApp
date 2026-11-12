@@ -14,6 +14,7 @@ import { formatInstantBR } from '../../../shared/dates/format-br';
 import { isMestre } from '../../../shared/guards/mestre-only.guard';
 import { AuthenticatedUser } from '../../../shared/interfaces/jwt-payload.interface';
 import { pageArgs, DEFAULT_PAGE_SIZE } from '../../../shared/pagination/pagination';
+import { CompetitorAnonymizer } from '../../../shared/privacy/competitor-anonymizer';
 import { PrismaService } from '../../../shared/prisma/prisma.service';
 import { ExportSubmissionsQueryDto, ListSubmissionsQueryDto } from './dto/registration-form.dto';
 import { formFullError, invalidTransition, validationError } from './form-codes';
@@ -110,6 +111,7 @@ export class RegistrationSubmissionsService {
     private readonly audit: AuditService,
     private readonly forms: RegistrationFormsService,
     private readonly effects: RegistrationEffectsService,
+    private readonly competitors: CompetitorAnonymizer,
   ) {}
 
   async list(organizationId: number, formId: number, query: ListSubmissionsQueryDto, user: AuthenticatedUser) {
@@ -446,6 +448,8 @@ export class RegistrationSubmissionsService {
       });
       let deleted = 0;
       for (const key of purged.storageKeys) if (await deletePrivateFile(key).catch(() => false)) deleted += 1;
+      // Atletas do chaveamento importados desta inscricao (participante convidado): perdem foto e nome (LGPD), depois do commit.
+      await this.competitors.anonymize({ eventParticipantIds: purged.eventParticipantIds });
       if (purged.count > 0) {
         await this.audit.record({
           organizationId,

@@ -7,6 +7,8 @@ import * as http from 'node:http';
 import * as path from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import request from 'supertest';
+import sharp from 'sharp';
+import * as os from 'node:os';
 import { PublicTournamentsController } from '../src/interface/http/tournaments/public-tournaments.controller';
 import { TournamentLiveHub } from '../src/interface/http/tournaments/tournament-live-hub';
 import { TournamentPublicService } from '../src/interface/http/tournaments/tournament-public.service';
@@ -76,6 +78,9 @@ describe('Chaveamento de campeonato (e2e)', () => {
 
   const server = () => app.getHttpServer();
   const auth = (t: string) => ({ Authorization: `Bearer ${t}` });
+  /** Foto de verdade (JPEG) para o envio de foto propria do atleta de fora. */
+  const jpegOf = (color: string, w = 200, h = 160) => sharp({ create: { width: w, height: h, channels: 3, background: color } }).jpeg().toBuffer();
+  const publicPhotoPath = (token: string, file: string) => `/api/public/tournaments/${token}/photos/${file}`;
   const as = (who: string) => ({
     get: (p: string) => request(server()).get(`/api${p}`).set(auth(tokens[who])),
     post: (p: string, body?: object) => request(server()).post(`/api${p}`).set(auth(tokens[who])).send(body ?? {}),
@@ -83,6 +88,10 @@ describe('Chaveamento de campeonato (e2e)', () => {
     del: (p: string) => request(server()).delete(`/api${p}`).set(auth(tokens[who])),
   });
   const pub = (token: string) => request(server()).get(`/api/public/tournaments/${token}`);
+  /** Envia a foto propria de um atleta (multipart, campo file). */
+  const uploadPhoto = (who: string, base: string, cid: number, id: number, buf: Buffer, filename = 'foto.jpg') =>
+    request(server()).post(`/api${base}/categories/${cid}/competitors/${id}/photo`).set(auth(tokens[who])).attach('file', buf, filename);
+  const photoFileOf = async (id: number) => (await prisma.tournamentCompetitor.findUniqueOrThrow({ where: { id } })).photoFile;
 
   const mkUser = async (orgId: number, role: OrgRole, label: string): Promise<string> => {
     const email = `${label}-${stamp}@e2e-tourn.local`;
@@ -199,8 +208,11 @@ describe('Chaveamento de campeonato (e2e)', () => {
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+  let photosDir = '';
   before(async () => {
     process.env.TOURNAMENT_SNAPSHOT_TTL_MS = '60000';
+    photosDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tourn-photos-'));
+    process.env.TOURNAMENT_PHOTOS_DIR = photosDir;
     app = await createTestApp();
     await app.listen(0);
     port = (app.getHttpServer().address() as { port: number }).port;
@@ -234,6 +246,7 @@ describe('Chaveamento de campeonato (e2e)', () => {
     await prisma.organization.deleteMany({ where: { id: { in: orgIds } } });
     await prisma.user.deleteMany({ where: { id: { in: userIds } } });
     await prisma.$disconnect();
+    fs.rmSync(photosDir, { recursive: true, force: true });
   });
 
   // =================================================================================================================
@@ -304,12 +317,15 @@ describe('Chaveamento de campeonato (e2e)', () => {
       const add = (guest: object) => as('mestre').post(`${base}/categories/${cat.id}/competitors`, { guest });
       await add({ displayName: 'A' }).expect(400);
       await add({ displayName: 'Fulano', extra: true }).expect(400);
-      for (const photoUrl of ['javascript:alert(1)', 'data:image/png;base64,AAAA', 'http://exemplo.com/a.png', '//exemplo.com/a.png', '/api/uploads/../../etc/passwd', '/api/uploads/qualquer.png', '/outro/caminho.png', 'https://u:p@exemplo.com/a.png', 'https://exemplo.com/a b.png']) {
+      // photoUrl DEIXOU de existir (contrato de foto 1): qualquer valor, mesmo valido antes, e 400 PHOTO_URL_NOT_ALLOWED
+      for (const photoUrl of ['javascript:alert(1)', 'data:image/png;base64,AAAA', 'http://exemplo.com/a.png', '//exemplo.com/a.png', '/api/uploads/../../etc/passwd', '/api/uploads/qualquer.png', '/outro/caminho.png', 'https://u:p@exemplo.com/a.png', 'https://exemplo.com/a b.png', 'https://exemplo.com/foto.png', PHOTO(7), '', null]) {
         const r = await add({ displayName: 'Fulano', photoUrl });
-        assert.equal(r.status, 400, photoUrl);
+        assert.equal(r.status, 400, String(photoUrl));
+        assert.equal(r.body.code, 'PHOTO_URL_NOT_ALLOWED', String(photoUrl));
       }
-      await add({ displayName: 'Fulano', photoUrl: 'https://exemplo.com/foto.png' }).expect(201);
-      await add({ displayName: 'Beltrano', photoUrl: PHOTO(7) }).expect(201);
+      assert.equal((await getCat(base, cat.id)).competitors.length, 0, 'nenhum convidado foi criado');
+      await add({ displayName: 'Fulano' }).expect(201);
+      await add({ displayName: 'Beltrano' }).expect(201);
       // exatamente UMA forma
       await as('mestre').post(`${base}/categories/${cat.id}/competitors`, {}).expect(400);
       await as('mestre').post(`${base}/categories/${cat.id}/competitors`, { studentId: 1, guest: { displayName: 'Dois' } }).expect(400);
@@ -861,7 +877,7 @@ describe('Chaveamento de campeonato (e2e)', () => {
       assert.equal((await as('mestre').post(`${base}/categories/${cat.id}/competitors`, { studentId: anon.id }).expect(400)).body.code, 'STUDENT_NOT_ELIGIBLE');
       // PATCH de atleta ligado a aluno: foto nao se define (vem do aluno)
       const withStudent = (await getCat(base, cat.id)).competitors.find((c: any) => c.studentId === s5.id);
-      assert.equal((await as('mestre').patch(`${base}/competitors/${withStudent.id}`, { photoUrl: PHOTO(1) }).expect(400)).body.code, 'INVALID_PHOTO_URL');
+      assert.equal((await as('mestre').patch(`${base}/competitors/${withStudent.id}`, { photoUrl: PHOTO(1) }).expect(400)).body.code, 'PHOTO_URL_NOT_ALLOWED');
       // editar texto a qualquer momento, inclusive depois de gerar
       await as('mestre').post(`${base}/categories/${cat.id}/generate`, { seeding: 'RANDOM' }).expect(200);
       const edited = (await as('mestre').patch(`${base}/competitors/${withStudent.id}`, { displayName: 'Diego Direto Silva', graduationLabel: 'Contramestre', groupName: '' }).expect(200)).body;
@@ -873,7 +889,7 @@ describe('Chaveamento de campeonato (e2e)', () => {
 
   // =================================================================================================================
   describe('atleta de aluno e exclusão em cascata', () => {
-    it('PATCH de atleta ligado a aluno: ageGroup/photoUrl diferentes do que o operador vê = 400; iguais = ignorado', async () => {
+    it('PATCH de atleta ligado a aluno: ageGroup diferente do que o operador vê = 400; igual = ignorado; photoUrl nunca existe', async () => {
       const { base } = await newTournament();
       const cat = await mkCategory(base, { name: 'Aluno derivado', format: 'ROUND_ROBIN' });
       const s = await prisma.student.create({ data: { organizationId: orgA, name: 'Aluno Derivado', status: 'ACTIVE', photo: PHOTO(2), birthDate: new Date('2015-03-04T00:00:00.000Z') } });
@@ -882,27 +898,32 @@ describe('Chaveamento de campeonato (e2e)', () => {
       assert.equal(c.ageGroup, 'MINOR');
       const bad = await as('mestre').patch(`${base}/competitors/${c.id}`, { ageGroup: 'ADULT' }).expect(400);
       assert.equal(bad.body.code, 'AGE_GROUP_FROM_STUDENT');
-      assert.equal((await as('mestre').patch(`${base}/competitors/${c.id}`, { photoUrl: PHOTO(3) }).expect(400)).body.code, 'INVALID_PHOTO_URL');
-      const same = (await as('mestre').patch(`${base}/competitors/${c.id}`, { ageGroup: 'MINOR', photoUrl: PHOTO(2) }).expect(200)).body;
+      assert.equal((await as('mestre').patch(`${base}/competitors/${c.id}`, { photoUrl: PHOTO(3) }).expect(400)).body.code, 'PHOTO_URL_NOT_ALLOWED');
+      assert.equal((await as('mestre').patch(`${base}/competitors/${c.id}`, { photoUrl: PHOTO(2) }).expect(400)).body.code, 'PHOTO_URL_NOT_ALLOWED', 'nem o mesmo valor que o operador ve');
+      assert.equal((await as('mestre').patch(`${base}/competitors/${c.id}`, { photoUrl: null }).expect(400)).body.code, 'PHOTO_URL_NOT_ALLOWED');
+      assert.equal(c.photoUrl, PHOTO(2), 'operador ve SO a foto do aluno em photoUrl');
+      const same = (await as('mestre').patch(`${base}/competitors/${c.id}`, { ageGroup: 'MINOR' }).expect(200)).body;
       assert.equal(same.revision, added.revision, 'mesmo valor que o operador ve = ignorado, sem mudanca');
       // convidado continua gravando
       const g = (await as('mestre').post(`${base}/categories/${cat.id}/competitors`, { guest: { displayName: 'Convidado Edit' } }).expect(201)).body;
       const gid = g.competitors.find((x: any) => x.displayName === 'Convidado Edit').id;
-      const upd = (await as('mestre').patch(`${base}/competitors/${gid}`, { ageGroup: 'ADULT', photoUrl: PHOTO(4) }).expect(200)).body;
+      assert.equal((await as('mestre').patch(`${base}/competitors/${gid}`, { photoUrl: PHOTO(4) }).expect(400)).body.code, 'PHOTO_URL_NOT_ALLOWED');
+      const upd = (await as('mestre').patch(`${base}/competitors/${gid}`, { ageGroup: 'ADULT' }).expect(200)).body;
       const gc = upd.competitors.find((x: any) => x.id === gid);
-      assert.deepEqual([gc.ageGroup, gc.photoUrl], ['ADULT', PHOTO(4)]);
+      assert.deepEqual([gc.ageGroup, gc.photoUrl, gc.hasOwnPhoto], ['ADULT', null, false]);
     });
 
     it('POST de atleta já com seed e photoAuthorized (guest) e seed nas formas studentId/eventParticipantId; SEED_TAKEN na criação', async () => {
       const { base, eventId } = await newTournament();
       const cat = await mkCategory(base, { name: 'Criacao completa', format: 'SINGLE_ELIMINATION' });
       const post = (body: object) => as('mestre').post(`${base}/categories/${cat.id}/competitors`, body);
-      const g = (await post({ guest: { displayName: 'Convidada Menor', ageGroup: 'MINOR', photoUrl: PHOTO(5), seed: 1, photoAuthorized: true } }).expect(201)).body;
+      const g = (await post({ guest: { displayName: 'Convidada Menor', ageGroup: 'MINOR', seed: 1, photoAuthorized: true } }).expect(201)).body;
       const gc = g.competitors.find((c: any) => c.displayName === 'Convidada Menor');
       assert.equal(gc.seed, 1);
       assert.equal(gc.photoAuthorized, true);
       assert.ok(gc.photoAuthorizedAt);
-      assert.equal(gc.photoPublic, true, 'menor autorizado: foto publica');
+      assert.equal(gc.photoPublic, false, 'menor autorizado mas SEM foto: nada a mostrar');
+      assert.equal(gc.hasOwnPhoto, false);
       const row = await prisma.tournamentCompetitor.findUniqueOrThrow({ where: { id: gc.id } });
       const mestreUser = await prisma.user.findFirstOrThrow({ where: { email: `mestre-a-${stamp}@e2e-tourn.local` } });
       assert.equal(row.photoAuthorizedById, mestreUser.id, 'grava quem autorizou');
@@ -1036,6 +1057,7 @@ describe('Chaveamento de campeonato (e2e)', () => {
     let ctx: { eventId: number; base: string; tournament: { id: number; publicToken: string } };
     let cid = 0;
     const comp: Record<string, number> = {};
+    const ownFile: Record<string, string> = {};
 
     before(async () => {
       ctx = await newTournament();
@@ -1058,12 +1080,18 @@ describe('Chaveamento de campeonato (e2e)', () => {
       }
       await as('mestre').patch(`${ctx.base}/competitors/${comp.minorAuth}`, { photoAuthorized: true }).expect(200);
       // convidados: menor sem autorizacao (com foto), adulto com foto https
-      const g1 = (await as('mestre').post(`${ctx.base}/categories/${cid}/competitors`, { guest: { displayName: 'Convidado Menor', ageGroup: 'MINOR', photoUrl: PHOTO(5), groupName: 'Academia X', graduationLabel: 'Azul' } }).expect(201)).body;
+      const g1 = (await as('mestre').post(`${ctx.base}/categories/${cid}/competitors`, { guest: { displayName: 'Convidado Menor', ageGroup: 'MINOR', groupName: 'Academia X', graduationLabel: 'Azul' } }).expect(201)).body;
       comp.guestMinor = g1.competitors.at(-1).id;
-      const g2 = (await as('mestre').post(`${ctx.base}/categories/${cid}/competitors`, { guest: { displayName: 'Convidado Adulto', ageGroup: 'ADULT', photoUrl: 'https://cdn.exemplo.com/foto.jpg' } }).expect(201)).body;
+      const g2 = (await as('mestre').post(`${ctx.base}/categories/${cid}/competitors`, { guest: { displayName: 'Convidado Adulto', ageGroup: 'ADULT' } }).expect(201)).body;
       comp.guestAdult = g2.competitors.at(-1).id;
-      const g3 = (await as('mestre').post(`${ctx.base}/categories/${cid}/competitors`, { guest: { displayName: 'Convidado Desconhecido', photoUrl: PHOTO(6) } }).expect(201)).body;
+      const g3 = (await as('mestre').post(`${ctx.base}/categories/${cid}/competitors`, { guest: { displayName: 'Convidado Desconhecido' } }).expect(201)).body;
       comp.guestUnknown = g3.competitors.at(-1).id;
+      // fotos PROPRIAS (arquivo enviado): menor sem autorizacao, adulto e desconhecido sem autorizacao
+      for (const [key, color] of [['guestMinor', '#c33'], ['guestAdult', '#3c3'], ['guestUnknown', '#33c']] as const) {
+        await uploadPhoto('mestre', ctx.base, cid, comp[key], await jpegOf(color)).expect(200);
+        ownFile[key] = (await photoFileOf(comp[key]))!;
+        assert.ok(ownFile[key], key);
+      }
       const operator = (await as('mestre').get(`${ctx.base}/categories/${cid}`).expect(200)).body;
       const op = (id: number) => operator.competitors.find((c: any) => c.id === id);
       assert.equal(op(comp.minor).ageGroup, 'MINOR', 'operador ve a faixa etaria RECALCULADA do aluno');
@@ -1087,11 +1115,12 @@ describe('Chaveamento de campeonato (e2e)', () => {
       assert.equal(t(comp.adult).photoUrl, PHOTO(2));
       assert.equal(t(comp.unknown).photoUrl, null, 'sem data de nascimento = UNKNOWN = sem foto');
       assert.equal(t(comp.minorAuth).photoUrl, PHOTO(4), 'menor COM autorizacao');
-      assert.equal(t(comp.guestMinor).photoUrl, null);
-      assert.equal(t(comp.guestAdult).photoUrl, 'https://cdn.exemplo.com/foto.jpg');
-      assert.equal(t(comp.guestUnknown).photoUrl, null);
-      // as URLs das fotos negadas nao aparecem EM LUGAR NENHUM do JSON
-      for (const n of [1, 3, 5, 6]) assert.ok(!raw.includes(PHOTO(n)), `foto ${n} vazou`);
+      assert.equal(t(comp.guestMinor).photoUrl, null, 'convidado menor sem autorizacao: nada de URL');
+      assert.equal(t(comp.guestAdult).photoUrl, publicPhotoPath(ctx.tournament.publicToken, ownFile.guestAdult), 'convidado adulto: foto propria pela rota publica');
+      assert.equal(t(comp.guestUnknown).photoUrl, null, 'convidado sem faixa etaria e sem autorizacao');
+      // as URLs das fotos negadas nao aparecem EM LUGAR NENHUM do JSON (nem o NOME do arquivo das fotos proprias negadas)
+      for (const n of [1, 3]) assert.ok(!raw.includes(PHOTO(n)), `foto ${n} vazou`);
+      for (const k of ['guestMinor', 'guestUnknown']) assert.ok(!raw.includes(ownFile[k]), `arquivo de ${k} vazou`);
       // sentinelas e campos proibidos
       for (const s of [SENT.cpf, SENT.email, SENT.phone, SENT.note, SENT.birthMinor, SENT.birthAdult, '2015-03', 'vazamento.test', 'CPF-SENT']) {
         assert.ok(!raw.includes(s), `sentinela vazou: ${s}`);
@@ -1100,7 +1129,8 @@ describe('Chaveamento de campeonato (e2e)', () => {
       for (const k of ['studentId', 'eventParticipantId', 'ageGroup', 'photoAuthorized', 'photoAuthorizedById', 'photoAuthorizedAt', 'birthDate', 'email', 'phone', 'note', 'organizationId', 'publicToken', 'document', 'guardian', 'drawSeed', 'loserNextMatchId', 'startedAt', 'finishedAt', 'displayName', 'groupName', 'graduationLabel', 'tournamentId']) {
         assert.ok(!keys.has(k), `campo proibido no publico: ${k}`);
       }
-      assert.ok(!raw.includes(ctx.tournament.publicToken), 'o token nao aparece no corpo');
+      // o token so pode aparecer DENTRO da URL da foto propria visivel (rota publica); em nenhum outro lugar
+      assert.ok(!raw.split(publicPhotoPath(ctx.tournament.publicToken, ownFile.guestAdult)).join('').includes(ctx.tournament.publicToken), 'o token so aparece na URL da foto propria');
     };
     const assertShape = (body: any) => {
       assert.deepEqual(Object.keys(body), [...PUBLIC_SNAPSHOT_KEYS.top]);

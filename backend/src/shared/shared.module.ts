@@ -15,6 +15,8 @@ import { assertPaymentsBootConfig, paymentsProviderKind } from './payments/payme
 import { MercadoPagoProvider } from './payments/mercadopago.provider';
 import { StubPaymentProvider } from './payments/stub-payment.provider';
 import { PixLifecycleHooks } from './payments/pix-lifecycle.hooks';
+import { UploadReaper } from './uploads/upload-reaper.service';
+import { UploadReferenceScanner } from './uploads/upload-reference-scanner';
 
 /**
  * Módulo global (padrão GestorPrint): disponibiliza o PrismaService para todos os módulos
@@ -60,6 +62,9 @@ import { PixLifecycleHooks } from './payments/pix-lifecycle.hooks';
     },
     // Ponte financeiro -> Pix (cancelar o Pix aberto no provedor apos baixa manual/cancelamento/valor alterado).
     PixLifecycleHooks,
+    // Imagens de /api/uploads: detector de referencias (SSOT do GC semanal) e remocao das orfas apos a anonimizacao LGPD.
+    UploadReferenceScanner,
+    UploadReaper,
   ],
   exports: [
     PrismaService,
@@ -74,6 +79,8 @@ import { PixLifecycleHooks } from './payments/pix-lifecycle.hooks';
     GeocodingService,
     PAYMENT_PROVIDER,
     PixLifecycleHooks,
+    UploadReferenceScanner,
+    UploadReaper,
   ],
 })
 export class SharedModule {}

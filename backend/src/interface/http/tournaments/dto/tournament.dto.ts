@@ -15,11 +15,9 @@ import {
   MaxLength,
   Min,
   MinLength,
-  registerDecorator,
   ValidateNested,
-  ValidationOptions,
 } from 'class-validator';
-import { isAllowedPhotoRef, TOURNAMENT_LIMITS as L } from '../tournament-rules';
+import { TOURNAMENT_LIMITS as L } from '../tournament-rules';
 
 /**
  * DTOs do chaveamento (docs/CONTRATO_CHAVEAMENTO.md 1, 2 e 4). Campos extras = 400 (ValidationPipe global com
@@ -30,21 +28,11 @@ import { isAllowedPhotoRef, TOURNAMENT_LIMITS as L } from '../tournament-rules';
 /** Texto: so aparas nas pontas (a limpeza de controle/vazio -> null e do service). Nao-string passa e o validador decide. */
 const trim = ({ value }: { value: unknown }): unknown => (typeof value === 'string' ? value.trim() : value);
 
-/** URL de foto de CONVIDADO: `/api/uploads/<uuid>.<ext>` ou `https://...` (rejeita javascript:, data:, http:, relativo estranho). */
-function IsPhotoRef(validationOptions?: ValidationOptions) {
-  return function (object: object, propertyName: string): void {
-    registerDecorator({
-      name: 'isPhotoRef',
-      target: object.constructor,
-      propertyName,
-      options: {
-        message: 'photoUrl deve ser uma imagem enviada pelo GingApp (/api/uploads/...) ou um endereço https://.',
-        ...validationOptions,
-      },
-      validator: { validate: (value: unknown) => value === '' || isAllowedPhotoRef(value) },
-    });
-  };
-}
+/**
+ * `photoUrl` NAO existe mais (docs/CONTRATO_FOTO_UPLOAD_CAMERA.md 1): a foto de atleta de fora e um ARQUIVO enviado por
+ * `POST .../competitors/:id/photo`. O campo continua declarado aqui so para o service responder 400 `PHOTO_URL_NOT_ALLOWED`
+ * (com o codigo do contrato) em vez do 400 generico da lista branca; QUALQUER valor enviado (inclusive null/'') e recusado.
+ */
 
 const NAME_MSG = `name: de ${L.nameMin} a ${L.nameMax} caracteres.`;
 const DISPLAY_MSG = `displayName: de ${L.displayNameMin} a ${L.displayNameMax} caracteres.`;
@@ -135,10 +123,9 @@ export class GuestCompetitorDto {
   @IsEnum(TournamentAgeGroup, { message: 'ageGroup: ADULT, MINOR ou UNKNOWN.' })
   ageGroup?: TournamentAgeGroup;
 
+  /** Recusado pelo service (400 PHOTO_URL_NOT_ALLOWED). */
   @IsOptional()
-  @Transform(trim)
-  @IsPhotoRef()
-  photoUrl?: string;
+  photoUrl?: unknown;
 
   /** Semente ja na criacao (mesma validacao e SEED_TAKEN do PATCH). */
   @IsOptional()
@@ -223,10 +210,9 @@ export class UpdateCompetitorDto {
   @IsBoolean({ message: 'photoAuthorized: use true ou false.' })
   photoAuthorized?: boolean;
 
+  /** Recusado pelo service (400 PHOTO_URL_NOT_ALLOWED). */
   @IsOptional()
-  @Transform(trim)
-  @IsPhotoRef()
-  photoUrl?: string | null;
+  photoUrl?: unknown;
 }
 
 export class GenerateDto {

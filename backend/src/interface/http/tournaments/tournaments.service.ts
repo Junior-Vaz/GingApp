@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { ForbiddenException, HttpStatus, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
   ParticipantStatus,
   Prisma,
@@ -45,6 +45,16 @@ import {
   statusFromSlots,
 } from './tournament-flow';
 import { CloseReason, TournamentLiveHub } from './tournament-live-hub';
+import {
+  assertTournamentPhotosDirSafe,
+  deleteTournamentPhotoFiles,
+  processTournamentPhoto,
+  readTournamentPhoto,
+  storeTournamentPhoto,
+  TOURNAMENT_PHOTO_MAX_BYTES,
+  tournamentPhotosQuotaBytes,
+} from './tournament-photo-storage';
+import { TOURNAMENT_PHOTO_SOURCE, TournamentPhotoSource } from './tournament-photo-source';
 import { STUDENT_INFO_SELECT, TournamentPublicService } from './tournament-public.service';
 import {
   badRequest,
@@ -55,15 +65,17 @@ import {
   generatePublicToken,
   groupConfigError,
   groupSizeError,
+  ageGroupFromBirthDates,
   newDrawSeed,
   normalizeCategoryConfig,
   notFound,
-  publicPhotoRef,
   TOURNAMENT_EVENT_TYPE,
+  tournamentError,
+  unsupportedMedia,
   TOURNAMENT_LIMITS as L,
   TournamentErrorCode as Code,
 } from './tournament-rules';
-import { buildOperatorCategory, CategoryData, CompetitorData, effectiveAgeGroup, orderedGroupIds, sourcePhoto } from './tournament-snapshot';
+import { ANONYMIZED_NAME, buildOperatorCategory, CategoryData, CompetitorData, effectiveAgeGroup, orderedGroupIds, studentPhoto } from './tournament-snapshot';
 
 type Tx = Prisma.TransactionClient;
 type Db = Tx | PrismaService;
@@ -84,6 +96,31 @@ interface Outcome<T> {
   audits?: AuditInput[];
   /** Fecha os streams em vez de so notificar (token rotacionado / telao desligado). */
   close?: CloseReason;
+  /** Fotos proprias a apagar do disco DEPOIS do commit (trocadas/removidas/atleta ou categoria apagados). Nunca apaga antes. */
+  deleteFiles?: Array<string | null>;
+}
+
+/** Dados do atleta anonimizado (LGPD): sem nome, grupo, graduacao, foto nem autorizacao. */
+const ANONYMIZED_COMPETITOR_DATA = {
+  displayName: ANONYMIZED_NAME,
+  groupName: null,
+  graduationLabel: null,
+  photoUrl: null,
+  photoFile: null,
+  photoBytes: null,
+  photoUpdatedAt: null,
+  photoAuthorized: false,
+  photoAuthorizedById: null,
+  photoAuthorizedAt: null,
+} satisfies Prisma.TournamentCompetitorUncheckedUpdateManyInput;
+
+/** Namespace do advisory lock da cota de fotos por grupo (pg_advisory_xact_lock(ns, organizationId)). */
+const PHOTO_QUOTA_LOCK_NS = 0x7068; // "ph"
+
+/** Arquivo recebido do multer (memoria). */
+export interface PhotoUpload {
+  buffer: Buffer;
+  size: number;
 }
 
 interface Actor {
@@ -113,7 +150,11 @@ export class TournamentsService {
     private readonly unitScope: UnitScopeService,
     private readonly hub: TournamentLiveHub,
     private readonly publicService: TournamentPublicService,
-  ) {}
+    /** Fonte da foto/nascimento da inscricao (modulo de formularios). Opcional: sem ela, a importacao segue sem foto. */
+    @Optional() @Inject(TOURNAMENT_PHOTO_SOURCE) private readonly photoSource?: TournamentPhotoSource,
+  ) {
+    assertTournamentPhotosDirSafe();
+  }
 
   // ------------------------------------------------------------------------------------------------------------
   // Infra: acesso, transacao, efeitos pos-commit
@@ -172,6 +213,8 @@ export class TournamentsService {
     } catch (error) {
       this.logger.error(`Falha ao avisar o telao: ${error instanceof Error ? error.message : String(error)}`);
     }
+    // Arquivo antigo SO depois do commit (e nunca lanca): falha de disco = log e o GC semanal pega.
+    if (outcome.deleteFiles?.length) await deleteTournamentPhotoFiles(outcome.deleteFiles, this.logger);
   }
 
   /** Sobe a revisao do torneio e devolve a nova. */
@@ -494,12 +537,15 @@ export class TournamentsService {
         throw conflict(Code.HAS_RESULTS, 'A categoria já tem lutas em andamento ou terminadas: não pode ser excluída.');
       }
       const competitors = await tx.tournamentCompetitor.count({ where: { categoryId } });
+      // Fotos proprias dos atletas (a FK em cascata apaga as linhas): localiza ANTES, apaga os arquivos DEPOIS do commit.
+      const photos = await tx.tournamentCompetitor.findMany({ where: { categoryId, photoFile: { not: null } }, select: { photoFile: true } });
       await tx.tournamentCategory.delete({ where: { id: categoryId } });
       await this.bump(tx, category.tournamentId);
       return {
         value: await this.tournamentSummary(tx, organizationId, category.tournamentId),
         tournamentId: category.tournamentId,
         changed: true,
+        deleteFiles: photos.map((c) => c.photoFile),
         audits: [{ action: AuditAction.TOURNAMENT_CATEGORY_DELETE, entity: AuditEntity.TOURNAMENT_CATEGORY, entityId: categoryId, meta: { competitors, matches: matches.length } }],
       };
     });
@@ -543,6 +589,7 @@ export class TournamentsService {
     if (dto.guest && dto.seed !== undefined && dto.seed !== null) {
       throw badRequest(Code.INVALID_COMPETITOR, 'No convidado, informe a semente em guest.seed.');
     }
+    if (dto.guest?.photoUrl !== undefined) throw this.photoUrlNotAllowed();
     const seed = (dto.guest ? dto.guest.seed : dto.seed) ?? null;
     return this.run(actor, async (tx) => {
       const category = await this.lockCategory(tx, actor, eventId, categoryId);
@@ -572,7 +619,6 @@ export class TournamentsService {
           groupName: cleanText(g.groupName),
           graduationLabel: cleanText(g.graduationLabel),
           ageGroup: g.ageGroup ?? TournamentAgeGroup.UNKNOWN,
-          photoUrl: g.photoUrl ? g.photoUrl : null,
           ...(g.photoAuthorized === true ? { photoAuthorized: true, photoAuthorizedById: actor.user.id, photoAuthorizedAt: new Date() } : {}),
         };
       } else if (dto.studentId !== undefined) {
@@ -626,7 +672,8 @@ export class TournamentsService {
       }
       await this.bump(tx, category.tournamentId);
       return {
-        value: await this.categoryView(tx, organizationId, categoryId),
+        // Categoria completa + o id do atleta recem-criado (cada requisicao recebe o id do SEU atleta, mesmo com POST simultaneos).
+        value: { ...(await this.categoryView(tx, organizationId, categoryId)), createdCompetitorId: created.id },
         tournamentId: category.tournamentId,
         changed: true,
         audits: [{ action: AuditAction.TOURNAMENT_COMPETITOR_ADD, entity: AuditEntity.TOURNAMENT_COMPETITOR, entityId: created.id, meta: { categoryId, source } }],
@@ -659,54 +706,392 @@ export class TournamentsService {
     };
   }
 
+  /** 400 do contrato: photoUrl nao existe mais (a foto de atleta de fora e um arquivo: POST .../photo). */
+  private photoUrlNotAllowed() {
+    return badRequest(
+      Code.PHOTO_URL_NOT_ALLOWED,
+      'photoUrl não é mais aceito: envie a foto do atleta como arquivo em POST /categories/:cid/competitors/:id/photo.',
+    );
+  }
+
+  /**
+   * Importa em lote os participantes CONFIRMADOS/COMPARECIDOS (ignora os ja existentes). Para quem NAO e aluno, consulta o
+   * provedor `TournamentPhotoSource` (formularios): a foto da inscricao passa pelo MESMO pipeline do envio (re-sanitiza) e vira
+   * a foto propria; `ageGroup` = derivado do nascimento da inscricao (senao UNKNOWN); `photoAuthorized` fica FALSE (a equipe
+   * marca). Falha numa foto/provedor NUNCA derruba o atleta (log e segue sem foto). A leitura/processamento da foto roda ANTES da
+   * transacao (IO + sharp nao seguram a trava); os arquivos que nao viraram foto de ninguem (atleta ja existente, cota, falha)
+   * sao apagados no fim. Resposta: `{ added, skipped, photosImported, category }`.
+   */
   async importFromParticipants(organizationId: number, user: AuthenticatedUser, eventId: number, categoryId: number, dto: ImportParticipantsDto) {
     const actor = await this.actor(organizationId, user, true);
     await this.loadEvent(actor, eventId);
+    const prepared = await this.prepareImportPhotos(organizationId, eventId, categoryId, dto.eventParticipantIds);
+    const written = [...prepared.values()].flatMap((p) => (p.photo ? [p.photo.file] : []));
+    const attached = new Set<string>();
+    let value;
+    try {
+      value = await this.run(actor, async (tx) => {
+        attached.clear();
+        const category = await this.lockCategory(tx, actor, eventId, categoryId);
+        this.assertSetup(category);
+        const org = await tx.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { name: true } });
+        const [participants, existing] = await Promise.all([
+          tx.eventParticipant.findMany({
+            where: { id: { in: dto.eventParticipantIds }, organizationId, eventId },
+            include: { student: { select: { id: true, name: true, anonymizedAt: true } }, user: { select: { name: true } } },
+            orderBy: { id: 'asc' },
+          }),
+          tx.tournamentCompetitor.findMany({ where: { categoryId }, select: { studentId: true, eventParticipantId: true } }),
+        ]);
+        const takenStudents = new Set(existing.map((c) => c.studentId).filter((v): v is number => v !== null));
+        const takenParticipants = new Set(existing.map((c) => c.eventParticipantId).filter((v): v is number => v !== null));
+        const eligible: Prisma.TournamentCompetitorUncheckedCreateInput[] = [];
+        for (const p of participants) {
+          if (p.status !== ParticipantStatus.CONFIRMED && p.status !== ParticipantStatus.ATTENDED) continue;
+          if (p.student?.anonymizedAt) continue;
+          if (takenParticipants.has(p.id) || (p.student && takenStudents.has(p.student.id))) continue;
+          takenParticipants.add(p.id);
+          if (p.student) takenStudents.add(p.student.id);
+          const data = this.participantToCompetitor(organizationId, categoryId, org.name, p);
+          const prep = p.student ? undefined : prepared.get(p.id); // aluno: foto e idade vem do cadastro
+          if (prep) data.ageGroup = prep.ageGroup;
+          eligible.push(data);
+        }
+        if (existing.length + eligible.length > L.maxCompetitors) {
+          throw conflict(Code.CATEGORY_FULL, `Uma categoria aceita até ${L.maxCompetitors} atletas.`);
+        }
+        const added = eligible.length;
+        const skipped = dto.eventParticipantIds.length - added;
+        if (added === 0) {
+          return {
+            value: { added, skipped, photosImported: 0, addedCompetitorIds: [] as number[], category: await this.categoryView(tx, organizationId, categoryId) },
+            tournamentId: category.tournamentId,
+            changed: false,
+          };
+        }
+
+        // Fotos: cota do grupo decidida sob o lock (uma foto que nao cabe deixa SO a foto de fora; o atleta entra).
+        const withPhoto = eligible.filter((e) => !e.studentId && e.eventParticipantId != null && prepared.get(e.eventParticipantId)?.photo);
+        if (withPhoto.length > 0) {
+          await this.lockPhotoQuota(tx, organizationId);
+          let used = await this.photoBytesUsed(tx, organizationId);
+          const quota = tournamentPhotosQuotaBytes();
+          const now = new Date();
+          for (const e of withPhoto) {
+            const photo = prepared.get(e.eventParticipantId as number)!.photo!;
+            if (used + photo.bytes > quota) {
+              this.logger.warn('Foto da inscrição não importada: cota de fotos do grupo atingida.');
+              continue;
+            }
+            used += photo.bytes;
+            e.photoFile = photo.file;
+            e.photoBytes = photo.bytes;
+            e.photoUpdatedAt = now;
+            attached.add(photo.file);
+          }
+        }
+
+        await tx.tournamentCompetitor.createMany({ data: eligible });
+        // createMany nao devolve ids: relê os criados (um por participante importado, ordem de criacao).
+        const createdRows = await tx.tournamentCompetitor.findMany({
+          where: { categoryId, eventParticipantId: { in: eligible.map((e) => e.eventParticipantId as number) } },
+          select: { id: true },
+          orderBy: { id: 'asc' },
+        });
+        const addedCompetitorIds = createdRows.map((r) => r.id);
+        await this.bump(tx, category.tournamentId);
+        return {
+          value: { added, skipped, photosImported: attached.size, addedCompetitorIds, category: await this.categoryView(tx, organizationId, categoryId) },
+          tournamentId: category.tournamentId,
+          changed: true,
+          audits: [
+            {
+              action: AuditAction.TOURNAMENT_COMPETITOR_IMPORT,
+              entity: AuditEntity.TOURNAMENT_CATEGORY,
+              entityId: categoryId,
+              meta: { added, skipped, photosImported: attached.size },
+            },
+          ],
+        };
+      });
+    } catch (error) {
+      await deleteTournamentPhotoFiles(written, this.logger); // rollback: nenhum arquivo ficou ligado a atleta
+      throw error;
+    }
+    await deleteTournamentPhotoFiles(
+      written.filter((f) => !attached.has(f)),
+      this.logger,
+    );
+    return value;
+  }
+
+  /**
+   * Antes da transacao da importacao: para cada participante elegivel que NAO e aluno (e ainda nao esta na categoria) le a
+   * foto/nascimento da inscricao no provedor e grava a foto ja processada. Mapa participante -> { ageGroup, foto? }.
+   */
+  private async prepareImportPhotos(
+    organizationId: number,
+    eventId: number,
+    categoryId: number,
+    participantIds: number[],
+  ): Promise<Map<number, { ageGroup: TournamentAgeGroup; photo: { file: string; bytes: number } | null }>> {
+    const out = new Map<number, { ageGroup: TournamentAgeGroup; photo: { file: string; bytes: number } | null }>();
+    const source = this.photoSource;
+    if (!source) return out;
+    const [participants, existing] = await Promise.all([
+      this.prisma.eventParticipant.findMany({
+        where: {
+          id: { in: participantIds },
+          organizationId,
+          eventId,
+          studentId: null,
+          status: { in: [ParticipantStatus.CONFIRMED, ParticipantStatus.ATTENDED] },
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      }),
+      this.prisma.tournamentCompetitor.findMany({
+        where: { categoryId, organizationId, eventParticipantId: { not: null } },
+        select: { eventParticipantId: true },
+      }),
+    ]);
+    const taken = new Set(existing.map((c) => c.eventParticipantId));
+    const now = new Date();
+    for (const p of participants) {
+      if (taken.has(p.id)) continue;
+      let ageGroup: TournamentAgeGroup = TournamentAgeGroup.UNKNOWN;
+      let photo: { file: string; bytes: number } | null = null;
+      try {
+        const data = await source.readForParticipant({ organizationId, eventId, eventParticipantId: p.id });
+        if (data?.birthDate) ageGroup = ageGroupFromBirthDates([data.birthDate], now);
+        if (data?.photo && data.photo.length > 0 && data.photo.length <= TOURNAMENT_PHOTO_MAX_BYTES) {
+          const processed = await processTournamentPhoto(data.photo);
+          if (processed.ok) {
+            photo = await storeTournamentPhoto(processed.data);
+          } else {
+            this.logger.warn(`Foto da inscrição ignorada na importação (${processed.reason}).`);
+          }
+        } else if (data?.photo) {
+          this.logger.warn('Foto da inscrição ignorada na importação (tamanho fora do limite).');
+        }
+      } catch (error) {
+        this.logger.warn(`Falha ao ler a foto da inscrição (o atleta entra sem foto): ${error instanceof Error ? error.message : String(error)}`);
+      }
+      out.set(p.id, { ageGroup, photo });
+    }
+    return out;
+  }
+
+  // ------------------------------------------------------------------------------------------------------------
+  // Foto propria do atleta de fora (docs/CONTRATO_FOTO_UPLOAD_CAMERA.md 1)
+  // ------------------------------------------------------------------------------------------------------------
+
+  /** Trava de cota por GRUPO (dentro da transacao; liberada no commit): soma + gravacao viram atomicas entre categorias. */
+  private async lockPhotoQuota(tx: Tx, organizationId: number): Promise<void> {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PHOTO_QUOTA_LOCK_NS}::int, ${organizationId}::int)`;
+  }
+
+  private async photoBytesUsed(tx: Tx, organizationId: number): Promise<number> {
+    const agg = await tx.tournamentCompetitor.aggregate({ where: { organizationId }, _sum: { photoBytes: true } });
+    return agg._sum.photoBytes ?? 0;
+  }
+
+  /** Magic bytes + sharp; devolve o WebP pronto ou lanca o erro do contrato (415/503). */
+  private async processUploadedPhoto(buffer: Buffer, signal?: AbortSignal): Promise<Buffer> {
+    const r = await processTournamentPhoto(buffer, signal);
+    if (r.ok) return r.data;
+    if (r.reason === 'TYPE') {
+      throw unsupportedMedia(Code.PHOTO_TYPE_NOT_ALLOWED, 'Formato não suportado: envie uma imagem JPEG, PNG ou WebP.');
+    }
+    if (r.reason === 'DECODE') {
+      throw unsupportedMedia(Code.PHOTO_UNREADABLE, 'Não foi possível ler essa imagem. Tente outra foto.');
+    }
+    throw tournamentError(
+      HttpStatus.SERVICE_UNAVAILABLE,
+      Code.PHOTO_PROCESSING_UNAVAILABLE,
+      r.reason === 'BUSY'
+        ? 'Muitas fotos sendo processadas agora. Tente de novo em instantes.'
+        : r.reason === 'ABORTED'
+          ? 'Envio cancelado.'
+          : 'O processamento de fotos está indisponível no momento.',
+    );
+  }
+
+  /**
+   * Define/substitui a foto do atleta (so convidado/participante de fora). A imagem e validada e regravada (WebP 800, sem EXIF)
+   * ANTES da transacao; a transacao trava a categoria, confere a cota do grupo sob advisory lock e troca o nome do arquivo; o
+   * arquivo ANTIGO so e apagado DEPOIS do commit (o nome lido sob a trava e o que este envio substituiu: dois envios simultaneos
+   * se encadeiam e nenhum arquivo fica orfao). Transacao que falha apaga o arquivo novo.
+   */
+  async setCompetitorPhoto(
+    organizationId: number,
+    user: AuthenticatedUser,
+    eventId: number,
+    categoryId: number,
+    competitorId: number,
+    file: PhotoUpload | undefined,
+    signal?: AbortSignal,
+  ) {
+    const actor = await this.actor(organizationId, user, true);
+    await this.loadEvent(actor, eventId);
+    await this.assertCompetitorInCategory(actor, eventId, categoryId, competitorId);
+    const pre = await this.prisma.tournamentCompetitor.findFirst({ where: { id: competitorId, organizationId }, select: { studentId: true } });
+    if (pre?.studentId) throw badRequest(Code.PHOTO_FROM_STUDENT, 'A foto de um atleta ligado a aluno vem do cadastro do aluno.');
+    if (!file || !file.buffer || file.size === 0) throw badRequest(Code.PHOTO_FILE_REQUIRED, 'Envie a foto no campo "file" (multipart/form-data).');
+    if (file.size > TOURNAMENT_PHOTO_MAX_BYTES) {
+      throw tournamentError(HttpStatus.PAYLOAD_TOO_LARGE, Code.PHOTO_TOO_LARGE, 'A foto excede o limite de 5 MB.');
+    }
+    const webp = await this.processUploadedPhoto(file.buffer, signal);
+    const stored = await storeTournamentPhoto(webp);
+    try {
+      return await this.run(actor, async (tx) => {
+        const category = await this.lockCategory(tx, actor, eventId, categoryId);
+        const current = await tx.tournamentCompetitor.findFirst({ where: { id: competitorId, categoryId, organizationId } });
+        if (!current) throw notFound(Code.COMPETITOR_NOT_FOUND, 'Atleta não encontrado.');
+        if (current.studentId) throw badRequest(Code.PHOTO_FROM_STUDENT, 'A foto de um atleta ligado a aluno vem do cadastro do aluno.');
+        const delta = stored.bytes - (current.photoBytes ?? 0);
+        await this.lockPhotoQuota(tx, organizationId);
+        if (delta > 0 && (await this.photoBytesUsed(tx, organizationId)) + delta > tournamentPhotosQuotaBytes()) {
+          throw tournamentError(HttpStatus.TOO_MANY_REQUESTS, Code.PHOTO_QUOTA, 'O limite de armazenamento de fotos de atletas do grupo foi atingido.');
+        }
+        await tx.tournamentCompetitor.update({
+          where: { id: competitorId },
+          data: { photoFile: stored.file, photoBytes: stored.bytes, photoUpdatedAt: new Date() },
+        });
+        await this.bump(tx, category.tournamentId);
+        return {
+          value: await this.categoryView(tx, organizationId, categoryId),
+          tournamentId: category.tournamentId,
+          changed: true,
+          deleteFiles: [current.photoFile],
+          audits: [
+            {
+              action: AuditAction.TOURNAMENT_COMPETITOR_PHOTO_SET,
+              entity: AuditEntity.TOURNAMENT_COMPETITOR,
+              entityId: competitorId,
+              meta: { categoryId, replaced: current.photoFile !== null },
+            },
+          ],
+        };
+      });
+    } catch (error) {
+      await deleteTournamentPhotoFiles([stored.file], this.logger);
+      throw error;
+    }
+  }
+
+  /** Remove a foto propria (idempotente: sem foto = 200 sem mudanca). O arquivo sai do disco DEPOIS do commit. */
+  async removeCompetitorPhoto(organizationId: number, user: AuthenticatedUser, eventId: number, categoryId: number, competitorId: number) {
+    const actor = await this.actor(organizationId, user, true);
+    await this.loadEvent(actor, eventId);
+    await this.assertCompetitorInCategory(actor, eventId, categoryId, competitorId);
     return this.run(actor, async (tx) => {
       const category = await this.lockCategory(tx, actor, eventId, categoryId);
-      this.assertSetup(category);
-      const org = await tx.organization.findUniqueOrThrow({ where: { id: organizationId }, select: { name: true } });
-      const [participants, existing] = await Promise.all([
-        tx.eventParticipant.findMany({
-          where: { id: { in: dto.eventParticipantIds }, organizationId, eventId },
-          include: { student: { select: { id: true, name: true, anonymizedAt: true } }, user: { select: { name: true } } },
-          orderBy: { id: 'asc' },
-        }),
-        tx.tournamentCompetitor.findMany({ where: { categoryId }, select: { studentId: true, eventParticipantId: true } }),
-      ]);
-      const takenStudents = new Set(existing.map((c) => c.studentId).filter((v): v is number => v !== null));
-      const takenParticipants = new Set(existing.map((c) => c.eventParticipantId).filter((v): v is number => v !== null));
-      const eligible: Prisma.TournamentCompetitorUncheckedCreateInput[] = [];
-      for (const p of participants) {
-        if (p.status !== ParticipantStatus.CONFIRMED && p.status !== ParticipantStatus.ATTENDED) continue;
-        if (p.student?.anonymizedAt) continue;
-        if (takenParticipants.has(p.id) || (p.student && takenStudents.has(p.student.id))) continue;
-        takenParticipants.add(p.id);
-        if (p.student) takenStudents.add(p.student.id);
-        eligible.push(this.participantToCompetitor(organizationId, categoryId, org.name, p));
+      const current = await tx.tournamentCompetitor.findFirst({ where: { id: competitorId, categoryId, organizationId } });
+      if (!current) throw notFound(Code.COMPETITOR_NOT_FOUND, 'Atleta não encontrado.');
+      if (!current.photoFile) {
+        return { value: await this.categoryView(tx, organizationId, categoryId), tournamentId: category.tournamentId, changed: false };
       }
-      if (existing.length + eligible.length > L.maxCompetitors) {
-        throw conflict(Code.CATEGORY_FULL, `Uma categoria aceita até ${L.maxCompetitors} atletas.`);
-      }
-      const added = eligible.length;
-      const skipped = dto.eventParticipantIds.length - added;
-      if (added === 0) {
-        return { value: { added, skipped, category: await this.categoryView(tx, organizationId, categoryId) }, tournamentId: category.tournamentId, changed: false };
-      }
-      await tx.tournamentCompetitor.createMany({ data: eligible });
+      await tx.tournamentCompetitor.update({ where: { id: competitorId }, data: { photoFile: null, photoBytes: null, photoUpdatedAt: null } });
       await this.bump(tx, category.tournamentId);
       return {
-        value: { added, skipped, category: await this.categoryView(tx, organizationId, categoryId) },
+        value: await this.categoryView(tx, organizationId, categoryId),
         tournamentId: category.tournamentId,
         changed: true,
-        audits: [{ action: AuditAction.TOURNAMENT_COMPETITOR_IMPORT, entity: AuditEntity.TOURNAMENT_CATEGORY, entityId: categoryId, meta: { added, skipped } }],
+        deleteFiles: [current.photoFile],
+        audits: [{ action: AuditAction.TOURNAMENT_COMPETITOR_PHOTO_REMOVED, entity: AuditEntity.TOURNAMENT_COMPETITOR, entityId: competitorId, meta: { categoryId } }],
       };
     });
+  }
+
+  /** Imagem da foto propria para o OPERADOR autenticado (leitura: equipe com events:view, inclui MONITOR). */
+  async readCompetitorPhoto(organizationId: number, user: AuthenticatedUser, eventId: number, categoryId: number, competitorId: number): Promise<Buffer> {
+    const actor = await this.actor(organizationId, user, false);
+    await this.loadEvent(actor, eventId);
+    const row = await this.prisma.tournamentCompetitor.findFirst({
+      where: { id: competitorId, categoryId, organizationId, category: { tournament: { eventId, organizationId } } },
+      select: { photoFile: true, studentId: true },
+    });
+    if (!row) throw notFound(Code.COMPETITOR_NOT_FOUND, 'Atleta não encontrado.');
+    const buffer = row.photoFile && !row.studentId ? await readTournamentPhoto(row.photoFile) : null;
+    if (!buffer) throw notFound(Code.PHOTO_NOT_FOUND, 'Este atleta não tem foto.');
+    return buffer;
+  }
+
+  /** O atleta existe, e do evento do operador E da categoria da URL? (senao 404: nunca vaza id de outro grupo/categoria). */
+  private async assertCompetitorInCategory(actor: Actor, eventId: number, categoryId: number, competitorId: number): Promise<void> {
+    const found = await this.categoryIdOfCompetitor(actor, eventId, competitorId);
+    if (found !== categoryId) throw notFound(Code.COMPETITOR_NOT_FOUND, 'Atleta não encontrado.');
+  }
+
+  /**
+   * LGPD (docs/CONTRATO_FOTO_UPLOAD_CAMERA.md 3), chamado pela anonimizacao de aluno/inscricao: para todo atleta do chaveamento
+   * ligado a um dos alunos / participantes de evento informados — apaga a foto PROPRIA (arquivo, DEPOIS do commit), troca o nome
+   * por `Atleta removido`, zera grupo/graduacao e a autorizacao da foto, sobe a `revision` do torneio e avisa o telao (cache
+   * publico invalidado + hub). Sem ator (nao audita; quem anonimiza audita). Idempotente. Nunca lanca por falha de disco.
+   */
+  async anonymizeCompetitors(input: {
+    studentIds?: number[];
+    eventParticipantIds?: number[];
+  }): Promise<{ competitors: number; photosDeleted: number; tournaments: number }> {
+    const studentIds = [...new Set(input.studentIds ?? [])];
+    const participantIds = [...new Set(input.eventParticipantIds ?? [])];
+    const result = { competitors: 0, photosDeleted: 0, tournaments: 0 };
+    if (studentIds.length === 0 && participantIds.length === 0) return result;
+    const match: Prisma.TournamentCompetitorWhereInput = {
+      OR: [
+        ...(studentIds.length ? [{ studentId: { in: studentIds } }] : []),
+        ...(participantIds.length ? [{ eventParticipantId: { in: participantIds } }] : []),
+      ],
+    };
+    const rows = await this.prisma.tournamentCompetitor.findMany({
+      where: match,
+      select: { categoryId: true, category: { select: { tournamentId: true } } },
+    });
+    const byTournament = new Map<number, Set<number>>();
+    for (const r of rows) {
+      const set = byTournament.get(r.category.tournamentId) ?? new Set<number>();
+      set.add(r.categoryId);
+      byTournament.set(r.category.tournamentId, set);
+    }
+    for (const [tournamentId, categoryIds] of byTournament) {
+      const ids = [...categoryIds].sort((a, b) => a - b);
+      const outcome = await this.prisma.$transaction(
+        async (tx) => {
+          // Mesma trava das mutacoes do operador (ordem por id: sem deadlock entre duas anonimizacoes).
+          await tx.$queryRaw`SELECT c."id" FROM "TournamentCategory" c WHERE c."id" IN (${Prisma.join(ids)}) ORDER BY c."id" FOR UPDATE`;
+          const current = await tx.tournamentCompetitor.findMany({
+            where: { AND: [match, { categoryId: { in: ids } }] },
+            select: { id: true, photoFile: true },
+          });
+          if (current.length === 0) return null;
+          await tx.tournamentCompetitor.updateMany({
+            where: { id: { in: current.map((c) => c.id) } },
+            data: ANONYMIZED_COMPETITOR_DATA,
+          });
+          await this.bump(tx, tournamentId);
+          return { competitors: current.length, files: current.map((c) => c.photoFile) };
+        },
+        { maxWait: 10_000, timeout: 30_000 },
+      );
+      if (!outcome) continue;
+      result.competitors += outcome.competitors;
+      result.tournaments += 1;
+      try {
+        this.publicService.invalidate(tournamentId);
+        this.hub.notifyChanged(tournamentId);
+      } catch (error) {
+        this.logger.error(`Falha ao avisar o telao: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      result.photosDeleted += await deleteTournamentPhotoFiles(outcome.files, this.logger);
+    }
+    return result;
   }
 
   async updateCompetitor(organizationId: number, user: AuthenticatedUser, eventId: number, competitorId: number, dto: UpdateCompetitorDto) {
     const actor = await this.actor(organizationId, user, true);
     await this.loadEvent(actor, eventId);
+    if (dto.photoUrl !== undefined) throw this.photoUrlNotAllowed();
     const categoryId = await this.categoryIdOfCompetitor(actor, eventId, competitorId);
     if (dto.displayName === null || dto.photoAuthorized === null || dto.ageGroup === null) {
       throw badRequest(Code.INVALID_COMPETITOR, 'displayName, photoAuthorized e ageGroup não aceitam null.');
@@ -748,6 +1133,7 @@ export class TournamentsService {
       }
       // Atleta ligado a aluno: faixa etaria e foto vem do aluno (recalculadas na leitura); so convidado grava. Para aluno,
       // enviar o MESMO valor que o operador ve (devolvido no GET) e ignorado; valor diferente = 400 (nada e ignorado em silencio).
+      // A foto NAO se edita por PATCH (photoUrl extinto): foto propria = POST/DELETE .../photo.
       if (dto.ageGroup !== undefined) {
         if (current.studentId) {
           if (dto.ageGroup !== effectiveAgeGroup(derived, new Date())) {
@@ -755,17 +1141,6 @@ export class TournamentsService {
           }
         } else {
           set('ageGroup', dto.ageGroup, current.ageGroup);
-        }
-      }
-      if (dto.photoUrl !== undefined) {
-        if (current.studentId) {
-          const shown = publicPhotoRef(sourcePhoto(derived));
-          const sent = dto.photoUrl === null || dto.photoUrl === '' ? null : dto.photoUrl;
-          if (sent !== shown) {
-            throw badRequest(Code.INVALID_PHOTO_URL, 'A foto de um atleta ligado a aluno vem do cadastro do aluno.');
-          }
-        } else {
-          set('photoUrl', dto.photoUrl === null || dto.photoUrl === '' ? null : dto.photoUrl, current.photoUrl);
         }
       }
       if (dto.photoAuthorized !== undefined && dto.photoAuthorized !== current.photoAuthorized) {
@@ -795,6 +1170,7 @@ export class TournamentsService {
     return this.run(actor, async (tx) => {
       const category = await this.lockCategory(tx, actor, eventId, categoryId);
       this.assertSetup(category);
+      const before = await tx.tournamentCompetitor.findFirst({ where: { id: competitorId, categoryId, organizationId }, select: { photoFile: true } });
       const removed = await tx.tournamentCompetitor.deleteMany({ where: { id: competitorId, categoryId, organizationId } });
       if (removed.count === 0) throw notFound(Code.COMPETITOR_NOT_FOUND, 'Atleta não encontrado.');
       await this.bump(tx, category.tournamentId);
@@ -802,6 +1178,7 @@ export class TournamentsService {
         value: await this.categoryView(tx, organizationId, categoryId),
         tournamentId: category.tournamentId,
         changed: true,
+        deleteFiles: [before?.photoFile ?? null],
         audits: [{ action: AuditAction.TOURNAMENT_COMPETITOR_REMOVE, entity: AuditEntity.TOURNAMENT_COMPETITOR, entityId: competitorId, meta: { categoryId } }],
       };
     });
@@ -1113,6 +1490,109 @@ export class TournamentsService {
         changed: true,
         audits: [{ action: AuditAction.TOURNAMENT_MATCH_UPDATE, entity: AuditEntity.TOURNAMENT_MATCH, entityId: matchId, meta: { categoryId, fields } }],
       };
+    });
+  }
+
+  // ------------------------------------------------------------------------------------------------------------
+  // Inscricao do evento removida / reconciliacao da anonimizacao
+  // ------------------------------------------------------------------------------------------------------------
+
+  /**
+   * ANTES de apagar um EventParticipant (a FK dos atletas e SetNull: depois disso o atleta ficaria sem vinculo e nenhuma
+   * anonimizacao por participante o acharia mais): os atletas ligados SO ao participante (sem aluno: o aluno mantem o vinculo
+   * proprio) saem da chave quando a categoria esta em SETUP e sem lutas (arquivo apagado depois do commit); em categoria ja
+   * sorteada/com lutas sao ANONIMIZADOS (a chave e preservada). Sobe a revision, invalida o telao e avisa o hub.
+   */
+  async releaseParticipantCompetitors(eventParticipantId: number): Promise<{ removed: number; anonymized: number; photosDeleted: number }> {
+    const result = { removed: 0, anonymized: 0, photosDeleted: 0 };
+    const rows = await this.prisma.tournamentCompetitor.findMany({
+      where: { eventParticipantId, studentId: null },
+      select: { categoryId: true, category: { select: { tournamentId: true } } },
+    });
+    const byTournament = new Map<number, Set<number>>();
+    for (const r of rows) {
+      const set = byTournament.get(r.category.tournamentId) ?? new Set<number>();
+      set.add(r.categoryId);
+      byTournament.set(r.category.tournamentId, set);
+    }
+    for (const [tournamentId, categoryIds] of byTournament) {
+      const ids = [...categoryIds].sort((a, b) => a - b);
+      const outcome = await this.prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT c."id" FROM "TournamentCategory" c WHERE c."id" IN (${Prisma.join(ids)}) ORDER BY c."id" FOR UPDATE`;
+          const current = await tx.tournamentCompetitor.findMany({
+            where: { eventParticipantId, studentId: null, categoryId: { in: ids } },
+            select: { id: true, photoFile: true, category: { select: { status: true } } },
+          });
+          if (current.length === 0) return null;
+          const cids = current.map((c) => c.id);
+          const inMatches = await tx.tournamentMatch.findMany({
+            where: { OR: [{ slotAId: { in: cids } }, { slotBId: { in: cids } }, { winnerId: { in: cids } }] },
+            select: { slotAId: true, slotBId: true, winnerId: true },
+          });
+          const played = new Set<number>(inMatches.flatMap((m) => [m.slotAId, m.slotBId, m.winnerId]).filter((v): v is number => v !== null));
+          const remove = current.filter((c) => c.category.status === TournamentCategoryStatus.SETUP && !played.has(c.id));
+          const keep = current.filter((c) => !remove.includes(c));
+          if (remove.length) await tx.tournamentCompetitor.deleteMany({ where: { id: { in: remove.map((c) => c.id) } } });
+          if (keep.length) await tx.tournamentCompetitor.updateMany({ where: { id: { in: keep.map((c) => c.id) } }, data: ANONYMIZED_COMPETITOR_DATA });
+          await this.bump(tx, tournamentId);
+          return { removed: remove.length, anonymized: keep.length, files: current.map((c) => c.photoFile) };
+        },
+        { maxWait: 10_000, timeout: 30_000 },
+      );
+      if (!outcome) continue;
+      result.removed += outcome.removed;
+      result.anonymized += outcome.anonymized;
+      try {
+        this.publicService.invalidate(tournamentId);
+        this.hub.notifyChanged(tournamentId);
+      } catch (error) {
+        this.logger.error(`Falha ao avisar o telao: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      result.photosDeleted += await deleteTournamentPhotoFiles(outcome.files, this.logger);
+    }
+    return result;
+  }
+
+  /**
+   * Reconciliacao diaria: atletas cujo aluno / inscricao / participante / usuario JA foi anonimizado mas que ainda tem nome,
+   * grupo, graduacao ou foto (a ponte da anonimizacao so loga se falhar). So completa uma anonimizacao ja devida (idempotente):
+   *  - atleta ligado a aluno com `anonymizedAt`;
+   *  - atleta SEM aluno cujo participante tem `guestName = 'Participante anonimizado'`, usuario anonimizado (e-mail
+   *    `@anonimizado.invalid`) ou inscricao de formulario com `anonymizedAt` ligada a ele.
+   */
+  async reconcileAnonymizedCompetitors(): Promise<{ competitors: number; photosDeleted: number; tournaments: number }> {
+    const pending: Prisma.TournamentCompetitorWhereInput = {
+      OR: [{ displayName: { not: ANONYMIZED_NAME } }, { photoFile: { not: null } }, { groupName: { not: null } }, { graduationLabel: { not: null } }],
+    };
+    const byStudent = await this.prisma.tournamentCompetitor.findMany({
+      where: { AND: [pending, { student: { is: { anonymizedAt: { not: null } } } }] },
+      select: { studentId: true },
+    });
+    const withParticipant = await this.prisma.tournamentCompetitor.findMany({
+      where: { AND: [pending, { studentId: null, eventParticipantId: { not: null } }] },
+      select: {
+        eventParticipantId: true,
+        eventParticipant: { select: { guestName: true, user: { select: { email: true } } } },
+      },
+    });
+    const participantIds = new Set<number>();
+    const toCheck: number[] = [];
+    for (const c of withParticipant) {
+      const id = c.eventParticipantId as number;
+      if (c.eventParticipant?.guestName === 'Participante anonimizado' || c.eventParticipant?.user?.email.endsWith('@anonimizado.invalid')) participantIds.add(id);
+      else toCheck.push(id);
+    }
+    for (let i = 0; i < toCheck.length; i += 1000) {
+      const anonymized = await this.prisma.registrationSubmission.findMany({
+        where: { eventParticipantId: { in: toCheck.slice(i, i + 1000) }, anonymizedAt: { not: null } },
+        select: { eventParticipantId: true },
+      });
+      for (const a of anonymized) if (a.eventParticipantId !== null) participantIds.add(a.eventParticipantId);
+    }
+    return this.anonymizeCompetitors({
+      studentIds: byStudent.map((c) => c.studentId).filter((v): v is number => v !== null),
+      eventParticipantIds: [...participantIds],
     });
   }
 }

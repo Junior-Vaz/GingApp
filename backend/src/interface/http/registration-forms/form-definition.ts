@@ -17,6 +17,7 @@ export const FIELD_TYPES = [
   'SELECT',
   'CONSENT',
   'FILE',
+  'PHOTO',
   'INFO',
 ] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
@@ -34,6 +35,8 @@ export const FORM_LIMITS = {
   maxSections: 12,
   maxOptions: 40,
   maxFileFields: 5,
+  /** Campo "Foto do participante" (PHOTO): no maximo 1 por formulario (a foto vai para o chaveamento). */
+  maxPhotoFields: 1,
   titleMax: 150,
   introMax: 5000,
   sectionTitleMax: 150,
@@ -117,6 +120,7 @@ export function validateFields(raw: RawFieldInput[]): { fields: FieldDefinition[
     errors.fields = `No máximo ${FORM_LIMITS.maxFields} campos por formulário.`;
   }
   let fileCount = 0;
+  let photoCount = 0;
 
   raw.forEach((input, index) => {
     const key = typeof input.key === 'string' ? input.key.trim() : '';
@@ -187,7 +191,9 @@ export function validateFields(raw: RawFieldInput[]): { fields: FieldDefinition[
       if (!['string', 'number', 'boolean'].includes(typeof equals)) return fail('Valor da condição inválido.');
       if (typeof equals === 'string' && equals.length > FORM_LIMITS.optionMax) return fail('Valor da condição longo demais.');
       const refField = fields.find((f) => f.key === ref)!;
-      if (refField.type === 'INFO' || refField.type === 'FILE') return fail('A condição não pode depender de um campo informativo ou de arquivo.');
+      if (refField.type === 'INFO' || refField.type === 'FILE' || refField.type === 'PHOTO') {
+        return fail('A condição não pode depender de um campo informativo, de arquivo ou de foto.');
+      }
       showIf = { fieldKey: ref, equals: equals as string | number | boolean };
     }
 
@@ -200,6 +206,14 @@ export function validateFields(raw: RawFieldInput[]): { fields: FieldDefinition[
     if (type === 'FILE') {
       fileCount += 1;
       if (fileCount > FORM_LIMITS.maxFileFields) return fail(`No máximo ${FORM_LIMITS.maxFileFields} campos de arquivo.`);
+    }
+    if (type === 'PHOTO') {
+      // A foto do participante nao e um dado de identificacao (mapsTo) e so existe uma por formulario.
+      if (mapsTo) return fail('O campo de foto não pode ser mapeado para um dado de identificação.');
+      photoCount += 1;
+      if (photoCount > FORM_LIMITS.maxPhotoFields) {
+        return fail(`Só pode haver ${FORM_LIMITS.maxPhotoFields} campo de foto do participante por formulário.`);
+      }
     }
 
     fields.push({

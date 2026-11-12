@@ -2816,8 +2816,15 @@ model TournamentCompetitor {
   poolIndex           Int?
   studentId           Int?
   eventParticipantId  Int?
-  /// So de CONVIDADO (atleta ligado a aluno deriva a foto de Student.photo na leitura): `/api/uploads/<uuid>.<ext>` ou https.
+  /// LEGADO (so leitura; o envio de photoUrl foi extinto): a foto de convidado e a PROPRIA (photoFile). Atleta ligado a aluno
+  /// deriva a foto de Student.photo na leitura. O telao publico NAO usa mais esta coluna.
   photoUrl            String?
+  /// Foto PROPRIA do atleta de fora: nome `<uuid>.webp` em TOURNAMENT_PHOTOS_DIR (armazenamento privado, docs/CONTRATO_FOTO_UPLOAD_CAMERA.md 1).
+  photoFile           String?            @unique
+  /// Tamanho do arquivo (soma por grupo = cota TOURNAMENT_PHOTOS_QUOTA_MB).
+  photoBytes          Int?
+  /// Troca da foto (em ms vira `photoVersion`, para quebrar o cache do painel).
+  photoUpdatedAt      DateTime?
   /// De convidado: informado pelo operador. De aluno: recalculado da data de nascimento na leitura (este valor e ignorado).
   ageGroup            TournamentAgeGroup @default(UNKNOWN)
   /// Autorizacao do responsavel para exibir a foto no telao publico (campo marcado pela equipe, sem documento anexado).

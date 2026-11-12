@@ -136,3 +136,11 @@ process.env.GROUP_APPLICATIONS_NOTIFY_EMAILS = '';
 // (tournaments.e2e-spec.ts prova o 429 rebaixando o limite, lido a cada pedido).
 process.env.TOURNAMENT_PUBLIC_THROTTLE_LIMIT = '100000';
 process.env.TOURNAMENT_PUBLIC_STREAM_THROTTLE_LIMIT = '100000';
+// Foto do atleta de fora do chaveamento (docs/CONTRATO_FOTO_UPLOAD_CAMERA.md 1): sem os jobs agendados (GC semanal e expiracao diaria;
+// tournament-photos.e2e-spec.ts chama TournamentPhotosCronService direto, ligando as envs por conta propria) e envio de foto sem o
+// teto de 20/min por usuario (o spec prova o 429 rebaixando o limite, lido a cada pedido).
+process.env.TOURNAMENT_PHOTOS_GC = 'false';
+process.env.TOURNAMENT_PHOTOS_PURGE = 'false';
+process.env.TOURNAMENT_PHOTO_THROTTLE_LIMIT = '100000';
+// Reconciliacao diaria das anonimizacoes do chaveamento: sem o job nos testes (tournament-photos.e2e-spec.ts chama runReconcile direto).
+process.env.TOURNAMENT_ANON_RECONCILE = 'false';

@@ -9,7 +9,8 @@ import {
   SerializedSnapshot,
   serializePublicBody,
 } from './tournament-snapshot';
-import { isPublicViewAllowed, isWellFormedPublicToken, publicNotFound } from './tournament-rules';
+import { isTournamentPhotoFile, readTournamentPhoto } from './tournament-photo-storage';
+import { isPublicViewAllowed, isWellFormedPublicToken, photoVisibleOnPublic, publicNotFound } from './tournament-rules';
 
 /** Colunas lidas do aluno do atleta: so foto, nascimento e marca de anonimizacao (usados e NUNCA devolvidos crus). */
 export const STUDENT_INFO_SELECT = {
@@ -102,11 +103,7 @@ export class TournamentPublicService {
     const now = Date.now();
     const hit = this.cache.get(token);
     if (hit && now - hit.builtAt < snapshotTtlMs()) return hit;
-    const neg = this.negative.get(token);
-    if (neg) {
-      if (neg.until > now) throw publicNotFound();
-      this.negative.delete(token);
-    }
+    if (this.negativeHit(token, now)) throw publicNotFound();
     const flight = this.inflight.get(token);
     if (flight && this.canJoin(token, flight.startSeq)) return flight.promise;
 
@@ -116,6 +113,15 @@ export class TournamentPublicService {
     });
     this.inflight.set(token, { startSeq, promise: tracked });
     return tracked;
+  }
+
+  /** Token no cache NEGATIVO (404 ainda valido)? Entrada vencida e descartada. */
+  private negativeHit(token: string, now: number): boolean {
+    const neg = this.negative.get(token);
+    if (!neg) return false;
+    if (neg.until > now) return true;
+    this.negative.delete(token);
+    return false;
   }
 
   /** Uma leitura em voo pode ser compartilhada se NENHUMA invalidacao do torneio aconteceu depois que ela comecou. */
@@ -217,6 +223,7 @@ export class TournamentPublicService {
       organizationName: tournament.organization.name,
       categories: data,
       now,
+      publicToken: token,
     });
     const serialized = serializePublicBody(body);
     const hash = createHash('sha1').update(serialized.tail).digest('hex').slice(0, 10);
@@ -234,6 +241,47 @@ export class TournamentPublicService {
       this.knownTournament.set(token, tournament.id);
     }
     return entry;
+  }
+
+  /**
+   * Imagem da foto PROPRIA de um atleta para o telao (rota publica). SEM memoizacao: a regra de privacidade e reavaliada a cada
+   * pedido, contra o banco. A foto so sai se: token bem formado e dono de um torneio hoje visivel (ligado, evento publicado/
+   * encerrado, ate 30 dias depois); o arquivo pertence a um atleta DESTE torneio (mesmo grupo), nao ligado a aluno; e o atleta
+   * e ADULT ou tem a foto autorizada AGORA. Qualquer falha = o MESMO 404 do snapshot (nao revela se o arquivo existe).
+   */
+  async getPhoto(token: string, file: string): Promise<Buffer> {
+    if (!isWellFormedPublicToken(token) || !isTournamentPhotoFile(file)) throw publicNotFound();
+    // Token inexistente ja visto: 404 sem consulta (mesmo cache negativo do snapshot; `invalidate` o derruba).
+    if (this.negativeHit(token, Date.now())) throw publicNotFound();
+    const row = await this.prisma.tournamentCompetitor.findFirst({
+      where: { photoFile: file, studentId: null, category: { tournament: { publicToken: token } } },
+      select: {
+        organizationId: true,
+        ageGroup: true,
+        photoAuthorized: true,
+        category: {
+          select: {
+            organizationId: true,
+            tournament: {
+              select: { organizationId: true, publicEnabled: true, event: { select: { status: true, date: true } } },
+            },
+          },
+        },
+      },
+    });
+    if (!row) {
+      // Token que nao existe (ou rotacionado) = varredura/lixo: memoiza o 404 por pouco tempo. Token valido com arquivo errado nao.
+      const owner = await this.prisma.tournament.findUnique({ where: { publicToken: token }, select: { id: true } });
+      if (!owner) this.rememberNegative(token, null);
+      throw publicNotFound();
+    }
+    const t = row.category.tournament;
+    if (row.organizationId !== t.organizationId || row.category.organizationId !== t.organizationId) throw publicNotFound();
+    if (!isPublicViewAllowed({ publicEnabled: t.publicEnabled, eventStatus: t.event.status, eventDate: t.event.date })) throw publicNotFound();
+    if (!photoVisibleOnPublic(row.ageGroup, row.photoAuthorized)) throw publicNotFound();
+    const image = await readTournamentPhoto(file);
+    if (!image) throw publicNotFound();
+    return image;
   }
 
   private evictExpired(): void {

@@ -8,14 +8,23 @@ import {
   hashIp,
   issueStartedToken,
   normalizeProtocol,
+  photoProcessingUnavailable,
   PROTOCOL_REGEX,
   SLUG_REGEX,
   verifyStartedToken,
 } from '../src/interface/http/registration-forms/form-codes';
 import { closedReasonOf, effectiveConsentText, safeBannerUrl, waitlistCap } from '../src/interface/http/registration-forms/form-common';
-import { defaultConsentText, FIELD_KEY_REGEX, validateFields } from '../src/interface/http/registration-forms/form-definition';
+import { defaultConsentText, FIELD_KEY_REGEX, FIELD_TYPES, FORM_LIMITS, publishErrors, validateFields } from '../src/interface/http/registration-forms/form-definition';
 import { FORM_TEMPLATES, TEMPLATE_KEYS } from '../src/interface/http/registration-forms/form-templates';
-import { detectPrivateFileType, formsFileMaxBytes, privateFilePath, sanitizeOriginalName } from '../src/interface/http/registration-forms/private-storage';
+import {
+  detectPrivateFileType,
+  formsFileMaxBytes,
+  privateFilePath,
+  sanitizeOriginalName,
+  sanitizePhotoImage,
+  setSharpForTests,
+} from '../src/interface/http/registration-forms/private-storage';
+import sharp from 'sharp';
 import { plainExcerpt, renderShareHtml } from '../src/interface/http/registration-forms/share-html';
 import { formsRetentionModeLabel, retentionCutoffForUndated, retentionReference } from '../src/interface/http/registration-forms/submission-purge';
 import { renderRegistrationNoticeMail } from '../src/shared/mail/mail-templates';
@@ -200,5 +209,114 @@ describe('Formulários de inscrição — regras puras', () => {
     const m = renderRegistrationNoticeMail({ notice: 'RECEIVED', formTitle: '<b>Camp</b>', protocol: 'INS-ABCDEF', link: 'https://app.test/i/x' });
     assert.ok(m.text.startsWith('Olá!\n'));
     assert.ok(m.html.includes('&lt;b&gt;Camp&lt;/b&gt;') && !m.html.includes('<b>Camp'));
+  });
+
+  // ------------------------------------------------------------------------------------------------ campo PHOTO
+
+  it('PHOTO: tipo conhecido, no máximo 1 por formulário (erro de definição claro), sem mapsTo, sem condição a partir dele, required como no FILE', () => {
+    assert.ok(FIELD_TYPES.includes('PHOTO'));
+    assert.equal(FORM_LIMITS.maxPhotoFields, 1);
+    const ok = validateFields([{ key: 'foto', type: 'PHOTO', label: 'Foto do participante', required: true }]);
+    assert.deepEqual(ok.errors, {});
+    assert.equal(ok.fields[0].required, true);
+    assert.equal(ok.fields[0].mapsTo, null);
+    assert.equal(validateFields([{ key: 'foto', type: 'PHOTO', label: 'Foto' }]).fields[0].required, false);
+
+    const two = validateFields([{ key: 'a', type: 'PHOTO', label: 'A' }, { key: 'b', type: 'PHOTO', label: 'B' }]);
+    assert.equal(Object.keys(two.errors).join(), 'b', 'o erro fica no 2o campo PHOTO');
+    assert.match(two.errors.b, /1 campo de foto/);
+    // 1 PHOTO + 5 FILE: limites independentes
+    const mixed = validateFields([
+      { key: 'p', type: 'PHOTO', label: 'P' },
+      ...Array.from({ length: 5 }, (_, i) => ({ key: `f${i}`, type: 'FILE', label: `F${i}` })),
+    ]);
+    assert.deepEqual(mixed.errors, {});
+
+    assert.match(validateFields([{ key: 'foto', type: 'PHOTO', label: 'Foto', mapsTo: 'name' }]).errors.foto, /mapeado/);
+    const cond = validateFields([{ key: 'foto', type: 'PHOTO', label: 'Foto' }, { key: 'x', type: 'SHORT_TEXT', label: 'X', showIf: { fieldKey: 'foto', equals: 'a' } }]);
+    assert.match(cond.errors.x, /não pode depender/);
+    assert.ok(validateFields([{ key: 'foto', type: 'PHOTO', label: 'Foto', validation: { maxLength: 3 } }]).errors.foto);
+    assert.ok(validateFields([{ key: 'foto', type: 'PHOTO', label: 'Foto', options: ['a', 'b'] }]).errors.foto);
+    // PHOTO conta como campo respondivel para publicar
+    assert.deepEqual(
+      publishErrors({ title: 'Camp', paymentMode: 'NONE', priceCents: null, pixKey: null, pixKeyType: null, pixBeneficiary: null, closesAt: null, fields: [{ type: 'PHOTO' }] }),
+      {},
+    );
+  });
+
+  it('PHOTO: resposta {fileToken} como no FILE; obrigatório sem resposta; oculto por condição é descartado', () => {
+    const photo = { key: 'foto', type: 'PHOTO', required: true, options: null, validation: null, showIf: null };
+    const token = 'A'.repeat(43);
+    const ok = validateAnswers([photo], { foto: { fileToken: token } });
+    assert.deepEqual(ok.errors, {});
+    assert.deepEqual(ok.fileTokens, { foto: token });
+    assert.deepEqual(ok.values, {}, 'nunca vira valor em answers (so o vinculo do arquivo)');
+    assert.equal(validateAnswers([photo], {}).errors.foto, 'Campo obrigatório.');
+    assert.equal(validateAnswers([photo], { foto: 'texto' }).errors.foto, 'Envie a foto novamente.');
+    assert.equal(validateAnswers([photo], { foto: { fileToken: 'curto' } }).errors.foto, 'Envie a foto novamente.');
+    assert.equal(validateAnswers([photo], { foto: [token] }).errors.foto, 'Envie a foto novamente.');
+    assert.deepEqual(validateAnswers([{ ...photo, required: false }], {}).errors, {});
+    const hidden = validateAnswers(
+      [
+        { key: 'q', type: 'SINGLE_CHOICE', required: true, options: ['Sim', 'Não'], validation: null, showIf: null },
+        { ...photo, showIf: { fieldKey: 'q', equals: 'Sim' } },
+      ],
+      { q: 'Não', foto: { fileToken: token } },
+    );
+    assert.deepEqual(hidden.errors, {});
+    assert.deepEqual(hidden.fileTokens, {}, 'campo oculto: a foto e descartada');
+  });
+
+  it('modelo CAMPEONATO: Foto do participante opcional, sem mapsTo, com o texto de ajuda; só o CAMPEONATO a tem', () => {
+    const fieldsOf = (key: (typeof TEMPLATE_KEYS)[number]) => FORM_TEMPLATES[key].sections.flatMap((s) => s.fields);
+    const photos = fieldsOf('CAMPEONATO').filter((f) => f.type === 'PHOTO');
+    assert.equal(photos.length, 1);
+    assert.equal(photos[0].label, 'Foto do participante');
+    assert.equal(photos[0].required, false);
+    assert.equal(photos[0].mapsTo, undefined);
+    assert.match(photos[0].helpText ?? '', /rosto, bem iluminada/);
+    assert.match(photos[0].helpText ?? '', /responsável/);
+    for (const key of TEMPLATE_KEYS.filter((k) => k !== 'CAMPEONATO')) assert.ok(!fieldsOf(key).some((f) => f.type === 'PHOTO'), key);
+  });
+
+  it('sanitizePhotoImage: WebP lado maior 1200 sem EXIF e com a orientação aplicada; ilegível/bomba = unreadable; sem sharp = unavailable', async () => {
+    const withExif = await sharp({ create: { width: 3000, height: 1000, channels: 3, background: '#357' } })
+      .jpeg()
+      .withExif({ IFD0: { Copyright: 'SEGREDO' } })
+      .toBuffer();
+    const out = await sanitizePhotoImage(withExif);
+    assert.equal(out.status, 'ok');
+    if (out.status !== 'ok') return;
+    const meta = await sharp(out.buffer).metadata();
+    assert.deepEqual([meta.format, meta.width, meta.height, meta.exif], ['webp', 1200, 400, undefined]);
+    assert.deepEqual([out.width, out.height], [1200, 400]);
+    // orientacao EXIF aplicada: um JPEG 40x20 com orientation 6 sai 20x40
+    const rotated = await sharp({ create: { width: 40, height: 20, channels: 3, background: '#a00' } }).jpeg().withMetadata({ orientation: 6 }).toBuffer();
+    const r = await sanitizePhotoImage(rotated);
+    assert.equal(r.status, 'ok');
+    if (r.status === 'ok') assert.deepEqual([r.width, r.height], [20, 40]);
+    // ilegivel e bomba de pixels
+    assert.equal((await sanitizePhotoImage(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(64, 7)]))).status, 'unreadable');
+    const bomb = await sharp({ create: { width: 5200, height: 5100, channels: 3, background: '#fff' } }).png({ compressionLevel: 9 }).toBuffer();
+    assert.equal((await sanitizePhotoImage(bomb)).status, 'unreadable', '26,5 MP > 25 MP');
+    setSharpForTests(null);
+    try {
+      assert.deepEqual(await sanitizePhotoImage(withExif), { status: 'unavailable' });
+    } finally {
+      setSharpForTests(undefined);
+    }
+    assert.equal((await sanitizePhotoImage(withExif)).status, 'ok');
+  });
+
+  it('sanitizePhotoImage: fila cheia (2 em processamento + 16 na fila) = busy; o upload público responde 503 PHOTO_PROCESSING_UNAVAILABLE', async () => {
+    const jpeg = await sharp({ create: { width: 1500, height: 1500, channels: 3, background: '#468' } }).jpeg().toBuffer();
+    // as 19 chamadas entram no semaforo no MESMO tick: 2 ocupam os slots, 16 esperam, a 19a recebe 'busy'
+    const results = await Promise.all(Array.from({ length: 19 }, () => sanitizePhotoImage(jpeg)));
+    assert.equal(results.filter((r) => r.status === 'busy').length, 1);
+    assert.equal(results.filter((r) => r.status === 'ok').length, 18);
+    assert.equal((await sanitizePhotoImage(jpeg)).status, 'ok', 'a fila esvaziou');
+    const err = photoProcessingUnavailable('Muitas fotos sendo processadas agora. Tente de novo em instantes.');
+    assert.equal(err.getStatus(), 503);
+    assert.equal((err.getResponse() as { code: string }).code, 'PHOTO_PROCESSING_UNAVAILABLE');
   });
 });

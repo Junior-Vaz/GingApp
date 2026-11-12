@@ -58,6 +58,7 @@ import { PaymentsModule } from './interface/http/payments/payments.module';
 import { isPaymentsReconcileCronEnabled } from './shared/payments/payments.config';
 import { RegistrationFormsModule } from './interface/http/registration-forms/registration-forms.module';
 import { formsRetentionMode } from './jobs/forms-retention-cron.service';
+import { tournamentAnonReconcileEnabled, tournamentPhotosGcMode, tournamentPhotosPurgeMode } from './jobs/tournament-photos-cron.service';
 import { BirthdaysModule } from './interface/http/birthdays/birthdays.module';
 import { isBirthdayCronEnabled } from './jobs/birthdays-cron.service';
 import { CommunicationsModule } from './interface/http/communications/communications.module';
@@ -145,7 +146,7 @@ const GLOBAL_THROTTLE_LIMIT = Number(process.env.GLOBAL_THROTTLE_LIMIT ?? 600);
     // (nenhum timer): e o caso dos testes e2e (test/env-setup.ts). ConfigModule.forRoot() acima ja carregou o .env.
     // Ginga Rank (RANKING_CRON): recalculo noturno 02:30 + fechamento mensal 03:00 do dia 1, no mesmo agendador.
     // Aulas continuas (LESSONS_CRON): geracao rolante diaria 01:30 (LESSONS_HORIZON_DAYS a frente), no mesmo agendador.
-    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled() || isLessonsCronEnabled() || isTransferCronEnabled() || isPaymentsReconcileCronEnabled() || formsRetentionMode() !== 'off' || isCommSchedulerEnabled() || isBirthdayCronEnabled() || isFeedMediaCleanupEnabled() || groupApplicationsPurgeMode() !== 'off'
+    ...(isOverdueCronEnabled() || isAuditRetentionEnabled() || uploadsGcMode() !== 'off' || isRankingCronEnabled() || isLessonsCronEnabled() || isTransferCronEnabled() || isPaymentsReconcileCronEnabled() || formsRetentionMode() !== 'off' || isCommSchedulerEnabled() || isBirthdayCronEnabled() || isFeedMediaCleanupEnabled() || groupApplicationsPurgeMode() !== 'off' || tournamentPhotosGcMode() !== 'off' || tournamentPhotosPurgeMode() !== 'off' || tournamentAnonReconcileEnabled()
       ? [ScheduleModule.forRoot(), JobsModule]
       : []),
   ],

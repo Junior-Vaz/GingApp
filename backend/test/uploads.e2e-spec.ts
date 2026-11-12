@@ -49,7 +49,7 @@ describe('Upload de imagens (e2e)', () => {
       .withMetadata({ exif: { IFD0: { Copyright: 'segredo-exif' } } })
       .toBuffer();
 
-  it('envio feliz: devolve /api/uploads/<uuid>.webp, grava Upload do grupo e o GET publico devolve a imagem com cache longo e nosniff', async () => {
+  it('envio feliz: devolve /api/uploads/<uuid>.webp, grava Upload do grupo e o GET publico devolve a imagem com cache de 1 dia e nosniff', async () => {
     const res = await http()
       .post('/api/uploads')
       .set(auth(mestre.token))
@@ -66,7 +66,8 @@ describe('Upload de imagens (e2e)', () => {
 
     const got = await http().get(res.body.url).buffer(true).expect(200); // sem token: publico
     assert.equal(got.headers['content-type'], 'image/webp');
-    assert.match(got.headers['cache-control'], /max-age=31536000/);
+    // LGPD (contrato foto/camera secao 3): cache de 1 dia, nao mais 1 ano `immutable`.
+    assert.equal(got.headers['cache-control'], 'public, max-age=86400');
     assert.equal(got.headers['x-content-type-options'], 'nosniff');
     const meta = await sharp(got.body as Buffer).metadata();
     assert.equal(meta.format, 'webp');

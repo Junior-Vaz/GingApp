@@ -1,4 +1,8 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseIntPipe, Patch, Post, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
+import type { Response } from 'express';
+import { UserThrottlerGuard } from '../../../shared/guards/user-throttler.guard';
 import { CanAccess } from '../../../shared/decorators/can-access.decorator';
 import { CurrentOrganization } from '../../../shared/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../shared/decorators/current-user.decorator';
@@ -15,7 +19,20 @@ import {
   UpdateMatchDto,
   UpdateTournamentDto,
 } from './dto/tournament.dto';
-import { TournamentsService } from './tournaments.service';
+import { TOURNAMENT_PHOTO_MAX_BYTES } from './tournament-photo-storage';
+import { TournamentPhotoUploadErrorInterceptor } from './tournament-photo-upload.interceptor';
+import { PhotoUpload, TournamentsService } from './tournaments.service';
+
+/** Enviar foto e acao cara (sharp + disco): 20/min por usuario (e por IP). Limite lido a cada pedido (os e2e trocam a env). */
+const PHOTO_THROTTLE = {
+  default: {
+    ttl: 60_000,
+    limit: (): number => {
+      const n = Number(process.env.TOURNAMENT_PHOTO_THROTTLE_LIMIT);
+      return Number.isFinite(n) && n > 0 ? n : 20;
+    },
+  },
+};
 
 /**
  * API do OPERADOR do chaveamento (docs/CONTRATO_CHAVEAMENTO.md 4), sob o evento. Leitura = `events:view`; escrita =
@@ -130,6 +147,70 @@ export class TournamentsController {
     @Body() dto: AddCompetitorDto,
   ) {
     return this.service.addCompetitor(org, user, eventId, cid, dto);
+  }
+
+  // ---- Foto propria do atleta de fora (docs/CONTRATO_FOTO_UPLOAD_CAMERA.md 1) ----
+
+  /** Multipart, campo `file` (JPEG/PNG/WebP ate 5 MB). Define/substitui; devolve a categoria completa. */
+  @Post('categories/:cid/competitors/:id/photo')
+  @HttpCode(HttpStatus.OK)
+  @CanAccess('events', 'edit')
+  @UseGuards(UserThrottlerGuard)
+  @Throttle(PHOTO_THROTTLE)
+  @UseInterceptors(
+    TournamentPhotoUploadErrorInterceptor,
+    FileInterceptor('file', { limits: { fileSize: TOURNAMENT_PHOTO_MAX_BYTES, files: 1, fields: 5 } }),
+  )
+  setPhoto(
+    @CurrentOrganization() org: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('cid', ParseIntPipe) cid: number,
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: PhotoUpload | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    // Cliente que desiste (fecha a conexao antes da resposta): a foto na fila do sharp e descartada, sem ocupar vaga.
+    const abort = new AbortController();
+    res.once('close', () => {
+      if (!res.writableEnded) abort.abort();
+    });
+    return this.service.setCompetitorPhoto(org, user, eventId, cid, id, file, abort.signal);
+  }
+
+  @Delete('categories/:cid/competitors/:id/photo')
+  @CanAccess('events', 'edit')
+  removePhoto(
+    @CurrentOrganization() org: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('cid', ParseIntPipe) cid: number,
+    @Param('id', ParseIntPipe) id: number,
+  ) {
+    return this.service.removeCompetitorPhoto(org, user, eventId, cid, id);
+  }
+
+  /** A imagem para o OPERADOR autenticado (o painel baixa como blob): sem cache, sem sniffing, CSP sandbox, CORP same-origin. */
+  @Get('categories/:cid/competitors/:id/photo')
+  @CanAccess('events', 'view')
+  async getPhoto(
+    @CurrentOrganization() org: number,
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('eventId', ParseIntPipe) eventId: number,
+    @Param('cid', ParseIntPipe) cid: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Res() res: Response,
+  ): Promise<void> {
+    const image = await this.service.readCompetitorPhoto(org, user, eventId, cid, id);
+    res.set({
+      'Content-Type': 'image/webp',
+      'Cache-Control': 'private, no-store',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'Cross-Origin-Resource-Policy': 'same-origin',
+      'Content-Disposition': 'inline',
+    });
+    res.status(200).send(image);
   }
 
   @Patch('competitors/:id')

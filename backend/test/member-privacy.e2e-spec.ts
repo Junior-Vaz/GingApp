@@ -132,6 +132,7 @@ const MEMBER_ALLOWLIST = new Map<string, string>([
   // (/api/events/:eventId/tournament/*) exigem equipe (MESTRE/PROFESSOR/INSTRUTOR/MONITOR): ALUNO/RESPONSAVEL = 403.
   ['/api/public/tournaments/:token', 'pública por token secreto do campeonato: snapshot em lista branca (nome/grupo/graduação/lutas/classificação/pódio); foto só de adulto ou autorizada; sem ids de aluno, nascimento, contato, nota interna ou token'],
   ['/api/public/tournaments/:token/stream', 'pública por token secreto (SSE): os mesmos snapshots em lista branca do GET /api/public/tournaments/:token, enviados a cada mudança; mesmo 404 uniforme'],
+  ['/api/public/tournaments/:token/photos/:file', 'pública por token secreto do campeonato + nome imprevisível (uuid): imagem WebP da foto PROPRIA de atleta de fora; SÓ serve se o torneio está visível e o atleta é ADULT ou tem a foto autorizada naquele instante (senão o mesmo 404 uniforme); sem EXIF, nome do atleta ou ids'],
 ]);
 
 function toArray(value: unknown): string[] {

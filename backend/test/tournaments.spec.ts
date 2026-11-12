@@ -51,6 +51,9 @@ import { bufferLimitFor, frameFor, streamTimings, writeWithLimit } from '../src/
 const NOW = new Date('2026-11-20T15:00:00.000Z');
 const PHOTO = '/api/uploads/aaaaaaaa-aaaa-4aaa-8aaa-000000000001.webp';
 const DAY = 86_400_000;
+const TOKEN = 'tok_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const OWN_FILE = (n: number) => `bbbbbbbb-bbbb-4bbb-8bbb-${String(n).padStart(12, '0')}.webp`;
+const OWN_URL = (n: number) => `/api/public/tournaments/${TOKEN}/photos/${OWN_FILE(n)}`;
 
 // ---------------------------------------------------------------------------------------------------------------
 describe('URL de foto', () => {
@@ -206,13 +209,12 @@ describe('DTOs (ValidationPipe do projeto: whitelist + forbidNonWhitelisted + tr
     assert.equal((await run(CreateCategoryDto, { name: 'A', format: 'GROUPS_KNOCKOUT', groupCount: 16, advancePerGroup: 4 })).ok, true);
   });
 
-  it('atleta: nome 2..80, foto só https/upload, faixa etária enum e campos extras', async () => {
+  it('atleta: nome 2..80, faixa etária enum e campos extras; photoUrl passa pelo DTO (o service recusa com PHOTO_URL_NOT_ALLOWED)', async () => {
     const ok = (guest: object) => run(AddCompetitorDto, { guest });
     assert.equal((await ok({ displayName: 'Fulano' })).ok, true);
     assert.equal((await ok({ displayName: 'Fulano', photoUrl: PHOTO, ageGroup: 'MINOR', groupName: 'Acad', graduationLabel: 'Azul' })).ok, true);
     for (const guest of [
-      { displayName: 'F' }, { displayName: 'x'.repeat(81) }, { displayName: 'Fulano', photoUrl: 'javascript:alert(1)' },
-      { displayName: 'Fulano', photoUrl: 'data:image/png;base64,AA' }, { displayName: 'Fulano', photoUrl: 'http://a.com/a.png' },
+      { displayName: 'F' }, { displayName: 'x'.repeat(81) },
       { displayName: 'Fulano', ageGroup: 'TEEN' }, { displayName: 'Fulano', studentId: 3 }, { displayName: 'Fulano', groupName: 'x'.repeat(81) },
       { displayName: 'Fulano', graduationLabel: 'x'.repeat(61) },
     ]) {
@@ -223,6 +225,9 @@ describe('DTOs (ValidationPipe do projeto: whitelist + forbidNonWhitelisted + tr
     assert.equal((await run(AddCompetitorDto, { eventParticipantId: 5, foo: 1 })).ok, false);
     assert.equal((await run(UpdateCompetitorDto, { seed: 129 })).ok, false);
     assert.equal((await run(UpdateCompetitorDto, { seed: null, photoUrl: null, groupName: null })).ok, true);
+    // photoUrl chega ao service em QUALQUER forma (inclusive lixo): quem recusa, com o codigo do contrato, e o service.
+    assert.equal((await run(UpdateCompetitorDto, { photoUrl: 'javascript:alert(1)' })).ok, true);
+    assert.equal((await ok({ displayName: 'Fulano', photoUrl: 'https://cdn.exemplo.com/a.png' })).ok, true);
     assert.equal((await run(UpdateCompetitorDto, { photoAuthorized: 'sim' })).ok, false);
   });
 
@@ -405,8 +410,8 @@ const category = (over: Partial<TournamentCategory> = {}): TournamentCategory =>
 });
 const competitor = (id: number, over: Partial<TournamentCompetitor> = {}): TournamentCompetitor => ({
   id, organizationId: 10, categoryId: 1, displayName: `Atleta ${id}`, groupName: 'Academia', graduationLabel: 'Azul', seed: null, poolIndex: null,
-  studentId: null, eventParticipantId: null, photoUrl: null, ageGroup: 'UNKNOWN', photoAuthorized: false, photoAuthorizedById: null,
-  photoAuthorizedAt: null, createdAt: NOW, ...over,
+  studentId: null, eventParticipantId: null, photoUrl: null, photoFile: null, photoBytes: null, photoUpdatedAt: null, ageGroup: 'UNKNOWN',
+  photoAuthorized: false, photoAuthorizedById: null, photoAuthorizedAt: null, createdAt: NOW, ...over,
 });
 const dated = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 const student = (over: Partial<{ photo: string | null; birthDate: Date | null; anonymizedAt: Date | null; person: { birthDate: Date | null } | null }> = {}) => ({
@@ -425,8 +430,8 @@ function sampleData(): CategoryData {
     competitors: [
       { row: competitor(1, { studentId: 11, displayName: 'Menor Aluno' }), student: student({ birthDate: dated('2015-03-04') }) },
       { row: competitor(2, { studentId: 12, displayName: 'Adulto Aluno' }), student: student({ birthDate: dated('1990-05-06'), photo: 'https://cdn.exemplo.com/a.jpg' }) },
-      { row: competitor(3, { displayName: 'Convidado Menor', ageGroup: 'MINOR', photoUrl: PHOTO }), student: null },
-      { row: competitor(4, { displayName: 'Convidado Autorizado', ageGroup: 'MINOR', photoUrl: PHOTO, photoAuthorized: true, photoAuthorizedById: 77, photoAuthorizedAt: NOW }), student: null },
+      { row: competitor(3, { displayName: 'Convidado Menor', ageGroup: 'MINOR', photoFile: OWN_FILE(3), photoBytes: 900, photoUpdatedAt: NOW }), student: null },
+      { row: competitor(4, { displayName: 'Convidado Autorizado', ageGroup: 'MINOR', photoFile: OWN_FILE(4), photoBytes: 900, photoUpdatedAt: NOW, photoAuthorized: true, photoAuthorizedById: 77, photoAuthorizedAt: NOW }), student: null },
     ],
     matches: rows,
   };
@@ -439,6 +444,7 @@ describe('montagem do snapshot a partir de dados em memória', () => {
     organizationName: 'Grupo',
     categories: [sampleData()],
     now: NOW,
+    publicToken: TOKEN,
   });
 
   it('formato exato e ordem das chaves do contrato 5; serverTime na 2ª posição', () => {
@@ -463,25 +469,27 @@ describe('montagem do snapshot a partir de dados em memória', () => {
     assert.equal(byId(1).photoUrl, null, 'aluno menor');
     assert.equal(byId(2).photoUrl, 'https://cdn.exemplo.com/a.jpg', 'aluno adulto');
     assert.equal(byId(3).photoUrl, null, 'convidado menor sem autorizacao');
-    assert.equal(byId(4).photoUrl, PHOTO, 'convidado menor autorizado');
+    assert.equal(byId(4).photoUrl, OWN_URL(4), 'convidado menor autorizado: foto PROPRIA pela rota publica com o token');
     assert.ok(!raw.includes('NOTA-INTERNA-SENTINELA'));
     assert.ok(!raw.includes('2015-03-04') && !raw.includes('1990-05-06'));
     for (const forbidden of ['studentId', 'eventParticipantId', 'ageGroup', 'photoAuthorized', 'birthDate', 'note', 'organizationId', 'publicToken', 'email', 'phone', 'displayName']) {
       assert.ok(!raw.includes(`"${forbidden}`), forbidden);
     }
-    assert.equal(raw.split(PHOTO).length - 1, 1, 'a foto do menor sem autorizacao aparece so uma vez (a do autorizado)');
+    assert.ok(!raw.includes(OWN_FILE(3)), 'o NOME do arquivo do menor sem autorizacao nao vaza');
+    assert.equal(raw.split(OWN_FILE(4)).length - 1, 1, 'o arquivo do autorizado aparece uma vez');
+    assert.equal(raw.split(TOKEN).length - 1, 1, 'o token so aparece dentro da URL da foto propria visivel');
   });
 
   it('aluno virou adulto = foto aparece (idade recalculada na leitura); sem data = UNKNOWN; anonimizado some', () => {
     const data = sampleData();
     const minorRow = data.competitors[0];
-    assert.equal(publicPhotoFor(minorRow, NOW), null);
-    assert.equal(publicPhotoFor(minorRow, new Date(NOW.getTime() + 9 * 366 * DAY)), PHOTO, 'o mesmo aluno, anos depois');
+    assert.equal(publicPhotoFor(minorRow, NOW, TOKEN), null);
+    assert.equal(publicPhotoFor(minorRow, new Date(NOW.getTime() + 9 * 366 * DAY), TOKEN), PHOTO, 'o mesmo aluno, anos depois');
     const unknown = { row: competitor(9, { studentId: 99 }), student: student({ birthDate: null }) };
-    assert.equal(publicPhotoFor(unknown, NOW), null);
-    assert.equal(publicPhotoFor({ ...unknown, row: { ...unknown.row, photoAuthorized: true } }, NOW), PHOTO, 'UNKNOWN autorizado');
+    assert.equal(publicPhotoFor(unknown, NOW, TOKEN), null);
+    assert.equal(publicPhotoFor({ ...unknown, row: { ...unknown.row, photoAuthorized: true } }, NOW, TOKEN), PHOTO, 'UNKNOWN autorizado');
     const anon = { row: competitor(8, { studentId: 98 }), student: student({ birthDate: dated('1980-01-01'), anonymizedAt: NOW }) };
-    assert.equal(publicPhotoFor(anon, NOW), null);
+    assert.equal(publicPhotoFor(anon, NOW, TOKEN), null);
     const body = buildPublicSnapshotBody({ ...input(), categories: [{ ...data, competitors: [anon] }] });
     assert.equal(body.categories[0].competitors[0].name, 'Atleta removido');
   });
@@ -491,9 +499,17 @@ describe('montagem do snapshot a partir de dados em memória', () => {
     const c = (id: number) => view.competitors.find((x) => x.id === id)!;
     assert.equal(c(1).ageGroup, 'MINOR');
     assert.equal(c(2).ageGroup, 'ADULT');
-    assert.equal(c(1).photoUrl, PHOTO);
+    assert.equal(c(1).photoUrl, PHOTO, 'aluno: foto do cadastro (/api/uploads)');
     assert.equal(c(1).photoPublic, false);
+    assert.equal(c(1).hasOwnPhoto, false);
+    assert.equal(c(1).photoVersion, null);
+    assert.equal(c(3).photoUrl, null, 'convidado: photoUrl do operador e SO da foto do aluno');
+    assert.equal(c(3).hasOwnPhoto, true);
+    assert.equal(c(3).photoVersion, NOW.getTime());
+    assert.equal(c(3).photoPublic, false, 'menor sem autorizacao');
     assert.equal(c(4).photoPublic, true);
+    assert.equal(c(4).hasOwnPhoto, true);
+    assert.ok(!JSON.stringify(view).includes(OWN_FILE(3)), 'o nome do arquivo nunca vai na visao do operador');
     assert.equal(c(1).studentId, 11);
     assert.equal(view.matches.find((m) => m.note !== null)!.note, 'NOTA-INTERNA-SENTINELA');
     assert.equal(view.revision, 7);

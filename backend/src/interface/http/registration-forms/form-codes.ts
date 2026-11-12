@@ -1,4 +1,12 @@
-import { BadRequestException, ConflictException, GoneException, HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  GoneException,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from 'node:crypto';
 import { isIPv4, isIPv6 } from 'node:net';
 import { resolveJwtSecret } from '../../../shared/config/runtime-config';
@@ -14,6 +22,8 @@ export const FormErrorCode = {
   PAYMENT_MODE_NOT_AVAILABLE: 'PAYMENT_MODE_NOT_AVAILABLE',
   FILE_TYPE_NOT_ALLOWED: 'FILE_TYPE_NOT_ALLOWED',
   FILE_TOO_LARGE: 'FILE_TOO_LARGE',
+  /** Sem o processador de imagens (sharp) o servidor NAO aceita foto do participante (nunca grava o original). */
+  PHOTO_PROCESSING_UNAVAILABLE: 'PHOTO_PROCESSING_UNAVAILABLE',
   TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
   INVALID_TRANSITION: 'INVALID_TRANSITION',
   NOT_FOUND: 'NOT_FOUND',
@@ -59,6 +69,15 @@ export function paymentModeNotAvailable(): BadRequestException {
 /** 404 PUBLICO identico para slug inexistente, rascunho e arquivado (nao enumeravel). */
 export function publicFormNotFound(): NotFoundException {
   return new NotFoundException({ statusCode: 404, error: 'Not Found', code: FormErrorCode.NOT_FOUND, message: 'Formulário não encontrado.' });
+}
+
+export function photoProcessingUnavailable(message?: string): ServiceUnavailableException {
+  return new ServiceUnavailableException({
+    statusCode: 503,
+    error: 'Service Unavailable',
+    code: FormErrorCode.PHOTO_PROCESSING_UNAVAILABLE,
+    message: message ?? 'O envio de foto está indisponível no momento. Tente novamente mais tarde ou envie a inscrição sem a foto.',
+  });
 }
 
 export function tooManyRequests(message = 'Muitas tentativas. Aguarde um minuto e tente de novo.'): HttpException {

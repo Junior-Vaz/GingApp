@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { Prisma } from '@prisma/client';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import { PrismaService } from '../shared/prisma/prisma.service';
 import { UPLOAD_FILENAME_REGEX } from '../shared/uploads/image-ref';
+import { UploadReferenceScanner } from '../shared/uploads/upload-reference-scanner';
 import { resolveUploadsDir } from '../shared/uploads/uploads-dir';
 
 /** Todo domingo as 05:00, fuso de Sao Paulo. */
@@ -31,10 +31,6 @@ export interface UploadsGcResult {
   bytesFreed: number;
 }
 
-const UPLOAD_URL_IN_TEXT = /\/api\/uploads\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:webp|jpg|png))/g;
-/** Tabelas que apenas CITAM o arquivo (nao o usam): ignorar, senao nada seria considerado orfao. */
-const IGNORED_MODELS = new Set(['Upload', 'AuditLog']);
-
 /**
  * Coleta de lixo das imagens enviadas por POST /uploads. Quando uma foto/logo/capa e' trocada ou removida, o arquivo
  * antigo continua em UPLOADS_DIR e na tabela Upload (e conta na cota do grupo). Semanalmente remove o que NAO esta
@@ -46,7 +42,12 @@ export class UploadsGcCronService {
   private readonly logger = new Logger(UploadsGcCronService.name);
   private running = false;
 
-  constructor(private readonly prisma: PrismaService) {}
+  /** Detector de referencias (SSOT em shared/uploads, reutilizado pela anonimizacao LGPD). */
+  private readonly scanner: UploadReferenceScanner;
+
+  constructor(private readonly prisma: PrismaService) {
+    this.scanner = new UploadReferenceScanner(prisma);
+  }
 
   @Cron(UPLOADS_GC_CRON_EXPRESSION, { name: UPLOADS_GC_CRON_NAME, timeZone: UPLOADS_GC_CRON_TIMEZONE })
   async handleCron(): Promise<void> {
@@ -78,24 +79,8 @@ export class UploadsGcCronService {
   }
 
   /** Nomes de arquivo citados (`/api/uploads/<uuid>.<ext>`) em qualquer coluna String/Json de qualquer tabela. */
-  async referencedFilenames(): Promise<Set<string>> {
-    const found = new Set<string>();
-    for (const model of Prisma.dmmf.datamodel.models) {
-      if (IGNORED_MODELS.has(model.name)) continue;
-      const table = model.dbName ?? model.name;
-      for (const field of model.fields) {
-        if (field.kind !== 'scalar' || (field.type !== 'String' && field.type !== 'Json')) continue;
-        const column = field.dbName ?? field.name;
-        // Identificadores vem do schema (confiavel), nunca de entrada de usuario.
-        const rows = await this.prisma.$queryRawUnsafe<Array<{ v: string }>>(
-          `SELECT "${column}"::text AS v FROM "${table}" WHERE "${column}"::text LIKE '%/api/uploads/%'`,
-        );
-        for (const row of rows) {
-          for (const match of row.v.matchAll(UPLOAD_URL_IN_TEXT)) found.add(match[1]);
-        }
-      }
-    }
-    return found;
+  referencedFilenames(): Promise<Set<string>> {
+    return this.scanner.referencedFilenames();
   }
 
   /** `organizationId` (so testes): limita as LINHAS Upload a um grupo; `null` = so as imagens da plataforma (patrocinadores). */

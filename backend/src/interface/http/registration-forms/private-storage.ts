@@ -30,6 +30,11 @@ export function formsFileMaxBytes(env: NodeJS.ProcessEnv = process.env): number 
 type SharpModule = typeof import('sharp');
 let sharpCache: SharpModule | null | undefined;
 
+/** SO PARA TESTES: forca o sharp "indisponivel" (null) ou volta ao carregamento normal (undefined). */
+export function setSharpForTests(value: null | undefined): void {
+  sharpCache = value;
+}
+
 /** Mesmo carregamento sob demanda de uploads.service.ts: sem o binario nativo, segue SEM reprocessar (com aviso). */
 function loadSharp(): SharpModule | null {
   if (sharpCache !== undefined) return sharpCache;
@@ -64,6 +69,64 @@ export async function sanitizeImage(buffer: Buffer, type: PrivateFileType): Prom
   } catch {
     return null;
   }
+}
+
+/** Lado maior da foto do participante (campo PHOTO) depois do reprocessamento. */
+export const FORMS_PHOTO_MAX_DIMENSION = 1200;
+export const FORMS_PHOTO_QUALITY = 82;
+/** "Bomba de pixels": acima disto o sharp recusa antes de decodificar (~25 MP). */
+export const FORMS_PHOTO_MAX_INPUT_PIXELS = 25_000_000;
+export const FORMS_PHOTO_TIMEOUT_SECONDS = 15;
+/** Fotos no sharp ao mesmo tempo neste processo (cada uma pode ocupar dezenas de MB) e fila maxima. */
+export const FORMS_PHOTO_CONCURRENCY = 2;
+export const FORMS_PHOTO_QUEUE_MAX = 16;
+
+let photosRunning = 0;
+const photosWaiting: Array<() => void> = [];
+
+/** Semaforo do processo; fila cheia = 'busy'. */
+async function withPhotoSlot<T>(fn: () => Promise<T>): Promise<T | 'busy'> {
+  if (photosRunning >= FORMS_PHOTO_CONCURRENCY) {
+    if (photosWaiting.length >= FORMS_PHOTO_QUEUE_MAX) return 'busy';
+    await new Promise<void>((resolve) => photosWaiting.push(resolve));
+  } else {
+    photosRunning += 1;
+  }
+  try {
+    return await fn();
+  } finally {
+    const next = photosWaiting.shift();
+    if (next) next();
+    else photosRunning -= 1;
+  }
+}
+
+export type PhotoSanitizeResult =
+  | { status: 'ok'; buffer: Buffer; width: number; height: number }
+  | { status: 'unreadable' | 'unavailable' | 'busy' };
+
+/**
+ * Foto do participante (campo PHOTO): SEMPRE regravada como WebP (lado maior 1200, q82), com a orientacao EXIF aplicada e
+ * SEM metadados (EXIF/GPS/ICC). O sharp e OBRIGATORIO: sem ele `unavailable` (o chamador responde 503 e NAO grava o
+ * original, que poderia carregar GPS de um menor). `unreadable` = nao decodifica / bomba de pixels / estourou o tempo.
+ */
+export async function sanitizePhotoImage(buffer: Buffer): Promise<PhotoSanitizeResult> {
+  const sharp = loadSharp();
+  if (!sharp) return { status: 'unavailable' };
+  const result = await withPhotoSlot(async (): Promise<PhotoSanitizeResult> => {
+    try {
+      const out = await sharp(buffer, { failOn: 'error', limitInputPixels: FORMS_PHOTO_MAX_INPUT_PIXELS, animated: false })
+        .rotate()
+        .resize({ width: FORMS_PHOTO_MAX_DIMENSION, height: FORMS_PHOTO_MAX_DIMENSION, fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: FORMS_PHOTO_QUALITY })
+        .timeout({ seconds: FORMS_PHOTO_TIMEOUT_SECONDS })
+        .toBuffer({ resolveWithObject: true });
+      return { status: 'ok', buffer: out.data, width: out.info.width, height: out.info.height };
+    } catch {
+      return { status: 'unreadable' };
+    }
+  });
+  return result === 'busy' ? { status: 'busy' } : result;
 }
 
 /** Diretorio privado. Lido a cada chamada (os testes trocam a env). */
