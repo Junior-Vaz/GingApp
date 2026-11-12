@@ -162,6 +162,29 @@ describe("DataTable no celular: tabela vira cards", () => {
     expect(screen.getByText("Página 2 de 3")).toBeInTheDocument();
   });
 
+  it("ações do cartão quebram de linha (não saem cortadas) e a paginação reserva a coluna dos botões flutuantes", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={rows}
+        getRowId={(r) => r.id}
+        rowActions={() => (
+          <>
+            {["Participantes", "Chaveamento", "QR de check-in", "Formulário de inscrição", "Editar", "Excluir"].map((l) => (
+              <button key={l} type="button">
+                {l}
+              </button>
+            ))}
+          </>
+        )}
+      />,
+    );
+    const actions = screen.getAllByTestId("auto-card-actions")[0]!;
+    expect(actions.className).toContain("flex-wrap");
+    expect(within(actions).getByRole("button", { name: "Chaveamento" })).toBeInTheDocument();
+    expect(screen.getByTestId("table-pagination").className).toMatch(/pr-\[calc\(4\.25rem/);
+  });
+
   it("no desktop continua a tabela (sem cards e sem botão Filtros)", () => {
     setWidth(1280);
     renderTable();

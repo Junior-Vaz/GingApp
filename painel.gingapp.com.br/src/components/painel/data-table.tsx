@@ -272,7 +272,13 @@ export function DataTable<T>({
             </div>
           ))}
         </dl>
-        {rowActions && <div className="-mb-1 flex justify-end border-t pt-1.5">{rowActions(row)}</div>}
+        {rowActions && (
+          // flex-wrap: com muitas ações (Participantes, Chaveamento, Check-in, Formulário, Editar, Excluir) quebram em
+          // várias linhas em vez de saírem cortadas pela esquerda da tela.
+          <div data-testid="auto-card-actions" className="-mb-1 flex flex-wrap justify-end gap-x-1 gap-y-0.5 border-t pt-1.5">
+            {rowActions(row)}
+          </div>
+        )}
       </div>
     );
   }
@@ -441,7 +447,12 @@ export function DataTable<T>({
       )}
 
       {!isLoading && !error && totalRows > 0 && (
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
+        // Reserva a coluna dos botões flutuantes (canto inferior direito: 3rem+1rem no celular, 3,5rem+1rem no desktop)
+        // para as setas de página nunca ficarem por baixo deles.
+        <div
+          data-testid="table-pagination"
+          className="flex items-center justify-between pr-[calc(4.25rem+env(safe-area-inset-right))] text-xs text-muted-foreground md:pr-[calc(5rem+env(safe-area-inset-right))]"
+        >
           <span data-testid="table-count">
             {totalRows} {totalRows === 1 ? "registro" : "registros"}
           </span>

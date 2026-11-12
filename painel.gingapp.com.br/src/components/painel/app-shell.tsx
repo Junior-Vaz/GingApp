@@ -182,7 +182,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
         <main
           data-testid="painel-main"
-          className="mx-auto w-full max-w-[90rem] flex-1 px-3 pt-4 pb-[calc(9rem+env(safe-area-inset-bottom))] md:px-5 md:py-8"
+          className="mx-auto w-full max-w-[90rem] flex-1 px-3 pt-4 pb-[calc(13rem+env(safe-area-inset-bottom))] md:px-5 md:pt-8 md:pb-40"
         >
           <OfflineBanner />
           {children}
