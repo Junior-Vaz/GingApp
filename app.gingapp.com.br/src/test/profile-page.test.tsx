@@ -263,4 +263,40 @@ describe("Perfil: dependentes e edição", () => {
     expect(sheet.querySelector("#instagram")).not.toBeNull();
     expect(sheet.querySelector("[data-testid=ficha-edit]")).not.toBeNull();
   });
+
+  it("a folha de edição usa PhotoPicker: foto do perfil (square, com câmera e recorte) e capa (wide, só compressão); sem aviso de limite de 5 MB", async () => {
+    saveSession("t", user("ALUNO"));
+    mockApi([stu(7, "Ana Souza", 3)], {
+      "/people/me/ficha": () => json(200, { person: { id: 1, gingappCode: "G", name: "Ana", nickname: null, birthDate: null, photo: null, documentMasked: null, documentKind: null }, enrollments: [], graduations: [], attendanceByGroup: [], certificates: [], sharedFromOtherGroups: [], scope: "SELF" }),
+    });
+    await mount();
+    const edit = [...container!.querySelectorAll("button")].find((b) => b.textContent === "Editar perfil")!;
+    act(() => edit.click());
+    await settle();
+
+    const sheet = document.body.querySelector("[data-testid=profile-edit-sheet]")!;
+    const pickers = [...sheet.querySelectorAll<HTMLElement>("[data-testid=photo-picker]")];
+    expect(pickers.map((p) => p.getAttribute("data-shape"))).toEqual(["square", "wide"]);
+    const [photo, cover] = pickers as [HTMLElement, HTMLElement];
+    expect(photo.querySelector("[data-testid=photo-camera]")).not.toBeNull(); // foto de pessoa: câmera
+    expect(cover.querySelector("[data-testid=photo-camera]")).toBeNull(); // capa: só compressão
+    expect(photo.textContent).toContain("Enviar foto");
+    expect(cover.textContent).toContain("Enviar imagem");
+    expect(sheet.textContent).not.toMatch(/5 MB/);
+  });
+
+  it("'Trocar foto do perfil' (avatar) abre o diálogo com o PhotoPicker quadrado e câmera", async () => {
+    saveSession("t", user("ALUNO"));
+    mockApi([stu(7, "Ana Souza", 3)], {
+      "/people/me/ficha": () => json(200, { person: { id: 1, gingappCode: "G", name: "Ana", nickname: null, birthDate: null, photo: null, documentMasked: null, documentKind: null }, enrollments: [], graduations: [], attendanceByGroup: [], certificates: [], sharedFromOtherGroups: [], scope: "SELF" }),
+    });
+    await mount();
+    act(() => q("button[aria-label='Trocar foto do perfil']")!.click());
+    await settle();
+    const dialog = document.body.querySelector("[role=dialog]")!;
+    expect(dialog.textContent).toContain("Trocar foto do perfil");
+    expect(dialog.querySelector("[data-testid=photo-picker]")!.getAttribute("data-shape")).toBe("square");
+    expect(dialog.querySelector("[data-testid=photo-camera]")).not.toBeNull();
+    expect(dialog.textContent).not.toMatch(/5 MB/);
+  });
 });

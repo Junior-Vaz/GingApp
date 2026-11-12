@@ -169,3 +169,18 @@ export const pngFile = (name = "comprovante.png", size = 2048) => {
   Object.defineProperty(file, "size", { value: size });
   return file;
 };
+
+/**
+ * Substituto de `@/lib/photo/prepare-image` para os testes do formulário (o jsdom não decodifica imagem: o `<img>` nunca carrega).
+ * "Comprime" devolvendo um WebP menor (metade dos bytes, mínimo 1) e registra cada chamada em `prepareCalls`.
+ * Uso: `vi.mock("@/lib/photo/prepare-image", async () => (await import("./inscricao-fixtures")).prepareImageStub());`
+ */
+export const prepareCalls: Array<{ name: string; type: string; opts: unknown }> = [];
+export function prepareImageStub() {
+  return {
+    prepareImage: async (input: Blob, opts?: unknown) => {
+      prepareCalls.push({ name: input instanceof File ? input.name : "", type: input.type, opts });
+      return new Blob([new Uint8Array(Math.max(1, Math.floor(input.size / 2)))], { type: "image/webp" });
+    },
+  };
+}

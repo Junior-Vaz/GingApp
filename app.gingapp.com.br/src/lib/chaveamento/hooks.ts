@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePageVisible } from "./page-state";
 import { categoryHasLive, nextRotationCategoryId } from "./selectors";
 import type { PublicSnapshot } from "./types";
 
@@ -124,12 +125,14 @@ export interface TvRotationOptions {
  */
 export function useTvRotation({ enabled, paused, snapshot, currentId, seq, startedCategoryIds, onSelect, intervalMs = ROTATION_MS }: TvRotationOptions): void {
   const latest = useRef({ snapshot, currentId, started: startedCategoryIds });
+  const visible = usePageVisible();
   useEffect(() => {
     latest.current = { snapshot, currentId, started: startedCategoryIds };
   });
 
+  // Aba oculta: o rodízio não gira (sem timer de pé).
   useEffect(() => {
-    if (!enabled || paused) return;
+    if (!enabled || paused || !visible) return;
     const timer = setInterval(() => {
       const { snapshot: s, currentId: current } = latest.current;
       if (!s) return;
@@ -137,7 +140,7 @@ export function useTvRotation({ enabled, paused, snapshot, currentId, seq, start
       if (next !== null && next !== current) onSelect(next);
     }, intervalMs);
     return () => clearInterval(timer);
-  }, [enabled, paused, intervalMs, onSelect]);
+  }, [enabled, paused, visible, intervalMs, onSelect]);
 
   useEffect(() => {
     if (!enabled || paused || seq === 0) return;
@@ -158,10 +161,11 @@ export const PAGE_MS = 10_000;
 /** Página atual de uma lista paginada: gira a cada `ms` quando `enabled` e há mais de uma página; o timer é cancelado ao desmontar. */
 export function useRotatingPage(count: number, enabled: boolean, ms = PAGE_MS): number {
   const [tick, setTick] = useState(0);
+  const visible = usePageVisible();
   useEffect(() => {
-    if (!enabled || count <= 1) return;
+    if (!enabled || count <= 1 || !visible) return;
     const timer = setInterval(() => setTick((value) => value + 1), ms);
     return () => clearInterval(timer);
-  }, [enabled, count, ms]);
+  }, [enabled, count, ms, visible]);
   return count <= 1 ? 0 : tick % count;
 }

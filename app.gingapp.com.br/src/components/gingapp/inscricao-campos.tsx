@@ -3,12 +3,16 @@ import { FileText, Loader2, Paperclip, RefreshCw, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { PhotoPicker } from "@/components/photo/photo-picker";
+import { photoErrorMessage } from "@/lib/photo/messages";
 import { cn } from "@/lib/utils";
+import { ApiError } from "@/lib/api";
 import {
   FILE_ACCEPT,
   fileButtonLabel,
   formatBytes,
   maskInput,
+  prepareProofUpload,
   splitLinks,
   uploadErrorMessage,
   uploadFormFile,
@@ -65,6 +69,122 @@ interface FileFieldProps {
   onBusyChange: (busy: boolean) => void;
 }
 
+/** Nome do anexo da foto do participante: fixo (o nome do arquivo do celular costuma trazer o nome da pessoa). */
+const PHOTO_FILE_NAME = "foto.webp";
+
+interface PhotoFieldProps {
+  slug: string;
+  field: FormFieldDef;
+  value: FileAnswer | undefined;
+  invalid: boolean;
+  onChange: (value: FileAnswer | undefined) => void;
+  onBusyChange: (busy: boolean) => void;
+}
+
+/**
+ * "Foto do participante" (campo PHOTO): enviar da galeria ou tirar na hora, recortar (moldura redonda), pré-visualizar e
+ * enviar a imagem JÁ reduzida para `POST /public/forms/:slug/files`. A foto só sai do aparelho depois de pronta (nada da
+ * original) e a resposta guarda só o `fileToken`. Falhou o envio: a foto continua na tela com o motivo e "Tentar de novo".
+ */
+function PhotoField({ slug, field, value, invalid, onChange, onBusyChange }: PhotoFieldProps) {
+  const [photo, setPhoto] = useState<Blob | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState("");
+  const [retryPhoto, setRetryPhoto] = useState<Blob | null>(null);
+  const alive = useRef(true);
+  const latest = useRef<Blob | null>(null);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  // O servidor recusou o token no envio (expirou): a resposta some lá em cima e a foto local sai da tela junto.
+  useEffect(() => {
+    if (value === undefined && !uploading && retryPhoto === null && error === "" && latest.current !== null) {
+      latest.current = null;
+      setPhoto(null);
+    }
+  }, [value, uploading, retryPhoto, error]);
+
+  async function send(blob: Blob) {
+    latest.current = blob;
+    setPhoto(blob);
+    setError("");
+    setRetryPhoto(null);
+    setUploading(true);
+    onBusyChange(true);
+    try {
+      const sent = await uploadFormFile(slug, field.key, blob, PHOTO_FILE_NAME);
+      if (!alive.current || latest.current !== blob) return; // desmontou ou a pessoa trocou/removeu durante o envio
+      onChange({
+        fileToken: sent.fileToken,
+        originalName: sent.originalName || PHOTO_FILE_NAME,
+        mimeType: sent.mimeType || blob.type,
+        sizeBytes: sent.sizeBytes || blob.size,
+      });
+    } catch (failure) {
+      if (!alive.current || latest.current !== blob) return;
+      // Foto opcional: a pessoa não fica presa ao erro (o servidor manda o mesmo recado no 503).
+      setError(uploadErrorMessage(failure, "photo") + (field.required ? "" : " Você também pode enviar a inscrição sem a foto."));
+      // 413/415: a MESMA imagem seria recusada de novo (a mensagem já manda escolher outra); o resto (rede, 429, 503, 5xx) vale tentar de novo.
+      const deterministic = failure instanceof ApiError && (failure.status === 413 || failure.status === 415);
+      setRetryPhoto(deterministic ? null : blob);
+    } finally {
+      if (alive.current) setUploading(false);
+      onBusyChange(false);
+    }
+  }
+
+  function change(next: Blob | null) {
+    if (next === null) {
+      latest.current = null;
+      setPhoto(null);
+      setError("");
+      setRetryPhoto(null);
+      onChange(undefined);
+      return;
+    }
+    // Foto nova: o token da anterior deixa de valer (o servidor limpa o pendente sozinho).
+    if (value) onChange(undefined);
+    void send(next);
+  }
+
+  return (
+    // O rótulo visível (com o * de obrigatório) é do FieldBlock; o do seletor fica só para leitores de tela (nome do grupo).
+    <div className="space-y-2 [&_[data-testid=photo-picker]>p:first-of-type]:sr-only" data-testid={`foto-${field.key}`}>
+      <PhotoPicker
+        label={field.required ? `${field.label} (obrigatório)` : field.label}
+        value={photo}
+        onChange={change}
+        shape="square"
+        camera
+        busy={uploading}
+        invalid={invalid}
+        previewAlt="Pré-visualização da foto escolhida"
+        description="A foto será vista só pela organização do evento."
+      />
+      {error && (
+        <div className="flex flex-wrap items-center gap-2" role="alert" data-testid="foto-erro-envio">
+          <p className="text-sm text-destructive">{error}</p>
+          {retryPhoto && (
+            <Button type="button" variant="outline" className="h-11 md:h-11" onClick={() => void send(retryPhoto)}>
+              <RefreshCw /> Tentar de novo
+            </Button>
+          )}
+        </div>
+      )}
+      {value && !uploading && !error && (
+        <p className="text-xs text-muted-foreground" role="status">
+          Foto enviada.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** Upload de comprovante/documento: envia ao escolher, mostra miniatura/nome, permite trocar, remover e tentar de novo. */
 function FileField({ slug, field, value, invalid, describedBy, inputId, onChange, onBusyChange }: FileFieldProps) {
   const inputRef = useRef<HTMLInputElement>(null);
@@ -73,15 +193,17 @@ function FileField({ slug, field, value, invalid, describedBy, inputId, onChange
   const [retryFile, setRetryFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const previewRef = useRef<string | null>(null);
+  const alive = useRef(true);
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
       if (previewRef.current && typeof URL.revokeObjectURL === "function") URL.revokeObjectURL(previewRef.current);
-    },
-    [],
-  );
+    };
+  }, []);
 
-  function setPreviewFor(file: File | null) {
+  function setPreviewFor(file: Blob | null) {
     if (previewRef.current && typeof URL.revokeObjectURL === "function") URL.revokeObjectURL(previewRef.current);
     previewRef.current = null;
     if (file && file.type.startsWith("image/") && typeof URL.createObjectURL === "function") {
@@ -96,19 +218,31 @@ function FileField({ slug, field, value, invalid, describedBy, inputId, onChange
     setUploading(true);
     onBusyChange(true);
     try {
-      const sent = await uploadFormFile(slug, field.key, file);
-      setPreviewFor(file);
+      // Imagem: reduzida e recomprimida no aparelho (foto de celular de 6 MB deixa de ser recusada); PDF segue intacto.
+      let prepared;
+      try {
+        prepared = await prepareProofUpload(file);
+      } catch (failure) {
+        if (!alive.current) return;
+        setLocalError(photoErrorMessage(failure));
+        return; // a mesma imagem falharia de novo: sem "tentar de novo" (a pessoa escolhe outra)
+      }
+      if (!alive.current) return;
+      const sent = await uploadFormFile(slug, field.key, prepared.body, prepared.name);
+      if (!alive.current) return;
+      setPreviewFor(prepared.body);
       onChange({
         fileToken: sent.fileToken,
-        originalName: sent.originalName || file.name,
-        mimeType: sent.mimeType || file.type,
-        sizeBytes: sent.sizeBytes || file.size,
+        originalName: sent.originalName || prepared.name,
+        mimeType: sent.mimeType || prepared.body.type,
+        sizeBytes: sent.sizeBytes || prepared.body.size,
       });
     } catch (error) {
+      if (!alive.current) return;
       setLocalError(uploadErrorMessage(error));
       setRetryFile(file);
     } finally {
-      setUploading(false);
+      if (alive.current) setUploading(false);
       onBusyChange(false);
     }
   }
@@ -204,7 +338,7 @@ function FileField({ slug, field, value, invalid, describedBy, inputId, onChange
           )}
         </div>
       )}
-      <p className="text-xs text-muted-foreground">Foto (JPG, PNG, WEBP) ou PDF, até 5 MB.</p>
+      <p className="text-xs text-muted-foreground">Foto (JPG, PNG, WEBP) ou PDF. A foto é reduzida automaticamente; o PDF pode ter até 5 MB.</p>
     </div>
   );
 }
@@ -385,6 +519,24 @@ export function FieldBlock({ slug, field, value, error, onChange, onBusyChange }
             </span>
           </label>
           {help && <div id={helpId}>{help}</div>}
+        </>,
+      );
+    case "PHOTO":
+      return wrap(
+        <>
+          <p className="text-sm font-semibold">
+            {field.label}
+            {requiredMark}
+          </p>
+          {help && <div id={helpId}>{help}</div>}
+          <PhotoField
+            slug={slug}
+            field={field}
+            invalid={invalid}
+            value={value && typeof value === "object" && !Array.isArray(value) ? value : undefined}
+            onChange={set}
+            onBusyChange={(busy) => onBusyChange(field.key, busy)}
+          />
         </>,
       );
     case "FILE":

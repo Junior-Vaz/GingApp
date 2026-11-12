@@ -16,9 +16,11 @@ interface RowProps {
   arrived: boolean;
   /** A luta acabou de terminar: o placar dá um "pop". */
   pop: boolean;
+  /** Este é o atleta em destaque (busca ou toque): o caminho dele na chave fica aceso. */
+  focused: boolean;
 }
 
-function Row({ match, side, competitor, arrived, pop }: RowProps) {
+function Row({ match, side, competitor, arrived, pop, focused }: RowProps) {
   const score = side === "A" ? match.scoreA : match.scoreB;
   const finished = match.status === "FINISHED";
   const won = finished && competitor !== null && match.winnerId === competitor.id;
@@ -34,6 +36,7 @@ function Row({ match, side, competitor, arrived, pop }: RowProps) {
       data-lost={lost ? "1" : undefined}
       data-empty={empty ? "1" : undefined}
       data-arrive={arrived ? "1" : undefined}
+      data-focus={focused ? "1" : undefined}
     >
       {competitor ? <Avatar id={competitor.id} name={competitor.name} photoUrl={competitor.photoUrl} group={competitor.group} size={32} /> : <span className="cv-avatar-ghost" />}
       <span className="cv-row-text">
@@ -64,6 +67,12 @@ export interface MatchCardProps {
   justFinished?: boolean;
   /** Posição na fila de chamada (1 = PRÓXIMA); null = fora da fila. */
   queueRank?: number | null;
+  /** Atleta em destaque (caminho aceso na chave). */
+  focusId?: number | null;
+  /** Há um atleta em destaque: esta luta está no caminho dele ("on") ou fora dele ("off", esmaecida); null = sem destaque. */
+  path?: "on" | "off" | null;
+  /** Toque num atleta do cartão (liga/desliga o destaque do caminho). Ausente (telão) = cartão não interativo. */
+  onPickAthlete?: ((competitorId: number) => void) | undefined;
   style?: CSSProperties;
   className?: string;
 }
@@ -73,7 +82,7 @@ export interface MatchCardProps {
  * graduação, placar. AO VIVO: borda luminosa pulsante + selo vermelho + tatame; PRÓXIMA: selo com relógio; o vencedor é
  * realçado (verde + marca de vitória) e o perdedor esmaece. O estado nunca depende só da cor: sempre há texto/ícone.
  */
-export function MatchCard({ match, byId, highlight = null, arrivedSlot = null, justFinished = false, queueRank = null, style, className }: MatchCardProps) {
+export function MatchCard({ match, byId, highlight = null, arrivedSlot = null, justFinished = false, queueRank = null, focusId = null, path = null, onPickAthlete, style, className }: MatchCardProps) {
   const a = match.slotAId === null ? null : (byId.get(match.slotAId) ?? null);
   const b = match.slotBId === null ? null : (byId.get(match.slotBId) ?? null);
   const live = match.status === "LIVE";
@@ -92,11 +101,32 @@ export function MatchCard({ match, byId, highlight = null, arrivedSlot = null, j
       data-highlight={highlight ?? undefined}
       data-flash={justFinished ? "1" : undefined}
       data-next={upcoming ? queueRank : undefined}
+      data-path={path ?? undefined}
     >
       <div className="cv-card-body" aria-hidden="true">
-        <Row match={match} side="A" competitor={a} arrived={arrivedSlot === "A"} pop={justFinished} />
-        <Row match={match} side="B" competitor={b} arrived={arrivedSlot === "B"} pop={justFinished} />
+        <Row match={match} side="A" competitor={a} arrived={arrivedSlot === "A"} pop={justFinished} focused={a !== null && a.id === focusId} />
+        <Row match={match} side="B" competitor={b} arrived={arrivedSlot === "B"} pop={justFinished} focused={b !== null && b.id === focusId} />
       </div>
+      {onPickAthlete && (
+        <div className="cv-card-hits">
+          {[a, b].map((competitor, index) =>
+            competitor ? (
+              <button
+                key={index}
+                type="button"
+                className="cv-row-hit"
+                aria-pressed={competitor.id === focusId}
+                aria-label={`Destacar o caminho de ${competitor.name}`}
+                data-testid="cv-athlete-hit"
+                data-competitor-id={competitor.id}
+                onClick={() => onPickAthlete(competitor.id)}
+              />
+            ) : (
+              <span key={index} className="cv-row-hit-empty" />
+            ),
+          )}
+        </div>
+      )}
       {tag && (
         <span className="cv-tag" data-live={live ? "1" : undefined} aria-hidden="true">
           {live && <span className="cv-dot" />}

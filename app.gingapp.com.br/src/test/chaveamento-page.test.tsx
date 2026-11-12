@@ -181,7 +181,8 @@ describe("chaveamento: estados da página", () => {
     const m = mountLive();
     feed(JSON.stringify(REAL_GROUPS_RUNNING));
     expect(setItem).not.toHaveBeenCalled();
-    expect(getItem).not.toHaveBeenCalled();
+    // A única leitura permitida é a do texto lembrado da busca (chave própria); nada mais é lido nem escrito.
+    expect(getItem.mock.calls.every(([key]) => key === "gingapp:ao-vivo:busca")).toBe(true);
     expect(m.host.querySelector("script")).toBeNull();
   }, LONG);
 

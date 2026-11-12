@@ -29,7 +29,7 @@ function PhotoOrInitials({ id, name, photoUrl, group, size, ring, gold }: InnerP
   const style: CSSProperties & Record<string, string | number> = {
     width: size,
     height: size,
-    fontSize: Math.max(10, Math.round(size * 0.4)),
+    fontSize: Math.max(12, Math.round(size * 0.4)),
     ...(src ? {} : { background: initialsBackground(id, group) }),
   };
   if (ring) {

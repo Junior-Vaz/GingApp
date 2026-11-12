@@ -1,6 +1,8 @@
 import { api, ApiError } from "@/lib/api";
 import { formatCpf, formatPhone, isValidCpf, onlyDigits } from "@/lib/cpf";
 import { dayOnly, fmt, toDate } from "@/lib/format";
+import { prepareImage } from "@/lib/photo/prepare-image";
+import { MAX_INPUT_BYTES, isPhotoError } from "@/lib/photo/types";
 
 /* ---------- Contrato da API pública de inscrição (GET/POST /public/forms/:slug/...) ---------- */
 
@@ -17,6 +19,8 @@ export type FormFieldType =
   | "SELECT"
   | "CONSENT"
   | "FILE"
+  /** "Foto do participante": só imagem (JPEG/PNG/WebP), no máximo 1 por formulário. Resposta = `{ fileToken }`, como o FILE. */
+  | "PHOTO"
   | "INFO";
 
 export type ClosedReason = "NOT_OPEN_YET" | "CLOSED" | "FULL" | "DEADLINE";
@@ -106,9 +110,14 @@ const base = (slug: string) => `/public/forms/${encodeURIComponent(slug)}`;
 
 export const fetchPublicForm = (slug: string) => api.get<PublicForm>(base(slug), ANON);
 
-export function uploadFormFile(slug: string, fieldKey: string, file: File): Promise<UploadedFile> {
+/**
+ * Envia o anexo pendente do campo (FILE ou PHOTO). Aceita `File` ou o `Blob` já preparado (foto recortada/comprimida);
+ * `filename` define o nome do arquivo no multipart (a foto vai sempre como `foto.webp`, nunca com o nome do celular).
+ */
+export function uploadFormFile(slug: string, fieldKey: string, file: Blob, filename?: string): Promise<UploadedFile> {
   const form = new FormData();
-  form.append("file", file);
+  if (filename !== undefined) form.append("file", file, filename);
+  else form.append("file", file);
   form.append("fieldKey", fieldKey);
   return api.postForm<UploadedFile>(`${base(slug)}/files`, form, ANON);
 }
@@ -228,6 +237,7 @@ export function validateField(field: FormFieldDef, value: AnswerValue | undefine
     if (!field.required) return null;
     if (field.type === "CONSENT") return "É preciso aceitar para continuar.";
     if (field.type === "FILE") return "Anexe o arquivo para continuar.";
+    if (field.type === "PHOTO") return "Envie a foto para continuar.";
     if (field.type === "MULTI_CHOICE") return "Selecione ao menos uma opção.";
     if (field.type === "SINGLE_CHOICE" || field.type === "SELECT") return "Escolha uma opção.";
     return "Campo obrigatório.";
@@ -294,7 +304,7 @@ export function buildAnswers(form: Pick<PublicForm, "fields">, answers: Answers)
       continue;
     }
     if (isEmptyAnswer(value)) continue;
-    if (field.type === "FILE") out[field.key] = { fileToken: (value as FileAnswer).fileToken };
+    if (field.type === "FILE" || field.type === "PHOTO") out[field.key] = { fileToken: (value as FileAnswer).fileToken };
     else if (field.type === "MULTI_CHOICE") out[field.key] = value as string[];
     else if (field.type === "NUMBER") out[field.key] = parseNumber(value as string) ?? (value as string).trim();
     else out[field.key] = typeof value === "string" ? value.trim() : value;
@@ -313,14 +323,54 @@ export function maskInput(type: FormFieldType, value: string): string {
 
 export const FILE_MAX_BYTES = 5 * 1024 * 1024;
 export const FILE_ACCEPT = "image/*,application/pdf";
-const FILE_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+const PDF_TYPE = "application/pdf";
+const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+const HEIC_NAME = /\.(heic|heif)$/i;
 
-/** Erro amigável antes de gastar rede; `null` = ok. O servidor confere o tipo real de novo. */
-export function validateProofFile(file: { type: string; size: number }): string | null {
-  if (!FILE_TYPES.includes(file.type)) return "Formato não aceito. Envie uma foto (JPG, PNG ou WEBP) ou um PDF.";
+/** Imagem que o app sabe reduzir: JPEG/PNG/WebP e HEIC/HEIF (alguns navegadores entregam HEIC sem tipo, só com a extensão). */
+const isProofImage = (file: { type: string; name?: string }): boolean =>
+  IMAGE_TYPES.includes(file.type) || (file.type === "" && HEIC_NAME.test(file.name ?? ""));
+
+/** Teto das imagens enviadas no campo de arquivo depois da compressão (o servidor aceita até 5 MB; documentos precisam de nitidez). */
+export const PROOF_IMAGE_MAX_BYTES = 1024 * 1024;
+
+/**
+ * Erro amigável antes de gastar rede; `null` = ok. O servidor confere o tipo real de novo. Imagem NÃO tem mais o limite de
+ * 5 MB aqui (ela é comprimida antes do envio; o limite é o da biblioteca, 25 MB de entrada); PDF continua com 5 MB.
+ */
+export function validateProofFile(file: { type: string; size: number; name?: string }): string | null {
+  const pdf = file.type === PDF_TYPE;
+  if (!pdf && !isProofImage(file)) return "Formato não aceito. Envie uma foto (JPG, PNG ou WEBP) ou um PDF.";
   if (file.size === 0) return "O arquivo está vazio. Escolha outro.";
-  if (file.size > FILE_MAX_BYTES) return "O arquivo é maior que 5 MB. Escolha um arquivo menor.";
+  if (pdf && file.size > FILE_MAX_BYTES) return "O arquivo é maior que 5 MB. Escolha um arquivo menor.";
+  if (!pdf && file.size > MAX_INPUT_BYTES) return "Esta imagem é grande demais (acima de 25 MB). Escolha uma foto menor ou tire a foto na hora.";
   return null;
+}
+
+/** Arquivo pronto para o envio: o corpo (imagem reduzida ou o PDF intacto) e o nome que vai no multipart. */
+export interface ProofUpload {
+  body: Blob;
+  name: string;
+}
+
+const baseName = (name: string): string => name.replace(/\.[^./\\]*$/, "").trim() || "arquivo";
+
+/**
+ * Prepara o anexo do campo FILE: imagem -> recomprimida (lado maior 1600, ate 1 MB, WebP ou JPEG), PDF -> intocado. Se a imagem
+ * (JPEG/PNG/WebP) até 5 MB não puder ser reduzida neste navegador, vai a original (o servidor a reprocessa); HEIC que o
+ * navegador não abre, ou imagem grande que não coube, lança `PhotoError` (a mensagem em pt-BR vem de `photoErrorMessage`).
+ */
+export async function prepareProofUpload(file: File): Promise<ProofUpload> {
+  if (file.type === PDF_TYPE) return { body: file, name: file.name };
+  try {
+    const body = await prepareImage(file, { shape: "wide", maxBytes: PROOF_IMAGE_MAX_BYTES });
+    return { body, name: `${baseName(file.name)}.${body.type === "image/jpeg" ? "jpg" : "webp"}` };
+  } catch (error) {
+    const heic = file.type === "image/heic" || file.type === "image/heif" || HEIC_NAME.test(file.name);
+    const tooBigInput = isPhotoError(error) && error.code === "TOO_LARGE_INPUT";
+    if (!heic && !tooBigInput && file.size <= FILE_MAX_BYTES) return { body: file, name: file.name };
+    throw error;
+  }
 }
 
 /** Botão do upload: "comprovante" quando o campo é de pagamento, senão "arquivo". */
@@ -421,18 +471,29 @@ export function classifySubmitError(error: unknown): SubmitFailure {
   return { kind: "other", message: "Não foi possível enviar sua inscrição agora. Tente novamente em instantes." };
 }
 
-/** Mensagem de falha do upload do comprovante. */
-export function uploadErrorMessage(error: unknown): string {
-  if (!(error instanceof ApiError)) return "Falha de conexão ao enviar o arquivo. Toque em tentar de novo.";
-  if (error.status === 429) return RATE_LIMIT_MESSAGE;
+/**
+ * Mensagem de falha do upload do comprovante (`kind: "file"`, padrão) ou da foto do participante (`kind: "photo"`: textos
+ * de foto e o 503 `PHOTO_PROCESSING_UNAVAILABLE` do processamento de imagem do servidor).
+ */
+export function uploadErrorMessage(error: unknown, kind: "file" | "photo" = "file"): string {
+  const photo = kind === "photo";
+  if (!(error instanceof ApiError)) return photo ? "Falha de conexão ao enviar a foto. Toque em tentar de novo." : "Falha de conexão ao enviar o arquivo. Toque em tentar de novo.";
+  if (error.status === 429) return photo ? "Muitas tentativas de envio agora. Aguarde um pouco e toque em tentar de novo." : RATE_LIMIT_MESSAGE;
+  if (photo && (error.code === "PHOTO_PROCESSING_UNAVAILABLE" || error.status === 503)) {
+    return "O envio de fotos está indisponível no momento. Toque em tentar de novo em instantes.";
+  }
   // 410 FORM_CLOSED (encerrou/lotou enquanto a pessoa preenchia): o corpo traz `closedReason`.
   if (error.status === 410) {
     const reason = CLOSED_REASONS.find((r) => r === (error.body as { closedReason?: unknown } | undefined)?.closedReason) ?? null;
     return closedMessage(reason ?? "CLOSED");
   }
-  if (error.code === "FILE_TYPE_NOT_ALLOWED") return "Formato não aceito. Envie uma foto (JPG, PNG ou WEBP) ou um PDF.";
-  if (error.code === "FILE_TOO_LARGE" || error.status === 413) return "O arquivo é maior que 5 MB. Escolha um arquivo menor.";
-  return "Não foi possível enviar o arquivo. Toque em tentar de novo.";
+  if (error.code === "FILE_TYPE_NOT_ALLOWED" || error.status === 415) {
+    return photo ? "Esta imagem não foi aceita. Envie uma foto em JPG, PNG ou WEBP, ou tire a foto na hora." : "Formato não aceito. Envie uma foto (JPG, PNG ou WEBP) ou um PDF.";
+  }
+  if (error.code === "FILE_TOO_LARGE" || error.status === 413) {
+    return photo ? "A foto é grande demais para o envio. Escolha outra foto ou tire a foto na hora." : "O arquivo é maior que 5 MB. Escolha um arquivo menor.";
+  }
+  return photo ? "Não foi possível enviar a foto. Toque em tentar de novo." : "Não foi possível enviar o arquivo. Toque em tentar de novo.";
 }
 
 /** Copia para a área de transferência (API moderna; fallback para execCommand em navegadores/WebViews antigos). */

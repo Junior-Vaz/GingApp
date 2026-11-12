@@ -15,6 +15,7 @@ import {
   REAL_SINGLE_FINISHED,
   REAL_SINGLE_RUNNING,
   REAL_SSE_EVENT,
+  REAL_WITH_PHOTO,
   type Json,
 } from "./real-contract-chaveamento";
 
@@ -33,6 +34,7 @@ const SAMPLES: Array<[string, Json]> = [
   ["roundrobin finished", REAL_ROUNDROBIN_FINISHED],
   ["groups running", REAL_GROUPS_RUNNING],
   ["groups finished", REAL_GROUPS_FINISHED],
+  ["com foto própria de atleta (/api/public/tournaments/<token>/photos/<uuid>.webp)", REAL_WITH_PHOTO],
 ];
 
 type Obj = { [key: string]: Json };
@@ -191,10 +193,11 @@ describe("chaveamento: conformidade com o JSON real do backend", () => {
       expect(g.matches.some((m) => m.stage === "THIRD_PLACE")).toBe(true);
     });
 
-    it("fotos reais: só caminho de upload do backend ou https; foto nula existe (menor sem autorização)", () => {
-      const all = parsed(REAL_ROUNDROBIN_RUNNING).categories.flatMap((c) => c.competitors);
+    it("fotos reais: só caminho de upload do backend, foto própria do atleta (/api/public/tournaments/<token>/photos/<uuid>.webp) ou https; foto nula existe (menor sem autorização)", () => {
+      const all = [REAL_ROUNDROBIN_RUNNING, REAL_WITH_PHOTO].flatMap((raw) => parsed(raw).categories.flatMap((c) => c.competitors));
       expect(all.some((c) => c.photoUrl === null)).toBe(true);
-      for (const c of all) expect(c.photoUrl === null || /^(\/api\/uploads\/|https:\/\/)/.test(c.photoUrl)).toBe(true);
+      const allowed = /^(\/api\/uploads\/|\/api\/public\/tournaments\/[A-Za-z0-9_-]{24,64}\/photos\/[0-9a-f-]{36}\.webp$|https:\/\/)/;
+      for (const c of all) expect(c.photoUrl === null || allowed.test(c.photoUrl)).toBe(true);
     });
 
     it("diff entre dois snapshots reais consecutivos (single running -> finished): anuncia os resultados e o pódio", () => {

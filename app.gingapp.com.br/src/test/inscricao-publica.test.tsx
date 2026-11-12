@@ -23,6 +23,9 @@ import {
   type Call,
 } from "./inscricao-fixtures";
 
+// o jsdom não decodifica imagem: o seletor de arquivo usa o substituto que "comprime" para WebP (o comportamento real fica em inscricao-foto.test.tsx)
+vi.mock("@/lib/photo/prepare-image", async () => (await import("./inscricao-fixtures")).prepareImageStub());
+
 const SLUG = "campeonato";
 const GET = `GET /public/forms/${SLUG}`;
 const SUBMIT = `POST /public/forms/${SLUG}/submissions`;

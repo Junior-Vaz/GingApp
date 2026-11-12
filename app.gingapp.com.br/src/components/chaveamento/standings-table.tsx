@@ -11,6 +11,8 @@ export interface StandingsTableProps {
   single: boolean;
   /** Atletas já classificados ao mata-mata (marcados com ✓ + texto para leitor de tela). */
   qualified?: ReadonlySet<number>;
+  /** Atleta em destaque (busca): a linha dele fica marcada. */
+  focusId?: number | null;
   tv?: boolean;
 }
 
@@ -20,6 +22,7 @@ export function StandingsTable({
   byId,
   single,
   qualified,
+  focusId = null,
   tv = false,
 }: StandingsTableProps) {
   const filled = groups.filter((g) => g.rows.length > 0);
@@ -28,7 +31,8 @@ export function StandingsTable({
   const tables = filled.map((group) => {
     const title = single ? "Classificação" : groupLabel(group.groupIndex);
     return (
-      <table key={group.groupIndex} className="cv-table">
+      <div key={group.groupIndex} className="cv-table-wrap" role="group" aria-label={title} tabIndex={tv ? undefined : 0}>
+      <table className="cv-table">
         <caption className="cv-table-caption">{title}</caption>
         <colgroup>
           <col className="cv-col-rank" />
@@ -77,6 +81,8 @@ export function StandingsTable({
                 key={row.competitorId}
                 data-rank={row.rank}
                 data-qualified={isQualified ? "1" : undefined}
+                data-focus={focusId === row.competitorId ? "1" : undefined}
+                data-competitor-id={row.competitorId}
               >
                 <td className="cv-td-rank">{row.rank}</td>
                 <td className="cv-td-cell">
@@ -110,6 +116,7 @@ export function StandingsTable({
           })}
         </tbody>
       </table>
+      </div>
     );
   });
   return (
@@ -131,11 +138,14 @@ export function MatchList({
   matches,
   byId,
   groupIndex,
+  focusId = null,
   tv = false,
 }: {
   matches: readonly PublicMatch[];
   byId: ReadonlyMap<number, PublicCompetitor>;
   groupIndex?: number | null;
+  /** Atleta em destaque (busca): as lutas dele ficam marcadas. */
+  focusId?: number | null;
   tv?: boolean;
 }) {
   const shown = matches.filter(
@@ -164,6 +174,8 @@ export function MatchList({
                 key={m.id}
                 className="cv-round-item"
                 data-status={m.status}
+                data-match-id={m.id}
+                data-focus={focusId !== null && (m.slotAId === focusId || m.slotBId === focusId) ? "1" : undefined}
                 aria-label={describeMatch(m, byId)}
                 data-testid="cv-list-match"
               >

@@ -469,7 +469,7 @@ function RegistrationFlow({
         setBanner([failure.message, ...extra].join(" "));
         // "Arquivo inválido ou expirado: envie o arquivo de novo.": o token já não vale, então tira o anexo para a
         // pessoa enviar outro (senão reenviaria o mesmo token recusado).
-        const staleFiles = form.fields.filter((f) => f.type === "FILE" && f.key in fieldErrors).map((f) => f.key);
+        const staleFiles = form.fields.filter((f) => (f.type === "FILE" || f.type === "PHOTO") && f.key in fieldErrors).map((f) => f.key);
         if (staleFiles.length > 0) {
           setAnswers((current) => {
             const next = { ...current };

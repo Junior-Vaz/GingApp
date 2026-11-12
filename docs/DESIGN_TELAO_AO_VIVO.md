@@ -62,3 +62,59 @@ Estado: **concluído** (telão público; painel e admin continuam como estavam).
 ### Pendências
 1. Conferir em TV/tablet/celular reais e no Safari (nada disso foi visto).
 2. "Rodízio automático" deixou de mostrar texto no cabeçalho do `tv` (espaço); só aparece "Retomar rodízio" quando pausado.
+
+## 8. Execução — experiência do espectador no celular (2026-11-12)
+
+Foco: quem acompanha pelo link público (`/ao-vivo/<token>`, QR da TV ou WhatsApp) no PRÓPRIO celular, na arquibancada (4G ruim, sol, bateria baixa). O modo TV (`?tv=1`) não foi alterado (só `font-size` mínimo de 12 px nas iniciais do avatar). Tudo abaixo vale só no modo normal.
+
+### Regras de layout (verificadas por medição em 15 viewports, 280 a 1920 px, e por captura)
+1. **Nada alarga a página**: a rolagem horizontal só existe DENTRO da chave, dos chips das categorias, do carrossel de lutas ao vivo e das tabelas de grupos. `scrollWidth <= clientWidth` em todos os estados medidos.
+2. **Cabeçalho compacto** no celular em pé (grade: marca + organizador + selo AO VIVO + compartilhar; título embaixo, até 2 linhas); data/local seguem no DOM (leitor de tela). Sem QR (só em tela grande com mouse); "Tela cheia" some no celular em pé. Em paisagem o cabeçalho divide a linha com a busca.
+3. **Faixas fixas ≤ 20% da altura em paisagem**: em pé, chips (56 px) + legenda de rodadas (44 px); em paisagem baixa só a legenda (44 px).
+4. **Chips das categorias** (44 px, fade nas bordas que ainda têm conteúdo, categoria escolhida centralizada, "AO VIVO" escrito + ponto), sticky.
+5. **Chave**: legenda de rodadas sticky (sincronizada com a rolagem horizontal por `transform`, sem estado React), encaixe por rodada (`scroll-snap`), botões −/ajustar/+ (zoom 0,3 a 2), `touch-action: pan-x pan-y pinch-zoom` (o pinça nativo continua livre e o gesto vertical rola a página), toque num atleta acende o caminho dele (cartões fora dele esmaecem), botão flutuante "Ir para a luta ao vivo"/"Ir para a final". A partir de 48 cartões (128 atletas = 127 lutas) só os cartões perto da tela são desenhados (`bracket-window.ts`).
+6. **AGORA/PRÓXIMAS**: o cartão AGORA empilha os lutadores quando o cartão é estreito (container query, vale também no tablet), várias lutas ao vivo viram carrossel, no máximo 2 próximas no celular em pé, nomes em 2 linhas.
+7. **Tabelas de grupos**: rolagem horizontal interna, rank e nome fixos à esquerda; em 320 px a coluna L (= V+E+D) sai para os pontos ficarem à vista.
+8. **Textos**: secundário >= 12 px, nome do atleta no cartão >= 14 px (16,5 px no zoom padrão), alvos de toque >= 44 px, nada só por cor (ícone/texto).
+9. **Área segura e viewport**: `viewport-fit=cover` e `theme-color` escuro só enquanto a página está montada (`page-chrome.ts`; o `index.html` é do app inteiro), `env(safe-area-inset-*)`, `svh`/`dvh`, `-webkit-tap-highlight-color`.
+
+### Acompanhar meu atleta, links e compartilhar
+- Campo "Buscar atleta ou grupo" (`athlete-search.tsx` + `lib/chaveamento/athlete-search.ts`): acha por nome ou grupo (sem acento), rola até a luta, acende o caminho; faixa "Minha próxima luta" só com luta ao vivo ou já definida. **Única coisa guardada**: o TEXTO digitado, em `sessionStorage` (`gingapp:ao-vivo:busca`), com try/catch. Nenhum dado de atleta vai para storage; o último placar fica só em memória (`use-live-tournament.ts`).
+- Links: `?categoria=<id>` abre na categoria (id inexistente é ignorado em silêncio) e `?q=<texto>` pré-busca (só texto, até 60 caracteres, nunca HTML). A URL acompanha a categoria com `history.replaceState` (sem empilhar histórico, preserva `tv`; o rodízio automático do telão não mexe na URL). O painel pode gerar `…/ao-vivo/<token>?categoria=<id>`.
+- Botão "Compartilhar" (`navigator.share`, com fallback para copiar o link e aviso "Link copiado"); leva a categoria que está na tela. O QR do telão leva ao campeonato todo.
+
+### Bateria e dados (crítico para quem fica horas)
+- `connection.ts`: aba/app OCULTO ou aparelho OFFLINE = EventSource fechado e nenhum timer de pé; o último snapshot continua na tela. Ao voltar: consulta imediata (`If-None-Match`) + SSE reaberto. Offline mostra a faixa "Sem conexão — mostrando o último placar". Consulta que falha recua 3 s -> 6 -> 12 -> 24 -> 30 s e volta a 3 s no primeiro sucesso (mudança de especificação: antes era fixo em 3 s).
+- Animações infinitas pausam com a aba oculta (`data-hidden`); a varredura de luz do AGORA não roda fora do telão; `prefers-reduced-motion` segue desligando tudo; rodízio, relógio e confete não deixam timer/rAF de pé em oculto.
+- Aviso de reconexão só aparece depois de 3 s (queda curta não pisca); sem rede avisa na hora.
+
+### O que deu certo / o que não deu / solução
+1. Cabeçalho de 230 px (390x844) e título em 6 linhas (768): -> grade compacta (87 px) e título com espaço próprio.
+2. Chave abaixo da dobra (103% da altura em 390x844): -> busca compacta, AGORA empilhado, PRÓXIMAS no máximo 2: a legenda da chave aparece em ~73%.
+3. Overflow horizontal (+15 px em grupos/campeão/sem sorteio): a causa eram o pódio com `min-width`, a tabela e o esqueleto; corrigidos. Texto só para leitor de tela (`sr-only`) dentro de `overflow:hidden` alargava a página em paisagem (+19 px): o contêiner agora é `position:relative`.
+4. `.cv-next-list` em coluna com `flex-wrap: wrap` alargava a linha (191 px numa lista de 149 px): `nowrap` no celular.
+5. CLS 0,02 a 0,04 (cabeçalho compacto): vem da troca de fonte (Barlow Condensed chega depois do primeiro placar e o nome do atleta cabe em 1 linha em vez de 2). Tentamos baixar a fonte já no esqueleto (CLS 0), mas na Slow 4G o primeiro placar atrasou ~0,7 s: revertido, vale mais o conteúdo cedo (CLS segue "bom", < 0,1).
+6. INP ~320 ms ao trocar de categoria com CPU 4x: o desenho da chave nova passou para `useDeferredValue` (o chip acende na hora): ~130-170 ms.
+7. O pacote principal do app crescia 0,3 kB porque `search.ts` era compartilhado com o componente: os links profundos foram para `live-search.ts` (só no pacote do telão); a rota continua validando só `?tv=1` e o componente lê `categoria`/`q` da URL (o roteador não reescreve a URL: verificado no navegador).
+8. O QR não é mais nem montado no celular (`useMediaQuery`), o relógio do telão não deixa timer de pé em aba oculta e o confete usa metade das partículas em tela estreita.
+
+### Tamanhos (build de produção)
+| pacote | antes | depois |
+| --- | --- | --- |
+| principal do app (`index-*.js`) | 335,43 kB / 104,99 kB gzip | 335,44 kB / 105,01 kB gzip |
+| telão JS (`ao-vivo._token-*.js`) | 144,15 kB / 48,55 kB gzip | 166,45 kB / 55,30 kB gzip |
+| telão CSS (`ao-vivo-*.css`) | 34,86 kB / 7,38 kB gzip | 59,38 kB / 11,27 kB gzip |
+
+### Desempenho (Chrome emulado, 390x844, CPU 4x, Slow 4G 1,6 Mbps/150 ms, cache e service worker desligados, mediana de 3 cargas frias)
+| | antes (HEAD) | depois |
+| --- | --- | --- |
+| FCP (esqueleto) | 2,2 s | 2,3 s |
+| LCP / primeiro cartão | 2,9 s | 2,9 s |
+| CLS | 0 | 0,02 |
+| INP (toque num chip de categoria) | ~216 ms | ~128 ms |
+| TBT aproximado | ~420 ms | ~270 ms |
+Chave de 128 atletas (CPU 4x, rolando a página toda): 25 cartões desenhados (de 127), 861 nós de DOM, p95 de quadro 20 ms, nenhuma tarefa longa (> 50 ms).
+
+### Pendências
+1. Celular físico, iOS/Safari, notch real e rede real não foram testados (só emulação do Chrome: toque, viewport, CPU 4x, Slow 4G, offline, visibilidade).
+2. Pinça personalizada na chave não foi feita: o pinça nativo do navegador funciona sobre a chave (medido) e o zoom da chave usa os botões.

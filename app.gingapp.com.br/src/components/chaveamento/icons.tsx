@@ -140,3 +140,53 @@ export function MedalIcon({ place, size = 40, ...props }: IconProps & { place: 1
     </svg>
   );
 }
+
+export const SearchIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <circle cx="11" cy="11" r="6.5" />
+    <path d="m16 16 4.5 4.5" />
+  </svg>
+);
+
+export const CloseIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <path d="M6 6l12 12M18 6 6 18" />
+  </svg>
+);
+
+export const ShareIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <circle cx="6.5" cy="12" r="2.4" />
+    <circle cx="17.5" cy="6" r="2.4" />
+    <circle cx="17.5" cy="18" r="2.4" />
+    <path d="m8.6 10.8 6.8-3.6M8.6 13.2l6.8 3.6" />
+  </svg>
+);
+
+export const PlusIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
+export const MinusIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <path d="M5 12h14" />
+  </svg>
+);
+
+/** Ajustar à largura: setas para as duas bordas. */
+export const FitIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <path d="M4 5v14M20 5v14M8 12h8M8 12l2.5-2.5M8 12l2.5 2.5M16 12l-2.5-2.5M16 12l-2.5 2.5" />
+  </svg>
+);
+
+/** Mira: ir até a luta. */
+export const TargetIcon = (props: IconProps) => (
+  <svg {...base(props)}>
+    <circle cx="12" cy="12" r="7" />
+    <circle cx="12" cy="12" r="2.2" fill="currentColor" />
+    <path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" />
+  </svg>
+);

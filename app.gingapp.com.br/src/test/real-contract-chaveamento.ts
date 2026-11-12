@@ -2556,3 +2556,147 @@ export const REAL_SSE_EVENT: RawSseEvent = {
   "id": "19",
   "data": "{\"revision\":19,\"serverTime\":\"2026-11-10T02:47:15.570Z\",\"event\":{\"title\":\"[e2e-tourn] campeonato 1794278822350488\",\"date\":\"2026-11-11T02:47:14.374Z\",\"location\":null,\"imageUrl\":null},\"organizationName\":\"[e2e-tourn] Grupo a 1794278822350488\",\"categories\":[{\"id\":318,\"name\":\"Privacidade\",\"format\":\"ROUND_ROBIN\",\"status\":\"RUNNING\",\"thirdPlace\":false,\"competitors\":[{\"id\":1629,\"name\":\"Menor Sem Autorizacao\",\"group\":\"[e2e-tourn] Grupo a 1794278822350488\",\"graduation\":null,\"photoUrl\":null,\"seed\":null,\"poolIndex\":null},{\"id\":1630,\"name\":\"Adulto Com Foto\",\"group\":\"[e2e-tourn] Grupo a 1794278822350488\",\"graduation\":null,\"photoUrl\":\"/api/uploads/aaaaaaaa-aaaa-4aaa-8aaa-000000000002.webp\",\"seed\":null,\"poolIndex\":null},{\"id\":1631,\"name\":\"Sem Data De Nascimento\",\"group\":\"[e2e-tourn] Grupo a 1794278822350488\",\"graduation\":null,\"photoUrl\":null,\"seed\":null,\"poolIndex\":null},{\"id\":1632,\"name\":\"Menor Autorizado\",\"group\":\"[e2e-tourn] Grupo a 1794278822350488\",\"graduation\":null,\"photoUrl\":\"/api/uploads/aaaaaaaa-aaaa-4aaa-8aaa-000000000004.webp\",\"seed\":null,\"poolIndex\":null},{\"id\":1633,\"name\":\"Convidado Menor\",\"group\":\"Academia X\",\"graduation\":\"Azul\",\"photoUrl\":null,\"seed\":null,\"poolIndex\":null},{\"id\":1634,\"name\":\"Convidado Adulto\",\"group\":null,\"graduation\":null,\"photoUrl\":\"https://cdn.exemplo.com/foto.jpg\",\"seed\":null,\"poolIndex\":null},{\"id\":1635,\"name\":\"Convidado Desconhecido\",\"group\":null,\"graduation\":null,\"photoUrl\":null,\"seed\":null,\"poolIndex\":null}],\"matches\":[{\"id\":948,\"key\":\"GROUP-0-1-0\",\"stage\":\"GROUP\",\"round\":1,\"position\":0,\"groupIndex\":0,\"slotAId\":1633,\"slotBId\":1634,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"FINISHED\",\"winnerId\":1633,\"scoreA\":3,\"scoreB\":1,\"resultType\":\"NORMAL\",\"mat\":null,\"queueOrder\":null},{\"id\":949,\"key\":\"GROUP-0-1-1\",\"stage\":\"GROUP\",\"round\":1,\"position\":1,\"groupIndex\":0,\"slotAId\":1630,\"slotBId\":1635,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"FINISHED\",\"winnerId\":1630,\"scoreA\":null,\"scoreB\":null,\"resultType\":\"NORMAL\",\"mat\":null,\"queueOrder\":null},{\"id\":950,\"key\":\"GROUP-0-1-2\",\"stage\":\"GROUP\",\"round\":1,\"position\":2,\"groupIndex\":0,\"slotAId\":1631,\"slotBId\":1629,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"FINISHED\",\"winnerId\":1631,\"scoreA\":null,\"scoreB\":null,\"resultType\":\"NORMAL\",\"mat\":null,\"queueOrder\":null},{\"id\":951,\"key\":\"GROUP-0-2-0\",\"stage\":\"GROUP\",\"round\":2,\"position\":0,\"groupIndex\":0,\"slotAId\":1634,\"slotBId\":1632,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":952,\"key\":\"GROUP-0-2-1\",\"stage\":\"GROUP\",\"round\":2,\"position\":1,\"groupIndex\":0,\"slotAId\":1633,\"slotBId\":1629,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":953,\"key\":\"GROUP-0-2-2\",\"stage\":\"GROUP\",\"round\":2,\"position\":2,\"groupIndex\":0,\"slotAId\":1630,\"slotBId\":1631,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":954,\"key\":\"GROUP-0-3-0\",\"stage\":\"GROUP\",\"round\":3,\"position\":0,\"groupIndex\":0,\"slotAId\":1632,\"slotBId\":1635,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":955,\"key\":\"GROUP-0-3-1\",\"stage\":\"GROUP\",\"round\":3,\"position\":1,\"groupIndex\":0,\"slotAId\":1634,\"slotBId\":1629,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":956,\"key\":\"GROUP-0-3-2\",\"stage\":\"GROUP\",\"round\":3,\"position\":2,\"groupIndex\":0,\"slotAId\":1633,\"slotBId\":1630,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":957,\"key\":\"GROUP-0-4-0\",\"stage\":\"GROUP\",\"round\":4,\"position\":0,\"groupIndex\":0,\"slotAId\":1629,\"slotBId\":1632,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":958,\"key\":\"GROUP-0-4-1\",\"stage\":\"GROUP\",\"round\":4,\"position\":1,\"groupIndex\":0,\"slotAId\":1635,\"slotBId\":1631,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":959,\"key\":\"GROUP-0-4-2\",\"stage\":\"GROUP\",\"round\":4,\"position\":2,\"groupIndex\":0,\"slotAId\":1634,\"slotBId\":1630,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":960,\"key\":\"GROUP-0-5-0\",\"stage\":\"GROUP\",\"round\":5,\"position\":0,\"groupIndex\":0,\"slotAId\":1632,\"slotBId\":1631,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":961,\"key\":\"GROUP-0-5-1\",\"stage\":\"GROUP\",\"round\":5,\"position\":1,\"groupIndex\":0,\"slotAId\":1629,\"slotBId\":1630,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":962,\"key\":\"GROUP-0-5-2\",\"stage\":\"GROUP\",\"round\":5,\"position\":2,\"groupIndex\":0,\"slotAId\":1635,\"slotBId\":1633,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":963,\"key\":\"GROUP-0-6-0\",\"stage\":\"GROUP\",\"round\":6,\"position\":0,\"groupIndex\":0,\"slotAId\":1630,\"slotBId\":1632,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":964,\"key\":\"GROUP-0-6-1\",\"stage\":\"GROUP\",\"round\":6,\"position\":1,\"groupIndex\":0,\"slotAId\":1631,\"slotBId\":1633,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":965,\"key\":\"GROUP-0-6-2\",\"stage\":\"GROUP\",\"round\":6,\"position\":2,\"groupIndex\":0,\"slotAId\":1635,\"slotBId\":1634,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":966,\"key\":\"GROUP-0-7-0\",\"stage\":\"GROUP\",\"round\":7,\"position\":0,\"groupIndex\":0,\"slotAId\":1632,\"slotBId\":1633,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":967,\"key\":\"GROUP-0-7-1\",\"stage\":\"GROUP\",\"round\":7,\"position\":1,\"groupIndex\":0,\"slotAId\":1631,\"slotBId\":1634,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null},{\"id\":968,\"key\":\"GROUP-0-7-2\",\"stage\":\"GROUP\",\"round\":7,\"position\":2,\"groupIndex\":0,\"slotAId\":1629,\"slotBId\":1635,\"nextMatchId\":null,\"nextSlot\":null,\"isBye\":false,\"status\":\"READY\",\"winnerId\":null,\"scoreA\":null,\"scoreB\":null,\"resultType\":null,\"mat\":null,\"queueOrder\":null}],\"standings\":[{\"groupIndex\":0,\"rows\":[{\"competitorId\":1633,\"played\":1,\"wins\":1,\"draws\":0,\"losses\":0,\"pointsFor\":3,\"pointsAgainst\":1,\"points\":3,\"rank\":1},{\"competitorId\":1630,\"played\":1,\"wins\":1,\"draws\":0,\"losses\":0,\"pointsFor\":0,\"pointsAgainst\":0,\"points\":3,\"rank\":2},{\"competitorId\":1631,\"played\":1,\"wins\":1,\"draws\":0,\"losses\":0,\"pointsFor\":0,\"pointsAgainst\":0,\"points\":3,\"rank\":3},{\"competitorId\":1629,\"played\":1,\"wins\":0,\"draws\":0,\"losses\":1,\"pointsFor\":0,\"pointsAgainst\":0,\"points\":0,\"rank\":4},{\"competitorId\":1632,\"played\":0,\"wins\":0,\"draws\":0,\"losses\":0,\"pointsFor\":0,\"pointsAgainst\":0,\"points\":0,\"rank\":5},{\"competitorId\":1635,\"played\":1,\"wins\":0,\"draws\":0,\"losses\":1,\"pointsFor\":0,\"pointsAgainst\":0,\"points\":0,\"rank\":6},{\"competitorId\":1634,\"played\":1,\"wins\":0,\"draws\":0,\"losses\":1,\"pointsFor\":1,\"pointsAgainst\":3,\"points\":0,\"rank\":7}]}],\"podium\":[]}]}"
 };
+
+/** Snapshot real com foto PROPRIA de atleta (public-snapshot-with-photo.json, e2e tournament-photos, 12/11): adulto e menor autorizado com foto, menor sem autorizacao e atleta sem foto = photoUrl null. */
+export const REAL_WITH_PHOTO: Json = {
+  "revision": 10,
+  "serverTime": "2026-11-12T04:43:25.410Z",
+  "event": {
+    "title": "[e2e-tphoto] campeonato 1794458593193842",
+    "date": "2026-11-13T04:43:24.830Z",
+    "location": null,
+    "imageUrl": null
+  },
+  "organizationName": "[e2e-tphoto] Grupo a 1794458593193842",
+  "categories": [
+    {
+      "id": 1581,
+      "name": "Com fotos",
+      "format": "SINGLE_ELIMINATION",
+      "status": "RUNNING",
+      "thirdPlace": true,
+      "competitors": [
+        {
+          "id": 4895,
+          "name": "Rafaela Adulta",
+          "group": "Academia Central",
+          "graduation": "Azul",
+          "photoUrl": "/api/public/tournaments/7ed6_LIoTJVQuTPpi-75hpCFJ50Z9uQg/photos/11e94462-4f77-4c0d-9433-7514783343fc.webp",
+          "seed": null,
+          "poolIndex": null
+        },
+        {
+          "id": 4896,
+          "name": "Pedro Menor Sem Autorizacao",
+          "group": "Academia Norte",
+          "graduation": "Verde",
+          "photoUrl": null,
+          "seed": null,
+          "poolIndex": null
+        },
+        {
+          "id": 4897,
+          "name": "Lia Menor Autorizada",
+          "group": "Academia Sul",
+          "graduation": "Amarela",
+          "photoUrl": "/api/public/tournaments/7ed6_LIoTJVQuTPpi-75hpCFJ50Z9uQg/photos/4382fbd4-0079-47af-aa8a-db9fe2392476.webp",
+          "seed": null,
+          "poolIndex": null
+        },
+        {
+          "id": 4898,
+          "name": "Caio Sem Foto",
+          "group": "Academia Leste",
+          "graduation": null,
+          "photoUrl": null,
+          "seed": null,
+          "poolIndex": null
+        }
+      ],
+      "matches": [
+        {
+          "id": 2528,
+          "key": "MAIN-1-0",
+          "stage": "MAIN",
+          "round": 1,
+          "position": 0,
+          "groupIndex": null,
+          "slotAId": 4897,
+          "slotBId": 4896,
+          "nextMatchId": 2526,
+          "nextSlot": "A",
+          "isBye": false,
+          "status": "READY",
+          "winnerId": null,
+          "scoreA": null,
+          "scoreB": null,
+          "resultType": null,
+          "mat": null,
+          "queueOrder": null
+        },
+        {
+          "id": 2529,
+          "key": "MAIN-1-1",
+          "stage": "MAIN",
+          "round": 1,
+          "position": 1,
+          "groupIndex": null,
+          "slotAId": 4895,
+          "slotBId": 4898,
+          "nextMatchId": 2526,
+          "nextSlot": "B",
+          "isBye": false,
+          "status": "READY",
+          "winnerId": null,
+          "scoreA": null,
+          "scoreB": null,
+          "resultType": null,
+          "mat": null,
+          "queueOrder": null
+        },
+        {
+          "id": 2526,
+          "key": "MAIN-2-0",
+          "stage": "MAIN",
+          "round": 2,
+          "position": 0,
+          "groupIndex": null,
+          "slotAId": null,
+          "slotBId": null,
+          "nextMatchId": null,
+          "nextSlot": null,
+          "isBye": false,
+          "status": "PENDING",
+          "winnerId": null,
+          "scoreA": null,
+          "scoreB": null,
+          "resultType": null,
+          "mat": null,
+          "queueOrder": null
+        },
+        {
+          "id": 2527,
+          "key": "THIRD_PLACE-2-0",
+          "stage": "THIRD_PLACE",
+          "round": 2,
+          "position": 0,
+          "groupIndex": null,
+          "slotAId": null,
+          "slotBId": null,
+          "nextMatchId": null,
+          "nextSlot": null,
+          "isBye": false,
+          "status": "PENDING",
+          "winnerId": null,
+          "scoreA": null,
+          "scoreB": null,
+          "resultType": null,
+          "mat": null,
+          "queueOrder": null
+        }
+      ],
+      "standings": [],
+      "podium": []
+    }
+  ]
+};

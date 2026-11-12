@@ -27,15 +27,24 @@
   --cv-run: #7cf2a8;
   --cv-warn: #fcd34d;
   --cv-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", "Helvetica Neue", Arial, sans-serif;
-  min-height: 100dvh;
+  --cv-bg-solid: #070b14;
+  /* Altura das faixas fixas no topo (chips das categorias): a legenda de rodadas gruda logo abaixo. */
+  --cv-stick: 0px;
+  --cv-chips-h: 56px;
+  min-height: 100vh;
+  min-height: 100svh;
   color: var(--cv-fg);
   font-family: var(--font-sans), system-ui, sans-serif;
   font-size: 15px;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 14px var(--page-gutter) 32px;
+  /* Área segura (notch, barra de gestos): viewport-fit=cover é ligado em runtime (usePageChrome). */
+  padding: max(14px, env(safe-area-inset-top)) max(var(--page-gutter), env(safe-area-inset-right)) calc(32px + env(safe-area-inset-bottom)) max(var(--page-gutter), env(safe-area-inset-left));
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
   background:
     radial-gradient(1100px 520px at 10% -12%, rgba(34, 197, 94, 0.15), transparent 62%),
     radial-gradient(900px 460px at 100% 0%, rgba(59, 130, 246, 0.11), transparent 62%),
@@ -43,7 +52,11 @@
     linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px) 0 0 / 44px 44px,
     var(--cv-bg);
 }
+.cv-root[data-chips="1"] {
+  --cv-stick: var(--cv-chips-h);
+}
 .cv-root[data-tv="1"] {
+  height: 100vh;
   height: 100dvh;
   overflow: hidden;
   font-size: clamp(16px, 1.3vw, 28px);
@@ -69,7 +82,7 @@
 /* ---------- cabeçalho de emissora ---------- */
 .cv-header,
 .cv-now,
-.cv-tabs,
+.cv-tabs-bar,
 .cv-banner {
   flex: none;
 }
@@ -303,7 +316,7 @@
 }
 .cv-qr-cap {
   max-width: 6em;
-  font-size: 0.68em;
+  font-size: 0.8em;
   line-height: 1.2;
   color: var(--cv-muted);
 }
@@ -325,12 +338,12 @@
   height: 1.2em;
   flex: none;
 }
-@media (max-width: 640px) {
-  .cv-qr-box {
-    display: none;
-  }
-  .cv-title {
-    font-size: 1.6em;
+.cv-root:not([data-tv="1"]) .cv-qr-box {
+  display: none;
+}
+@media (min-width: 1100px) and (hover: hover) and (pointer: fine) {
+  .cv-root:not([data-tv="1"]) .cv-qr-box {
+    display: flex;
   }
 }
 
@@ -448,7 +461,7 @@
 }
 .cv-face-sub {
   margin-top: 0.2em;
-  font-size: 0.78em;
+  font-size: 0.8em;
   color: var(--cv-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -539,33 +552,21 @@
   white-space: nowrap;
 }
 .cv-next-meta {
-  font-size: 0.7em;
+  font-size: 0.8em;
   color: var(--cv-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-@media (max-width: 520px) {
-  .cv-face-row {
-    grid-template-columns: 1fr;
-    justify-items: start;
-  }
-  .cv-face-side[data-align="right"] {
-    flex-direction: row;
-    text-align: left;
-  }
-  .cv-vs {
-    justify-self: center;
-  }
-  .cv-face-cat {
-    margin-left: 0;
-    text-align: left;
-    flex-basis: 100%;
-  }
-}
 
 /* ---------- abas ---------- */
+.cv-tabs-bar {
+  position: relative;
+  flex: none;
+  min-width: 0;
+}
 .cv-tabs {
+  position: relative;
   display: flex;
   gap: 0.45em;
   overflow-x: auto;
@@ -1031,7 +1032,7 @@
 }
 .cv-sub {
   margin-top: 1px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--cv-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1205,7 +1206,7 @@
 .cv-table th {
   text-align: center;
   font-family: var(--cv-display);
-  font-size: 0.85em;
+  font-size: 0.9em;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--cv-muted);
@@ -1460,7 +1461,7 @@
   overflow-wrap: anywhere;
 }
 .cv-step-group {
-  font-size: 0.78em;
+  font-size: 0.8em;
   color: var(--cv-muted);
 }
 .cv-step-block {
@@ -1513,7 +1514,7 @@
   font-size: 1.15em;
 }
 .cv-root[data-tv="1"] .cv-step-group {
-  font-size: 0.7em;
+  font-size: 0.75em;
 }
 .cv-root[data-tv="1"] .cv-podium-title {
   font-size: 1.15em;
@@ -1679,9 +1680,9 @@
   position: absolute;
   top: -8%;
   left: 50%;
-  width: 100vh;
-  height: 130vh;
-  margin-left: -50vh;
+  width: 100svh;
+  height: 130svh;
+  margin-left: -50svh;
   transform-origin: 50% 0;
   background: conic-gradient(from 180deg at 50% 0, transparent 158deg, rgba(255, 224, 138, 0.42) 180deg, transparent 202deg);
   animation: cv-sway 7s ease-in-out infinite;
@@ -1965,6 +1966,7 @@
 @keyframes cv-breathe { 0%, 100% { transform: scale(1); opacity: 0.8; } 50% { transform: scale(1.07); opacity: 1; } }
 @keyframes cv-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes cv-cat-in { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
+@keyframes cv-cat-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes cv-head-in { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: none; } }
 @keyframes cv-flash { 0% { opacity: 0; transform: translateX(-30%); } 30% { opacity: 1; } 100% { opacity: 0; transform: translateX(30%); } }
 @keyframes cv-pop { 0% { transform: scale(1); } 35% { transform: scale(1.55); } 100% { transform: scale(1); } }
@@ -1978,6 +1980,1284 @@
 @keyframes cv-slide-l { from { opacity: 0; transform: translateX(-30vw); } to { opacity: 1; transform: none; } }
 @keyframes cv-slide-r { from { opacity: 0; transform: translateX(30vw); } to { opacity: 1; transform: none; } }
 @keyframes cv-vs-in { from { opacity: 0; transform: scale(2.6); } to { opacity: 1; transform: none; } }
+
+/* =====================================================================================================================
+   RESPONSIVO: celular (retrato e paisagem), dobrável, tablet e notebook. Só o modo normal; `?tv=1` não é tocado.
+   Regras de ouro: nada alarga a página (rolagem horizontal só DENTRO da chave, das tabelas e dos chips), alvos de toque >= 44 px,
+   texto secundário >= 12 px, nome do atleta no cartão >= 14 px, nenhuma informação só por cor.
+   ===================================================================================================================== */
+.cv-root button,
+.cv-root input,
+.cv-root summary {
+  touch-action: manipulation;
+}
+.cv-btn-label {
+  white-space: nowrap;
+}
+.cv-btn:focus-visible,
+.cv-tab:focus-visible {
+  outline-offset: 1px;
+}
+.cv-root:not([data-tv="1"]) .cv-btn {
+  min-height: 44px;
+  min-width: 44px;
+  justify-content: center;
+}
+.cv-root:not([data-tv="1"]) .cv-btn {
+  font-size: 0.9em;
+}
+.cv-root[data-hidden="1"] *,
+.cv-root[data-hidden="1"] *::before,
+.cv-root[data-hidden="1"] *::after {
+  animation-play-state: paused !important;
+}
+/* Fora do telão a varredura de luz do AGORA não roda: é GPU de graça numa tela de bolso que fica horas ligada. */
+.cv-root:not([data-tv="1"]) .cv-face::after {
+  animation: none;
+  display: none;
+}
+.cv-root:not([data-tv="1"]) .cv-category {
+  animation-name: cv-cat-up;
+}
+.cv-root:not([data-tv="1"]) .cv-cat-head {
+  animation-name: cv-fade;
+}
+.cv-cat-stage {
+  display: none;
+}
+
+/* ---------- cabeçalho: sempre com espaço para o título; faixa compacta no celular ---------- */
+.cv-root:not([data-tv="1"]) .cv-brand {
+  flex: 1 1 300px;
+}
+.cv-root:not([data-tv="1"]) .cv-title {
+  font-size: clamp(1.45em, 3.2vw, 2.1em);
+}
+.cv-root:not([data-tv="1"]) .cv-header-actions {
+  flex: 0 1 auto;
+  margin-left: auto;
+}
+.cv-share svg,
+.cv-fs-btn svg {
+  width: 1.3em;
+  height: 1.3em;
+}
+.cv-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(22px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 80;
+  margin: 0;
+  max-width: calc(100vw - 32px);
+  padding: 0.7em 1.2em;
+  border-radius: 999px;
+  border: 1px solid var(--cv-accent);
+  background: var(--cv-surface-2);
+  color: var(--cv-fg);
+  font-weight: 700;
+  font-size: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  animation: cv-fade 0.2s ease-out both;
+}
+
+/* celular em pé */
+@media (max-width: 699px) {
+  .cv-root:not([data-tv="1"]) {
+    --cv-chips-h: 56px;
+    gap: 10px;
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  }
+  .cv-root:not([data-tv="1"]) .cv-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "logo org actions" "title title title";
+    align-items: center;
+    gap: 2px 10px;
+    padding: 6px 6px 10px 16px;
+    border-radius: 12px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-header::before {
+    top: 8px;
+    bottom: 8px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-brand,
+  .cv-root:not([data-tv="1"]) .cv-header-text {
+    display: contents;
+  }
+  .cv-root:not([data-tv="1"]) .cv-logo {
+    grid-area: logo;
+    width: 26px;
+    height: 26px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-org {
+    grid-area: org;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-title {
+    grid-area: title;
+    margin: 0;
+    padding-right: 8px;
+    font-size: 1.45em;
+    line-height: 1.04;
+    overflow-wrap: break-word;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+  }
+  /* data e local: continuam no DOM (leitor de tela), só saem da vista para o cabeçalho caber no alto da tela */
+  .cv-root:not([data-tv="1"]) .cv-meta {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .cv-root:not([data-tv="1"]) .cv-header-actions {
+    grid-area: actions;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-stage-chip {
+    display: none;
+  }
+  .cv-root:not([data-tv="1"]) .cv-status {
+    font-size: 13px;
+    padding: 0.28em 0.7em;
+    letter-spacing: 0.1em;
+    white-space: nowrap;
+  }
+  .cv-root:not([data-tv="1"]) .cv-btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .cv-root:not([data-tv="1"]) .cv-btn {
+    padding: 0;
+  }
+  .cv-cat-stage {
+    display: inline;
+    color: var(--cv-muted);
+    font-family: var(--cv-display);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    font-size: 0.95em;
+    text-transform: uppercase;
+  }
+}
+@media (max-width: 239px) {
+  .cv-root:not([data-tv="1"]) .cv-champ-banner .cv-champ {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "photo" "kicker" "name" "sub" "cat";
+    justify-items: center;
+    text-align: center;
+  }
+  .cv-root:not([data-tv="1"]) .cv-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "title actions";
+    padding: 6px 4px 6px 12px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-logo,
+  .cv-root:not([data-tv="1"]) .cv-org {
+    display: none;
+  }
+  .cv-root:not([data-tv="1"]) .cv-title {
+    font-size: 1.15em;
+    padding-right: 0;
+  }
+  .cv-root:not([data-tv="1"]) .cv-status {
+    font-size: 12px;
+    padding: 0.25em 0.5em;
+    letter-spacing: 0.04em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-header-actions {
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+}
+/* "Tela cheia" só onde ajuda: some no celular em pé (no iPhone nem existe) */
+@media (max-width: 599px) and (orientation: portrait) {
+  .cv-root:not([data-tv="1"]) .cv-fs-btn {
+    display: none;
+  }
+}
+@media (max-width: 479px) {
+  .cv-root:not([data-tv="1"]) .cv-btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  .cv-root:not([data-tv="1"]) .cv-share {
+    padding: 0;
+  }
+}
+
+/* ---------- busca "Acompanhar meu atleta" ---------- */
+.cv-search {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.cv-search-form {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.cv-search-icon {
+  position: absolute;
+  left: 13px;
+  width: 20px;
+  height: 20px;
+  color: var(--cv-muted);
+  pointer-events: none;
+}
+.cv-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 46px;
+  padding: 0 46px 0 42px;
+  border-radius: 12px;
+  border: 1px solid var(--cv-border-strong);
+  background: var(--cv-surface);
+  color: var(--cv-fg);
+  font: inherit;
+  font-size: 16px; /* 16 px: o iPhone não dá zoom ao focar o campo */
+  -webkit-appearance: none;
+  appearance: none;
+}
+.cv-search-input::placeholder {
+  color: var(--cv-faint);
+  opacity: 1;
+  text-overflow: ellipsis;
+}
+.cv-search-input {
+  text-overflow: ellipsis;
+}
+.cv-search-input::-webkit-search-cancel-button,
+.cv-search-input::-webkit-search-decoration {
+  display: none;
+}
+.cv-search-input:focus {
+  outline: 3px solid var(--cv-accent);
+  outline-offset: 1px;
+}
+.cv-search-clear {
+  position: absolute;
+  right: 0;
+  display: inline-grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 0;
+  background: transparent;
+  color: var(--cv-muted);
+  cursor: pointer;
+}
+.cv-search-clear svg {
+  width: 20px;
+  height: 20px;
+}
+.cv-search-results {
+  border: 1px solid var(--cv-border-strong);
+  background: var(--cv-surface);
+  border-radius: 12px;
+  max-height: min(46svh, 360px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cv-search-results ul {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+}
+.cv-search-empty {
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--cv-muted);
+  font-size: 14px;
+}
+.cv-search-hit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cv-search-hit:active,
+.cv-search-hit:hover {
+  background: var(--cv-surface-2);
+}
+.cv-search-name {
+  grid-column: 1;
+  font-family: var(--cv-display);
+  font-weight: 700;
+  font-size: 17px;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-search-sub {
+  grid-column: 1;
+  font-size: 12px;
+  color: var(--cv-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-search-state {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  max-width: 9em;
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: right;
+  color: var(--cv-accent);
+  font-weight: 600;
+}
+.cv-search-hit[data-state="live"] .cv-search-state {
+  color: var(--cv-live-text);
+}
+.cv-mynext {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 14px;
+  border-radius: 12px;
+  border: 1.5px solid var(--cv-accent);
+  background: rgba(74, 222, 128, 0.1);
+}
+.cv-mynext[data-state="live"] {
+  border-color: var(--cv-live);
+  background: rgba(229, 37, 47, 0.16);
+}
+.cv-mynext-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.25;
+}
+.cv-mynext-names {
+  font-family: var(--cv-display);
+  font-weight: 800;
+  font-size: 17px;
+  line-height: 1.05;
+  text-transform: uppercase;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+.cv-mynext-meta {
+  font-size: 12px;
+  color: var(--cv-muted);
+  overflow-wrap: anywhere;
+}
+.cv-mynext-go {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 56px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--cv-border-strong);
+  background: var(--cv-surface-2);
+  color: var(--cv-fg);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.cv-mynext-go svg {
+  width: 18px;
+  height: 18px;
+}
+@media (min-width: 900px) {
+  .cv-search {
+    max-width: 520px;
+  }
+}
+
+/* ---------- AGORA / PRÓXIMAS ---------- */
+.cv-root:not([data-tv="1"]) .cv-face-name,
+.cv-root:not([data-tv="1"]) .cv-next-names {
+  overflow-wrap: break-word;
+  hyphens: manual;
+}
+.cv-next-names,
+.cv-mynext-names {
+  position: relative; /* contem o texto so-leitor-de-tela (sr-only) para ele nao alargar a pagina */
+}
+.cv-face {
+  container: cvface / inline-size;
+}
+.cv-next {
+  container-type: inline-size;
+}
+.cv-root:not([data-tv="1"]) .cv-next {
+  flex: 1 1 280px;
+}
+@container (min-width: 560px) {
+  .cv-next-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.35em 1.4em;
+  }
+}
+@media (max-width: 699px) {
+  .cv-root:not([data-tv="1"]) .cv-now {
+    gap: 8px;
+  }
+  /* várias lutas ao vivo viram um carrossel (altura fixa, o dedo desliza), não uma pilha enorme */
+  .cv-root:not([data-tv="1"]) .cv-live-list {
+    flex: 1 1 100%;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    margin: 0 calc(-1 * var(--page-gutter));
+    padding: 0 var(--page-gutter);
+    scroll-padding-inline: var(--page-gutter);
+  }
+  .cv-root:not([data-tv="1"]) .cv-live-list::-webkit-scrollbar {
+    display: none;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face {
+    flex: 0 0 100%;
+    scroll-snap-align: start;
+    padding: 8px 10px 10px;
+    border-radius: 12px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-live-list[data-count="2"] .cv-face,
+  .cv-root:not([data-tv="1"]) .cv-live-list[data-count="3"] .cv-face {
+    flex-basis: 88%;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face-title {
+    margin-bottom: 6px;
+    font-size: 13px;
+    gap: 2px 8px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face-cat {
+    flex-basis: 100%;
+    margin-left: 0;
+    text-align: left;
+    font-size: 12px;
+    line-height: 1.2;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+  }
+  .cv-root:not([data-tv="1"]) .cv-next,
+  .cv-root:not([data-tv="1"]) .cv-now[data-solo="1"] .cv-next {
+    flex: 1 1 100%;
+    padding: 8px 10px 8px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-next-title {
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-now[data-solo="1"] .cv-next-list {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-now[data-solo="1"] .cv-next-item {
+    flex: 0 1 auto;
+  }
+  /* no máximo 2 próximas no celular em pé */
+  .cv-root:not([data-tv="1"]) .cv-next-item:nth-child(n + 3) {
+    display: none;
+  }
+  .cv-root:not([data-tv="1"]) .cv-next-avatars .cv-avatar {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 12px !important;
+  }
+  .cv-root:not([data-tv="1"]) .cv-overlap {
+    margin-left: -9px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-next-names {
+    white-space: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    font-size: 15px;
+    line-height: 1.1;
+  }
+  .cv-root:not([data-tv="1"]) .cv-next-meta {
+    font-size: 12px;
+  }
+}
+
+@container cvface (max-width: 439px) {
+  .cv-root:not([data-tv="1"]) .cv-face-row {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: start;
+    gap: 6px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face-side,
+  .cv-root:not([data-tv="1"]) .cv-face-side[data-align="right"] {
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-align: center;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face-text {
+    align-items: center;
+    width: 100%;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face-side .cv-avatar {
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 17px !important;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face-name {
+    font-size: 17px;
+    line-height: 1.05;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face-sub {
+    max-width: 100%;
+    margin-top: 2px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-vs {
+    align-self: center;
+    font-size: 24px;
+    padding: 14px 0 0;
+  }
+}
+
+/* ---------- chips das categorias: fixos no topo, com fade nas bordas ---------- */
+.cv-root:not([data-tv="1"]) .cv-tabs-bar {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 20;
+  margin: 0 calc(-1 * max(var(--page-gutter), env(safe-area-inset-left)));
+  padding: 6px max(var(--page-gutter), env(safe-area-inset-left)) 6px;
+  background: var(--cv-bg-solid);
+  border-bottom: 1px solid var(--cv-border);
+}
+.cv-root:not([data-tv="1"]) .cv-tabs {
+  gap: 8px;
+  padding: 0 0 0;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+.cv-root:not([data-tv="1"]) .cv-tabs::-webkit-scrollbar {
+  display: none;
+}
+.cv-root:not([data-tv="1"]) .cv-tab {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.3em 1.05em;
+  font-size: 15px;
+  scroll-snap-align: center;
+}
+.cv-tabs-bar[data-edge-end="1"] .cv-tabs {
+  -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(90deg, #000 calc(100% - 32px), transparent);
+}
+.cv-tabs-bar[data-edge-start="1"] .cv-tabs {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px);
+  mask-image: linear-gradient(90deg, transparent, #000 32px);
+}
+.cv-tabs-bar[data-edge-start="1"][data-edge-end="1"] .cv-tabs {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 32px, #000 calc(100% - 32px), transparent);
+}
+.cv-tab-live {
+  font-family: var(--cv-display);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--cv-live-text);
+}
+.cv-tab[aria-selected="true"] .cv-tab-live {
+  color: var(--cv-accent-ink);
+}
+/* No telão o ponto pulsante basta (o texto miúdo não se lê de longe e o visual do telão não muda). */
+.cv-root[data-tv="1"] .cv-tab-live {
+  display: none;
+}
+.cv-tab-name {
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* categoria com nome enorme: o chip tem teto de largura (o nome inteiro aparece no título logo abaixo) */
+.cv-root:not([data-tv="1"]) .cv-tab {
+  max-width: min(82vw, 26em);
+}
+
+/* ---------- título da categoria ---------- */
+@media (max-width: 699px) {
+  .cv-root:not([data-tv="1"]) .cv-cat-title {
+    font-size: 1.55em;
+    line-height: 1.02;
+    overflow-wrap: break-word;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+  }
+  .cv-root:not([data-tv="1"]) .cv-cat-head {
+    gap: 0.2em 0.7em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-cat-state {
+    margin-left: 0;
+  }
+  .cv-root:not([data-tv="1"]) .cv-empty {
+    padding: 2em 0.5em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-empty p {
+    font-size: 1.6em;
+  }
+}
+
+/* ---------- chave: legenda de rodadas fixa, zoom, encaixe por rodada, destaque do caminho ---------- */
+.cv-root:not([data-tv="1"]) .cv-bracket-scroll {
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: 12px;
+  overscroll-behavior-x: contain;
+  /* rola na horizontal e na vertical (a página); o pinça do navegador continua livre */
+  touch-action: pan-x pan-y pinch-zoom;
+  padding: 10px 0 12px;
+}
+.cv-root:not([data-tv="1"]) .cv-bracket-scroll:focus-visible {
+  outline: 3px solid var(--cv-accent);
+  outline-offset: -3px;
+}
+.cv-snap {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 1px;
+  scroll-snap-align: start;
+  pointer-events: none;
+}
+.cv-bracket-bar {
+  position: sticky;
+  top: calc(var(--cv-stick) + env(safe-area-inset-top, 0px));
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 44px;
+  margin: 0 calc(-1 * max(var(--page-gutter), env(safe-area-inset-left)));
+  padding: 0 max(var(--page-gutter), env(safe-area-inset-right)) 0 max(var(--page-gutter), env(safe-area-inset-left));
+  background: var(--cv-bg-solid);
+  border-bottom: 1px solid var(--cv-border);
+}
+.cv-strip {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  overflow: hidden;
+  contain: paint;
+}
+.cv-strip-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  will-change: transform;
+}
+.cv-strip-label {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  font-family: var(--cv-display);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--cv-muted);
+}
+.cv-strip-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cv-strip-label::after {
+  content: "";
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--cv-border-strong);
+}
+@media (max-width: 699px) {
+  .cv-strip-label {
+    align-items: flex-start;
+    padding-left: 14px;
+    box-sizing: border-box;
+  }
+  .cv-strip-label::after {
+    margin-left: 0;
+  }
+}
+.cv-strip-label[data-final="1"] {
+  color: var(--cv-gold);
+}
+.cv-strip-label[data-final="1"]::after {
+  background: var(--cv-gold);
+}
+.cv-zoom {
+  flex: none;
+  display: flex;
+  gap: 2px;
+}
+.cv-zoom-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--cv-fg);
+  cursor: pointer;
+}
+.cv-zoom-btn svg {
+  width: 20px;
+  height: 20px;
+}
+.cv-zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.cv-zoom-btn:not(:disabled):active {
+  background: var(--cv-surface-2);
+}
+.cv-bracket[data-tv="1"] .cv-snap {
+  display: none;
+}
+.cv-card-hits {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  border-radius: inherit;
+}
+.cv-row-hit,
+.cv-row-hit-empty {
+  flex: 1 1 0;
+  min-height: 44px;
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.cv-row-hit-empty {
+  cursor: default;
+}
+.cv-row-hit:first-child {
+  border-radius: 10px 10px 0 0;
+}
+.cv-row-hit:last-child {
+  border-radius: 0 0 10px 10px;
+}
+.cv-row-hit:active {
+  background: rgba(255, 255, 255, 0.07);
+}
+.cv-row-hit:focus-visible {
+  outline: 3px solid var(--cv-accent);
+  outline-offset: -3px;
+}
+.cv-card[data-path="off"] {
+  opacity: 0.4;
+}
+.cv-card[data-path="on"] {
+  border-color: var(--cv-accent);
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.3);
+}
+.cv-card[data-path="on"][data-status="LIVE"] {
+  border-color: var(--cv-live);
+}
+.cv-row[data-focus="1"] {
+  background: rgba(74, 222, 128, 0.2);
+  box-shadow: inset 4px 0 0 var(--cv-accent);
+}
+.cv-row[data-focus="1"] .cv-name {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.cv-link[data-path="on"] {
+  stroke: var(--cv-accent);
+  stroke-width: 4.5;
+  stroke-opacity: 1;
+}
+.cv-link[data-path="off"] {
+  stroke-opacity: 0.22;
+}
+.cv-fab {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px 0 12px;
+  border-radius: 999px;
+  border: 1.5px solid var(--cv-accent);
+  background: rgba(15, 24, 41, 0.96);
+  color: var(--cv-accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.cv-fab svg {
+  width: 18px;
+  height: 18px;
+}
+.cv-fab:active {
+  background: var(--cv-surface-2);
+}
+
+/* ---------- tabelas de grupos: rolam por dentro, rank e nome fixos à esquerda ---------- */
+.cv-root:not([data-tv="1"]) .cv-table-wrap {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 12px;
+}
+.cv-root:not([data-tv="1"]) .cv-table-wrap:focus-visible {
+  outline: 3px solid var(--cv-accent);
+  outline-offset: 1px;
+}
+.cv-root:not([data-tv="1"]) .cv-table {
+  min-width: 24em;
+}
+.cv-root:not([data-tv="1"]) .cv-table th:first-child,
+.cv-root:not([data-tv="1"]) .cv-table td:first-child,
+.cv-root:not([data-tv="1"]) .cv-table th:nth-child(2),
+.cv-root:not([data-tv="1"]) .cv-table td:nth-child(2) {
+  position: sticky;
+  z-index: 2;
+  background: var(--cv-surface);
+}
+.cv-root:not([data-tv="1"]) .cv-table th:first-child,
+.cv-root:not([data-tv="1"]) .cv-table th:nth-child(2) {
+  background: var(--cv-surface-2);
+}
+.cv-root:not([data-tv="1"]) .cv-table th:first-child,
+.cv-root:not([data-tv="1"]) .cv-table td:first-child {
+  left: 0;
+}
+.cv-root:not([data-tv="1"]) .cv-table th:nth-child(2),
+.cv-root:not([data-tv="1"]) .cv-table td:nth-child(2) {
+  left: var(--cv-rank-w, 2.4em);
+}
+.cv-root:not([data-tv="1"]) .cv-col-rank {
+  width: var(--cv-rank-w, 2.4em);
+}
+.cv-root:not([data-tv="1"]) .cv-table tr[data-qualified="1"] td:first-child,
+.cv-root:not([data-tv="1"]) .cv-table tr[data-qualified="1"] td:nth-child(2) {
+  background: linear-gradient(var(--cv-win-bg), var(--cv-win-bg)), var(--cv-surface);
+}
+.cv-table tr[data-focus="1"] td {
+  background: rgba(74, 222, 128, 0.24) !important;
+}
+.cv-table tr[data-focus="1"] .cv-td-name {
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.cv-round-item[data-focus="1"] {
+  outline: 2px solid var(--cv-accent);
+  outline-offset: -1px;
+}
+.cv-round-names > span:first-child {
+  flex: 1 1 0;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.cv-round-names > span:last-child {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 339px) {
+  /* 320 px: "L" (lutas) e a soma de V+E+D; sai para os PONTOS e o saldo ficarem a vista sem rolar */
+  .cv-root:not([data-tv="1"]) .cv-table th:nth-child(3),
+  .cv-root:not([data-tv="1"]) .cv-table td:nth-child(3),
+  .cv-root:not([data-tv="1"]) .cv-table colgroup col:nth-child(3) {
+    display: none;
+  }
+  .cv-root:not([data-tv="1"]) .cv-table {
+    min-width: 20em;
+  }
+}
+@media (max-width: 479px) {
+  .cv-root:not([data-tv="1"]) {
+    --cv-rank-w: 1.8em;
+  }
+  /* lutas de grupo: cada confronto em duas linhas (atleta A / atleta B) com o placar ao lado */
+  .cv-root:not([data-tv="1"]) .cv-round-item {
+    flex-wrap: wrap;
+  }
+  .cv-root:not([data-tv="1"]) .cv-round-names {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "a score" "b score";
+    gap: 2px 10px;
+    align-items: center;
+    justify-content: stretch;
+  }
+  .cv-root:not([data-tv="1"]) .cv-round-names > span:first-child {
+    grid-area: a;
+    text-align: left;
+  }
+  .cv-root:not([data-tv="1"]) .cv-round-names > span:nth-child(2) {
+    grid-area: score;
+  }
+  .cv-root:not([data-tv="1"]) .cv-round-names > span:last-child {
+    grid-area: b;
+    text-align: left;
+  }
+  .cv-root:not([data-tv="1"]) .cv-td-name {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    font-size: 1.05em;
+    line-height: 1.08;
+  }
+}
+
+/* ---------- pódio e campeão no celular ---------- */
+@media (max-width: 699px) {
+  .cv-root:not([data-tv="1"]) .cv-podium {
+    padding: 0.6em 0.7em 0;
+  }
+  .cv-root:not([data-tv="1"]) .cv-podium-steps {
+    gap: 0.35em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-step {
+    min-width: 0;
+    flex: 1 1 0;
+  }
+  .cv-root:not([data-tv="1"]) .cv-step .cv-avatar {
+    width: 52px !important;
+    height: 52px !important;
+    font-size: 20px !important;
+  }
+  .cv-root:not([data-tv="1"]) .cv-step[data-place="1"] .cv-avatar {
+    width: 68px !important;
+    height: 68px !important;
+    font-size: 26px !important;
+  }
+  .cv-root:not([data-tv="1"]) .cv-step-medal {
+    width: 1.9em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-step-name {
+    font-size: 1.05em;
+    overflow-wrap: break-word;
+    hyphens: manual;
+  }
+  .cv-root:not([data-tv="1"]) .cv-step-group {
+    overflow-wrap: anywhere;
+  }
+  .cv-root:not([data-tv="1"]) .cv-step-block {
+    font-size: 1.6em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-step[data-place="1"] .cv-step-block {
+    height: 2.8em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-step[data-place="2"] .cv-step-block {
+    height: 2.1em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-step[data-place="3"] .cv-step-block {
+    height: 1.5em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-champ-banner {
+    padding: 0.5em 0.8em 0.7em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-champ-banner .cv-champ {
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 0.9em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-champ-banner .cv-champ > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .cv-root:not([data-tv="1"]) .cv-champ-banner .cv-champ-photo {
+    padding-top: 1.3em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-champ-banner .cv-avatar {
+    width: 72px !important;
+    height: 72px !important;
+    font-size: 28px !important;
+  }
+  .cv-root:not([data-tv="1"]) .cv-champ-banner .cv-champ-name {
+    font-size: clamp(1.35em, 6.2vw, 2.1em);
+    overflow-wrap: break-word;
+    hyphens: manual;
+  }
+  .cv-root:not([data-tv="1"]) .cv-champ-banner .cv-champ-kicker {
+    letter-spacing: 0.25em;
+    font-size: 1.1em;
+  }
+}
+
+/* ---------- celular deitado: tudo cabe numa tela baixa ---------- */
+@media (max-height: 500px) and (orientation: landscape) {
+  .cv-root:not([data-tv="1"]) {
+    --cv-stick: 0px;
+    gap: 8px;
+    padding-top: max(6px, env(safe-area-inset-top));
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  .cv-root:not([data-tv="1"]) .cv-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "logo org actions" "logo title actions";
+    align-items: center;
+    gap: 0 10px;
+    padding: 4px 6px 4px 16px;
+    border-radius: 12px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-header::before {
+    top: 6px;
+    bottom: 6px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-brand,
+  .cv-root:not([data-tv="1"]) .cv-header-text {
+    display: contents;
+  }
+  .cv-root:not([data-tv="1"]) .cv-logo {
+    grid-area: logo;
+    width: 30px;
+    height: 30px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-org {
+    grid-area: org;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-title {
+    grid-area: title;
+    margin: 0;
+    font-size: 1.35em;
+    line-height: 1.05;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .cv-root:not([data-tv="1"]) .cv-meta {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .cv-root:not([data-tv="1"]) .cv-header-actions {
+    grid-area: actions;
+    flex-wrap: nowrap;
+    gap: 6px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-stage-chip {
+    display: none;
+  }
+  .cv-root:not([data-tv="1"]) .cv-status {
+    font-size: 13px;
+    padding: 0.28em 0.7em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-btn {
+    padding: 0;
+  }
+  .cv-root:not([data-tv="1"]) .cv-btn-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  /* o cabeçalho e a busca dividem a linha; AGORA e PRÓXIMAS ficam em linha (nada de pilha) */
+  .cv-root:not([data-tv="1"]) {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    align-content: flex-start;
+  }
+  .cv-root:not([data-tv="1"]) > * {
+    flex: 0 0 100%;
+    min-width: 0;
+  }
+  .cv-root:not([data-tv="1"]) > .cv-header {
+    flex: 1 1 0;
+  }
+  .cv-root:not([data-tv="1"]) > .cv-search {
+    flex: 0 0 min(40%, 320px);
+  }
+  .cv-root:not([data-tv="1"]) > .cv-main {
+    flex: 1 1 100%;
+  }
+  .cv-root:not([data-tv="1"]) .cv-now {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-live-list {
+    flex: 1 1 0;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face {
+    flex: 0 0 100%;
+    scroll-snap-align: start;
+    padding: 6px 10px 8px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-live-list[data-count="2"] .cv-face,
+  .cv-root:not([data-tv="1"]) .cv-live-list[data-count="3"] .cv-face {
+    flex-basis: 88%;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face-title {
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face-name {
+    font-size: 18px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-face-side .cv-avatar {
+    width: 44px !important;
+    height: 44px !important;
+    font-size: 17px !important;
+  }
+  .cv-root:not([data-tv="1"]) .cv-next,
+  .cv-root:not([data-tv="1"]) .cv-now[data-solo="1"] .cv-next {
+    flex: 0 0 min(38%, 330px);
+    padding: 6px 10px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-now[data-solo="1"] .cv-next {
+    flex: 1 1 auto;
+  }
+  .cv-root:not([data-tv="1"]) .cv-next-item:nth-child(n + 3) {
+    display: none;
+  }
+  .cv-root:not([data-tv="1"]) .cv-next-avatars .cv-avatar {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 12px !important;
+  }
+  .cv-root:not([data-tv="1"]) .cv-overlap {
+    margin-left: -9px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-next-meta {
+    font-size: 12px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-tabs-bar {
+    position: relative;
+    top: auto;
+  }
+  .cv-root:not([data-tv="1"]) .cv-cat-title {
+    font-size: 1.4em;
+  }
+  .cv-cat-stage {
+    display: inline;
+    color: var(--cv-muted);
+    font-family: var(--cv-display);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    font-size: 0.95em;
+    text-transform: uppercase;
+  }
+}
+/* ---------- carregando: esqueleto com as mesmas alturas da tela pronta (sem pulo de layout) ---------- */
+.cv-root:not([data-tv="1"]) .cv-skel-row {
+  overflow: hidden;
+}
+@media (max-width: 699px) {
+  .cv-root:not([data-tv="1"]) .cv-skel-title {
+    width: min(18em, 70vw);
+  }
+  .cv-root:not([data-tv="1"]) .cv-skel-head {
+    min-height: 62px;
+  }
+  .cv-root:not([data-tv="1"]) .cv-skel-row {
+    min-height: 44px;
+    align-items: center;
+  }
+  .cv-root:not([data-tv="1"]) .cv-skel-tab {
+    flex: none;
+    height: 44px;
+    width: 8em;
+  }
+  .cv-root:not([data-tv="1"]) .cv-unavailable h1 {
+    font-size: 1.9em;
+    overflow-wrap: anywhere;
+  }
+}
 
 /* Movimento reduzido: sem pulso, sem piscar, sem confete, sem sobreposições animadas (só cor, borda e ícone destacam a luta
    ao vivo, o vencedor e o campeão). */

@@ -206,15 +206,17 @@ describe("chaveamento: máquina de conexão (SSE -> consulta 3 s com ETag)", () 
     expect(vi.getTimerCount()).toBe(0);
   }, LONG);
 
-  it("503 e erro de rede na consulta: reconnecting, e continua tentando a cada 3 s até voltar", async () => {
+  it("503 e erro de rede na consulta: reconnecting, e continua tentando com recuo (6 s, depois 12 s) até voltar", async () => {
+    // Mudança de especificação (bateria e dados): a consulta que FALHA recua 3 s -> 6 s -> 12 s... (teto 30 s); ver chaveamento-power.test.ts.
     const h = setup([status(503), () => Promise.reject(new Error("rede")), ok(body(2))]);
     h.connection.start();
     lastSource().emit("error");
     await vi.advanceTimersByTimeAsync(0);
     expect(h.last().status).toBe("reconnecting");
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 2); // 1ª falha: próxima tentativa em 6 s
     expect(h.last().status).toBe("reconnecting");
-    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS);
+    expect(h.fetchMock).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 4); // 2ª falha: próxima tentativa em 12 s
     expect(h.last().status).toBe("polling");
     expect(h.last().snapshot?.revision).toBe(2);
     h.connection.stop();

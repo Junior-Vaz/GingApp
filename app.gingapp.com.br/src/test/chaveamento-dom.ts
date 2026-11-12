@@ -1,6 +1,7 @@
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { LivePage } from "@/components/chaveamento/live-page";
+import { LivePage, type LivePageProps } from "@/components/chaveamento/live-page";
+import { clearLiveCache } from "@/lib/chaveamento/use-live-tournament";
 import type { PublicSnapshot } from "@/lib/chaveamento/types";
 import { lastSource } from "./chaveamento-mocks";
 
@@ -15,11 +16,11 @@ export interface Mounted {
 
 const mounted: Mounted[] = [];
 
-export function mountLive(token = "tok", tv = false): Mounted {
+export function mountLive(token = "tok", tv = false, extra: Partial<Omit<LivePageProps, "token" | "tv">> = {}): Mounted {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  act(() => root.render(createElement(LivePage, { token, tv })));
+  act(() => root.render(createElement(LivePage, { token, tv, ...extra })));
   const m: Mounted = {
     host,
     root,
@@ -33,6 +34,7 @@ export function mountLive(token = "tok", tv = false): Mounted {
 }
 
 export function cleanupMounted(): void {
+  clearLiveCache();
   for (const m of mounted.splice(0)) {
     try {
       m.unmount();

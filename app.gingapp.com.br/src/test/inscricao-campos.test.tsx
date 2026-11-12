@@ -39,6 +39,9 @@ import {
   waitFor,
 } from "./inscricao-fixtures";
 
+// o jsdom não decodifica imagem: o seletor de arquivo usa o substituto que "comprime" para WebP (o comportamento real fica em inscricao-foto.test.tsx)
+vi.mock("@/lib/photo/prepare-image", async () => (await import("./inscricao-fixtures")).prepareImageStub());
+
 afterEach(cleanup);
 
 const byKey = (key: string): FormFieldDef => FIELDS.find((f) => f.key === key)!;
@@ -166,12 +169,20 @@ describe("validação no cliente", () => {
 });
 
 describe("arquivo no cliente", () => {
-  it("recusa tipo não aceito, vazio e mais de 5 MB", () => {
+  it("recusa tipo não aceito, vazio, PDF acima de 5 MB e imagem acima de 25 MB; imagem acima de 5 MB passa (é comprimida)", () => {
     expect(validateProofFile({ type: "application/zip", size: 100 })).toMatch(/Formato não aceito/);
+    expect(validateProofFile({ type: "image/svg+xml", size: 100 })).toMatch(/Formato não aceito/);
     expect(validateProofFile({ type: "image/png", size: 0 })).toMatch(/vazio/);
-    expect(validateProofFile({ type: "image/png", size: 5 * 1024 * 1024 + 1 })).toMatch(/5 MB/);
+    expect(validateProofFile({ type: "application/pdf", size: 5 * 1024 * 1024 + 1 })).toMatch(/5 MB/);
     expect(validateProofFile({ type: "application/pdf", size: 5 * 1024 * 1024 })).toBeNull();
+    expect(validateProofFile({ type: "image/png", size: 5 * 1024 * 1024 + 1 })).toBeNull();
+    expect(validateProofFile({ type: "image/jpeg", size: 25 * 1024 * 1024 })).toBeNull();
+    expect(validateProofFile({ type: "image/jpeg", size: 25 * 1024 * 1024 + 1 })).toMatch(/25 MB/);
     expect(validateProofFile({ type: "image/webp", size: 10 })).toBeNull();
+    // HEIC/HEIF (com ou sem tipo informado pelo navegador) entram na tentativa de compressão
+    expect(validateProofFile({ type: "image/heic", size: 10 })).toBeNull();
+    expect(validateProofFile({ type: "", size: 10, name: "IMG_0001.HEIC" })).toBeNull();
+    expect(validateProofFile({ type: "", size: 10, name: "arquivo.bin" })).toMatch(/Formato não aceito/);
   });
 });
 
@@ -371,14 +382,16 @@ describe("campos por tipo (teclado mobile, máscara, controle)", () => {
 describe("upload do comprovante", () => {
   const FILE_FIELD = byKey("comp");
 
-  it("tipo inválido e >5 MB: mensagem amigável e nenhuma chamada de rede", async () => {
+  it("tipo inválido e PDF > 5 MB: mensagem amigável e nenhuma chamada de rede", async () => {
     const calls = mockApi({});
     renderWith(<Harness def={FILE_FIELD} />);
     const input = document.querySelector<HTMLInputElement>("input[type=file]")!;
     expect(input.accept).toBe("image/*,application/pdf");
     await chooseFile(input, new File(["x"], "virus.exe", { type: "application/x-msdownload" }));
     expect(text()).toContain("Formato não aceito");
-    await chooseFile(input, pngFile("grande.png", 6 * 1024 * 1024));
+    const bigPdf = new File(["x"], "contrato.pdf", { type: "application/pdf" });
+    Object.defineProperty(bigPdf, "size", { value: 6 * 1024 * 1024 });
+    await chooseFile(input, bigPdf);
     expect(text()).toContain("maior que 5 MB");
     expect(calls).toHaveLength(0);
     expect(shown()).toBeNull();
@@ -397,7 +410,9 @@ describe("upload do comprovante", () => {
     expect(calls).toHaveLength(1);
     const form = calls[0]!.body as FormData;
     expect(form.get("fieldKey")).toBe("comp");
-    expect((form.get("file") as File).name).toBe("comprovante.png");
+    // imagem é recomprimida no aparelho antes do envio: WebP, com o nome-base mantido
+    expect((form.get("file") as File).name).toBe("comprovante.webp");
+    expect((form.get("file") as File).type).toBe("image/webp");
     expect(calls[0]!.headers["Authorization"]).toBeUndefined();
     localStorage.clear();
 

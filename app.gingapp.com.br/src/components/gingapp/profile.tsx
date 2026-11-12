@@ -147,16 +147,16 @@ export function ProfileForm({ student }: { student: Student }) {
 
   return (
     <form onSubmit={submit}>
-      <p className="text-xs text-muted-foreground">Envie uma imagem (JPEG, PNG ou WebP até 5 MB) ou cole o link. Para remover foto, capa ou uma rede, deixe o campo vazio (ou use “Remover”) e salve.</p>
+      <p className="text-xs text-muted-foreground">Envie uma imagem (JPEG, PNG ou WebP, de qualquer tamanho: ela é reduzida automaticamente) ou cole o link. Para remover foto, capa ou uma rede, deixe o campo vazio (ou use “Remover”) e salve.</p>
+      <ImageUploadControl label="foto" value={form.photo} onChange={set("photo")} />
       <label className="field-label" htmlFor="photo">
         Foto (URL)
       </label>
-      <ImageUploadControl label="foto" value={form.photo} onChange={set("photo")} />
       <UrlField id="photo" label="foto" value={form.photo} onChange={set("photo")} placeholder="https://..." />
+      <ImageUploadControl label="foto de capa" shape="wide" value={form.coverPhoto} onChange={set("coverPhoto")} />
       <label className="field-label" htmlFor="coverPhoto">
         Foto de capa (URL)
       </label>
-      <ImageUploadControl label="foto de capa" shape="wide" value={form.coverPhoto} onChange={set("coverPhoto")} />
       <UrlField id="coverPhoto" label="foto de capa" value={form.coverPhoto} onChange={set("coverPhoto")} placeholder="https://..." />
       {SOCIAL_FIELDS.map((field) => (
         <div key={field.key}>
@@ -182,7 +182,7 @@ function PhotoDialog({ open, onOpenChange, student }: { open: boolean; onOpenCha
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogTitle>Trocar foto do perfil</DialogTitle>
-        <DialogDescription>Envie uma imagem JPEG, PNG ou WebP de até 5 MB.</DialogDescription>
+        <DialogDescription>Escolha uma foto da galeria ou tire agora. Ela é recortada e reduzida antes de ser enviada.</DialogDescription>
         <ImageUploadControl label="foto" value={photo} onChange={setPhoto} />
         <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

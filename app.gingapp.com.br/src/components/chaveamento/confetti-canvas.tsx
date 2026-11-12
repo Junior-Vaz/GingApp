@@ -39,7 +39,9 @@ export function ConfettiCanvas({ durationMs, seed = 20_26 }: ConfettiCanvasProps
       const room = Math.max(0, MAX_PARTICLES - particles.length);
       particles.push(...list.slice(0, room));
     };
-    spawn(createBurst(rand, width, height, 90));
+    // Celular: metade das partículas (tela pequena, bateria): mais leve e menos poluído.
+    const small = width < 640;
+    spawn(createBurst(rand, width, height, small ? 45 : 90));
 
     let frame = 0;
     let last = 0;
@@ -68,7 +70,7 @@ export function ConfettiCanvas({ durationMs, seed = 20_26 }: ConfettiCanvasProps
       elapsed += Math.min(dt, 0.1);
       if (!secondBurst && elapsed > 0.45) {
         secondBurst = true;
-        spawn(createBurst(rand, width, height, 60));
+        spawn(createBurst(rand, width, height, small ? 30 : 60));
       }
       rainClock += dt;
       if (elapsed < (durationMs / 1000) * 0.8 && rainClock > 0.14) {

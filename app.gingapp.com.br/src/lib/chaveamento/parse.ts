@@ -14,6 +14,7 @@ import {
   type StandingRow,
   type StandingsGroup,
 } from "./types";
+import { isTournamentPhotoPath } from "./photo-ref";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -40,13 +41,14 @@ const asEnum = <T extends string>(list: readonly T[], value: unknown): T | null 
 const UPLOAD_REF = /^\/api\/uploads\/[A-Za-z0-9._-]+$/;
 
 /**
- * Referência de imagem: só caminho de upload do backend ou https/http. Qualquer outra coisa (javascript:, data:, relativo
+ * Referência de imagem: só caminho de upload do backend (`/api/uploads/...`), foto própria do atleta
+ * (`/api/public/tournaments/<token>/photos/<uuid>.webp`) ou https/http. Qualquer outra coisa (javascript:, data:, relativo
  * estranho) vira null: o telão cai nas iniciais em vez de pedir um recurso suspeito.
  */
 export function asImageRef(value: unknown): string | null {
   const text = asText(value);
   if (text === null) return null;
-  if (UPLOAD_REF.test(text)) return text;
+  if (UPLOAD_REF.test(text) || isTournamentPhotoPath(text)) return text;
   try {
     const url = new URL(text);
     return url.protocol === "https:" || url.protocol === "http:" ? text : null;
