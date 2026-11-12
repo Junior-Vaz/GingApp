@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, type CSSProperties, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { CalendarCheck, Pencil, Trash2, UserPlus, UserRoundSearch } from "lucide-react";
+import { CalendarCheck, Camera, CameraOff, Check, Pencil, Search, ShieldAlert, ShieldCheck, Trash2, UserPlus, UserRoundSearch, Users, X } from "lucide-react";
 import { ConfirmDialog } from "@/components/painel/confirm-dialog";
 import { StudentPicker } from "@/components/painel/student-picker";
 import { Badge } from "@/components/ui/badge";
@@ -10,13 +10,17 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { api, errorMessage } from "@/lib/api";
 import type { EventParticipant } from "@/modules/eventos/types";
 import { PARTICIPANT_STATUS_LABEL } from "@/modules/rodas/types";
 import { useAddCompetitor, useImportParticipants, useRemoveCompetitor, useUpdateCompetitor, chaveamentoKeys } from "./api";
 import { CompetitorPhoto } from "./competitor-photo";
 import { chaveamentoErrorMessage, TOURNAMENT_ERROR_MESSAGES } from "./errors";
-import { isAcceptablePhotoUrl, needsPhotoAuthorization, parseOptionalInt, photoIndicatorText } from "./helpers";
+import { authorizationText, isAcceptablePhotoUrl, needsPhotoAuthorization, parseOptionalInt, photoIndicatorText, seededCount } from "./helpers";
+import { SETUP_STEPS } from "./setup-steps";
+import { StepsGuide } from "./steps-guide";
+import "./chaveamento.css";
 import { AGE_GROUP_LABEL, LIMITS, type AgeGroup, type OperatorCategory, type OperatorCompetitor } from "./types";
 
 const AGE_OPTIONS: AgeGroup[] = ["ADULT", "MINOR", "UNKNOWN"];
@@ -34,16 +38,29 @@ export function CompetitorsPanel({ eventId, category, canEdit }: CompetitorsPane
   const [dialog, setDialog] = useState<"event" | "student" | "guest" | null>(null);
   const [editing, setEditing] = useState<OperatorCompetitor | null>(null);
   const [removing, setRemoving] = useState<OperatorCompetitor | null>(null);
+  const [quickId, setQuickId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
   const ordered = [...category.competitors].sort(
     (a, b) => (a.seed ?? Number.MAX_SAFE_INTEGER) - (b.seed ?? Number.MAX_SAFE_INTEGER) || a.displayName.localeCompare(b.displayName, "pt-BR"),
   );
+  const term = search.trim().toLocaleLowerCase("pt-BR");
+  const shown = term === "" ? ordered : ordered.filter((c) => `${c.displayName} ${c.groupName ?? ""}`.toLocaleLowerCase("pt-BR").includes(term));
+  const total = category.competitors.length;
+  const seeded = seededCount(category.competitors);
+  const pendingAuth = category.competitors.filter((c) => needsPhotoAuthorization(c) && !c.photoAuthorized).length;
 
   return (
-    <section aria-label="Atletas da categoria" className="grid gap-3" data-testid="competitors-panel">
+    <section aria-label="Atletas da categoria" className="grid grid-cols-1 gap-3" data-testid="competitors-panel">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-bold">
-          Atletas <span className="font-normal text-muted-foreground">({category.competitors.length} de {LIMITS.maxCompetitors})</span>
-        </h2>
+        <div>
+          <h2 className="text-base font-bold">
+            Atletas <span className="font-normal text-muted-foreground">({total} de {LIMITS.maxCompetitors})</span>
+          </h2>
+          <p className="text-xs text-muted-foreground" data-testid="competitors-counter" aria-live="polite">
+            {total} {total === 1 ? "atleta" : "atletas"} · {seeded} com semente
+            {pendingAuth > 0 ? ` · ${String(pendingAuth)} sem autorização do responsável` : ""}
+          </p>
+        </div>
         {canEdit && setup && (
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => setDialog("event")}>
@@ -65,44 +82,100 @@ export function CompetitorsPanel({ eventId, category, canEdit }: CompetitorsPane
         </p>
       )}
 
+      {total >= 6 && (
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+          <Input
+            type="search"
+            aria-label="Buscar atleta"
+            placeholder="Buscar por nome ou academia"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-9"
+            data-testid="competitors-search"
+          />
+        </div>
+      )}
+
       {ordered.length === 0 ? (
-        <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground" data-testid="competitors-empty">
-          Nenhum atleta nesta categoria ainda. {canEdit && setup ? "Use os botões acima para adicionar." : ""}
+        <div className="grid grid-cols-1 gap-4 rounded-xl border border-dashed p-4 sm:p-6" data-testid="competitors-empty">
+          <div className="grid grid-cols-1 justify-items-center gap-1 text-center">
+            <Users className="chv-breathe size-8 text-muted-foreground" aria-hidden />
+            <p className="font-extrabold">Nenhum atleta nesta categoria ainda.</p>
+            <p className="text-sm text-muted-foreground">{canEdit && setup ? "Use os botões acima para adicionar." : "Quem tiver permissão adiciona os atletas."}</p>
+          </div>
+          <StepsGuide steps={SETUP_STEPS} current={0} />
+        </div>
+      ) : shown.length === 0 ? (
+        <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground" data-testid="competitors-no-match">
+          Nenhum atleta com “{search.trim()}”.
         </p>
       ) : (
-        <ul className="divide-y rounded-md border" data-testid="competitors-list">
-          {ordered.map((c) => (
-            <li key={c.id} className="flex flex-wrap items-center gap-3 px-3 py-2" data-testid={`competitor-${String(c.id)}`}>
-              <CompetitorPhoto name={c.displayName} photoUrl={c.photoUrl} />
-              <div className="min-w-0 flex-1 text-sm">
-                <p className="truncate font-medium">
-                  {c.seed !== null && <span className="mr-2 rounded bg-secondary px-1.5 py-0.5 text-xs font-bold">Semente {c.seed}</span>}
-                  {c.displayName}
-                </p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {[c.groupName, c.graduationLabel, c.studentId !== null ? "aluno" : "de fora"].filter(Boolean).join(" · ")}
-                </p>
-                <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+        <ul className="grid grid-cols-1 gap-2" data-testid="competitors-list">
+          {shown.map((c, index) =>
+            quickId === c.id ? (
+              <QuickEditRow key={c.id} eventId={eventId} competitor={c} setup={setup} onClose={() => setQuickId(null)} />
+            ) : (
+              <li
+                key={c.id}
+                className="chv-in flex flex-wrap items-center gap-3 rounded-xl border bg-card px-3 py-2.5"
+                style={{ "--i": Math.min(index, 10) } as CSSProperties}
+                data-testid={`competitor-${String(c.id)}`}
+              >
+                <CompetitorPhoto name={c.displayName} photoUrl={c.photoUrl} group={c.groupName} id={c.id} size="lg" />
+                <div className="min-w-0 flex-1 text-sm">
+                  <p className="flex min-w-0 items-center gap-2">
+                    {c.seed !== null && (
+                      <span className="shrink-0 rounded-md bg-primary px-1.5 py-0.5 text-[11px] font-extrabold text-primary-foreground">Semente {c.seed}</span>
+                    )}
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        onClick={() => setQuickId(c.id)}
+                        aria-label={`Edição rápida de ${c.displayName}`}
+                        title="Toque para editar nome, grupo e semente aqui mesmo"
+                        className="min-w-0 truncate rounded text-left text-base font-extrabold underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {c.displayName}
+                      </button>
+                    ) : (
+                      <span className="truncate text-base font-extrabold">{c.displayName}</span>
+                    )}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {[c.groupName, c.graduationLabel, c.studentId !== null ? "aluno" : "de fora"].filter(Boolean).join(" · ")}
+                  </p>
+                </div>
+                {canEdit && (
+                  <div className="flex shrink-0 gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(c)} aria-label={`Editar ${c.displayName}`}>
+                      <Pencil /> <span className="max-sm:sr-only">Editar</span>
+                    </Button>
+                    {setup && (
+                      <Button variant="ghost" size="sm" onClick={() => setRemoving(c)} aria-label={`Remover ${c.displayName}`}>
+                        <Trash2 /> <span className="max-sm:sr-only">Remover</span>
+                      </Button>
+                    )}
+                  </div>
+                )}
+                <p className="flex basis-full flex-wrap items-center gap-1.5 text-xs">
                   <Badge variant="outline">{AGE_GROUP_LABEL[c.ageGroup]}</Badge>
-                  <Badge variant={c.photoPublic ? "default" : "secondary"} data-testid={`photo-indicator-${String(c.id)}`}>
+                  <Badge variant={c.photoPublic ? "default" : "secondary"} className="gap-1" data-testid={`photo-indicator-${String(c.id)}`}>
+                    {c.photoPublic ? <Camera className="size-3" aria-hidden /> : <CameraOff className="size-3" aria-hidden />}
                     {photoIndicatorText(c)}
                   </Badge>
+                  <Badge
+                    variant="outline"
+                    className={cn("gap-1", !needsPhotoAuthorization(c) && "text-muted-foreground", needsPhotoAuthorization(c) && !c.photoAuthorized && "border-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200")}
+                    data-testid={`auth-indicator-${String(c.id)}`}
+                  >
+                    {needsPhotoAuthorization(c) && !c.photoAuthorized ? <ShieldAlert className="size-3" aria-hidden /> : <ShieldCheck className="size-3" aria-hidden />}
+                    {authorizationText(c)}
+                  </Badge>
                 </p>
-              </div>
-              {canEdit && (
-                <div className="flex shrink-0 gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => setEditing(c)} aria-label={`Editar ${c.displayName}`}>
-                    <Pencil /> Editar
-                  </Button>
-                  {setup && (
-                    <Button variant="ghost" size="sm" onClick={() => setRemoving(c)} aria-label={`Remover ${c.displayName}`}>
-                      <Trash2 /> Remover
-                    </Button>
-                  )}
-                </div>
-              )}
-            </li>
-          ))}
+              </li>
+            ),
+          )}
         </ul>
       )}
 
@@ -134,6 +207,75 @@ export function CompetitorsPanel({ eventId, category, canEdit }: CompetitorsPane
         }}
       />
     </section>
+  );
+}
+
+/**
+ * Edição em linha de nome, grupo e semente (Enter salva, Esc cancela). Foto, faixa etária e autorização continuam no
+ * diálogo completo ("Editar").
+ */
+function QuickEditRow({ eventId, competitor, setup, onClose }: { eventId: number; competitor: OperatorCompetitor; setup: boolean; onClose: () => void }) {
+  const update = useUpdateCompetitor(eventId);
+  const [name, setName] = useState(competitor.displayName);
+  const [group, setGroup] = useState(competitor.groupName ?? "");
+  const [seed, setSeed] = useState(competitor.seed === null ? "" : String(competitor.seed));
+  const [error, setError] = useState("");
+
+  async function save() {
+    setError("");
+    const displayName = name.trim();
+    if (displayName.length < 2) return setError("Informe o nome do atleta (mínimo 2 caracteres).");
+    const seedValue = parseOptionalInt(seed, 1, LIMITS.seedMax);
+    if (seedValue === undefined) return setError(`Semente: de 1 a ${String(LIMITS.seedMax)} (vazio = sem semente).`);
+    try {
+      await update.mutateAsync({
+        id: competitor.id,
+        data: { displayName, groupName: group.trim() === "" ? null : group.trim(), ...(setup ? { seed: seedValue } : {}) },
+      });
+      onClose();
+    } catch (e) {
+      setError(chaveamentoErrorMessage(e));
+    }
+  }
+
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void save();
+    } else if (event.key === "Escape") {
+      event.stopPropagation();
+      onClose();
+    }
+  };
+
+  return (
+    <li className="chv-pop grid grid-cols-1 gap-2 rounded-xl border-2 border-primary bg-secondary/40 p-3" data-testid={`competitor-quick-${String(competitor.id)}`}>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[2fr_2fr_6rem]">
+        <div className="grid grid-cols-1 gap-1">
+          <Label htmlFor={`q-name-${String(competitor.id)}`} className="text-xs">Nome</Label>
+          <Input id={`q-name-${String(competitor.id)}`} value={name} maxLength={LIMITS.nameMax} autoFocus onChange={(e) => setName(e.target.value)} onKeyDown={onKeyDown} />
+        </div>
+        <div className="grid grid-cols-1 gap-1">
+          <Label htmlFor={`q-group-${String(competitor.id)}`} className="text-xs">Grupo / academia</Label>
+          <Input id={`q-group-${String(competitor.id)}`} value={group} maxLength={LIMITS.groupNameMax} onChange={(e) => setGroup(e.target.value)} onKeyDown={onKeyDown} />
+        </div>
+        {setup && (
+          <div className="grid grid-cols-1 gap-1">
+            <Label htmlFor={`q-seed-${String(competitor.id)}`} className="text-xs">Semente</Label>
+            <Input id={`q-seed-${String(competitor.id)}`} inputMode="numeric" value={seed} placeholder="Sem" onChange={(e) => setSeed(e.target.value)} onKeyDown={onKeyDown} />
+          </div>
+        )}
+      </div>
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onClose}>
+          <X /> Cancelar
+        </Button>
+        <Button type="button" size="sm" disabled={update.isPending} onClick={() => void save()}>
+          <Check /> {update.isPending ? "Salvando…" : "Salvar"}
+        </Button>
+      </div>
+    </li>
   );
 }
 
@@ -213,14 +355,14 @@ function ImportFromEventDialog({
               >
                 {selected.size === available.length && available.length > 0 ? "Limpar seleção" : "Selecionar todos"}
               </Button>
-              <span className="text-xs text-muted-foreground" aria-live="polite">{selected.size} selecionado(s)</span>
+              <span className="text-xs text-muted-foreground" aria-live="polite">{selected.size} de {available.length} {available.length === 1 ? "disponível" : "disponíveis"} selecionado(s)</span>
             </div>
             <ul className="max-h-72 divide-y overflow-y-auto rounded-md border" data-testid="import-list">
               {eligible.map((p) => {
                 const taken = alreadyIn.has(p.id);
                 const id = `import-p-${String(p.id)}`;
                 return (
-                  <li key={p.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                  <li key={p.id} className="flex min-h-12 items-center gap-3 px-3 py-2 text-sm">
                     <Checkbox
                       id={id}
                       checked={taken || selected.has(p.id)}
@@ -390,23 +532,23 @@ function CompetitorFormDialog({
             {editing ? "Corrija os dados do atleta." : "Atleta de outro grupo, sem cadastro de aluno."}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid gap-3">
-          <div className="grid gap-1.5">
+        <div className="grid grid-cols-1 gap-3">
+          <div className="grid grid-cols-1 gap-1.5">
             <Label htmlFor="comp-name">Nome</Label>
             <Input id="comp-name" value={name} maxLength={LIMITS.nameMax} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="grid gap-1.5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-1.5">
               <Label htmlFor="comp-group">Grupo / academia</Label>
               <Input id="comp-group" value={group} maxLength={LIMITS.groupNameMax} onChange={(e) => setGroup(e.target.value)} />
             </div>
-            <div className="grid gap-1.5">
+            <div className="grid grid-cols-1 gap-1.5">
               <Label htmlFor="comp-grad">Graduação</Label>
               <Input id="comp-grad" value={graduation} maxLength={LIMITS.graduationMax} onChange={(e) => setGraduation(e.target.value)} />
             </div>
           </div>
           {(editing === null || setup) && (
-            <div className="grid gap-1.5">
+            <div className="grid grid-cols-1 gap-1.5">
               <Label htmlFor="comp-seed">Semente (cabeça de chave, opcional)</Label>
               <Input id="comp-seed" inputMode="numeric" value={seed} onChange={(e) => setSeed(e.target.value)} placeholder="Sem semente" />
             </div>
@@ -416,7 +558,7 @@ function CompetitorFormDialog({
               Faixa etária: <strong>{AGE_GROUP_LABEL[editing.ageGroup]}</strong> (calculada pela data de nascimento do aluno).
             </p>
           ) : (
-            <fieldset className="grid gap-1.5">
+            <fieldset className="grid grid-cols-1 gap-1.5">
               <legend className="mb-1 text-sm font-medium">Maior ou menor de idade?</legend>
               <div className="flex flex-wrap gap-4 text-sm">
                 {AGE_OPTIONS.map((option) => (
@@ -429,7 +571,7 @@ function CompetitorFormDialog({
             </fieldset>
           )}
           {!linkedStudent && (
-            <div className="grid gap-1.5">
+            <div className="grid grid-cols-1 gap-1.5">
               <Label htmlFor="comp-photo">Foto (endereço https://, opcional)</Label>
               <Input id="comp-photo" inputMode="url" value={photoUrl} onChange={(e) => setPhotoUrl(e.target.value)} placeholder="https://…" />
             </div>

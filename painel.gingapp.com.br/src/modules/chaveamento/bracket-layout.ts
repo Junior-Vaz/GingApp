@@ -6,16 +6,17 @@ import type { OperatorMatch } from "./types";
  * próxima, no lado (A/B) certo. A disputa de 3º lugar fica separada, abaixo da última coluna.
  */
 
-export const ROW_H = 26;
-export const FOOT_H = 18;
-export const CARD_W = 212;
+export const ROW_H = 44; // alvo de toque de 44 px por atleta
+export const FOOT_H = 22;
+export const CARD_W = 248;
 export const CARD_H = ROW_H * 2 + FOOT_H;
-export const COL_GAP = 56;
-export const ROW_GAP = 16;
-export const PAD = 12;
-export const HEADER_H = 26;
+export const COL_GAP = 52;
+export const ROW_GAP = 14;
+export const PAD = 14;
+/** Respiro acima da 1ª linha (os nomes das rodadas ficam num cabeçalho fixo FORA do desenho). */
+export const HEADER_H = 12;
 /** Espaço entre o fim da chave e o cartão do 3º lugar (cabe o título "Disputa de 3º lugar"). */
-export const THIRD_GAP = 44;
+export const THIRD_GAP = 52;
 
 export interface PositionedMatch {
   match: OperatorMatch;
@@ -50,13 +51,19 @@ export interface BracketLayout {
   height: number;
 }
 
-/** "Final", "Semifinal", "Quartas de final", "Oitavas de final"… contados a partir da última rodada. */
+/**
+ * Nomes das rodadas em português, contados a partir da final (os mesmos do telão público): Final, Semifinais, Quartas
+ * de final, Oitavas de final, 16 avos de final, 32 avos de final. Em chaves muito grandes a 1ª rodada vira "1ª rodada".
+ */
 export function roundLabel(round: number, lastRound: number): string {
   const fromEnd = lastRound - round;
   if (fromEnd === 0) return "Final";
-  if (fromEnd === 1) return "Semifinal";
+  if (fromEnd === 1) return "Semifinais";
   if (fromEnd === 2) return "Quartas de final";
   if (fromEnd === 3) return "Oitavas de final";
+  if (fromEnd >= 5 && round === 1) return "1ª rodada";
+  if (fromEnd === 4) return "16 avos de final";
+  if (fromEnd === 5) return "32 avos de final";
   return `Rodada ${String(round)}`;
 }
 

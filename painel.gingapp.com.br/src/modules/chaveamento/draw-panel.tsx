@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useAnnounce } from "./announce-context";
 import { useGenerate } from "./api";
 import { chaveamentoErrorMessage } from "./errors";
-import { hasPlayedMatches } from "./helpers";
+import { competitorMap, hasPlayedMatches, sideName } from "./helpers";
 import { SEEDING_LABEL, type OperatorCategory, type Seeding } from "./types";
 
 const SEEDING_HINT: Record<Seeding, string> = {
@@ -15,7 +15,41 @@ const SEEDING_HINT: Record<Seeding, string> = {
 };
 
 /** Sorteio: modo + "Gerar chave" (SETUP) ou "Sortear de novo" com confirmação (já gerada e sem resultados). */
-export function DrawPanel({ eventId, category, canEdit }: { eventId: number; category: OperatorCategory; canEdit: boolean }) {
+/** Cruzamento ATUAL (o que será apagado ao sortear de novo): pares da 1ª rodada, ou os grupos, ou só a contagem. */
+function currentCrossing(category: OperatorCategory): string[] {
+  const names = competitorMap(category);
+  const name = (id: number | null) => sideName(names, id) ?? "A definir";
+  if (category.format === "SINGLE_ELIMINATION") {
+    const mains = category.matches.filter((m) => m.stage === "MAIN");
+    const first = mains.reduce((min, m) => Math.min(min, m.round), Number.POSITIVE_INFINITY);
+    return mains
+      .filter((m) => m.round === first)
+      .sort((a, b) => a.position - b.position)
+      .map((m) => (m.isBye ? `${name(m.slotAId)} (folga)` : `${name(m.slotAId)} x ${name(m.slotBId)}`));
+  }
+  if (category.format === "GROUPS_KNOCKOUT") {
+    const indexes = [...new Set(category.competitors.map((c) => c.poolIndex).filter((i): i is number => i !== null))].sort((a, b) => a - b);
+    return indexes.map(
+      (i) => `Grupo ${String.fromCharCode(65 + i)}: ${category.competitors.filter((c) => c.poolIndex === i).map((c) => c.displayName).join(", ")}`,
+    );
+  }
+  return [`Todos contra todos: ${String(category.competitors.length)} atletas, cada um enfrenta todos os outros.`];
+}
+
+const PREVIEW_MAX = 8;
+
+export function DrawPanel({
+  eventId,
+  category,
+  canEdit,
+  onDrawn,
+}: {
+  eventId: number;
+  category: OperatorCategory;
+  canEdit: boolean;
+  /** Chamado depois que o servidor devolveu a chave (a categoria toca a cerimônia do sorteio). */
+  onDrawn?: (() => void) | undefined;
+}) {
   const generate = useGenerate(eventId);
   const announce = useAnnounce();
   const [seeding, setSeeding] = useState<Seeding>("RANDOM");
@@ -25,6 +59,7 @@ export function DrawPanel({ eventId, category, canEdit }: { eventId: number; cat
   const played = hasPlayedMatches(category) || category.status === "FINISHED";
   const count = category.competitors.length;
   const modes: Seeding[] = ["RANDOM", "BY_SEED", "AVOID_SAME_GROUP"];
+  const crossing = generated ? currentCrossing(category) : [];
 
   if (!canEdit) return null;
 
@@ -33,6 +68,7 @@ export function DrawPanel({ eventId, category, canEdit }: { eventId: number; cat
     try {
       await generate.mutateAsync({ categoryId: category.id, seeding, ...(regenerate ? { regenerate: true } : {}) });
       announce(regenerate ? "Chave sorteada de novo." : "Chave gerada.");
+      onDrawn?.();
     } catch (e) {
       setError(chaveamentoErrorMessage(e));
     }
@@ -46,7 +82,7 @@ export function DrawPanel({ eventId, category, canEdit }: { eventId: number; cat
         : "";
 
   return (
-    <section aria-label="Sorteio" className="grid gap-3 rounded-lg border bg-card p-4" data-testid="draw-panel">
+    <section aria-label="Sorteio" className="grid grid-cols-1 gap-3 rounded-lg border bg-card p-4" data-testid="draw-panel">
       <h2 className="flex items-center gap-2 text-base font-bold">
         <Dices className="size-5" aria-hidden /> Sorteio
       </h2>
@@ -56,7 +92,7 @@ export function DrawPanel({ eventId, category, canEdit }: { eventId: number; cat
         </p>
       ) : (
         <>
-          <fieldset className="grid gap-2">
+          <fieldset className="grid grid-cols-1 gap-2">
             <legend className="mb-1 text-sm font-medium">Como sortear</legend>
             {modes.map((mode) => (
               <label key={mode} className="flex min-h-11 cursor-pointer items-start gap-3 rounded-md border p-3 text-sm has-[:checked]:border-primary has-[:checked]:bg-primary/5">
@@ -88,7 +124,18 @@ export function DrawPanel({ eventId, category, canEdit }: { eventId: number; cat
         open={confirm}
         onOpenChange={setConfirm}
         title="Sortear de novo?"
-        description="A chave atual será apagada e uma nova será sorteada com os mesmos atletas. Isso só é possível enquanto nenhuma luta tiver começado."
+        description={
+          <>
+            <span className="block">A chave atual será apagada e uma nova será sorteada com os mesmos atletas. Isso só é possível enquanto nenhuma luta tiver começado.</span>
+            <span className="mt-3 block text-xs font-bold uppercase tracking-wider text-foreground">Sorteio atual (será substituído)</span>
+            <span className="mt-1 grid grid-cols-1 gap-1 text-sm text-foreground" data-testid="draw-preview">
+              {crossing.slice(0, PREVIEW_MAX).map((line) => (
+                <span key={line} className="rounded-md bg-muted px-2 py-1">{line}</span>
+              ))}
+              {crossing.length > PREVIEW_MAX && <span className="text-xs text-muted-foreground">e mais {crossing.length - PREVIEW_MAX}…</span>}
+            </span>
+          </>
+        }
         confirmLabel="Sortear de novo"
         onConfirm={() => run(true)}
       />

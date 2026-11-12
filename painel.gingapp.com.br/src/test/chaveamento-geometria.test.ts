@@ -75,8 +75,10 @@ describe("chaveamento: geometria da chave (SVG)", () => {
 
   it("rodadas: uma coluna por rodada, com os nomes certos", () => {
     const layout = layoutBracket(buildBracket(16));
-    expect(layout.columns.map((c) => c.label)).toEqual(["Oitavas de final", "Quartas de final", "Semifinal", "Final"]);
-    expect(roundLabel(1, 6)).toBe("Rodada 1");
+    expect(layout.columns.map((c) => c.label)).toEqual(["Oitavas de final", "Quartas de final", "Semifinais", "Final"]);
+    expect(roundLabel(1, 6)).toBe("1ª rodada");
+    expect(roundLabel(2, 8)).toBe("Rodada 2");
+    expect(roundLabel(1, 5)).toBe("16 avos de final");
     expect(new Set(layout.columns.map((c) => c.x)).size).toBe(layout.columns.length);
   });
 

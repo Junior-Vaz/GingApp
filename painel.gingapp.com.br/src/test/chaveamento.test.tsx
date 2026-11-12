@@ -131,7 +131,7 @@ describe("chaveamento: telão público", () => {
     expect((input as HTMLInputElement).value).toMatch(/\/ao-vivo\/tok_abcdefghijklmnopqrstuvwx$/);
     expect(screen.getByTestId("tournament-privacy")).toHaveTextContent(/nomes.*fotos.*autorização/);
     expect(await screen.findByAltText("QR Code do telão")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Modo telão/ })).toHaveAttribute("href", expect.stringContaining("?tv=1"));
+    expect(screen.getByRole("link", { name: /Abrir em modo TV/ })).toHaveAttribute("href", expect.stringContaining("?tv=1"));
     expect(screen.getByRole("link", { name: /Abrir telão/ })).toHaveAttribute("rel", "noopener noreferrer");
   });
 

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { queryOptions, useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { ApiError, api } from "@/lib/api";
 import { chaveamentoErrorMessage } from "./errors";
@@ -47,15 +47,35 @@ export function useTournament(eventId: number) {
   });
 }
 
-/** Categoria completa (visão do operador), com consulta a cada 5 s enquanto a aba está aberta. */
-export function useCategory(eventId: number, categoryId: number | null) {
-  return useQuery({
+/** Consulta da categoria completa (visão do operador): a MESMA chave serve à aba aberta e à mesa de controle. */
+const categoryQuery = (eventId: number, categoryId: number | null) =>
+  queryOptions({
     queryKey: chaveamentoKeys.category(eventId, categoryId ?? 0),
     queryFn: () => api.get<OperatorCategory>(`${tournamentPath(eventId)}/categories/${String(categoryId)}`),
     enabled: categoryId !== null,
     refetchInterval: CATEGORY_REFETCH_MS,
     refetchIntervalInBackground: false,
     retry: false,
+  });
+
+/** Categoria completa (visão do operador), com consulta a cada 5 s enquanto a aba está aberta. */
+export function useCategory(eventId: number, categoryId: number | null) {
+  return useQuery(categoryQuery(eventId, categoryId));
+}
+
+/**
+ * Categorias EM ANDAMENTO do torneio, para a mesa de controle (lutas ao vivo e próximas de todas as categorias).
+ * Reaproveita as mesmas consultas (e o mesmo cache) das abas: abrir a categoria não duplica a chamada.
+ */
+export function useDeskCategories(eventId: number, runningIds: readonly number[]) {
+  return useQueries({
+    queries: runningIds.map((id) => categoryQuery(eventId, id)),
+    combine: (results) => ({
+      categories: results.map((r) => r.data).filter((c): c is OperatorCategory => c !== undefined),
+      loading: results.some((r) => r.isLoading),
+      failed: results.filter((r) => r.isError).length,
+      refetch: () => results.forEach((r) => void r.refetch()),
+    }),
   });
 }
 

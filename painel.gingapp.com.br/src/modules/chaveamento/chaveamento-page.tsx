@@ -1,6 +1,6 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Plus, Trophy } from "lucide-react";
+import { ArrowLeft, CheckCircle2, CircleDot, Layers, Plus, Trophy } from "lucide-react";
 import { PageHeader } from "@/components/painel/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,13 @@ import { AnnouncerProvider } from "./announcer";
 import { useCreateTournament, useTournament } from "./api";
 import { CategoryDialog } from "./category-dialog";
 import { CategoryView } from "./category-view";
+import { ControlDesk } from "./control-desk";
+import { QuickUndoProvider, UndoBar } from "./quick-undo";
+import { SETUP_STEPS } from "./setup-steps";
+import { StepsGuide } from "./steps-guide";
 import { TournamentCard } from "./tournament-card";
 import { CATEGORY_STATUS_LABEL, LIMITS, type TournamentSummary } from "./types";
+import "./chaveamento.css";
 
 interface ChaveamentoPageProps {
   eventId: number;
@@ -22,7 +27,7 @@ interface ChaveamentoPageProps {
   onBack?: () => void;
 }
 
-/** Chaveamento do campeonato (operador): telão, categorias, atletas, sorteio e chave ao vivo. */
+/** Chaveamento do campeonato (operador): mesa de controle, telão, categorias, atletas, sorteio e chave ao vivo. */
 export function ChaveamentoPage({ eventId, onBack }: ChaveamentoPageProps) {
   const canEdit = useCan("events", "edit");
   const tournament = useTournament(eventId);
@@ -36,60 +41,78 @@ export function ChaveamentoPage({ eventId, onBack }: ChaveamentoPageProps) {
   });
   const title = event.data?.title;
 
+  // Marca a página (CSS): no celular os botões flutuantes globais saem da frente dos botões do placar.
+  useEffect(() => {
+    document.body.dataset["chaveamento"] = "1";
+    return () => {
+      delete document.body.dataset["chaveamento"];
+    };
+  }, []);
+
   return (
     <AnnouncerProvider>
-      <PageHeader
-        title="Chaveamento"
-        description={title ? `Campeonato: ${title}` : "Chave ao vivo do campeonato."}
-        actions={
-          onBack ? (
-            <Button variant="outline" onClick={onBack}>
-              <ArrowLeft /> Eventos
+      <QuickUndoProvider>
+        <PageHeader
+          title="Chaveamento"
+          description={title ? `Campeonato: ${title}` : "Chave ao vivo do campeonato."}
+          actions={
+            onBack ? (
+              <Button variant="outline" onClick={onBack}>
+                <ArrowLeft /> Eventos
+              </Button>
+            ) : undefined
+          }
+        />
+        {tournament.isLoading ? (
+          <div className="grid grid-cols-1 gap-4" data-testid="chaveamento-loading" aria-busy="true">
+            <Skeleton className="h-56 w-full rounded-2xl" />
+            <Skeleton className="h-40 w-full rounded-2xl" />
+            <Skeleton className="h-72 w-full rounded-2xl" />
+          </div>
+        ) : tournament.error ? (
+          <div className="grid grid-cols-1 justify-items-center gap-3 rounded-lg border p-8 text-center" data-testid="chaveamento-error">
+            <p role="alert" className="text-sm text-destructive">
+              {errorMessage(tournament.error, "Não foi possível carregar o chaveamento.")}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => void tournament.refetch()}>
+              Tentar de novo
             </Button>
-          ) : undefined
-        }
-      />
-      {tournament.isLoading ? (
-        <div className="grid gap-4" data-testid="chaveamento-loading">
-          <Skeleton className="h-40 w-full" />
-          <Skeleton className="h-64 w-full" />
-        </div>
-      ) : tournament.error ? (
-        <div className="grid justify-items-center gap-3 rounded-lg border p-8 text-center" data-testid="chaveamento-error">
-          <p role="alert" className="text-sm text-destructive">
-            {errorMessage(tournament.error, "Não foi possível carregar o chaveamento.")}
-          </p>
-          <Button variant="outline" size="sm" onClick={() => void tournament.refetch()}>
-            Tentar de novo
-          </Button>
-        </div>
-      ) : tournament.data === null || tournament.data === undefined ? (
-        <div className="grid justify-items-center gap-3 rounded-lg border border-dashed p-10 text-center" data-testid="chaveamento-empty">
-          <Trophy className="size-8 text-muted-foreground" aria-hidden />
-          <p className="font-semibold">Este evento ainda não tem chaveamento.</p>
-          <p className="max-w-md text-sm text-muted-foreground">
-            Crie o chaveamento para montar categorias, sortear as lutas e acompanhar a chave ao vivo.
-          </p>
-          {canEdit ? (
-            <Button disabled={create.isPending} onClick={() => create.mutate()}>
-              {create.isPending ? "Criando…" : "Criar chaveamento"}
-            </Button>
-          ) : (
-            <p className="text-sm text-muted-foreground">Peça a um professor ou ao mestre para criar o chaveamento.</p>
-          )}
-        </div>
-      ) : (
-        <TournamentBody eventId={eventId} tournament={tournament.data} canEdit={canEdit} />
-      )}
+          </div>
+        ) : tournament.data === null || tournament.data === undefined ? (
+          <div className="grid grid-cols-1 justify-items-center gap-5 rounded-2xl border border-dashed p-6 text-center sm:p-10" data-testid="chaveamento-empty">
+            <Trophy className="chv-breathe size-10 text-primary" aria-hidden />
+            <div className="grid grid-cols-1 gap-1">
+              <p className="text-lg font-extrabold">Este evento ainda não tem chaveamento.</p>
+              <p className="mx-auto max-w-md text-sm text-muted-foreground">
+                Crie o chaveamento para montar categorias, sortear as lutas e acompanhar a chave ao vivo.
+              </p>
+            </div>
+            <StepsGuide steps={SETUP_STEPS} current={-1} className="w-full max-w-2xl text-left" />
+            {canEdit ? (
+              <Button size="lg" className="h-12" disabled={create.isPending} onClick={() => create.mutate()}>
+                {create.isPending ? "Criando…" : "Criar chaveamento"}
+              </Button>
+            ) : (
+              <p className="text-sm text-muted-foreground">Peça a um professor ou ao mestre para criar o chaveamento.</p>
+            )}
+          </div>
+        ) : (
+          <TournamentBody eventId={eventId} tournament={tournament.data} canEdit={canEdit} />
+        )}
+        <UndoBar eventId={eventId} />
+      </QuickUndoProvider>
     </AnnouncerProvider>
   );
 }
+
+const STATUS_ICON = { SETUP: Layers, RUNNING: CircleDot, FINISHED: CheckCircle2 } as const;
 
 function TournamentBody({ eventId, tournament, canEdit }: { eventId: number; tournament: TournamentSummary; canEdit: boolean }) {
   const [selected, setSelected] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const categories = tournament.categories;
   const current = categories.find((c) => c.id === selected) ?? categories[0] ?? null;
+  const runningIds = categories.filter((c) => c.status === "RUNNING").map((c) => c.id);
 
   function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     const step = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
@@ -102,12 +125,14 @@ function TournamentBody({ eventId, tournament, canEdit }: { eventId: number; tou
   }
 
   return (
-    <div className="grid gap-5">
+    <div className="grid grid-cols-1 min-w-0 gap-5 [&>*]:min-w-0">
+      {runningIds.length > 0 && <ControlDesk eventId={eventId} runningIds={runningIds} canEdit={canEdit} />}
+
       <TournamentCard eventId={eventId} tournament={tournament} canEdit={canEdit} />
 
-      <section aria-label="Categorias" className="grid gap-3">
+      <section aria-label="Categorias" className="grid grid-cols-1 gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-base font-bold">
+          <h2 className="text-base font-extrabold">
             Categorias <span className="font-normal text-muted-foreground">({categories.length} de {LIMITS.maxCategories})</span>
           </h2>
           {canEdit && (
@@ -118,14 +143,19 @@ function TournamentBody({ eventId, tournament, canEdit }: { eventId: number; tou
         </div>
 
         {categories.length === 0 ? (
-          <p className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground" data-testid="categories-empty">
-            Nenhuma categoria ainda. {canEdit ? "Crie a primeira (ex.: Adulto masculino até 70 kg)." : ""}
-          </p>
+          <div className="grid grid-cols-1 gap-4 rounded-2xl border border-dashed p-5 text-center" data-testid="categories-empty">
+            <div className="grid grid-cols-1 gap-1">
+              <p className="font-extrabold">Nenhuma categoria ainda.</p>
+              <p className="text-sm text-muted-foreground">{canEdit ? "Crie a primeira (ex.: Adulto masculino até 70 kg)." : "Quem tiver permissão cria as categorias."}</p>
+            </div>
+            <StepsGuide steps={SETUP_STEPS} current={0} className="text-left" />
+          </div>
         ) : (
           <>
-            <div role="tablist" aria-label="Categorias do campeonato" className="flex gap-1 overflow-x-auto rounded-lg bg-muted p-1">
+            <div role="tablist" aria-label="Categorias do campeonato" className="flex gap-1 overflow-x-auto rounded-xl bg-muted p-1">
               {categories.map((c, index) => {
                 const active = current?.id === c.id;
+                const Icon = STATUS_ICON[c.status];
                 return (
                   <button
                     key={c.id}
@@ -138,12 +168,13 @@ function TournamentBody({ eventId, tournament, canEdit }: { eventId: number; tou
                     onClick={() => setSelected(c.id)}
                     onKeyDown={(e) => onTabKeyDown(e, index)}
                     className={cn(
-                      "flex min-h-11 shrink-0 flex-col items-start justify-center rounded-md px-3 py-1 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      active ? "bg-background text-foreground shadow" : "text-muted-foreground",
+                      "flex min-h-12 shrink-0 flex-col items-start justify-center rounded-lg px-3 py-1 text-left text-sm font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      active ? "bg-background text-foreground shadow" : "text-muted-foreground hover:text-foreground",
                     )}
                   >
                     <span className="max-w-48 truncate">{c.name}</span>
                     <span className="flex items-center gap-1 text-[11px] font-normal">
+                      <Icon className="size-3" aria-hidden />
                       {CATEGORY_STATUS_LABEL[c.status]} · {c.competitorsCount} atl.
                       {c.liveMatchesCount > 0 && <Badge variant="destructive" className="px-1.5 py-0 text-[10px]">{c.liveMatchesCount} ao vivo</Badge>}
                     </span>

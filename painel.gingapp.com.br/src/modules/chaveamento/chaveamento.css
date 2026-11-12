@@ -1,0 +1,78 @@
+/*
+ * Microinterações do chaveamento (painel do operador). Regras:
+ *  - só `transform` e `opacity` (nada de layout/sombra animada: o celular do ginásio é fraco);
+ *  - microinterações <= 0,3 s; os loops lentos (halo do AO VIVO, "respirar") são discretos;
+ *  - TUDO desligado com `prefers-reduced-motion: reduce` (sobra só o estado final/estático).
+ */
+
+@keyframes chv-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chv-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes chv-pop {
+  0% { opacity: 0; transform: scale(0.94); }
+  100% { opacity: 1; transform: none; }
+}
+/* halo do AO VIVO: um anel que "respira" (opacity + scale), nunca box-shadow animado */
+@keyframes chv-halo {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.95; transform: scale(1.022); }
+}
+@keyframes chv-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+/* pulso de "resultado salvo": camada verde que acende e some */
+@keyframes chv-flash {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+@keyframes chv-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+/* sorteio: cada avatar vai de um canto a outro e volta (translate + rotate), em ritmos diferentes */
+@keyframes chv-shuffle {
+  0% { transform: translate(0, 0) rotate(0deg); }
+  25% { transform: translate(var(--dx, 24px), var(--dy, -18px)) rotate(8deg); }
+  50% { transform: translate(calc(var(--dx, 24px) * -1), var(--dy, -18px)) rotate(-6deg); }
+  75% { transform: translate(var(--dx, 24px), calc(var(--dy, -18px) * -1)) rotate(5deg); }
+  100% { transform: translate(0, 0) rotate(0deg); }
+}
+@keyframes chv-breathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+
+.chv-in { animation: chv-in 0.28s ease-out backwards; animation-delay: calc(var(--i, 0) * 35ms); }
+.chv-rise { animation: chv-rise 0.28s ease-out backwards; }
+.chv-pop { animation: chv-pop 0.22s ease-out backwards; animation-delay: calc(var(--i, 0) * 30ms); }
+.chv-halo { animation: chv-halo 1.8s ease-in-out infinite; }
+.chv-dot { animation: chv-dot 1.2s ease-in-out infinite; }
+.chv-flash { animation: chv-flash 0.9s ease-out both; }
+.chv-countdown { animation-name: chv-countdown; animation-timing-function: linear; animation-fill-mode: both; }
+.chv-shuffle { animation: chv-shuffle 0.7s ease-in-out infinite; animation-delay: calc(var(--i, 0) * -90ms); }
+.chv-breathe { animation: chv-breathe 3.2s ease-in-out infinite; }
+
+/* Rolagem suave por rodada na chave (celular): cada coluna "encaixa" ao parar. */
+.chv-scroller { scroll-snap-type: x proximity; scroll-behavior: smooth; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+.chv-snap { scroll-snap-align: start; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chv-in, .chv-rise, .chv-pop, .chv-halo, .chv-dot, .chv-flash, .chv-countdown, .chv-shuffle, .chv-breathe {
+    animation: none !important;
+  }
+  /* sem animação o halo e a contagem ficam estáticos (informação preservada) */
+  .chv-halo { opacity: 0.8; }
+  .chv-flash { opacity: 0; }
+  .chv-scroller { scroll-behavior: auto; }
+}
+
+/* Celular: os botões flutuantes globais (chamada rápida e aviso) cobririam o "+" do placar e o botão de vencedor. Só nesta página. */
+@media (max-width: 767px) {
+  body[data-chaveamento] [data-testid="floating-actions"] { display: none; }
+}

@@ -10,11 +10,16 @@ import { useCategory, useDeleteCategory, useSwapSlots } from "./api";
 import { BracketView } from "./bracket-view";
 import { CategoryDialog } from "./category-dialog";
 import { CompetitorsPanel } from "./competitors-panel";
+import { DrawCeremony } from "./draw-ceremony";
 import { DrawPanel } from "./draw-panel";
 import { GroupStageView, PodiumView } from "./group-stage-view";
 import { canSwapSlots, competitorMap, firstMainRound, sideName } from "./helpers";
 import { MatchDialog } from "./match-dialog";
+import { SETUP_STEPS } from "./setup-steps";
+import { StepsGuide } from "./steps-guide";
+import { prefersReducedMotion } from "./use-reduced-motion";
 import { CATEGORY_STATUS_LABEL, FORMAT_LABEL, type OperatorCategory, type OperatorMatch, type Slot } from "./types";
+import "./chaveamento.css";
 
 interface CategoryViewProps {
   eventId: number;
@@ -27,10 +32,20 @@ interface CategoryViewProps {
 /** Uma categoria aberta: sorteio e atletas (montagem) ou chave/classificação ao vivo (andamento). */
 export function CategoryView({ eventId, categoryId, canEdit, onDeleted }: CategoryViewProps) {
   const query = useCategory(eventId, categoryId);
-  if (query.isLoading) return <Skeleton className="h-64 w-full" data-testid="category-loading" />;
+  if (query.isLoading) {
+    return (
+      <div className="grid grid-cols-1 gap-4" data-testid="category-loading" aria-busy="true">
+        <div className="grid grid-cols-1 gap-2">
+          <Skeleton className="h-7 w-2/3" />
+          <Skeleton className="h-4 w-1/3" />
+        </div>
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+    );
+  }
   if (query.error || !query.data) {
     return (
-      <div className="grid justify-items-center gap-3 rounded-lg border p-8 text-center" data-testid="category-error">
+      <div className="grid grid-cols-1 justify-items-center gap-3 rounded-lg border p-8 text-center" data-testid="category-error">
         <p role="alert" className="text-sm text-destructive">
           {errorMessage(query.error, "Não foi possível carregar a categoria.")}
         </p>
@@ -62,6 +77,8 @@ function CategoryBody({
   const [deleting, setDeleting] = useState(false);
   const [swapMode, setSwapMode] = useState(false);
   const [picked, setPicked] = useState<{ matchId: number; slot: Slot } | null>(null);
+  const [pathId, setPathId] = useState<number | null>(null);
+  const [ceremony, setCeremony] = useState(false);
   const competitors = competitorMap(category);
   const generated = category.matches.length > 0;
   const swappable = canEdit && canSwapSlots(category);
@@ -69,6 +86,7 @@ function CategoryBody({
   const hasMain = category.matches.some((m) => m.stage === "MAIN");
   const hasGroups = category.matches.some((m) => m.stage === "GROUP");
   const closeMatch = useCallback(() => setMatchId(null), []);
+  const endCeremony = useCallback(() => setCeremony(false), []);
 
   // Se alguém começar uma luta enquanto a troca está ligada, a troca deixa de valer (SWAP_NOT_ALLOWED).
   useEffect(() => {
@@ -77,6 +95,11 @@ function CategoryBody({
       setPicked(null);
     }
   }, [swappable]);
+
+  // O atleta destacado pode sumir (chave sorteada de novo): limpa o realce.
+  useEffect(() => {
+    if (pathId !== null && !competitors.has(pathId)) setPathId(null);
+  }, [pathId, competitors]);
 
   function onSelectMatch(match: OperatorMatch) {
     setMatchId(match.id);
@@ -127,11 +150,16 @@ function CategoryBody({
       ? `${String(category.groupCount ?? 0)} grupos, ${String(category.advancePerGroup ?? 0)} classificado(s) por grupo`
       : null;
 
+  // Cerimônia do sorteio: curta, pulável e NUNCA com movimento reduzido.
+  const onDrawn = useCallback(() => {
+    if (!prefersReducedMotion()) setCeremony(true);
+  }, []);
+
   return (
-    <div className="grid gap-5" data-testid="category-body">
+    <div className="chv-in grid grid-cols-1 min-w-0 gap-5 [&>*]:min-w-0" data-testid="category-body">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="truncate text-lg font-extrabold">{category.name}</h2>
+          <h2 className="truncate text-xl font-extrabold">{category.name}</h2>
           <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <span>{FORMAT_LABEL[category.format]}</span>
             {config && <span>· {config}</span>}
@@ -161,18 +189,17 @@ function CategoryBody({
 
       {!generated ? (
         <>
+          {category.competitors.length > 0 && <StepsGuide steps={SETUP_STEPS} current={category.competitors.length >= 2 ? 1 : 0} />}
           <CompetitorsPanel eventId={eventId} category={category} canEdit={canEdit} />
-          <DrawPanel eventId={eventId} category={category} canEdit={canEdit} />
+          <DrawPanel eventId={eventId} category={category} canEdit={canEdit} onDrawn={onDrawn} />
         </>
       ) : (
         <>
-          {hasGroups && (
-            <GroupStageView category={category} competitors={competitors} onSelectMatch={onSelectMatch} />
-          )}
+          {hasGroups && <GroupStageView category={category} competitors={competitors} onSelectMatch={onSelectMatch} />}
           {hasMain && (
-            <section aria-label="Chave" className="grid gap-2">
+            <section aria-label="Chave" className="grid grid-cols-1 gap-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <h3 className="text-base font-bold">{category.format === "GROUPS_KNOCKOUT" ? "Mata-mata" : "Chave"}</h3>
+                <h3 className="text-base font-extrabold">{category.format === "GROUPS_KNOCKOUT" ? "Mata-mata" : "Chave"}</h3>
                 {swappable && (
                   <Button
                     variant={swapMode ? "default" : "outline"}
@@ -199,20 +226,24 @@ function CategoryBody({
                 competitors={competitors}
                 onSelectMatch={onSelectMatch}
                 swap={{ active: swapMode, picked, firstRound, onPick: (id, slot) => void onPick(id, slot) }}
+                pathId={pathId}
+                onPathChange={setPathId}
               />
             </section>
           )}
-          <details className="rounded-lg border bg-card p-3">
-            <summary className="cursor-pointer text-sm font-semibold">Atletas ({category.competitors.length})</summary>
+          <details className="rounded-xl border bg-card p-3">
+            <summary className="min-h-11 cursor-pointer py-2 text-sm font-semibold">Atletas ({category.competitors.length})</summary>
             <div className="mt-3">
               <CompetitorsPanel eventId={eventId} category={category} canEdit={canEdit} />
             </div>
           </details>
-          <DrawPanel eventId={eventId} category={category} canEdit={canEdit} />
+          <DrawPanel eventId={eventId} category={category} canEdit={canEdit} onDrawn={onDrawn} />
         </>
       )}
 
-      <MatchDialog eventId={eventId} category={category} matchId={matchId} canEdit={canEdit} onClose={closeMatch} />
+      {ceremony && <DrawCeremony athletes={category.competitors} onDone={endCeremony} />}
+
+      <MatchDialog eventId={eventId} category={category} matchId={matchId} canEdit={canEdit} onClose={closeMatch} onShowPath={setPathId} />
       <CategoryDialog eventId={eventId} editing={editing ? category : null} onClose={() => setEditing(false)} />
       <ConfirmDialog
         open={deleting}

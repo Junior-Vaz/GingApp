@@ -1,0 +1,25 @@
+# DESIGN — Painel do operador do chaveamento (refino visual e de operação, fase 2 do refino)
+
+Estado: pedido do dono em 2026-11-11 ("ja ta otimo! continue", depois do telão): levar a mesma linguagem visual do telão ao PAINEL do operador. Só `painel.gingapp.com.br`. Backend, contrato de dados e telão NÃO mudam. O painel mantém seu tema (claro/escuro do shadcn do painel) — a identidade compartilhada vem de: cartão de atleta com avatar e anel na cor do grupo, nomes de rodada em português, selo AO VIVO, status em texto + cor, mesma hierarquia tipográfica de placar (numerais tabulares; fonte condensada SÓ se o painel já a carregar; não adicionar fonte nova sem necessidade).
+
+## 1. Princípio
+O operador está de pé num ginásio, com o celular numa mão, pressionado, às vezes com sol na tela. A tela precisa responder à pergunta "qual a próxima luta e quem ganhou?" em UM toque, com alvos grandes e sem diálogos de confirmação que atrasem — trocando confirmação por **desfazer rápido**.
+
+## 2. O que melhorar (ordem de valor)
+1. **Mesa de controle (topo do torneio):** painel fixo "AO VIVO agora" + "PRÓXIMAS" (todas as categorias, ordenadas por `queueOrder`/tatame), com um botão grande "Iniciar luta" na próxima. Cartão da luta em andamento com os dois atletas (avatar, nome, grupo, graduação), placar com botões +/− grandes, botões gigantes "VENCEU: A" / "VENCEU: B", W.O./desclassificação num menu secundário. Filtro por **tatame**. Atalhos de teclado no desktop (A / B / U para desfazer).
+2. **Desfazer rápido:** registrar o vencedor aplica na hora e mostra uma barra "Resultado registrado · DESFAZER" por ~10 s (substitui a confirmação ao desfazer logo depois do erro); desfazer depois desse tempo continua pedindo confirmação. Erros do backend em linguagem clara (mapa de erros existente).
+3. **Chave visual no padrão do telão:** cartões de atleta (avatar com anel do grupo, nome, grupo/graduação, placar), nomes de rodada em português, selo AO VIVO + halo na luta em andamento, conectores limpos, 3º lugar separado; no celular, rolagem/zoom suaves e cabeçalhos de rodada fixos; **destacar o caminho** de um atleta ao tocar nele (realça as lutas dele); toque na luta abre a ação rápida (bottom sheet) já posicionada nos botões de vencedor.
+4. **Cadastro de atletas mais rápido:** lista em cartões/tabela enxuta com avatar, busca/filtro, edição em linha de nome/grupo/semente, selos claros de **foto no telão: sim/não** e **autorização do responsável**, importação em lote do evento com seleção múltipla ("selecionar todos"), contador "N atletas · M com semente".
+5. **Sorteio com cerimônia:** ao gerar/sortear, animação curta de "embaralhar e revelar" a chave (≤ 2 s, pulável) e pré-visualização do cruzamento antes de confirmar quando já houver sorteio; com `prefers-reduced-motion`, sem animação.
+6. **Cartão do telão:** link, QR, ligar/desligar e "novo link" mais claros; botões "Abrir telão" e "Abrir em modo TV (?tv=1)"; se o embed por iframe for permitido pelos cabeçalhos do app, uma **pré-visualização** reduzida do telão (senão, omitir e explicar). Indicador "N pessoas assistindo" NÃO existe (não inventar).
+7. **Acabamento:** estados vazios com orientação ("Adicione atletas → sorteie a chave → inicie as lutas" como passos), skeletons, microinterações (entrada dos cartões, pulso de confirmação ao salvar resultado, transição entre categorias), ícones consistentes (lucide já usado), modo escuro do painel conferido, `aria-live` para resultados, foco visível.
+
+## 3. Restrições
+- Só `painel.gingapp.com.br`; sem backend/app/admin; sem mudar o contrato da API (`docs/CONTRATO_CHAVEAMENTO.md`) nem os tipos reais (conformidade com `real-contract-chaveamento.ts` continua verde).
+- Dependência nova: evitar. Se imprescindível: versão exata, publicada há >14 dias, só no chunk da rota; informar tamanho.
+- Animações só `transform`/`opacity`, ≤ ~0,3 s nas microinterações, desligadas com `prefers-reduced-motion`.
+- Alvos de toque ≥ 44 px no celular; contraste AA; status nunca só por cor.
+- Manter TODOS os testes atuais verdes (ajustar markup sem enfraquecer) e adicionar testes dos novos comportamentos: mesa de controle (próxima luta, filtro por tatame, iniciar), desfazer rápido (janela de ~10 s com fake timers e depois confirmação), atalhos de teclado, destaque do caminho do atleta, selos de foto/autorização, sorteio sem animação com reduced-motion, estados vazios.
+
+## 4. Entrega visual (obrigatória)
+Rodar o painel no navegador (dev server + mock local FORA do repositório em `D:\tmp\painel-mock\`: login simulado, `/events`, `/students` mínimos e os endpoints de torneio em memória, com respostas no formato REAL de `D:\tmp\chaveamento-capture`, simulando a progressão), capturar em `D:\tmp\painel-shots\` (390×844 celular e 1440×900 desktop; claro e escuro quando fizer diferença) e iterar com autocrítica rigorosa em pelo menos 2 rodadas: mesa de controle, luta em andamento com botões de vencedor, barra de desfazer, chave com destaque de caminho, lista de atletas, sorteio (meio da animação), cartão do telão, estados vazios.

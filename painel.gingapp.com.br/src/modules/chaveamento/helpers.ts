@@ -111,3 +111,33 @@ export function parseOptionalInt(text: string, min: number, max: number): number
   const n = Number(value);
   return n >= min && n <= max ? n : undefined;
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Refino do painel (mesa de controle, chave, atletas)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** "Grupo · Graduação" do atleta (partes vazias somem). */
+export function competitorMeta(c: Pick<OperatorCompetitor, "groupName" | "graduationLabel"> | null | undefined): string {
+  return [c?.groupName, c?.graduationLabel].filter((part): part is string => Boolean(part)).join(" · ");
+}
+
+/**
+ * Lutas do caminho de um atleta: todas em que ele ocupa um lugar (da 1ª rodada até onde chegou, inclusive a de 3º lugar).
+ * Serve para realçar o caminho ao tocar no atleta.
+ */
+export function pathMatchIds(matches: readonly OperatorMatch[], competitorId: number | null): Set<number> {
+  const ids = new Set<number>();
+  if (competitorId === null) return ids;
+  for (const m of matches) if (m.slotAId === competitorId || m.slotBId === competitorId) ids.add(m.id);
+  return ids;
+}
+
+/** Atletas com semente, para o contador "N atletas · M com semente". */
+export const seededCount = (competitors: readonly Pick<OperatorCompetitor, "seed">[]): number =>
+  competitors.filter((c) => c.seed !== null).length;
+
+/** Selo de autorização do responsável: só faz sentido para quem não é adulto. */
+export function authorizationText(c: Pick<OperatorCompetitor, "ageGroup" | "photoAuthorized">): string {
+  if (!needsPhotoAuthorization(c)) return "Autorização do responsável: não se aplica";
+  return `Autorização do responsável: ${c.photoAuthorized ? "sim" : "não"}`;
+}
